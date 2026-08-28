@@ -455,6 +455,67 @@ describe("VibeKanbanServerClient", () => {
     });
   });
 
+  it("can upsert and update workflow callback registry state", async () => {
+    const fetchImpl = vi.fn(async (url: string, init?: RequestInit) => {
+      const body = JSON.parse(String(init?.body));
+      if (url === "http://vk.local/api/activity/v1/workflow-callbacks") {
+        expect(init?.method).toBe("POST");
+        expect(body).toEqual({
+          callback_key: "workflow-completion:run-1:session-1",
+          workspace_id: "ws1",
+          target_session_id: "session-1",
+          kind: "workflow_completion",
+          workflow_run_id: "run-1",
+          workflow_name: "Ask teammate",
+          workflow_design_id: "design-ask",
+          workflow_version: 1,
+        });
+        return jsonResponse({
+          success: true,
+          data: { callback_key: body.callback_key, status: "pending" },
+        });
+      }
+      expect(url).toBe(
+        "http://vk.local/api/activity/v1/workflow-callbacks/workflow-completion%3Arun-1%3Asession-1/status",
+      );
+      expect(init?.method).toBe("POST");
+      expect(body).toEqual({
+        status: "delivered",
+        delivered_ref: "vk:queue-callback",
+      });
+      return jsonResponse({
+        success: true,
+        data: {
+          callback_key: "workflow-completion:run-1:session-1",
+          status: "delivered",
+        },
+      });
+    });
+    const client = new VibeKanbanServerClient({
+      baseUrl: "http://vk.local/api",
+      fetch: fetchImpl,
+    });
+
+    await client.upsertWorkflowCallback({
+      callback_key: "workflow-completion:run-1:session-1",
+      workspace_id: "ws1",
+      target_session_id: "session-1",
+      kind: "workflow_completion",
+      workflow_run_id: "run-1",
+      workflow_name: "Ask teammate",
+      workflow_design_id: "design-ask",
+      workflow_version: 1,
+    });
+    await client.updateWorkflowCallbackStatus(
+      "workflow-completion:run-1:session-1",
+      {
+        status: "delivered",
+        delivered_ref: "vk:queue-callback",
+      },
+    );
+    expect(fetchImpl).toHaveBeenCalledTimes(2);
+  });
+
   it("upserts generic VK webhook subscriptions without leaking response secrets", async () => {
     const fetchImpl = vi.fn(async (url: string, init?: RequestInit) => {
       expect(url).toBe("http://vk.local/api/webhook-subscriptions");

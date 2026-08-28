@@ -27,6 +27,25 @@ export interface WorkflowCompletionResponseQueueClient {
       provenance?: { kind: 'workflow'; label: string; [key: string]: unknown };
     },
   ): Promise<{ queued_item?: { id?: string } }>;
+  upsertWorkflowCallback?(input: WorkflowCallbackRegistryUpsertInput): Promise<unknown>;
+  updateWorkflowCallbackStatus?(callbackKey: string, input: WorkflowCallbackRegistryStatusInput): Promise<unknown>;
+}
+
+export interface WorkflowCallbackRegistryUpsertInput {
+  callback_key: string;
+  workspace_id: string;
+  target_session_id: string;
+  kind: 'workflow_completion';
+  workflow_run_id: string;
+  workflow_name?: string | null;
+  workflow_design_id?: string | null;
+  workflow_version?: number | null;
+}
+
+export interface WorkflowCallbackRegistryStatusInput {
+  status: 'pending' | 'delivered' | 'failed' | 'superseded';
+  delivered_ref?: string | null;
+  error_message?: string | null;
 }
 
 export class VkWorkflowCompletionResponseProvider implements WorkflowCompletionResponseProvider {
@@ -40,20 +59,52 @@ export class VkWorkflowCompletionResponseProvider implements WorkflowCompletionR
 
   async deliver(input: WorkflowCompletionResponseInput): Promise<{ deliveredRef?: string; skippedReason?: string }> {
     if (!this.isEnabled()) return { skippedReason: 'completion_response_unavailable' };
-    const message = buildWorkflowCompletionResponseMessage(input);
-    const queued = await this.client.queueFollowUp(input.target.sessionId, message, {
-      source: 'workflow',
-      provenance: {
-        kind: 'workflow',
-        label: 'Workflow completion response',
-        workflow_run_id: input.run.runId,
-        workflow_name: input.run.coreModel.name,
-        workflow_design_id: input.run.designId,
-        workflow_version: input.run.designVersion,
-      },
+    const callbackKey = buildWorkflowCompletionCallbackKey(input);
+    await this.client.upsertWorkflowCallback?.({
+      callback_key: callbackKey,
+      workspace_id: input.run.workspaceId,
+      target_session_id: input.target.sessionId,
+      kind: 'workflow_completion',
+      workflow_run_id: input.run.runId,
+      workflow_name: input.run.coreModel.name,
+      workflow_design_id: input.run.designId,
+      workflow_version: input.run.designVersion,
     });
-    return { deliveredRef: queued.queued_item?.id ? `vk:${queued.queued_item.id}` : undefined };
+    const message = buildWorkflowCompletionResponseMessage(input);
+    try {
+      const queued = await this.client.queueFollowUp(input.target.sessionId, message, {
+        source: 'workflow',
+        provenance: {
+          kind: 'workflow',
+          label: 'Workflow completion response',
+          workflow_run_id: input.run.runId,
+          workflow_name: input.run.coreModel.name,
+          workflow_design_id: input.run.designId,
+          workflow_version: input.run.designVersion,
+        },
+      });
+      const deliveredRef = queued.queued_item?.id ? `vk:${queued.queued_item.id}` : undefined;
+      await this.client.updateWorkflowCallbackStatus?.(callbackKey, {
+        status: 'delivered',
+        delivered_ref: deliveredRef,
+      });
+      return { deliveredRef };
+    } catch (error) {
+      await this.client.updateWorkflowCallbackStatus?.(callbackKey, {
+        status: 'failed',
+        error_message: error instanceof Error ? error.message : String(error),
+      });
+      throw error;
+    }
   }
+}
+
+export function buildWorkflowCompletionCallbackKey(input: WorkflowCompletionResponseInput): string {
+  return [
+    'workflow-completion',
+    scrubIdentifier(input.run.runId, 120),
+    scrubIdentifier(input.target.sessionId, 120),
+  ].join(':');
 }
 
 export function getWorkflowCompletionResponseTarget(inputs: Record<string, unknown>): WorkflowCompletionResponseTarget | null {

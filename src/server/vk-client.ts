@@ -268,6 +268,23 @@ export interface QueueFollowUpResponse {
   status: QueueStatus;
 }
 
+export interface WorkflowCallbackRegistryUpsertRequest {
+  callback_key: string;
+  workspace_id: string;
+  target_session_id: string;
+  kind: "workflow_completion";
+  workflow_run_id: string;
+  workflow_name?: string | null;
+  workflow_design_id?: string | null;
+  workflow_version?: number | null;
+}
+
+export interface WorkflowCallbackRegistryStatusRequest {
+  status: "pending" | "delivered" | "failed" | "superseded";
+  delivered_ref?: string | null;
+  error_message?: string | null;
+}
+
 export interface QueuedMessage {
   id: string;
   session_id: string;
@@ -536,6 +553,20 @@ export class VibeKanbanServerClient {
 
   getActivitySnapshot(): Promise<ActivitySnapshot> {
     return this.get("/activity");
+  }
+
+  upsertWorkflowCallback(body: WorkflowCallbackRegistryUpsertRequest): Promise<unknown> {
+    return this.post("/activity/v1/workflow-callbacks", body);
+  }
+
+  updateWorkflowCallbackStatus(
+    callbackKey: string,
+    body: WorkflowCallbackRegistryStatusRequest,
+  ): Promise<unknown> {
+    return this.post(
+      `/activity/v1/workflow-callbacks/${encodeURIComponent(callbackKey)}/status`,
+      body,
+    );
   }
 
   async stopExecutionProcess(processId: string): Promise<void> {

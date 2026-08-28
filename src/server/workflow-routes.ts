@@ -125,6 +125,8 @@ export interface RegisterWorkflowRoutesOptions {
       | "getSession"
       | "createSession"
       | "queueFollowUp"
+      | "upsertWorkflowCallback"
+      | "updateWorkflowCallbackStatus"
     >
   >;
   vkWorkflowWebhookSecret?: string;
@@ -2880,6 +2882,11 @@ async function resolvePersistedWorkflowRuntime(
       new VkWorkflowCompletionResponseProvider({
         queueFollowUp: (sessionId, prompt, queueOptions) =>
           options.vkClient!.queueFollowUp!(sessionId, prompt, queueOptions),
+        upsertWorkflowCallback: (input) =>
+          options.vkClient!.upsertWorkflowCallback?.(input) ?? Promise.resolve(null),
+        updateWorkflowCallbackStatus: (callbackKey, input) =>
+          options.vkClient!.updateWorkflowCallbackStatus?.(callbackKey, input) ??
+          Promise.resolve(null),
       }),
     queue: {
       queueAgentTurn: async (request) => {
