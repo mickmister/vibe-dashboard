@@ -51,6 +51,40 @@ The tests should answer whether this stack is enough for the workflows we want:
 
 ---
 
+## Gas City v2 Concepts to Lean Into
+
+The implementation should bias toward Gas City primitives instead of recreating VD-specific orchestration tables.
+
+### Strongly prefer
+
+- **Beads as authoritative state:** feature status, workflow expansion links, role outputs, check results, and blocking relationships should be queryable from beads.
+- **Bead dependencies for ordering:** product feature dependencies should be native blocking edges, not a parallel scheduler graph stored elsewhere.
+- **Convoys as batch objects:** use convoys for execution waves/projects/releases, progress, owner/notify metadata, target branch, merge policy, and stranded-work diagnostics.
+- **Molecules for user-visible workflows:** prefer cooked formula molecules for dev/review/test flows where VD needs per-step visibility, routing, retries, and auditability.
+- **`gc formula cook --attach`:** treat formula attachment as the canonical way to expand a ready feature bead into its execution lifecycle.
+- **Orders for mechanical automation:** use GC orders or pack commands for small idempotent controller-side operations such as expanding ready convoy children.
+- **Pull routing:** route beads with `gc.run_target` / `gc.routed_to` and let agents discover ready work through normal work queries.
+- **Packs/city/rig boundaries:** keep reusable workflow behavior in pack assets, local deployment policy in city/rig config, and machine-local paths/state out of portable definitions.
+- **Mechanical checks:** model gates as scripts/control checks over bead metadata/artifacts rather than as trusted natural-language agent responses.
+
+### Use carefully
+
+- **Convoys:** they are excellent grouping/progress objects, but they are not sufficient by themselves to expand a feature graph into per-feature runs.
+- **Orders:** they should trigger small idempotent operations, not hide a full custom workflow engine in shell.
+- **Coordinator agents:** useful for judgment and summarization, but strict scheduling/gating should remain mechanical.
+- **Worktrees:** use as isolation for mutating code work; do not make filesystem layout the architecture.
+- **Team slots/lanes:** useful as capacity/routing policy, but should not become another authoritative task state machine.
+
+### Avoid
+
+- VD-owned workflow runtime state duplicating bead/formula state
+- giant roadmap formulas containing every feature in one molecule
+- formulas that hardcode concrete VK session UUIDs
+- directory-implied identity
+- opaque planner behavior that cannot explain why a bead is ready, blocked, assigned, or retried
+
+---
+
 ## Test Harness Design
 
 ### `TestGasCity`
@@ -645,4 +679,3 @@ Recommended initial tests:
 5. `dev reviewer tester happy path`
 
 After those pass, implement negative gate/retry cases.
-
