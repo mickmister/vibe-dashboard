@@ -156,7 +156,9 @@ add_branch_commit "$vk_work" "feature/sync" "vk-feature.txt" "vk feature"
 add_branch_commit "$vd_work" "feature/vd-only" "vd-only.txt" "vd only"
 git -C "$vd_work" tag v-main-release main
 git -C "$vd_work" tag v-feature-release feature/vd-only
-git -C "$vd_work" push --quiet origin v-main-release v-feature-release
+git -C "$vd_work" tag v1.2.3 main
+git -C "$vd_work" tag v1.2.3-rc.1 main
+git -C "$vd_work" push --quiet origin v-main-release v-feature-release v1.2.3 v1.2.3-rc.1
 
 vd_feature_sha="$(git -C "$vd_work" rev-parse feature/sync)"
 vd_only_sha="$(git -C "$vd_work" rev-parse feature/vd-only)"
@@ -253,6 +255,16 @@ assert_equals "$vk_main_sha" "$(read_output "$output" vk_commit)" "push fallback
 
 output="$(run_resolver_with_asset_probe \
   GITHUB_EVENT_NAME=push \
+  GITHUB_REF=refs/heads/main \
+  GITHUB_REF_NAME=main \
+  GITHUB_SHA="$vd_main_sha" \
+  ASSET_PRESENT_SHA="$vk_main_sha")"
+assert_equals "$vd_main_sha" "$(read_output "$output" vd_commit)" "ordinary main push resolves VD main commit"
+assert_equals "$vk_main_sha" "$(read_output "$output" vk_commit)" "ordinary main push resolves VK main commit"
+assert_equals "false" "$(read_output "$output" publish_latest)" "ordinary main push does not publish latest"
+
+output="$(run_resolver_with_asset_probe \
+  GITHUB_EVENT_NAME=push \
   GITHUB_REF=refs/heads/feature/vd-only \
   GITHUB_REF_NAME=feature/vd-only \
   GITHUB_SHA="$vd_only_sha" \
@@ -263,17 +275,35 @@ assert_equals "$vk_feature_sha" "$(read_output "$output" vk_commit)" "no matchin
 
 output="$(run_resolver_with_asset_probe \
   GITHUB_EVENT_NAME=push \
+  GITHUB_REF=refs/tags/v1.2.3 \
+  GITHUB_REF_NAME=v1.2.3 \
+  GITHUB_SHA="$vd_main_sha" \
+  ASSET_PRESENT_SHA="$vk_main_sha")"
+assert_equals "main" "$(read_output "$output" vd_branch)" "main tag push resolves VD default branch"
+assert_equals "refs/tags/v1.2.3" "$(read_output "$output" vd_ref)" "stable main tag push keeps VD tag ref"
+assert_equals "$vd_main_sha" "$(read_output "$output" vd_commit)" "main tag push resolves tag commit"
+assert_equals "tag_on_default_branch" "$(read_output "$output" vd_resolution_source)" "main tag push records release resolution source"
+assert_equals "$vk_main_sha" "$(read_output "$output" vk_commit)" "main tag push resolves VK main commit"
+assert_equals "true" "$(read_output "$output" publish_latest)" "stable main tag push publishes latest"
+assert_equals "vk-${vk_main_sha:0:7}-vd-${vd_main_sha:0:7}" "$(read_output "$output" deploy_image_tag)" "stable main tag push uses immutable deploy tag"
+
+output="$(run_resolver_with_asset_probe \
+  GITHUB_EVENT_NAME=push \
+  GITHUB_REF=refs/tags/v1.2.3-rc.1 \
+  GITHUB_REF_NAME=v1.2.3-rc.1 \
+  GITHUB_SHA="$vd_main_sha" \
+  ASSET_PRESENT_SHA="$vk_main_sha")"
+assert_equals "$vd_main_sha" "$(read_output "$output" vd_commit)" "rc tag at main resolves VD commit"
+assert_equals "$vk_main_sha" "$(read_output "$output" vk_commit)" "rc tag at main resolves VK main commit"
+assert_equals "false" "$(read_output "$output" publish_latest)" "rc tag at main does not publish latest"
+
+output="$(run_resolver_with_asset_probe \
+  GITHUB_EVENT_NAME=push \
   GITHUB_REF=refs/tags/v-main-release \
   GITHUB_REF_NAME=v-main-release \
   GITHUB_SHA="$vd_main_sha" \
   ASSET_PRESENT_SHA="$vk_main_sha")"
-assert_equals "main" "$(read_output "$output" vd_branch)" "main tag push resolves VD default branch"
-assert_equals "refs/tags/v-main-release" "$(read_output "$output" vd_ref)" "main tag push keeps VD tag ref"
-assert_equals "$vd_main_sha" "$(read_output "$output" vd_commit)" "main tag push resolves tag commit"
-assert_equals "tag_on_default_branch" "$(read_output "$output" vd_resolution_source)" "main tag push records release resolution source"
-assert_equals "$vk_main_sha" "$(read_output "$output" vk_commit)" "main tag push resolves VK main commit"
-assert_equals "true" "$(read_output "$output" publish_latest)" "main tag push publishes latest"
-assert_equals "vk-${vk_main_sha:0:7}-vd-${vd_main_sha:0:7}" "$(read_output "$output" deploy_image_tag)" "main tag push uses immutable deploy tag"
+assert_equals "false" "$(read_output "$output" publish_latest)" "non-semver tag at main does not publish latest"
 
 assert_fails \
   "non-main tag push cannot publish latest" \
@@ -294,6 +324,16 @@ assert_fails \
     WORKFLOW_VK_REF="$vk_feature_sha" \
     ASSET_PRESENT_SHA="" \
     LATEST_ASSET_SHA="$vk_main_sha"
+
+output="$(run_resolver_with_asset_probe \
+  GITHUB_EVENT_NAME=workflow_dispatch \
+  GITHUB_REF=refs/heads/main \
+  GITHUB_REF_NAME=main \
+  GITHUB_SHA="$vd_main_sha" \
+  WORKFLOW_VK_REF="$vk_main_sha" \
+  ASSET_PRESENT_SHA="$vk_main_sha")"
+assert_equals "$vk_main_sha" "$(read_output "$output" vk_commit)" "workflow_dispatch waits for exact VK SHA"
+assert_equals "false" "$(read_output "$output" publish_latest)" "workflow_dispatch does not publish latest"
 
 output="$(run_resolver \
   GITHUB_EVENT_NAME=repository_dispatch \

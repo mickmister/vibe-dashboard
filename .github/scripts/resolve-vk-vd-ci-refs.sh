@@ -36,6 +36,10 @@ is_full_sha() {
   [[ "${1:-}" =~ ^[0-9a-fA-F]{40}$ ]]
 }
 
+is_stable_release_tag_ref() {
+  [[ "${1:-}" =~ ^refs/tags/v[0-9]+\.[0-9]+\.[0-9]+$ ]]
+}
+
 head_ref() {
   local branch="$1"
   printf 'refs/heads/%s' "$branch"
@@ -291,7 +295,12 @@ resolve_publish_latest() {
   vk_main_commit="$(remote_head_sha "$vk_repo_url" "$default_branch")"
   [[ -n "$vk_main_commit" ]] || die "Could not resolve VK ${default_branch}"
 
-  if [[ "$vd_branch" == "$default_branch" && "$vk_commit" == "$vk_main_commit" && "$used_asset_fallback" != "true" ]]; then
+  if [[ "$event_name" == "push" ]] &&
+    [[ "$vd_resolution_source" == "tag_on_default_branch" ]] &&
+    [[ "$vd_branch" == "$default_branch" ]] &&
+    [[ "$vk_commit" == "$vk_main_commit" ]] &&
+    [[ "$used_asset_fallback" != "true" ]] &&
+    is_stable_release_tag_ref "$event_ref"; then
     publish_latest=true
   fi
 }

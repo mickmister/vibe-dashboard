@@ -162,8 +162,8 @@ jobs:
             built_pr_head_sha="$EVENT_PR_HEAD_SHA"
           elif [[ "${GITHUB_EVENT_NAME}" == "push" && "${GITHUB_REF:-}" == refs/tags/* ]]; then
             if [[ "$PUBLISH_LATEST" != "true" ]]; then
-              echo "::error::Tag push ${GITHUB_REF} did not resolve to a latest-publishable main release."
-              exit 1
+              echo "::notice::Tag push ${GITHUB_REF} is not a stable main release tag; skipping Coolify deployment."
+              exit 0
             fi
 
             deploy_release_tag=true
