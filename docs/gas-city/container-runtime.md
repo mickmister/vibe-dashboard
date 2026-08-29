@@ -3,7 +3,7 @@
 VD images install Gas City directly as `/usr/local/bin/gc` during image build:
 
 ```dockerfile
-ARG GASCITY_VERSION="latest"
+ARG GASCITY_VERSION="v1.4.1"
 RUN CGO_ENABLED=0 GOBIN=/usr/local/bin go install github.com/gastownhall/gascity/cmd/gc@"$GASCITY_VERSION" \
     && gc version >/dev/null
 ```
@@ -17,8 +17,8 @@ Milestone 3 requires GC-first orchestration to run through VK workspaces without
 
 ## Build-time controls
 
-- `GASCITY_VERSION=latest` by default.
-- Set `--build-arg GASCITY_VERSION=<tag-or-version>` for reproducible images.
+- `GASCITY_VERSION=v1.4.1` by default for reproducible images.
+- Set `--build-arg GASCITY_VERSION=<tag-or-version>` to intentionally test a newer Gas City release or commit.
 - The build verifies the binary by running `gc version`.
 
 ## Runtime expectations

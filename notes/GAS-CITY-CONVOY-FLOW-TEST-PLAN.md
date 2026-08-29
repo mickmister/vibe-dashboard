@@ -9,7 +9,8 @@ The tests should use:
 - **real `gc` binary**
 - **real city/rig configuration**
 - **real bead store behavior**
-- **real `gc formula cook --attach`**
+- **real `gc convoy expand-ready ... --on <graph.v2 formula>`**
+- **real `gc sling <target> <feature-bead> --on <graph.v2 formula>` semantics**
 - **real convoys**
 - **real formula/check/control behavior where available**
 - **mock agent sessions only**
@@ -33,7 +34,7 @@ Target model:
 Feature beads      = product work graph
 Bead dependencies  = feature ordering
 Convoy             = execution batch / project / wave
-Formula attachment = per-feature lifecycle expansion
+Graph sling         = per-feature lifecycle expansion
 Gas City routing   = step delivery to role targets
 Check/control      = mechanical gates and retries
 Mock agents        = deterministic bead result writers
@@ -60,9 +61,10 @@ The implementation should bias toward Gas City primitives instead of recreating 
 - **Beads as authoritative state:** feature status, workflow expansion links, role outputs, check results, and blocking relationships should be queryable from beads.
 - **Bead dependencies for ordering:** product feature dependencies should be native blocking edges, not a parallel scheduler graph stored elsewhere.
 - **Convoys as batch objects:** use convoys for execution waves/projects/releases, progress, owner/notify metadata, target branch, merge policy, and stranded-work diagnostics.
-- **Molecules for user-visible workflows:** prefer cooked formula molecules for dev/review/test flows where VD needs per-step visibility, routing, retries, and auditability.
-- **`gc formula cook --attach`:** treat formula attachment as the canonical way to expand a ready feature bead into its execution lifecycle.
-- **Orders for mechanical automation:** use GC orders or pack commands for small idempotent controller-side operations such as expanding ready convoy children.
+- **graph.v2 source workflows for user-visible workflows:** prefer `gc sling --on <graph.v2 formula>` for dev/review/test flows where VD needs per-step visibility, routing, retries, and auditability.
+- **`gc convoy expand-ready`:** treat ready-child convoy expansion as a GC-native command that filters the bead graph through `Ready()` and delegates every selected feature to the production `gc sling --on` graph-routing/source-workflow path.
+- **`gc formula cook --attach` only for primitive assertions:** use it to prove low-level blocking-dependency semantics, not as the production feature-run expansion path.
+- **Orders for mechanical automation:** use GC orders to invoke small idempotent controller-side operations such as `gc convoy expand-ready`; do not hide a scheduler in VD shell glue.
 - **Pull routing:** route beads with `gc.run_target` / `gc.routed_to` and let agents discover ready work through normal work queries.
 - **Packs/city/rig boundaries:** keep reusable workflow behavior in pack assets, local deployment policy in city/rig config, and machine-local paths/state out of portable definitions.
 - **Mechanical checks:** model gates as scripts/control checks over bead metadata/artifacts rather than as trusted natural-language agent responses.
@@ -145,27 +147,22 @@ bd update <bead-id> --set-metadata vd.result.review.status=approved
 bd close <bead-id>
 ```
 
-### `ConvoyExpander`
+### `ConvoyExpander` / `gc convoy expand-ready`
 
-This is the only intentionally thin non-GC-native piece to test.
-
-It should model the behavior we might later implement as one of:
-
-- a GC order script
-- a GC pack command
-- a VD server action invoking GC
-- a coordinator/PM agent action
+This is now expected to be a GC-native primitive, not a VD-owned scheduler.
+VD may invoke it, and GC orders may invoke it, but the filtering and
+idempotency rules live in Gas City.
 
 Responsibilities:
 
 1. inspect a convoy
 2. find child feature beads that are ready and not already expanded
 3. enforce bounded concurrency
-4. assign a team/worktree policy
-5. call `gc formula cook --attach <feature-bead>`
-6. stamp durable metadata on the feature bead
+4. call `gc sling <target> <feature-bead> --on <graph.v2 formula>` through the same source-workflow launch machinery used by direct sling
+5. preserve GC canonical linkage metadata on the feature bead and workflow root
+6. leave team/worktree policy as formula variables or pack/city configuration, not hidden VD state
 
-This layer should remain small. If the test helper grows into a custom workflow engine, that is evidence the architecture is wrong or Gas City needs an upstream primitive.
+This layer should remain small. If it grows into a custom workflow engine, that is evidence the architecture is wrong or Gas City needs another upstream primitive.
 
 ---
 
@@ -213,9 +210,37 @@ The tests should use the same formula style we expect VD to generate or ship as 
 
 ## Test Cases
 
-### 1. Formula attachment blocks feature completion
+### 1. Direct graph sling starts a source workflow and routes work
 
-**Goal:** prove `gc formula cook --attach` is the correct feature-expansion primitive.
+**Goal:** prove `gc sling <target> <feature-bead> --on <graph.v2 formula>` is the canonical per-feature expansion primitive.
+
+Setup:
+
+1. create one feature bead
+2. run `gc sling` with the per-feature graph formula
+
+Assertions:
+
+- source feature records `workflow_id`
+- workflow root records `gc.source_bead_id`, `gc.root_bead_id`, `gc.workflow_id`, and scope metadata
+- formula steps receive `gc.run_target`, `gc.routed_to`, and assignee values from formula variables / role binding
+- `gc hook <target>` sees the ready routed work through the target's effective work query
+- a duplicate direct sling without cleanup is rejected by source-workflow singleton protection
+
+CLI exercised:
+
+```bash
+gc sling <rig>/team-1-dev <feature-bead-id> \
+  --on dev-review-test-feature \
+  --var dev_target=<rig>/team-1-dev \
+  --var reviewer_target=<rig>/team-1-reviewer \
+  --var tester_target=<rig>/team-1-tester
+gc hook <rig>/team-1-dev
+```
+
+### 1b. Primitive formula attachment blocks feature completion
+
+**Goal:** prove `gc formula cook --attach` still supplies the low-level blocking-dependency behavior graph sling builds on.
 
 Setup:
 
@@ -240,6 +265,9 @@ gc formula cook dev-review-test-feature \
   --var reviewer_target=<rig>/team-1-reviewer \
   --var tester_target=<rig>/team-1-tester
 ```
+
+This test must not assert production routing from `gc formula cook --attach`.
+Routing belongs to the `gc sling --on` graph path.
 
 ### 2. Convoy groups feature beads and reports progress
 
@@ -287,18 +315,18 @@ Flow:
 1. create A/B/C/D
 2. add blocking dependencies
 3. create convoy containing A/B/C/D
-4. run convoy expansion once
+4. run `gc convoy expand-ready <target> <convoy-id> --on dev-review-test-feature` once
 5. complete A's attached formula
-6. run expansion again
+6. run `gc convoy expand-ready` again
 7. complete B/C
-8. run expansion again
+8. run `gc convoy expand-ready` again
 
 Assertions:
 
-- first expansion attaches only A
-- second expansion attaches B and C
+- first expansion starts a graph source workflow only for A
+- second expansion starts graph source workflows for B and C
 - D remains unexpanded until both B and C are complete
-- final expansion attaches D
+- final expansion starts D
 
 ### 4. Bounded parallel feature execution
 
@@ -314,19 +342,24 @@ team slots = team-1, team-2
 
 Assertions:
 
-- first expansion starts exactly two features
+- first `gc convoy expand-ready --max-active 2` invocation starts exactly two features
 - third feature remains pending/unexpanded
 - completing one active feature frees a slot
 - next expansion starts the third feature
 
-Metadata to assert:
+Canonical metadata to assert:
 
 ```text
-vd.execution.status=running
-vd.execution.team_slot=team-1|team-2
-vd.execution.root=<formula-root>
-vd.execution.worktree_path=<unique-feature-worktree>
+workflow_id=<formula-root>
+gc.source_bead_id=<feature-bead>
+gc.root_bead_id=<formula-root>
+gc.workflow_id=<formula-root>
+gc.routed_to=<role target>
+gc.execution_routed_to=<role target for control/checks>
 ```
+
+VD may cache `vd.execution.*` fields for UI/read-model convenience, but those
+fields must be rebuildable from canonical GC bead/workflow metadata.
 
 ### 5. Team/worktree assignment is stable
 
@@ -468,7 +501,7 @@ Assertions:
 
 ### 12. Order-driven expansion smoke test
 
-**Goal:** prove the future scheduler can be a GC order rather than a VD daemon.
+**Goal:** prove the scheduler can be a GC order invoking the GC-native expander rather than a VD daemon.
 
 Setup:
 
@@ -490,6 +523,17 @@ CLI exercised:
 gc order run expand-ready-features
 ```
 
+The order command should invoke:
+
+```bash
+gc convoy expand-ready <target> <convoy-id> \
+  --on dev-review-test-feature \
+  --max-active <N> \
+  --var dev_target=<role-binding> \
+  --var reviewer_target=<role-binding> \
+  --var tester_target=<role-binding>
+```
+
 ---
 
 ## Idempotency Requirements
@@ -498,25 +542,42 @@ The expansion layer must be safe to run repeatedly.
 
 Required guards:
 
-- do not attach a formula if `vd.execution.root` already exists
-- do not claim a feature if `vd.execution.status=starting|running`
+- do not attach a formula if source-workflow metadata (`workflow_id`/`molecule_id` plus an open attached root) already exists
+- rely on Gas City's source-workflow singleton/lock semantics for duplicate launch races
 - do not exceed `max_active_features`
 - do not reuse an occupied team slot
 - do not create duplicate worktrees for the same feature run
-- handle partial failure after formula cook but before metadata stamping
+- handle partial failure after graph sling starts a source workflow but before any supplemental VD read-model metadata is refreshed
 
-Suggested metadata:
+Canonical GC metadata:
+
+```text
+workflow_id=<formula root bead id on the source feature>
+molecule_id=<legacy formula root when applicable>
+gc.source_bead_id=<feature bead id on workflow root>
+gc.root_bead_id=<workflow root for all workflow beads>
+gc.workflow_id=<workflow root for all workflow beads>
+gc.workflow_store_ref=<city:...|rig:...>
+gc.routed_to=<role target>
+gc.execution_routed_to=<role target for control/check execution>
+gc.outcome=<pass|fail|skipped...>
+```
+
+Supplemental VD read-model metadata, if used:
 
 ```text
 vd.execution.convoy_id=<convoy bead id>
 vd.execution.formula=dev-review-test-feature
-vd.execution.status=pending|starting|running|succeeded|failed
-vd.execution.root=<formula root bead id>
+vd.execution.status=<derived/cached only>
+vd.execution.root=<derived/cached formula root bead id>
 vd.execution.team_slot=team-1
 vd.execution.worktree_path=<path>
 vd.execution.started_at=<timestamp>
 vd.execution.completed_at=<timestamp>
 ```
+
+`vd.execution.*` must not be the authority for whether a feature is expanded,
+running, blocked, or complete. It can exist only as rebuildable UI/cache data.
 
 Tests should deliberately rerun expansion after each important state transition.
 
@@ -533,7 +594,9 @@ Mock only what is expensive or nondeterministic:
 
 Do not mock:
 
-- `gc formula cook`
+- `gc sling --on`
+- `gc convoy expand-ready`
+- `gc formula cook` primitive attachment assertions
 - convoy commands
 - bead creation/update/close
 - dependency blocking/readiness
@@ -555,21 +618,23 @@ Deliverables:
 - helper to create feature beads
 - helper to create blocking dependencies
 - helper to create convoys
-- helper to attach formula
+- helper to run direct `gc sling --on`
+- helper to run primitive `gc formula cook --attach` assertions
 - snapshot/assert helpers for bead metadata and dependencies
 
 Tests:
 
-- formula attachment blocks feature completion
+- direct graph sling starts a source workflow and routes work
+- primitive formula attachment blocks feature completion
 - convoy groups feature beads and reports progress
 
 ### Phase 2: Convoy expansion
 
 Deliverables:
 
-- test-only convoy expansion helper that mirrors intended production behavior
-- metadata contract for expanded features
-- idempotency safeguards
+- GC-native `gc convoy expand-ready` command
+- canonical GC metadata contract for expanded features
+- source-workflow singleton/idempotency safeguards
 
 Tests:
 
@@ -598,7 +663,7 @@ Tests:
 
 Deliverables:
 
-- order fixture for expansion
+- order fixture for `gc convoy expand-ready`
 - stranded-work fixture
 - convoy landing/completion assertions
 
@@ -631,7 +696,7 @@ This architecture is viable if the tests prove:
 
 1. feature beads can remain the source of truth
 2. convoys can represent execution batches
-3. formula attachment cleanly expands feature beads into workflows
+3. `gc sling --on` / `gc convoy expand-ready --on` cleanly expands feature beads into source workflows
 4. bead dependencies drive feature ordering
 5. multiple ready features can run concurrently with bounded capacity
 6. checks can enforce strict phase gates
@@ -655,7 +720,7 @@ If these tests require a large custom scheduler, custom state machine, or custom
 4. **Team slots:** should team capacity be represented as configured GC agents, convoy metadata, or VD state?
 5. **Worktrees:** should each active feature always receive its own worktree, or should pure-doc/test-only features be allowed to share?
 6. **Order lifecycle:** should expansion be periodic, event-driven, manual, or all three?
-7. **Atomic claims:** what is the safest bead-level claim mechanism to avoid duplicate expansion under concurrent order runs?
+7. **Atomic claims:** do `gc convoy expand-ready` plus source-workflow singleton locks cover all concurrent order-run races, or do we need a stronger bead-level claim primitive?
 8. **UI read model:** should VD render directly from beads/convoys, or maintain a denormalized projection for speed?
 
 ---
@@ -664,18 +729,18 @@ If these tests require a large custom scheduler, custom state machine, or custom
 
 Do not start by wiring this into the VD UI.
 
-First PR should add a standalone integration test suite and fixtures that prove the data model:
+This branch should add a standalone integration test suite and fixtures that prove the data model:
 
 ```text
-real gc + real beads + real convoys + real formula attachment + mock agents
+real gc + real beads + real convoys + real graph.v2 source-workflow expansion + mock agents
 ```
 
 Recommended initial tests:
 
-1. `formula attachment blocks feature completion`
+1. `direct graph sling starts a source workflow and routes work`
 2. `convoy groups feature beads and reports progress`
 3. `feature dependency graph expands in waves`
 4. `bounded parallel feature execution`
 5. `dev reviewer tester happy path`
 
-After those pass, implement negative gate/retry cases.
+After those pass, implement negative gate/retry cases using graph.v2/control-dispatch semantics, not VD hand-rolled loopbacks.

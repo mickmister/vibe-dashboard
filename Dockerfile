@@ -221,7 +221,7 @@ RUN curl -fsSL https://raw.githubusercontent.com/gastownhall/beads/main/scripts/
 
 # Install Gas City directly in the VD container. This gives runtime flows a local
 # `gc` binary instead of requiring GC-specific Docker-in-Docker helper stacks.
-ARG GASCITY_VERSION="latest"
+ARG GASCITY_VERSION="v1.4.1"
 RUN CGO_ENABLED=0 GOBIN=/usr/local/bin go install github.com/gastownhall/gascity/cmd/gc@"$GASCITY_VERSION" \
     && gc version >/dev/null
 
