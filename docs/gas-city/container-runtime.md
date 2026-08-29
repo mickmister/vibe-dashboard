@@ -24,6 +24,9 @@ Milestone 3 requires GC-first orchestration to run through VK workspaces without
 ## Runtime expectations
 
 - The Gas City plugin's default binary value, `gc`, resolves to `/usr/local/bin/gc`.
+- The pinned release supports released Gas City commands such as `gc sling`,
+  formulas, convoys, hooks, and supervisor flows. VD must not depend on
+  unreleased commands such as proposed convoy ready-expansion helpers.
 - Generated Gas City config should reference the VD-owned bridge with
   `GC_SESSION=exec:/usr/local/bin/gc-session-vibe` when a VK-backed provider is
   needed.
