@@ -16,7 +16,17 @@ import {
   renderGasCityGeneratedCityConfig,
 } from "./city-config-renderer";
 import { scanGasCityLocalPack } from "./local-pack-scanner";
-import { buildGasCitySlingFormulaCommand } from "./sling-command";
+import {
+  buildGasCitySlingFormulaCommand,
+  buildGasCitySlingSourceWorkflowCommand,
+} from "./sling-command";
+import {
+  BdMetadataLiveSourceWorkflowReader,
+  BdReadyBeadProvider,
+  DirectoryReadyBeadSchedulerLock,
+  GasCityReadyBeadLauncher,
+  type ReadyBeadLauncherResult,
+} from "./ready-bead-launcher";
 
 const manifest: PluginManifest = createPluginManifest({
   id: "dev.mickmister.gas-city",
@@ -151,6 +161,48 @@ springboard.registerModule(
               reject(
                 new Error(
                   message || `Failed running ${gcBinary} ${args.join(" ")}`,
+                ),
+              );
+              return;
+            }
+            resolve({
+              stdout: stdout.trim(),
+              stderr: stderr.trim(),
+            });
+          },
+        );
+      });
+    };
+
+    const runExternalCommand = async (
+      command: string,
+      args: string[],
+      cwd: string,
+      options?: { env?: Record<string, string> },
+    ): Promise<{ stdout: string; stderr: string }> => {
+      const childProcess =
+        await importNode<typeof import("node:child_process")>(
+          "node:child_process",
+        );
+
+      return new Promise((resolve, reject) => {
+        childProcess.execFile(
+          command,
+          args,
+          {
+            cwd,
+            env: {
+              ...process.env,
+              ...(options?.env ?? {}),
+            },
+            maxBuffer: 2 * 1024 * 1024,
+          },
+          (error, stdout, stderr) => {
+            if (error) {
+              const message = (stderr || stdout || error.message).trim();
+              reject(
+                new Error(
+                  message || `Failed running ${command} ${args.join(" ")}`,
                 ),
               );
               return;
@@ -530,6 +582,69 @@ springboard.registerModule(
           const stdout = await runAndStoreOutput(command);
           await refreshSessionsInternal().catch(() => []);
           return stdout;
+        }),
+      launchReadyBeads: async (args: {
+        workspaceId: string;
+        workspacePath: string;
+        target: string;
+        formula?: string | null;
+        formulaByBeadId?: Record<string, string | null | undefined>;
+        vars?: Record<string, string>;
+        parentBeadId?: string | null;
+        convoyId?: string | null;
+        limit?: number | null;
+        maxActive?: number | null;
+        nudge?: boolean;
+      }): Promise<ReadyBeadLauncherResult> =>
+        withLoading(async () => {
+          const fs = await importNode<typeof import("node:fs/promises")>(
+            "node:fs/promises",
+          );
+          const path = await importNode<typeof import("node:path")>("node:path");
+          const state = dashboard.getState();
+          const lockRoot = path.join(
+            state.cityPath || args.workspacePath,
+            ".vd-gc-ready-bead-locks",
+          );
+          const readyBeads = new BdReadyBeadProvider({
+            runBd: async (bdArgs, cwd) =>
+              (await runExternalCommand("bd", bdArgs, cwd)).stdout,
+          });
+          const liveWorkflows = new BdMetadataLiveSourceWorkflowReader({
+            runBd: async (bdArgs, cwd) =>
+              (await runExternalCommand("bd", bdArgs, cwd)).stdout,
+          });
+          const scheduler = new GasCityReadyBeadLauncher({
+            async listReadyBeads(input) {
+              return readyBeads.listReadyBeads(input);
+            },
+            async listLiveSourceWorkflowBeadIds(input) {
+              return liveWorkflows.listLiveSourceWorkflowBeadIds(input);
+            },
+            async slingSourceWorkflow(input) {
+              const command = buildGasCitySlingSourceWorkflowCommand(input);
+              const result = await runGc(command);
+              return { stdout: result.stdout };
+            },
+            lock: new DirectoryReadyBeadSchedulerLock({
+              io: {
+                mkdir: (targetPath, options) => fs.mkdir(targetPath, options),
+                rm: (targetPath) => fs.rm(targetPath, { recursive: true, force: true }),
+                writeFile: (targetPath, contents) =>
+                  fs.writeFile(targetPath, contents, "utf8"),
+                stat: (targetPath) => fs.stat(targetPath),
+                join: path.join,
+              },
+              lockRoot,
+            }),
+          });
+          const result = await scheduler.launchReady(args);
+          dashboard.setStateImmer((draft) => {
+            draft.lastCommandOutput = JSON.stringify(result, null, 2);
+            draft.error = result.failed[0]?.message ?? null;
+          });
+          await refreshSessionsInternal().catch(() => []);
+          return result;
         }),
       refreshSessions: async () =>
         withLoading(async () => {

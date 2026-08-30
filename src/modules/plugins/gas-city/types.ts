@@ -1,5 +1,6 @@
 import type { PluginManifest } from "../vibe-dashboard/types";
 import type { GasCityGeneratedConfigPreview } from "./city-config-renderer";
+import type { ReadyBeadLauncherResult } from "./ready-bead-launcher";
 
 export interface GasCitySessionInfo {
   ID: string;
@@ -209,6 +210,19 @@ export interface GasCityPluginModule {
       formula: string;
       vars?: Record<string, string>;
     }) => Promise<string>;
+    launchReadyBeads: (args: {
+      workspaceId: string;
+      workspacePath: string;
+      target: string;
+      formula?: string | null;
+      formulaByBeadId?: Record<string, string | null | undefined>;
+      vars?: Record<string, string>;
+      parentBeadId?: string | null;
+      convoyId?: string | null;
+      limit?: number | null;
+      maxActive?: number | null;
+      nudge?: boolean;
+    }) => Promise<ReadyBeadLauncherResult>;
     refreshSessions: () => Promise<GasCitySessionInfo[]>;
     refreshStatus: () => Promise<string>;
     createSession: (args: {

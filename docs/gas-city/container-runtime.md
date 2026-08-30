@@ -27,6 +27,9 @@ Milestone 3 requires GC-first orchestration to run through VK workspaces without
 - The pinned release supports released Gas City commands such as `gc sling`,
   formulas, convoys, hooks, and supervisor flows. VD must not depend on
   unreleased commands such as proposed convoy ready-expansion helpers.
+- VD may coordinate multiple ready workspace beads by calling released
+  `gc sling <target> <bead> --on <formula>` once per bead under a VD lock; the
+  installed `gc` binary still owns each workflow after launch.
 - Generated Gas City config should reference the VD-owned bridge with
   `GC_SESSION=exec:/usr/local/bin/gc-session-vibe` when a VK-backed provider is
   needed.
