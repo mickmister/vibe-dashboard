@@ -1,4 +1,4 @@
-import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it, vi } from "vitest";
@@ -482,6 +482,82 @@ describe("ready bead shell helpers", () => {
       await rm(lockRoot, { recursive: true, force: true });
     }
   });
+
+  it("only releases directory locks when the owner token still matches", async () => {
+    const lockRoot = await mkdtemp(join(tmpdir(), "vd-gc-lock-token-test-"));
+    const fs = await import("node:fs/promises");
+    const tokens = ["holder-a", "holder-b"];
+    let nowMs = Date.parse("2026-08-30T00:00:00.000Z");
+    let advanceNow = false;
+    let releaseA!: () => void;
+    let releaseB!: () => void;
+    let bEntered!: () => void;
+    const bEnteredPromise = new Promise<void>((resolve) => {
+      bEntered = resolve;
+    });
+    const makeLock = (maxWaitMs = 30_000) =>
+      new DirectoryReadyBeadSchedulerLock({
+        io: {
+          mkdir: (targetPath: string, options?: { recursive?: boolean }) =>
+            fs.mkdir(targetPath, options),
+          rm: (targetPath: string) =>
+            fs.rm(targetPath, { recursive: true, force: true }),
+          writeFile: (targetPath: string, contents: string) =>
+            fs.writeFile(targetPath, contents, "utf8"),
+          readFile: (targetPath: string) => fs.readFile(targetPath, "utf8"),
+          stat: (targetPath: string) => fs.stat(targetPath),
+          join,
+        },
+        lockRoot,
+        staleMs: 100,
+        retryDelayMs: 5,
+        maxWaitMs,
+        now: () => {
+          if (advanceNow) nowMs += 10;
+          return nowMs;
+        },
+        createOwnerToken: () => tokens.shift() ?? "late-holder",
+      });
+
+    try {
+      const aRun = makeLock().withLock(
+        "workspace-lock",
+        () =>
+          new Promise<string>((resolve) => {
+            releaseA = () => resolve("a");
+          }),
+      );
+      await waitForOwnerToken(lockRoot, "workspace-lock", "holder-a");
+      nowMs = Date.parse("2026-08-30T00:00:01.000Z");
+      const bRun = makeLock().withLock(
+        "workspace-lock",
+        () =>
+          new Promise<string>((resolve) => {
+            bEntered();
+            releaseB = () => resolve("b");
+          }),
+      );
+      await bEnteredPromise;
+      await waitForOwnerToken(lockRoot, "workspace-lock", "holder-b");
+
+      releaseA();
+      await expect(aRun).resolves.toBe("a");
+      await waitForOwnerToken(lockRoot, "workspace-lock", "holder-b");
+
+      nowMs = Date.parse("2026-08-30T00:00:01.050Z");
+      advanceNow = true;
+      await expect(
+        makeLock(20).withLock("workspace-lock", async () => "c"),
+      ).rejects.toThrow(/Timed out/);
+      advanceNow = false;
+
+      releaseB();
+      await expect(bRun).resolves.toBe("b");
+      await expect(readOwner(lockRoot, "workspace-lock")).resolves.toBeNull();
+    } finally {
+      await rm(lockRoot, { recursive: true, force: true });
+    }
+  });
 });
 
 function createHarness(args: {
@@ -529,4 +605,31 @@ function bead(
     convoyIds: [],
     ...overrides,
   };
+}
+
+async function waitForOwnerToken(
+  lockRoot: string,
+  key: string,
+  token: string,
+): Promise<void> {
+  const deadline = Date.now() + 1_000;
+  while (Date.now() < deadline) {
+    const owner = await readOwner(lockRoot, key);
+    if (owner?.token === token) return;
+    await new Promise((resolve) => setTimeout(resolve, 5));
+  }
+  throw new Error(`Timed out waiting for lock owner token ${token}`);
+}
+
+async function readOwner(
+  lockRoot: string,
+  key: string,
+): Promise<Record<string, unknown> | null> {
+  try {
+    return JSON.parse(
+      await readFile(join(lockRoot, key, "owner.json"), "utf8"),
+    ) as Record<string, unknown>;
+  } catch {
+    return null;
+  }
 }

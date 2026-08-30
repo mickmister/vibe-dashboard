@@ -387,6 +387,7 @@ export class DirectoryReadyBeadSchedulerLock implements ReadyBeadLaunchLock {
       retryDelayMs?: number;
       maxWaitMs?: number;
       now?: () => number;
+      createOwnerToken?: () => string;
     },
   ) {}
 
@@ -396,6 +397,9 @@ export class DirectoryReadyBeadSchedulerLock implements ReadyBeadLaunchLock {
     const maxWaitMs = this.options.maxWaitMs ?? 30_000;
     const startedAt = now();
     const lockDir = this.options.io.join(this.options.lockRoot, encodeLockKey(key));
+    const ownerToken =
+      this.options.createOwnerToken?.() ??
+      `${process.pid}.${now()}.${Math.random().toString(36).slice(2)}`;
     await this.options.io.mkdir(this.options.lockRoot, { recursive: true });
 
     while (true) {
@@ -421,11 +425,16 @@ export class DirectoryReadyBeadSchedulerLock implements ReadyBeadLaunchLock {
     try {
       await this.options.io.writeFile(
         this.options.io.join(lockDir, "owner.json"),
-        JSON.stringify({ key, pid: process.pid, acquiredAt: new Date(now()).toISOString() }),
+        JSON.stringify({
+          key,
+          token: ownerToken,
+          pid: process.pid,
+          acquiredAt: new Date(now()).toISOString(),
+        }),
       );
       return await fn();
     } finally {
-      await this.options.io.rm(lockDir);
+      await this.releaseLock(lockDir, ownerToken);
     }
   }
 
@@ -433,16 +442,11 @@ export class DirectoryReadyBeadSchedulerLock implements ReadyBeadLaunchLock {
     const staleMs = this.options.staleMs;
     if (staleMs == null || staleMs <= 0) return;
     const ownerPath = this.options.io.join(lockDir, "owner.json");
+    const owner = await this.readLockOwner(ownerPath);
     let acquiredAtMs: number | null = null;
-    try {
-      const contents = String(await this.options.io.readFile(ownerPath));
-      const parsed = JSON.parse(contents) as unknown;
-      if (isRecord(parsed) && typeof parsed.acquiredAt === "string") {
-        const parsedMs = Date.parse(parsed.acquiredAt);
-        if (Number.isFinite(parsedMs)) acquiredAtMs = parsedMs;
-      }
-    } catch {
-      // Fall back to directory mtime below.
+    if (owner && typeof owner.acquiredAt === "string") {
+      const parsedMs = Date.parse(owner.acquiredAt);
+      if (Number.isFinite(parsedMs)) acquiredAtMs = parsedMs;
     }
     if (acquiredAtMs == null) {
       try {
@@ -455,8 +459,36 @@ export class DirectoryReadyBeadSchedulerLock implements ReadyBeadLaunchLock {
         return;
       }
     }
-    if (acquiredAtMs != null && nowMs - acquiredAtMs >= staleMs) {
+    if (acquiredAtMs == null || nowMs - acquiredAtMs < staleMs) {
+      return;
+    }
+    if (owner?.token) {
+      const currentOwner = await this.readLockOwner(ownerPath);
+      if (currentOwner?.token !== owner.token) {
+        return;
+      }
       await this.options.io.rm(lockDir);
+      return;
+    }
+    await this.options.io.rm(lockDir);
+  }
+
+  private async releaseLock(lockDir: string, ownerToken: string): Promise<void> {
+    const owner = await this.readLockOwner(
+      this.options.io.join(lockDir, "owner.json"),
+    );
+    if (owner?.token !== ownerToken) return;
+    await this.options.io.rm(lockDir);
+  }
+
+  private async readLockOwner(
+    ownerPath: string,
+  ): Promise<Record<string, unknown> | null> {
+    try {
+      const parsed = JSON.parse(String(await this.options.io.readFile(ownerPath))) as unknown;
+      return isRecord(parsed) ? parsed : null;
+    } catch {
+      return null;
     }
   }
 }

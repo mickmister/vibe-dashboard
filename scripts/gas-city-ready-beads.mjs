@@ -259,6 +259,7 @@ async function withDirectoryLock(root, key, fn) {
   const retryDelayMs = 100;
   const maxWaitMs = 30_000;
   const startedAt = Date.now();
+  const ownerToken = `${process.pid}.${startedAt}.${Math.random().toString(36).slice(2)}`;
   const dir = join(root, key.replace(/[^A-Za-z0-9_.-]+/g, "_").slice(0, 180) || "default");
   await mkdir(root, { recursive: true });
   while (true) {
@@ -279,22 +280,43 @@ async function withDirectoryLock(root, key, fn) {
     }
   }
   try {
-    await writeFile(join(dir, "owner.json"), JSON.stringify({ key, pid: process.pid, acquiredAt: new Date().toISOString() }));
+    await writeFile(
+      join(dir, "owner.json"),
+      JSON.stringify({
+        key,
+        token: ownerToken,
+        pid: process.pid,
+        acquiredAt: new Date().toISOString(),
+      }),
+    );
     return await fn();
   } finally {
-    await rm(dir, { recursive: true, force: true });
+    await releaseDirectoryLock(dir, ownerToken);
   }
 }
 
 async function removeStaleLock(dir, staleMs) {
+  const ownerPath = join(dir, "owner.json");
   try {
-    const owner = JSON.parse(await readFile(join(dir, "owner.json"), "utf8"));
+    const owner = JSON.parse(await readFile(ownerPath, "utf8"));
     const acquiredAt = Date.parse(String(owner.acquiredAt || ""));
     if (Number.isFinite(acquiredAt) && Date.now() - acquiredAt >= staleMs) {
+      const currentOwner = JSON.parse(await readFile(ownerPath, "utf8"));
+      if (currentOwner.token !== owner.token) return;
       await rm(dir, { recursive: true, force: true });
     }
   } catch {
     // Keep uncertain locks rather than deleting a lock we cannot prove stale.
+  }
+}
+
+async function releaseDirectoryLock(dir, ownerToken) {
+  try {
+    const owner = JSON.parse(await readFile(join(dir, "owner.json"), "utf8"));
+    if (owner.token !== ownerToken) return;
+    await rm(dir, { recursive: true, force: true });
+  } catch {
+    // Missing/unreadable owner means this process no longer owns a releasable lock.
   }
 }
 
