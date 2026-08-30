@@ -24,6 +24,8 @@ import {
   BdMetadataLiveSourceWorkflowReader,
   BdReadyBeadProvider,
   DirectoryReadyBeadSchedulerLock,
+  GasCityConvoyMemberProvider,
+  GasCityFormulaContractValidator,
   GasCityReadyBeadLauncher,
   type ReadyBeadLauncherResult,
 } from "./ready-bead-launcher";
@@ -614,12 +616,30 @@ springboard.registerModule(
             runBd: async (bdArgs, cwd) =>
               (await runExternalCommand("bd", bdArgs, cwd)).stdout,
           });
+          const convoyMembers = new GasCityConvoyMemberProvider({
+            runGc: async (gcArgs) => (await runGc(gcArgs)).stdout,
+          });
+          const formulaValidator = new GasCityFormulaContractValidator({
+            runGc: async (gcArgs) => (await runGc(gcArgs)).stdout,
+          });
           const scheduler = new GasCityReadyBeadLauncher({
             async listReadyBeads(input) {
               return readyBeads.listReadyBeads(input);
             },
+            async listConvoyMemberBeadIds(input) {
+              return convoyMembers.listConvoyMemberBeadIds({
+                cityPath: state.cityPath,
+                convoyId: input.convoyId,
+              });
+            },
             async listLiveSourceWorkflowBeadIds(input) {
               return liveWorkflows.listLiveSourceWorkflowBeadIds(input);
+            },
+            async validateFormulaContract(input) {
+              return formulaValidator.validateFormulaContract({
+                cityPath: state.cityPath,
+                formula: input.formula,
+              });
             },
             async slingSourceWorkflow(input) {
               const command = buildGasCitySlingSourceWorkflowCommand(input);
@@ -632,10 +652,12 @@ springboard.registerModule(
                 rm: (targetPath) => fs.rm(targetPath, { recursive: true, force: true }),
                 writeFile: (targetPath, contents) =>
                   fs.writeFile(targetPath, contents, "utf8"),
+                readFile: (targetPath) => fs.readFile(targetPath, "utf8"),
                 stat: (targetPath) => fs.stat(targetPath),
                 join: path.join,
               },
               lockRoot,
+              staleMs: 10 * 60 * 1000,
             }),
           });
           const result = await scheduler.launchReady(args);

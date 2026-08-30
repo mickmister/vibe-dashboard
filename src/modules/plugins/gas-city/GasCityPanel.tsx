@@ -178,6 +178,14 @@ export function GasCityPanel({
   const [selectedSessionId, setSelectedSessionId] = useState("");
   const [slingTarget, setSlingTarget] = useState("");
   const [slingVars, setSlingVars] = useState("");
+  const [readyWorkspaceId, setReadyWorkspaceId] = useState("");
+  const [readyWorkspacePath, setReadyWorkspacePath] = useState("");
+  const [readyTarget, setReadyTarget] = useState("");
+  const [readyFormula, setReadyFormula] = useState("");
+  const [readyConvoyId, setReadyConvoyId] = useState("");
+  const [readyLimit, setReadyLimit] = useState("");
+  const [readyMaxActive, setReadyMaxActive] = useState("1");
+  const [readyNudge, setReadyNudge] = useState(false);
   const [wizardPath, setWizardPath] = useState("");
   const [wizardBinding, setWizardBinding] = useState("");
   const [wizardScope, setWizardScope] =
@@ -468,6 +476,22 @@ export function GasCityPanel({
     await actions.slingFormula({
       target: slingTarget.trim(),
       formula: formula.trim(),
+      vars: parseSlingVars(slingVars),
+    });
+  };
+
+  const handleLaunchReadyBeads = async () => {
+    if (!readyWorkspaceId.trim() || !readyWorkspacePath.trim() || !readyTarget.trim()) return;
+    await actions.setConfig({ gcBinary, cityPath });
+    await actions.launchReadyBeads({
+      workspaceId: readyWorkspaceId.trim(),
+      workspacePath: readyWorkspacePath.trim(),
+      target: readyTarget.trim(),
+      formula: readyFormula.trim() || null,
+      convoyId: readyConvoyId.trim() || null,
+      limit: parseNullableInteger(readyLimit),
+      maxActive: parseNullableInteger(readyMaxActive),
+      nudge: readyNudge,
       vars: parseSlingVars(slingVars),
     });
   };
@@ -1057,6 +1081,142 @@ export function GasCityPanel({
               </div>
             </div>
           ) : null}
+
+          <div className="mb-4 rounded-lg border border-primary-700/40 bg-primary-950/10 p-3">
+            <div className="mb-2">
+              <h4 className="text-sm font-semibold text-neutral-200">
+                Launch ready beads
+              </h4>
+              <p className="mt-1 text-xs text-neutral-500">
+                Select ready source beads from a VK workspace and launch each
+                one through released Gas City: gc sling &lt;target&gt;
+                &lt;bead&gt; --on &lt;graph.v2 formula&gt;. Convoy filtering uses
+                gc convoy status --json membership.
+              </p>
+            </div>
+            <div className="grid gap-3 md:grid-cols-2">
+              <Input
+                size="sm"
+                label="VK workspace ID"
+                value={readyWorkspaceId}
+                onChange={(event) => setReadyWorkspaceId(event.target.value)}
+                placeholder="42a286e3-795d-4310-a622-6b04cbe0a3e6"
+                classNames={{
+                  inputWrapper:
+                    "bg-neutral-900 border-neutral-700 data-[hover=true]:bg-neutral-900 group-data-[focus=true]:bg-neutral-900",
+                  input: "text-white",
+                  label: "text-neutral-400",
+                }}
+              />
+              <Input
+                size="sm"
+                label="Workspace bead cwd"
+                value={readyWorkspacePath}
+                onChange={(event) => setReadyWorkspacePath(event.target.value)}
+                placeholder="/path/to/workspace/repo"
+                classNames={{
+                  inputWrapper:
+                    "bg-neutral-900 border-neutral-700 data-[hover=true]:bg-neutral-900 group-data-[focus=true]:bg-neutral-900",
+                  input: "text-white",
+                  label: "text-neutral-400",
+                }}
+              />
+              <Input
+                size="sm"
+                label="GC target"
+                value={readyTarget}
+                onChange={(event) => setReadyTarget(event.target.value)}
+                placeholder="rig/dev or worker alias"
+                classNames={{
+                  inputWrapper:
+                    "bg-neutral-900 border-neutral-700 data-[hover=true]:bg-neutral-900 group-data-[focus=true]:bg-neutral-900",
+                  input: "text-white",
+                  label: "text-neutral-400",
+                }}
+              />
+              <Input
+                size="sm"
+                label="Fallback graph.v2 formula"
+                value={readyFormula}
+                onChange={(event) => setReadyFormula(event.target.value)}
+                placeholder="dev-review-test (optional if bead metadata supplies formula)"
+                classNames={{
+                  inputWrapper:
+                    "bg-neutral-900 border-neutral-700 data-[hover=true]:bg-neutral-900 group-data-[focus=true]:bg-neutral-900",
+                  input: "text-white",
+                  label: "text-neutral-400",
+                }}
+              />
+              <Input
+                size="sm"
+                label="Convoy ID (optional)"
+                value={readyConvoyId}
+                onChange={(event) => setReadyConvoyId(event.target.value)}
+                placeholder="convoy bead id"
+                classNames={{
+                  inputWrapper:
+                    "bg-neutral-900 border-neutral-700 data-[hover=true]:bg-neutral-900 group-data-[focus=true]:bg-neutral-900",
+                  input: "text-white",
+                  label: "text-neutral-400",
+                }}
+              />
+              <div className="grid grid-cols-2 gap-2">
+                <Input
+                  size="sm"
+                  label="Limit"
+                  value={readyLimit}
+                  onChange={(event) => setReadyLimit(event.target.value)}
+                  placeholder="0 = all"
+                  classNames={{
+                    inputWrapper:
+                      "bg-neutral-900 border-neutral-700 data-[hover=true]:bg-neutral-900 group-data-[focus=true]:bg-neutral-900",
+                    input: "text-white",
+                    label: "text-neutral-400",
+                  }}
+                />
+                <Input
+                  size="sm"
+                  label="Max active"
+                  value={readyMaxActive}
+                  onChange={(event) => setReadyMaxActive(event.target.value)}
+                  placeholder="1"
+                  classNames={{
+                    inputWrapper:
+                      "bg-neutral-900 border-neutral-700 data-[hover=true]:bg-neutral-900 group-data-[focus=true]:bg-neutral-900",
+                    input: "text-white",
+                    label: "text-neutral-400",
+                  }}
+                />
+              </div>
+            </div>
+            <div className="mt-3 flex flex-wrap items-center gap-3">
+              <label className="flex items-center gap-2 text-xs text-neutral-300">
+                <input
+                  type="checkbox"
+                  checked={readyNudge}
+                  onChange={(event) => setReadyNudge(event.target.checked)}
+                />
+                Nudge target sessions
+              </label>
+              <Button
+                size="sm"
+                color="primary"
+                isDisabled={
+                  state.loading ||
+                  !readyWorkspaceId.trim() ||
+                  !readyWorkspacePath.trim() ||
+                  !readyTarget.trim()
+                }
+                isLoading={state.loading}
+                onPress={() => void handleLaunchReadyBeads()}
+              >
+                Launch ready beads
+              </Button>
+              <span className="text-xs text-neutral-500">
+                Default max active is 1; set higher for parallel fanout.
+              </span>
+            </div>
+          </div>
 
           {capabilityGroups.length ? (
             <div className="grid gap-3 lg:grid-cols-2">

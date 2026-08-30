@@ -83,7 +83,7 @@ GC-backed modes reveal an advanced section:
 | User-facing conversations | VK UI | GC-managed sessions should still surface through VK sessions where possible. |
 | Orchestration graph, formulas, sling routing | GC | VD asks GC to adopt/dispatch; agents do not directly call VK APIs unless acting through the bridge. |
 | Generated GC config and local pack refs | VD/Springboard | Runtime TOML is generated from VD-owned state. |
-| Ready source-bead fanout | VD + GC | VD may select ready beads in the workspace/convoy under a lock, then call released `gc sling --on` once per bead. GC owns each resulting workflow. |
+| Ready source-bead fanout | VD + GC | VD may select ready beads in the workspace, optionally intersect with released `gc convoy status --json` membership, hold a workspace-level lock, then call released `gc sling --on` once per bead. GC owns each resulting workflow. |
 | Smaller task worktrees inside a VK workspace | GC-selected workflow using VK primitive | GC can instruct a VK-backed session to work in a provisioned worktree path; VK remains the UI surface. |
 
 ## Error handling requirements

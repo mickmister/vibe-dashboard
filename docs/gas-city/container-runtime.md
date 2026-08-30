@@ -30,6 +30,10 @@ Milestone 3 requires GC-first orchestration to run through VK workspaces without
 - VD may coordinate multiple ready workspace beads by calling released
   `gc sling <target> <bead> --on <formula>` once per bead under a VD lock; the
   installed `gc` binary still owns each workflow after launch.
+- The ready-bead CLI/watch helper is `node scripts/gas-city-ready-beads.mjs`.
+  `launch` is explicit; `watch` follows released `gc events --follow` and
+  debounces bead.closed/bead.updated events before rerunning the same released
+  `gc sling --on` launch path.
 - Generated Gas City config should reference the VD-owned bridge with
   `GC_SESSION=exec:/usr/local/bin/gc-session-vibe` when a VK-backed provider is
   needed.

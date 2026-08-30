@@ -10,9 +10,9 @@ container currently pins Gas City to `v1.4.1`, so the supported runtime story is
 - convoys as grouping/status/progress objects
 - normal Gas City hooks/work queries for agent pickup
 - VD-owned VK workspace/session bridge behavior
-- a minimal VD ready-bead launcher that repeats the released single-feature
+- a VD ready-bead launcher that repeats the released single-feature
   `gc sling --on` command for multiple currently-ready source beads in one VK
-  workspace
+  workspace, plus CLI/watch and UI entry points
 
 This branch should **not** claim support for automatic convoy ready-child
 expansion as a Gas City command. The local Gas City `expand-ready` patch is
@@ -47,8 +47,10 @@ VD owns:
 - creating/adopting the VK workspace
 - providing the GC↔VK session bridge
 - invoking released `gc` commands
-- selecting ready source beads inside a workspace/optional convoy filter
-- holding a VD workspace/convoy lock around selection plus launch
+- selecting ready source beads inside a workspace/optional convoy filter using
+  released `gc convoy status --json` membership
+- holding a VD workspace-level lock around selection plus launch, even when a
+  convoy filter is provided
 - rendering a read model from Gas City/bead state
 - storing only supplemental UI/cache metadata when necessary
 
@@ -141,7 +143,7 @@ That command is a proposal/gap, not part of the current VD runtime contract.
 
 ---
 
-## Minimal VD ready-bead launcher
+## VD ready-bead launcher
 
 Because a VK workspace commonly contains multiple development beads, VD needs a
 small launcher that can start independent ready beads in parallel using official
@@ -150,13 +152,28 @@ Gas City `v1.4.1` commands.
 The launcher owns only:
 
 - `bd ready --json` discovery in the workspace
-- optional parent/convoy filtering
+- optional parent filtering via `bd ready --parent`
+- optional convoy filtering by intersecting `bd ready` with child IDs from
+  `gc convoy status <convoy-id> --json`
 - per-bead formula override from `vd.gas_city.formula` or `gc.formula`
 - formula supplied by an explicit UI/CLI/agent-triggered launch
-- a VD workspace/convoy lock around `select -> count active -> launch`
-- a best-effort active workflow cap based on live GC source-workflow metadata
+- a VD workspace lock around `select -> count active -> launch`; the lock has
+  stale cleanup so a crashed process does not permanently strand launches
+- a best-effort active workflow cap based on unique live source bead IDs from
+  source `workflow_id` metadata and workflow-bead `gc.source_bead_id` metadata
+- graph.v2 formula validation with released `gc formula show --json` before
+  calling `gc sling --on`
+- a strict cwd/store contract: `workspacePath` is the bead-store cwd for
+  `bd ready`, and `cityPath`/Gas City config must resolve those same source
+  bead IDs for `gc sling --on`; if not, released `gc sling` fails closed rather
+  than VD manufacturing workflow state
 - duplicate-safe handling of GC source-workflow singleton conflicts
 - optional `--nudge` on the released `gc sling` command
+- UI invocation from the Gas City panel
+- CLI invocation via `node scripts/gas-city-ready-beads.mjs launch ...`
+- non-polling automatic wake via `node scripts/gas-city-ready-beads.mjs watch ...`,
+  which follows released `gc events --follow`, debounces bead.closed/bead.updated
+  events, and re-runs the same launcher without busy-looping
 
 The launcher must not:
 
@@ -184,7 +201,7 @@ Merge validation should prove the released-GC path:
 2. VD-generated/runtime config can use the local `gc` binary.
 3. A single feature bead can be launched with `gc sling --on graph.v2`.
 4. Multiple ready beads in one workspace can be launched by repeating the same
-   released command under a VD workspace/convoy lock.
+   released command under a VD workspace lock.
 5. Gas City routes workflow steps to configured targets.
 6. Hooks/work queries can see routed work.
 7. VD does not depend on unreleased `gc convoy expand-ready`.
@@ -230,9 +247,9 @@ Tell review:
 
 > We pivoted VD back to officially released Gas City functionality. The current
 > runtime contract is single-feature `gc sling --on graph.v2`, convoys for
-> grouping/status, hooks/work queries for pickup, and a minimal VD ready-bead
+> grouping/status, hooks/work queries for pickup, and a VD ready-bead
 > launcher that repeats the released command for multiple ready source beads
-> under a workspace/convoy lock. We removed current-runtime claims around
+> under a workspace lock. We removed current-runtime claims around
 > `gc convoy expand-ready` because that command is not available in released Gas
 > City `v1.4.1`, and VD will not fork Gas City or implement GC workflow
 > semantics. GC-native convoy ready expansion is documented only as a
