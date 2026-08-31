@@ -121,11 +121,13 @@ the human in one flow and usually avoids needing a separate aggregate URL.
 ### Form creator / orchestrator flow
 
 1. Create or choose the bead that owns the decision.
-2. Attach a standard form with a stable, memorable `id`.
+2. Create and attach a standard form with a stable, memorable `id`.
 3. Share the form id, bead id, and repo dir with teammates who should add
    questions.
 4. Tell question adders to append dedicated questions instead of creating
    separate forms unless there is a specific reason to keep responses separate.
+5. When delegating to a question adder, include a short prompt that points them
+   at this skill and gives the exact repo dir, bead id, and form id to mutate.
 
 Example creator handoff:
 
