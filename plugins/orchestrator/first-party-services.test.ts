@@ -57,6 +57,7 @@ describe('first-party service plugin inventory and golden supervisor config', ()
     }
 
     expect(getSupervisorManagedProgramNames(BUILTIN_FIRST_PARTY_SERVICE_PLUGINS)).toEqual([
+      'beads-dolt-shared-server',
       'code-server',
       'vibe-kanban',
       'vibe-dashboard',
@@ -70,6 +71,7 @@ describe('first-party service plugin inventory and golden supervisor config', ()
     ]);
 
     expect(getFirstPartyAdminCapabilitySummaries(BUILTIN_FIRST_PARTY_SERVICE_PLUGINS)).toMatchObject([
+      { id: 'first-party.beads-dolt-shared-server', privilegeTier: 'core-control-plane', requiresHostShell: true },
       { id: 'first-party.code-server', privilegeTier: 'trusted-workspace', requiresHostShell: true, repoAccess: 'workspace' },
       { id: 'first-party.vibe-kanban', privilegeTier: 'core-control-plane', vkHttpApi: 'agentPrompt', repoAccess: 'repo' },
       { id: 'first-party.vibe-dashboard', privilegeTier: 'core-control-plane', bootCritical: true },
@@ -141,6 +143,23 @@ describe('first-party service plugin inventory and golden supervisor config', ()
     expect(goldenDockerfile).toContain('bd version | grep -F "${BEADS_VERSION#v}"');
     expect(goldenDockerfile).not.toContain('gastownhall/beads/main/scripts/install.sh');
     expect(goldenDockerfile).not.toContain('raw.githubusercontent.com/gastownhall/beads/${BEADS_VERSION}/scripts/install.sh');
+  });
+
+  it('pins Dolt and supervises the Beads shared-server at container startup', () => {
+    expect(goldenDockerfile).toContain('ARG DOLT_VERSION=2.3.1');
+    expect(goldenDockerfile).toContain('https://github.com/dolthub/dolt/releases/download/v${DOLT_VERSION}/${archive_name}');
+    expect(goldenDockerfile).toContain('dolt_sha256=0a2a318f27c5e1088a2883038573c2054e00f356dc9752e74bca934f8321959a');
+    expect(goldenDockerfile).toContain('dolt_sha256=33ce669f922a3424f271a9905b815ea442133a0504eea1f43b07cb5b1fef589e');
+    expect(goldenDockerfile).toContain('install -m 0755 "/tmp/dolt-linux-${dolt_arch}/bin/dolt" /usr/local/bin/dolt');
+    expect(goldenDockerfile).toContain('dolt version | grep -F "${DOLT_VERSION}"');
+
+    const doltServer = getSupervisorProgramBlock(goldenSupervisor, 'beads-dolt-shared-server');
+    expect(doltServer).toContain('mkdir -p /home/vkuser/.beads/shared-server/dolt');
+    expect(doltServer).toContain('/usr/local/bin/dolt sql-server -H 127.0.0.1 -P 3308 --loglevel=warning');
+    expect(doltServer).toContain('autostart=true');
+    expect(doltServer).toContain('autorestart=true');
+    expect(doltServer).toContain('priority=5');
+    expect(doltServer).toContain('user=vkuser');
   });
 
   it('builds and exposes the BeadsForm CLI as a global Docker command', () => {

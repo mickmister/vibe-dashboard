@@ -131,6 +131,22 @@ supervisor.rpcinterface_factory = supervisor.rpcinterface:make_main_rpcinterface
 [include]
 files = /etc/supervisor/conf.d/vd-generated/*.conf`;
 
+const BEADS_DOLT_SHARED_SERVER_SUPERVISOR = `; Beads shared Dolt server. Keep this running at container startup so agents can
+; use \`bd ready\` directly instead of racing opportunistic \`bd dolt start\` calls.
+[program:beads-dolt-shared-server]
+command=sh -c 'mkdir -p /home/vkuser/.beads/shared-server/dolt && cd /home/vkuser/.beads/shared-server/dolt && exec /usr/local/bin/dolt sql-server -H 127.0.0.1 -P 3308 --loglevel=warning'
+autostart=true
+autorestart=true
+priority=5
+startsecs=2
+startretries=3
+stdout_logfile=/dev/fd/1
+stdout_logfile_maxbytes=0
+stderr_logfile=/dev/fd/2
+stderr_logfile_maxbytes=0
+environment=HOME="/home/vkuser",XDG_CONFIG_HOME="/home/vkuser/.config",PATH="/usr/local/bin:/usr/bin:/bin"
+user=vkuser`;
+
 const CODE_SERVER_SUPERVISOR = `; code-server
 [program:code-server]
 command=sh -c 'if [ -n "\${CODE_PASSWORD}" ] && [ "\${CODE_PASSWORD}" != "__unset__" ]; then export PASSWORD="\${CODE_PASSWORD}"; unset HASHED_PASSWORD; exec code-server --auth password --bind-addr 0.0.0.0:%(ENV_CODE_PORT)s --idle-timeout-seconds=3600; else unset PASSWORD HASHED_PASSWORD; exec code-server --auth none --bind-addr 0.0.0.0:%(ENV_CODE_PORT)s --idle-timeout-seconds=3600 --disable-workspace-trust --disable-telemetry; fi'
@@ -314,6 +330,20 @@ export const BEADS_WEB_FIRST_PARTY_PLUGIN: FirstPartyServicePlugin = {
 };
 
 export const BUILTIN_FIRST_PARTY_SERVICE_PLUGINS: FirstPartyServicePlugin[] = [
+  {
+    manifest: manifest({
+      id: 'first-party.beads-dolt-shared-server',
+      displayName: 'Beads Dolt Shared Server',
+      version: '2.3.1',
+      requestedCapabilities: {
+        hostShell: { commands: ['/usr/local/bin/dolt sql-server'] },
+        filesystem: [{ scope: 'absolute', path: '/home/vkuser/.beads/shared-server', access: 'readWrite' }],
+        network: { mode: 'ingress', ports: ['3308'] },
+      },
+      components: { services: [{ id: 'beads-dolt-shared-server', runtime: 'supervisor', command: '/usr/local/bin/dolt sql-server -H 127.0.0.1 -P 3308' }] },
+    }),
+    privilegeTier: 'core-control-plane', bootCritical: false, supervisorPrograms: ['beads-dolt-shared-server'], supervisorConfig: BEADS_DOLT_SHARED_SERVER_SUPERVISOR, installStrategy: 'github-release-asset', desiredVersion: 'dolt@2.3.1', stagingRequired: true, rollbackable: true,
+  },
   {
     manifest: manifest({
       id: 'first-party.code-server',

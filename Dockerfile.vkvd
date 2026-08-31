@@ -8,6 +8,7 @@ ARG CODEX_RELEASE_REPO=mickmister/codex
 ARG CODEX_RELEASE_TAG=codex-cli-assets-dc198b6aa9597a0b82a7488d2d2777933ad01329
 ARG CODEX_RELEASE_ASSET=
 ARG BEADS_VERSION=v1.2.2
+ARG DOLT_VERSION=2.3.1
 
 FROM alpine:3.19 AS vk-runtime-downloader
 
@@ -125,6 +126,7 @@ ARG CODEX_RELEASE_REPO
 ARG CODEX_RELEASE_TAG
 ARG CODEX_RELEASE_ASSET
 ARG BEADS_VERSION
+ARG DOLT_VERSION
 
 # Harden APT against flaky proxy/cache behavior (helps prevent Hash Sum mismatch on macOS VM networking).
 RUN set -eux; \
@@ -400,6 +402,24 @@ RUN set -eux; \
     ln -sf bd /usr/local/bin/beads; \
     rm -f "/tmp/${archive_name}" /tmp/beads-checksums.txt /tmp/bd; \
     bd version | grep -F "${BEADS_VERSION#v}"
+
+# Install Dolt for Beads shared-server mode. Pin the binary independently from
+# bd so container startup can supervise the shared Dolt server instead of
+# forcing every agent shell to run `bd dolt start` opportunistically.
+RUN set -eux; \
+    arch="$(dpkg --print-architecture)"; \
+    case "$arch" in \
+      amd64) dolt_arch=amd64; dolt_sha256=0a2a318f27c5e1088a2883038573c2054e00f356dc9752e74bca934f8321959a ;; \
+      arm64) dolt_arch=arm64; dolt_sha256=33ce669f922a3424f271a9905b815ea442133a0504eea1f43b07cb5b1fef589e ;; \
+      *) echo "unsupported architecture: $arch" >&2; exit 1 ;; \
+    esac; \
+    archive_name="dolt-linux-${dolt_arch}.tar.gz"; \
+    curl -fsSL "https://github.com/dolthub/dolt/releases/download/v${DOLT_VERSION}/${archive_name}" -o "/tmp/${archive_name}"; \
+    printf '%s  %s\n' "${dolt_sha256}" "/tmp/${archive_name}" | sha256sum -c -; \
+    tar -xzf "/tmp/${archive_name}" -C /tmp; \
+    install -m 0755 "/tmp/dolt-linux-${dolt_arch}/bin/dolt" /usr/local/bin/dolt; \
+    rm -rf "/tmp/${archive_name}" "/tmp/dolt-linux-${dolt_arch}"; \
+    dolt version | grep -F "${DOLT_VERSION}"
 
 # Create supervisor config and plugin runtime directories. /var/lib/vd is
 # intentionally writable by vkadmin so the VD app, agents, and root startup
