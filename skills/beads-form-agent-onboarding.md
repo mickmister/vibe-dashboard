@@ -111,12 +111,51 @@ In the VD Docker/dev runtime, `beads-form` should be available on `PATH` globall
 
 The command prints URLs. Provide the remote one to the user, and use explicit markdown link syntax when doing so.
 
-## 3. Update a shared canonical form
+## 3. Collaborate on one canonical form
 
-When multiple agents collaborate on one BeadsForm, mutate the same canonical bead-backed form with focused new questions instead of creating a pile of disconnected forms:
+Prefer one canonical form when several agents need the same human decision. The
+orchestrator or first form author creates the bead and attaches the initial
+form, then other agents append focused questions to that same form. This keeps
+the human in one flow and usually avoids needing a separate aggregate URL.
+
+### Form creator / orchestrator flow
+
+1. Create or choose the bead that owns the decision.
+2. Attach a standard form with a stable, memorable `id`.
+3. Share the form id, bead id, and repo dir with teammates who should add
+   questions.
+4. Tell question adders to append dedicated questions instead of creating
+   separate forms unless there is a specific reason to keep responses separate.
+
+Example creator handoff:
+
+```text
+Canonical form:
+- repo dir: /path/to/repo
+- bead: beads-web-123
+- form: release_readiness
+- URL: https://jamtools.dev/dashboard/forms?dir=...&bead=beads-web-123&form=release_readiness
+
+Please append any review concerns as focused questions with:
+beads-form append-questions --dir /path/to/repo --bead beads-web-123 --form release_readiness --stdin
+```
+
+The creator should make the starter form self-contained: include the goal,
+known decisions, enough context for later agents, and an `additional_notes`
+textarea. Do not leave important review context only in the conversation.
+
+### Question-adder / reviewer flow
+
+When another agent, reviewer, or UX specialist has more concerns, mutate the
+same canonical bead-backed form with focused new questions instead of creating a
+pile of disconnected forms:
 
 ```bash
-beads-form append-questions --bead <bead-id> --form <form-id> --stdin <<'JSON'
+beads-form append-questions \
+  --dir <repo-dir> \
+  --bead <bead-id> \
+  --form <form-id> \
+  --stdin <<'JSON'
 {
   "operation": "append_questions",
   "questions": [
@@ -132,6 +171,33 @@ JSON
 ```
 
 Accepted append input shapes are a direct question array, `{ "questions": [...] }`, or `{ "operation": "append_questions", "questions": [...] }`. Use `--after-question <question-id>` when the new question belongs after a specific existing question. Use `--base-hash <hash>` only when coordinating with another agent and you want the update to fail if the form definition changed first. The command rejects full forms, raw/custom HTML, generated `html`/`controls`, duplicate question ids, unknown operations, and empty question arrays. Existing responses are preserved; if responses already exist, remember that older responses will not answer the newly appended questions.
+
+Question adders should:
+
+- Read the current form first when possible:
+
+  ```bash
+  beads-form show --bead <bead-id> --form <form-id> --dir <repo-dir>
+  ```
+
+- Add one coherent review concern per question. Do not append a large
+  unstructured review blob.
+- Include attribution in the question description, for example
+  `Source: review2 blocker on 2026-08-31`.
+- Preserve concrete pros, cons, risks, suggested fixes, and non-blocking notes
+  in the question or choice descriptions.
+- Use stable question ids that include the topic, not the agent name alone.
+- Prefer appending to the canonical form over making a new form. Create a
+  separate form only when the response must remain separate or the creator asks
+  for separate source forms.
+
+### When to use aggregate forms instead
+
+If teammates already created separate forms, or separate responses must remain
+separate, build an aggregate URL instead of copying questions by hand. Aggregate
+forms are useful for collecting existing independent forms into one view, while
+canonical `append-questions` is better for building one shared decision form
+before the human answers.
 
 ## 4. Share the URL with the human
 
