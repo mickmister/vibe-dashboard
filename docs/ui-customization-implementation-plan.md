@@ -121,35 +121,28 @@ customization.
 
 ### OpenLint current affordances
 
-Current helper:
+Current environment-owned OpenLint commands:
 
 ```sh
-check-ui-injection <folder> [ol-check-options...]
+ol check --preset tsx-view-boundary <folder>
+ol check --preset ui-customization-fences <folder>
 ```
 
 Examples:
 
 ```sh
-check-ui-injection /path/to/repo
-check-ui-injection /path/to/repo --changed
-check-ui-injection /path/to/repo --last-commit --json
+ol check --preset tsx-view-boundary /path/to/repo
+ol check --preset ui-customization-fences /path/to/repo
+ol check --changed --preset ui-customization-fences --target /path/to/repo
+ol check --last-commit --preset ui-customization-fences /path/to/repo --json
 ```
 
-Environment overrides:
+The OpenLint default policy directory is the source of truth for these presets;
+repo scripts intentionally do not pass `--policy-dir`.
 
-```sh
-OPENLINT_BIN=/absolute/path/to/ol
-OPENLINT_UI_INJECTION_POLICY_DIR=/absolute/path/to/tsx-view-boundary-policy
-```
-
-Local OpenLint research in `/var/tmp/vibe-kanban/worktrees/fa63-openlint/openlint`
-shows:
-
-- A built-in `tsx-view-boundary` preset exists.
-- `--changed`, `--changed-since`, `--last-commit`, and `--commit-range` are
-  documented.
-- Repo-local policy is a designed capability, but the current helper is already
-  enough for our immediate repo scripts.
+OpenLint supports `--changed`, `--changed-since`, `--last-commit`, and
+`--commit-range`. Repo-local `openlint.yaml` is supported when this repo needs
+checked-in overrides, but the team/environment defaults stay outside this repo.
 
 ## 3. Target architecture
 
@@ -517,32 +510,43 @@ Skin CSS should target `data-vd-*` attributes and variables.
 
 ### Immediate npm scripts
 
-Add scripts after the plan is accepted:
+Current repo scripts use `ol` directly and rely on the environment policy:
 
 ```json
 {
-  "lint:ui-injection": "check-ui-injection . --changed",
-  "lint:ui-injection:migrated": "check-ui-injection src/components/spaces-overview",
-  "lint:ui-injection:last-commit": "check-ui-injection . --last-commit"
+  "lint:tsx-view-boundary": "ol check --preset tsx-view-boundary",
+  "lint:tsx-view-boundary:migrated": "ol check --preset tsx-view-boundary src/components/spaces-overview",
+  "lint:tsx-view-boundary:changed": "ol check --changed --preset tsx-view-boundary --target .",
+  "lint:tsx-view-boundary:last-commit": "ol check --last-commit --preset tsx-view-boundary --target .",
+  "lint:ui-fences": "ol check --preset ui-customization-fences",
+  "lint:ui-fences:migrated": "ol check --preset ui-customization-fences src/components/spaces-overview",
+  "lint:ui-fences:changed": "ol check --changed --preset ui-customization-fences --target .",
+  "lint:ui-fences:last-commit": "ol check --last-commit --preset ui-customization-fences --target ."
 }
 ```
 
-Use the helper for now. It is available and stable enough for this repo.
+Use the `:migrated` scripts as pass/fail checks for surfaces that have moved
+into the customization architecture. Use the broader scripts manually to inspect
+the rest of the app before adding new migrated targets.
 
-### Near-term repo target file
+### Repo target file
 
-Create a repo-owned target manifest:
+The repo-owned target manifest is:
 
 ```text
 openlint/ui-injection-targets.json
 ```
 
-Example:
+Current scope:
 
 ```json
 {
   "migratedSurfaces": [
-    "src/components/spaces-overview"
+    {
+      "name": "spaces-overview",
+      "path": "src/components/spaces-overview",
+      "status": "pilot"
+    }
   ],
   "reportOnly": [
     "src/components",
@@ -551,8 +555,8 @@ Example:
 }
 ```
 
-If OpenLint does not consume this file yet, npm scripts can read it later or
-the OpenLint workspace can add support.
+OpenLint does not consume this manifest directly yet; it is a checked-in
+contract for scripts, reviews, and future OpenLint target-manifest support.
 
 ### Rules to add over time
 
@@ -799,7 +803,7 @@ npm run check-types
 
 ```sh
 npm test -- src/components/spaces-overview/SpacesOverview.model.test.ts
-check-ui-injection src/components/spaces-overview
+npm run lint:ui-fences:migrated
 npm test
 ```
 
@@ -847,6 +851,9 @@ Target:
 ```text
 src/components/spaces-overview
 ```
+
+Status: implemented in this branch through `lint:tsx-view-boundary:*`,
+`lint:ui-fences:*`, and `openlint/ui-customization-targets.json`.
 
 ### Phase 2: skin core port
 
@@ -988,7 +995,7 @@ unreachable and `dolt` is not on PATH. Once `bd` is usable, create/update these:
 
 Start with Phase 1:
 
-1. Add npm scripts for current OpenLint helper.
+1. Add npm scripts for environment-owned OpenLint UI fences.
 2. Add a repo-owned migrated-target manifest.
 3. Keep enforcement limited to `src/components/spaces-overview`.
 4. Then begin Phase 2 by porting skin core tests first.

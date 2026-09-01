@@ -1,0 +1,28 @@
+{
+  "$schema": "./ui-customization-targets.schema.json",
+  "description": "Migrated UI customization surfaces covered by the environment-owned OpenLint UI fence presets.",
+  "presets": [
+    "tsx-view-boundary",
+    "ui-customization-fences"
+  ],
+  "migratedSurfaces": [
+    {
+      "name": "spaces-overview",
+      "path": "src/components/spaces-overview",
+      "status": "pilot",
+      "notes": "Current redesign target for semantic surface slots, view files, and skin CSS."
+    }
+  ],
+  "reviewOnlySurfaces": [
+    {
+      "name": "app-components",
+      "path": "src/components",
+      "notes": "Broader components tree can be scanned manually, but is not yet a pass/fail migrated target."
+    },
+    {
+      "name": "skin-runtime",
+      "path": "src/theme/skins",
+      "notes": "Skin runtime is relevant to UI customization but should be covered by specialized rules later."
+    }
+  ]
+}
