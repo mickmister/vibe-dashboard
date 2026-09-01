@@ -52,6 +52,6 @@ That command runs OpenLint's migrated view/controller and customization fence
 presets, then runs the project-owned skinability check for migrated
 SpacesOverview surfaces. The OpenLint policy used by this repo is committed in
 `.github/openlint` so local and CI runs do not depend on a machine-global
-policy directory. CI currently provisions the unpublished OpenLint CLI by
-checking out `vibe-dashboard/open-lint` at a pinned source SHA; migrate this to
-the npm package when `open-lint` is available.
+policy directory. CI provisions the OpenLint CLI from the published
+`@mickmister/openlint` npm package, which also brings the ast-grep dependency
+needed by the repo-owned policy.

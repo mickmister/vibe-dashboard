@@ -145,12 +145,11 @@ describe("CI UI customization wiring", () => {
     expect(workflow).toContain("pull_request:");
     expect(workflow).toMatch(/push:\s*\n\s*branches:\s*\n\s*-\s+main/);
     expect(uiJob).toContain("ui-customization-boundaries:");
-    expect(uiJob).toContain("repository: vibe-dashboard/open-lint");
+    expect(uiJob).not.toContain("repository: vibe-dashboard/open-lint");
+    expect(uiJob).not.toContain("dtolnay/rust-toolchain@stable");
     expect(uiJob).toContain(
-      "ref: 5bbc87c895d6c50c6da454e891a64213dcbb9518",
+      "npm install --global @mickmister/openlint@0.1.0",
     );
-    expect(uiJob).toContain("dtolnay/rust-toolchain@stable");
-    expect(uiJob).toContain("npm install --global .tmp/open-lint");
     expect(uiJob).toContain("OPENLINT_POLICY_DIR: .github/openlint");
     expect(uiJob).toContain("npm run lint:ui-customization");
     expect(workflow).toContain("- ui-customization-boundaries");

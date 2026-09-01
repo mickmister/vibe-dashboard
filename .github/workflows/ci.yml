@@ -71,13 +71,6 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Checkout pinned OpenLint source
-        uses: actions/checkout@v4
-        with:
-          repository: vibe-dashboard/open-lint
-          ref: 5bbc87c895d6c50c6da454e891a64213dcbb9518
-          path: .tmp/open-lint
-
       - name: Setup pnpm
         uses: pnpm/action-setup@v4
 
@@ -87,14 +80,11 @@ jobs:
           node-version: 22
           cache: pnpm
 
-      - name: Setup Rust for pinned OpenLint source build
-        uses: dtolnay/rust-toolchain@stable
-
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
-      - name: Provision pinned OpenLint CLI
-        run: npm install --global .tmp/open-lint
+      - name: Provision OpenLint CLI
+        run: npm install --global @mickmister/openlint@0.1.0
 
       - name: Verify OpenLint is available
         env:
@@ -102,7 +92,7 @@ jobs:
         run: |
           if ! command -v ol >/dev/null 2>&1; then
             echo "::error::OpenLint (ol) is required for UI customization boundary checks."
-            echo "::error::The pinned OpenLint provisioning step did not install ol."
+            echo "::error::The OpenLint provisioning step did not install ol."
             exit 1
           fi
           ol --version
