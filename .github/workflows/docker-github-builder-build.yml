@@ -199,6 +199,7 @@ jobs:
             await exec.exec('npm', ['install', '--prefer-offline', '--ignore-scripts', core.getInput('dat-module')]);
       -
         name: Install Cosign
+        if: ${{ inputs.sign == 'true' || (inputs.sign == 'auto' && ((inputs.output == 'image' && inputs.push) || (inputs.output == 'local' && inputs.artifact-upload))) }}
         uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
         env:
           INPUT_COSIGN-VERSION: ${{ env.COSIGN_VERSION }}
@@ -222,6 +223,7 @@ jobs:
             await cosign.printVersion();
       -
         name: Check dependencies signatures
+        if: ${{ inputs.sign == 'true' || (inputs.sign == 'auto' && ((inputs.output == 'image' && inputs.push) || (inputs.output == 'local' && inputs.artifact-upload))) }}
         uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
         env:
           INPUT_IMAGES: |
@@ -442,7 +444,7 @@ jobs:
               core.setOutput('sign', sign);
             });
             await core.group(`Set ghaCacheSign output`, async () => {
-              const ghaCacheSign = inpActionsIdTokenSet ? 'true' : 'false';
+              const ghaCacheSign = inpActionsIdTokenSet && sign ? 'true' : 'false';
               core.info(`ghaCacheSign: ${ghaCacheSign}`);
               core.setOutput('ghaCacheSign', ghaCacheSign);
             });
@@ -575,7 +577,7 @@ jobs:
                     sourceRepositoryURI = "${{ github.server_url }}/${{ github.repository }}"
       -
         name: Install Cosign
-        if: ${{ needs.prepare.outputs.sign == 'true' || inputs.cache }}
+        if: ${{ needs.prepare.outputs.sign == 'true' || needs.prepare.outputs.ghaCacheSign == 'true' }}
         uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
         env:
           INPUT_COSIGN-VERSION: ${{ env.COSIGN_VERSION }}
