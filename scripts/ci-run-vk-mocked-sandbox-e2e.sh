@@ -6,8 +6,10 @@ SANDBOX_LOG="$RUN_DIR/ci-sandbox.log"
 READY_TIMEOUT_SECONDS="${VK_MOCKED_SANDBOX_READY_TIMEOUT_SECONDS:-1200}"
 
 if [[ -n "${VK_MOCKED_SANDBOX_URL:-}" && -z "${VK_MOCKED_CADDY_PORT:-}" ]]; then
-  export VK_MOCKED_CADDY_PORT
-  VK_MOCKED_CADDY_PORT="$(node -e "console.log(new URL(process.env.VK_MOCKED_SANDBOX_URL).port || '80')")"
+  configured_caddy_port="$(node -e "console.log(new URL(process.env.VK_MOCKED_SANDBOX_URL).port)")"
+  if [[ -n "$configured_caddy_port" ]]; then
+    export VK_MOCKED_CADDY_PORT="$configured_caddy_port"
+  fi
 fi
 
 cleanup() {
