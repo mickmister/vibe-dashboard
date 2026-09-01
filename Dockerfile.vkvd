@@ -9,6 +9,7 @@ ARG CODEX_RELEASE_REPO=mickmister/codex
 ARG CODEX_RELEASE_TAG=codex-cli-assets-dc198b6aa9597a0b82a7488d2d2777933ad01329
 ARG CODEX_RELEASE_ASSET=
 ARG BEADS_VERSION=v1.2.2
+ARG GASCITY_VERSION=v1.4.1
 
 FROM node:22-bookworm AS node-bookworm-base
 
@@ -185,6 +186,7 @@ ARG CODEX_RELEASE_REPO
 ARG CODEX_RELEASE_TAG
 ARG CODEX_RELEASE_ASSET
 ARG BEADS_VERSION
+ARG GASCITY_VERSION
 
 # Harden APT against flaky proxy/cache behavior (helps prevent Hash Sum mismatch on macOS VM networking).
 RUN set -eux; \
@@ -347,9 +349,11 @@ RUN groupadd -f vkadmin && \
              /home/vkuser/.cache \
              /home/vkuser/.claude \
              /home/vkuser/.openclaw \
+             /home/vkuser/.gc \
              /home/vkuser/bosun \
              /home/vkuser/repos \
              /var/tmp/vibe-kanban/worktrees \
+             /var/tmp/vibe-kanban/gc-runtime \
              /var/run/tailscale \
              /var/lib/tailscale && \
     chown -R vkuser:vkuser /home/vkuser && \
@@ -435,27 +439,44 @@ RUN mkdir -p /etc/process-exporter
 # Install Claude Code extension
 RUN su - vkuser -c "mkdir -p /home/vkuser/.local/share/code-server/extensions && code-server --install-extension anthropic.claude-code"
 
-# Install Beads CLI. Pin to the vetted recovery-line release by default so
-# container rebuilds cannot accidentally pick up untested schema migrations.
+# Install pinned Beads and Gas City release CLIs from official release assets.
+# Keep these pins aligned with docs/adr/0002-gas-city-backed-vd-workflows.md
+# and src/modules/plugins/workflows/server/gasCityCliWorkflowProvider.ts.
 RUN set -eux; \
     arch="$(dpkg --print-architecture)"; \
     case "$arch" in \
-      amd64) beads_arch=amd64 ;; \
-      arm64) beads_arch=arm64 ;; \
+      amd64) tool_arch=amd64 ;; \
+      arm64) tool_arch=arm64 ;; \
       *) echo "unsupported architecture: $arch" >&2; exit 1 ;; \
     esac; \
-    release_base_url="https://github.com/gastownhall/beads/releases/download/${BEADS_VERSION}"; \
-    archive_name="beads_${BEADS_VERSION#v}_linux_${beads_arch}.tar.gz"; \
-    curl -fsSL "${release_base_url}/${archive_name}" -o "/tmp/${archive_name}"; \
-    curl -fsSL "${release_base_url}/checksums.txt" -o /tmp/beads-checksums.txt; \
-    expected_sha="$(awk -v file="${archive_name}" '$2 == file { print $1 }' /tmp/beads-checksums.txt)"; \
-    test -n "${expected_sha}"; \
-    printf '%s  %s\n' "${expected_sha}" "/tmp/${archive_name}" | sha256sum -c -; \
-    tar -xzf "/tmp/${archive_name}" -C /tmp; \
+    beads_base_url="https://github.com/gastownhall/beads/releases/download/${BEADS_VERSION}"; \
+    beads_archive="beads_${BEADS_VERSION#v}_linux_${tool_arch}.tar.gz"; \
+    curl -fsSL "${beads_base_url}/${beads_archive}" -o "/tmp/${beads_archive}"; \
+    curl -fsSL "${beads_base_url}/checksums.txt" -o /tmp/beads-checksums.txt; \
+    beads_sha="$(awk -v file="${beads_archive}" '$2 == file { print $1 }' /tmp/beads-checksums.txt)"; \
+    test -n "${beads_sha}"; \
+    printf '%s  %s\n' "${beads_sha}" "/tmp/${beads_archive}" | sha256sum -c -; \
+    tar -xzf "/tmp/${beads_archive}" -C /tmp; \
     install -m 0755 /tmp/bd /usr/local/bin/bd; \
     ln -sf bd /usr/local/bin/beads; \
-    rm -f "/tmp/${archive_name}" /tmp/beads-checksums.txt /tmp/bd; \
-    bd version | grep -F "${BEADS_VERSION#v}"
+    rm -f "/tmp/${beads_archive}" /tmp/beads-checksums.txt /tmp/bd; \
+    gascity_base_url="https://github.com/gastownhall/gascity/releases/download/${GASCITY_VERSION}"; \
+    gascity_archive="gascity_${GASCITY_VERSION#v}_linux_${tool_arch}.tar.gz"; \
+    curl -fsSL "${gascity_base_url}/${gascity_archive}" -o "/tmp/${gascity_archive}"; \
+    curl -fsSL "${gascity_base_url}/gascity_${GASCITY_VERSION#v}_checksums.txt" -o /tmp/gascity-checksums.txt; \
+    gascity_sha="$(awk -v file="${gascity_archive}" '$2 == file { print $1 }' /tmp/gascity-checksums.txt)"; \
+    test -n "${gascity_sha}"; \
+    printf '%s  %s\n' "${gascity_sha}" "/tmp/${gascity_archive}" | sha256sum -c -; \
+    tar -xzf "/tmp/${gascity_archive}" -C /tmp; \
+    install -m 0755 /tmp/gc /usr/local/bin/gc; \
+    rm -f "/tmp/${gascity_archive}" /tmp/gascity-checksums.txt /tmp/gc; \
+    bd version | grep -F "${BEADS_VERSION#v}"; \
+    gc version --json | grep -F "${GASCITY_VERSION#v}"
+
+ENV VD_GAS_CITY_VERSION=${GASCITY_VERSION}
+ENV VD_BEADS_VERSION=${BEADS_VERSION}
+ENV GC_HOME=/home/vkuser/.gc
+ENV XDG_RUNTIME_DIR=/var/tmp/vibe-kanban/gc-runtime
 
 # Create supervisor config and plugin runtime directories. /var/lib/vd is
 # intentionally writable by vkadmin so the VD app, agents, and root startup
@@ -482,6 +503,10 @@ COPY . /opt/vibe-kanban-vscode-web-seed
 COPY --from=dashboard-builder /app/dist/plugins-orchestrator /opt/vibe-kanban-vscode-web-seed/dist/plugins-orchestrator
 COPY --from=dashboard-builder /app/dist/vibe-agent /opt/vibe-kanban-vscode-web-seed/dist/vibe-agent
 COPY --from=dashboard-builder /app/packages/beads-form/dist /opt/vibe-kanban-vscode-web-seed/packages/beads-form/dist
+RUN cd /opt/vibe-kanban-vscode-web-seed/packages/gc-session-vibe && \
+    CGO_ENABLED=0 GOBIN=/usr/local/bin go install ./cmd/gc-session-vibe && \
+    GC_EXEC_STATE_DIR=/tmp/gc-session-vibe-smoke gc-session-vibe list-running >/dev/null && \
+    rm -rf /tmp/gc-session-vibe-smoke
 RUN chown -R vkuser:vkadmin /opt/vibe-kanban-vscode-web-seed && \
     chmod -R g+rwX /opt/vibe-kanban-vscode-web-seed && \
     find /opt/vibe-kanban-vscode-web-seed -type d -exec chmod g+s {} +

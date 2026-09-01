@@ -29,6 +29,10 @@ describe('workflow-e2e-docker-playwright harness', () => {
     expect(dockerfile).toContain('libclang-dev');
     expect(dockerfile).toContain('lld');
     expect(dockerfile).toContain('clang');
+    expect(dockerfile).toContain('ARG GASCITY_VERSION=v1.4.1');
+    expect(dockerfile).toContain('ARG BEADS_VERSION=v1.2.2');
+    expect(dockerfile).toContain('gascity_${GASCITY_VERSION#v}_checksums.txt');
+    expect(dockerfile).toContain('beads_${BEADS_VERSION#v}_linux_${tool_arch}.tar.gz');
     expect(dockerfile).toContain('--profile minimal --default-toolchain stable');
     expect(script).toContain('--env VK_MOCKED_SKIP_LOCAL_WEB_BUILD=1');
     expect(script).toContain('container_qa_scripted_outcome_file="/workspace/vibe-kanban-vscode-web/${container_qa_scripted_outcome_file#./}"');
@@ -37,6 +41,9 @@ describe('workflow-e2e-docker-playwright harness', () => {
     expect(script).toContain('--env WORKFLOW_E2E_PLAYWRIGHT_ARGS="${WORKFLOW_E2E_PLAYWRIGHT_ARGS:-}"');
     expect(script).toContain('VK mocked local web stub');
     expect(script).toContain('find /root/.cargo/git /tmp/vk-target -name "*.lock" -delete');
+    expect(script).toContain('run_with_log gas-city-runtime-smoke bash scripts/smoke-gas-city-runtime.sh --skip-bridge');
+    expect(script).toContain('run_with_log gc-session-vibe-build');
+    expect(script).toContain('GC_EXEC_STATE_DIR=/tmp/gc-session-vibe-smoke gc-session-vibe list-running');
     expect(script).toContain('run_with_log vk-cargo-build cargo build --features qa-mode --bin server');
     expect(script).toContain('run_with_log');
     expect(script).toContain('still running');

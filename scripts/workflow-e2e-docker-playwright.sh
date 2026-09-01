@@ -149,6 +149,8 @@ docker exec \
       echo "VK_QA_SCRIPTED_OUTCOME_FILE does not exist inside Docker: ${VK_QA_SCRIPTED_OUTCOME_FILE}" >&2
       exit 1
     fi
+    run_with_log gas-city-runtime-smoke bash scripts/smoke-gas-city-runtime.sh --skip-bridge
+    run_with_log gc-session-vibe-build bash -lc "cd packages/gc-session-vibe && CGO_ENABLED=0 GOBIN=/usr/local/bin go install ./cmd/gc-session-vibe && GC_EXEC_STATE_DIR=/tmp/gc-session-vibe-smoke gc-session-vibe list-running >/dev/null && rm -rf /tmp/gc-session-vibe-smoke"
     run_with_log vd-pnpm-install pnpm install --frozen-lockfile --child-concurrency=1 --network-concurrency=4
     cd /workspace/vibe-kanban
     run_with_log vk-pnpm-install pnpm install --frozen-lockfile --child-concurrency=1 --network-concurrency=4

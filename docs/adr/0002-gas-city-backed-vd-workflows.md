@@ -42,7 +42,10 @@ contract to released `gc v1.4.1`, whose release notes describe run-centered APIs
 session lifecycle convergence, formula v2 fan-out/drain/finalization behavior,
 and a resilient beads persistence boundary. The current architecture must depend
 only on pinned released behavior unless a later form explicitly approves an edge
-or commit-pinned experiment.
+or commit-pinned experiment. VD Docker/runtime images pin the matching released
+CLIs as build arguments: `GASCITY_VERSION=v1.4.1` and `BEADS_VERSION=v1.2.2`.
+The Gas City provider default (`DEFAULT_PINNED_GAS_CITY_VERSION`) must stay
+aligned with the image pin.
 
 ## Decision
 
