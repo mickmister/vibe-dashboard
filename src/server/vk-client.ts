@@ -51,6 +51,109 @@ export interface ExecutionProcess {
   executor_action?: unknown;
 }
 
+export interface PreviewResolveRequest {
+  host: string;
+  workspaceToken: string;
+  repoSlug: string;
+  slotSlug: string;
+  customerSlug: string;
+  ensure: boolean;
+  method: string;
+  path: string;
+}
+
+export interface PreviewResolveResponse {
+  status: 'ready' | 'starting' | 'not_found' | 'capacity_full' | 'failed' | 'unavailable' | 'error';
+  upstream?: string | null;
+  message?: string | null;
+  executionProcessId?: string | null;
+}
+
+export type RunConfigKind = 'long_running' | 'one_shot' | 'test';
+
+export interface RunConfig {
+  id: string;
+  repo_id: string;
+  slug: string;
+  name: string;
+  command: string;
+  working_dir?: string | null;
+  kind: RunConfigKind;
+  enabled: boolean;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface UpsertRunConfig {
+  id?: string | null;
+  repo_id: string;
+  slug: string;
+  name: string;
+  command: string;
+  working_dir?: string | null;
+  kind: RunConfigKind;
+  enabled?: boolean;
+}
+
+export interface PreviewSlot {
+  id: string;
+  repo_id: string;
+  run_config_id: string;
+  slot_slug: string;
+  title: string;
+  enabled: boolean;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface UpsertPreviewSlot {
+  id?: string | null;
+  repo_id: string;
+  run_config_id: string;
+  slot_slug: string;
+  title: string;
+  enabled?: boolean;
+}
+
+export interface PreviewProcessLink {
+  id: string;
+  workspace_id: string;
+  repo_id: string;
+  run_config_id: string;
+  preview_slot_id?: string | null;
+  execution_process_id: string;
+  assigned_port: number;
+  status_snapshot: 'starting' | 'ready' | 'failed' | 'stopped';
+  started_at: string;
+  updated_at: string;
+  ended_at?: string | null;
+}
+
+export interface RunConfigStartResponse {
+  execution_process: ExecutionProcess;
+  preview_process_link: PreviewProcessLink;
+  upstream: string;
+}
+
+export interface PreviewSlotUrlParts {
+  previewSlotId: string;
+  workspaceToken: string;
+  repoSlug: string;
+  slotSlug: string;
+}
+
+export interface WorkspaceRunConfigsResponse {
+  run_configs: RunConfig[];
+  preview_slots: PreviewSlot[];
+  preview_url_parts: PreviewSlotUrlParts[];
+}
+
+export interface PreviewSlotUrlResponse extends PreviewSlotUrlParts {
+  customerSlug: string;
+  host: string;
+  url: string;
+}
+
 export interface CreateSessionBody {
   workspace_id: string;
   executor: Executor;
@@ -113,6 +216,10 @@ export class VibeKanbanServerClient {
     return this.get('/workspaces');
   }
 
+  getWorkspace(workspaceId: string): Promise<Workspace> {
+    return this.get(`/workspaces/${encodeURIComponent(workspaceId)}`);
+  }
+
   getWorkspaceRepos(workspaceId: string): Promise<RepoWithBranch[]> {
     return this.get(`/workspaces/${encodeURIComponent(workspaceId)}/repos`);
   }
@@ -127,6 +234,64 @@ export class VibeKanbanServerClient {
 
   createSession(body: CreateSessionBody): Promise<Session> {
     return this.post('/sessions', body);
+  }
+
+  getExecutionProcess(processId: string): Promise<ExecutionProcess> {
+    return this.get(`/execution-processes/${encodeURIComponent(processId)}`);
+  }
+
+  async stopExecutionProcess(processId: string): Promise<void> {
+    await this.post(`/execution-processes/${encodeURIComponent(processId)}/stop`, {});
+  }
+
+  async checkHealth(): Promise<void> {
+    await this.get('/health');
+  }
+
+  async getInfo(): Promise<unknown> {
+    return this.get('/info');
+  }
+
+  resolvePreview(request: PreviewResolveRequest): Promise<PreviewResolveResponse> {
+    return this.post('/preview/resolve', request);
+  }
+
+  getRunConfigs(workspaceId: string): Promise<WorkspaceRunConfigsResponse> {
+    return this.get(`/workspaces/${encodeURIComponent(workspaceId)}/execution/run-configs`);
+  }
+
+  upsertRunConfig(workspaceId: string, body: UpsertRunConfig): Promise<RunConfig> {
+    return this.post(`/workspaces/${encodeURIComponent(workspaceId)}/execution/run-configs`, body);
+  }
+
+  upsertPreviewSlot(workspaceId: string, body: UpsertPreviewSlot): Promise<PreviewSlot> {
+    return this.post(`/workspaces/${encodeURIComponent(workspaceId)}/execution/preview-slots`, body);
+  }
+
+  startRunConfig(workspaceId: string, runConfigId: string): Promise<RunConfigStartResponse> {
+    return this.post(
+      `/workspaces/${encodeURIComponent(workspaceId)}/execution/run-configs/${encodeURIComponent(runConfigId)}/start`,
+      {},
+    );
+  }
+
+  startPreviewSlot(workspaceId: string, previewSlotId: string): Promise<RunConfigStartResponse> {
+    return this.post(
+      `/workspaces/${encodeURIComponent(workspaceId)}/execution/preview-slots/${encodeURIComponent(previewSlotId)}/start`,
+      {},
+    );
+  }
+
+  getPreviewSlotUrl(
+    workspaceId: string,
+    previewSlotId: string,
+    args: { customerSlug: string; baseDomain?: string },
+  ): Promise<PreviewSlotUrlResponse> {
+    const params = new URLSearchParams({ customerSlug: args.customerSlug });
+    if (args.baseDomain) params.set('baseDomain', args.baseDomain);
+    return this.get(
+      `/workspaces/${encodeURIComponent(workspaceId)}/execution/preview-slots/${encodeURIComponent(previewSlotId)}/url?${params}`,
+    );
   }
 
   async sendFollowUp(

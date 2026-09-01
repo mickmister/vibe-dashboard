@@ -12,6 +12,7 @@ import type { ResolvedWorkspaceComposition } from "./modules/plugins/vibe-dashbo
 import {
   BUILT_IN_AGENT_CODE_PAIR_ID,
   BUILT_IN_AGENT_TAB_ID,
+  BUILT_IN_FORMS_TAB_ID,
   isEphemeralCraftSurfaceTabId,
   migrateWorkspaceBuiltInTabs,
 } from "./modules/plugins/vibe-dashboard/craft-surfaces";
@@ -32,7 +33,9 @@ import "./modules/MainUIShellModule";
 import "./modules/WorkflowServerModule";
 // @platform end
 
-const WORKSPACE_CREATE_PATH = "/workspaces/create";
+import "./modules/BeadsFormModule";
+
+const WORKSPACE_CREATE_PATH = "/workspaces";
 const WORKSPACE_CREATE_TAB_TITLE = "Create Workspace";
 const URL_PARSE_BASE = "https://workspace.local";
 const MOBILE_TAB_EMOJIS = [
@@ -50,8 +53,34 @@ const MOBILE_TAB_EMOJIS = [
   "🛰️",
 ];
 
+type ViteImportMeta = ImportMeta & {
+  env?: {
+    VITE_VK_BASE_ORIGIN?: string;
+  };
+};
+
+function getConfiguredVkBaseOrigin(): string | null {
+  const configuredOrigin = (
+    (import.meta as ViteImportMeta).env?.VITE_VK_BASE_ORIGIN ??
+    (typeof process !== "undefined"
+      ? process.env?.VITE_VK_BASE_ORIGIN
+      : undefined)
+  )?.trim();
+  if (!configuredOrigin) return null;
+
+  try {
+    return new URL(configuredOrigin).origin;
+  } catch {
+    return null;
+  }
+}
+
 function buildWorkspaceTabUrl(baseOrigin: string, path: string): string {
-  return baseOrigin ? `${baseOrigin}${path}` : path;
+  const configuredBaseOrigin = getConfiguredVkBaseOrigin();
+  const effectiveBaseOrigin = configuredBaseOrigin ?? baseOrigin;
+  return effectiveBaseOrigin
+    ? `${effectiveBaseOrigin.replace(/\/$/, "")}${path}`
+    : path;
 }
 
 function isWorkspaceTabPath(url: string, expectedPath: string): boolean {
@@ -986,6 +1015,27 @@ const createWorkspaceModule = async (moduleAPI: ModuleAPI) => {
       }
 
       return { firstTabId, tabGroupId: args.tabGroupId };
+    },
+
+    openFormsForBead: async (args: {
+      tabGroupId: string;
+      agentTabId: string;
+      beadId: string;
+    }) => {
+      if (args.agentTabId !== BUILT_IN_AGENT_TAB_ID) return undefined;
+      let opened = false;
+      workspaceState.setStateImmer((draft) => {
+        const tabGroup = draft.tabGroups.find((candidate) => candidate.id === args.tabGroupId);
+        if (!tabGroup?.workspace?.workspaceId) return;
+        tabGroup.workspace.formsBeadId = args.beadId;
+        opened = true;
+      });
+      if (!opened) return undefined;
+
+      return {
+        tabGroupId: args.tabGroupId,
+        formsTabId: BUILT_IN_FORMS_TAB_ID,
+      };
     },
 
     addVKWorkspace: async (args: {
