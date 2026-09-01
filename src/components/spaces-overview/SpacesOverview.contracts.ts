@@ -1,4 +1,5 @@
 import type { ComponentType } from "react";
+import type { VDSkinState } from "../../theme/skins";
 import type {
   SavedWorkspaceSession,
   TabGroup,
@@ -46,6 +47,7 @@ export interface SpacesOverviewProps {
     containerRef: string,
     spaceId: string,
   ) => void | Promise<void>;
+  skinState?: VDSkinState;
 }
 
 export interface SpacesOverviewViewProps extends SpacesOverviewProps {

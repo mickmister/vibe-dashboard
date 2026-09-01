@@ -2,7 +2,9 @@ import type { Meta, StoryObj } from '@storybook/react-vite';
 import {
   SpacesOverviewView,
   type DashboardWorkspace,
+  type SpacesOverviewPresentation,
 } from './SpacesOverview';
+import { lightStudioSkin, highContrastTerminalSkin } from '../theme/skins';
 import {
   storybookRepos,
   storybookRepoBranches,
@@ -12,6 +14,17 @@ import {
   storybookWorkspace,
   storybookWorkspaceSummaries,
 } from '../stories/fixtures';
+import { DefaultSpacesOverviewLayout } from './spaces-overview/DefaultSpacesOverview.view';
+import { denseWorkspaceListSpacesOverviewUI } from './spaces-overview/SpacesOverview.alternates';
+import { SpacesOverviewStoryFrame } from './spaces-overview/SpacesOverviewStoryFrame.view';
+
+const densePresentation: SpacesOverviewPresentation = (props) => (
+  <DefaultSpacesOverviewLayout
+    {...props}
+    ui={denseWorkspaceListSpacesOverviewUI}
+    viewPackId="dense-workspace-list"
+  />
+);
 
 const dashboardWorkspaces: DashboardWorkspace[] = storybookVKWorkspaces.map(
   (workspace) => {
@@ -76,9 +89,9 @@ const meta: Meta<typeof SpacesOverviewView> = {
   component: SpacesOverviewView,
   decorators: [
     (Story) => (
-      <div className="h-[760px] w-full overflow-hidden bg-zinc-900">
+      <SpacesOverviewStoryFrame>
         <Story />
-      </div>
+      </SpacesOverviewStoryFrame>
     ),
   ],
   args: {
@@ -108,6 +121,57 @@ export default meta;
 type Story = StoryObj<typeof meta>;
 
 export const Populated: Story = {};
+
+export const LightStudioSkin: Story = {
+  args: {
+    skinState: {
+      version: 1,
+      userSkins: [],
+      activeGlobalSkinId: lightStudioSkin.id,
+    },
+  },
+  parameters: {
+    docs: {
+      description: {
+        story:
+          'Manual proof that a built-in alternate global skin materially changes SpacesOverview through CSS variables only.',
+      },
+    },
+  },
+};
+
+export const DenseWorkspaceListViewPack: Story = {
+  args: {
+    presentation: densePresentation,
+  },
+  parameters: {
+    docs: {
+      description: {
+        story:
+          'Manual proof that the WorkspaceListSection can be swapped as a view-pack slice while keeping the controller behavior unchanged.',
+      },
+    },
+  },
+};
+
+export const HighContrastDenseViewPack: Story = {
+  args: {
+    presentation: densePresentation,
+    skinState: {
+      version: 1,
+      userSkins: [],
+      activeGlobalSkinId: highContrastTerminalSkin.id,
+    },
+  },
+  parameters: {
+    docs: {
+      description: {
+        story:
+          'Manual proof that skin selection and view-pack selection compose independently.',
+      },
+    },
+  },
+};
 
 export const Loading: Story = {
   args: {

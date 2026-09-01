@@ -30,7 +30,11 @@ export function StatusBadge({
 }) {
   if (hasPendingApproval) {
     return (
-      <span className="px-2 py-0.5 rounded-full text-xs font-medium bg-amber-500/15 text-amber-400 border border-amber-500/30">
+      <span
+        className="px-2 py-0.5 rounded-full text-xs font-medium bg-amber-500/15 text-amber-400 border border-amber-500/30"
+        data-vd-component="badge"
+        data-vd-status="warning"
+      >
         Waiting
       </span>
     );
@@ -39,21 +43,33 @@ export function StatusBadge({
   switch (status) {
     case "running":
       return (
-        <span className="px-2 py-0.5 rounded-full text-xs font-medium bg-green-500/15 text-green-400 border border-green-500/30 flex items-center gap-1">
+        <span
+          className="px-2 py-0.5 rounded-full text-xs font-medium bg-green-500/15 text-green-400 border border-green-500/30 flex items-center gap-1"
+          data-vd-component="badge"
+          data-vd-status="success"
+        >
           <span className="w-1.5 h-1.5 rounded-full bg-green-400 animate-pulse" />
           Running
         </span>
       );
     case "completed":
       return (
-        <span className="px-2 py-0.5 rounded-full text-xs font-medium bg-blue-500/15 text-blue-400 border border-blue-500/30">
+        <span
+          className="px-2 py-0.5 rounded-full text-xs font-medium bg-blue-500/15 text-blue-400 border border-blue-500/30"
+          data-vd-component="badge"
+          data-vd-status="accent"
+        >
           Done
         </span>
       );
     case "failed":
     case "killed":
       return (
-        <span className="px-2 py-0.5 rounded-full text-xs font-medium bg-red-500/15 text-red-400 border border-red-500/30">
+        <span
+          className="px-2 py-0.5 rounded-full text-xs font-medium bg-red-500/15 text-red-400 border border-red-500/30"
+          data-vd-component="badge"
+          data-vd-status="danger"
+        >
           {status === "failed" ? "Failed" : "Killed"}
         </span>
       );
@@ -75,7 +91,10 @@ export function PRBadge({
   };
 
   return (
-    <span className={`px-1.5 py-0.5 rounded text-xs border ${styles[status]}`}>
+    <span
+      className={`px-1.5 py-0.5 rounded text-xs border ${styles[status]}`}
+      data-vd-component="badge"
+    >
       PR {status}
     </span>
   );
@@ -99,6 +118,8 @@ export function RepoFilterBar({
     <div className="flex gap-2 overflow-x-auto pb-3 mb-4 scrollbar-none">
       <button
         className={selectedRepoId === null ? active : inactive}
+        data-vd-component="button"
+        data-vd-tone={selectedRepoId === null ? "accent" : "quiet"}
         onClick={() => onSelectRepo(null)}
       >
         All
@@ -107,6 +128,8 @@ export function RepoFilterBar({
         <button
           key={repo.id}
           className={selectedRepoId === repo.id ? active : inactive}
+          data-vd-component="button"
+          data-vd-tone={selectedRepoId === repo.id ? "accent" : "quiet"}
           onClick={() => onSelectRepo(repo.id)}
         >
           {repo.display_name || repo.name}
@@ -143,7 +166,10 @@ export function WorkspaceRow({
     ws.has_running_dev_server || isStoppingDevServer;
 
   return (
-    <div className="flex flex-col gap-3 px-4 py-3 bg-zinc-800/50 rounded-lg border border-zinc-700/50 hover:border-zinc-600 transition-colors sm:flex-row sm:items-start">
+    <div
+      className="flex flex-col gap-3 px-4 py-3 bg-zinc-800/50 rounded-lg border border-zinc-700/50 hover:border-zinc-600 transition-colors sm:flex-row sm:items-start"
+      data-vd-component="row"
+    >
       <div className="flex min-w-0 flex-1 items-start gap-3">
         {/* Unseen dot */}
         <div className="w-2 shrink-0 pt-2">
@@ -166,6 +192,7 @@ export function WorkspaceRow({
               <span
                 key={r.id}
                 className="rounded bg-zinc-700 px-1.5 py-0.5 text-zinc-400"
+                data-vd-component="badge"
               >
                 {r.display_name || r.name}
               </span>
@@ -176,15 +203,23 @@ export function WorkspaceRow({
                   <span>{ws.files_changed} file{ws.files_changed !== 1 ? "s" : ""}</span>
                 )}
                 {ws.lines_added != null && ws.lines_added > 0 && (
-                  <span className="font-mono text-green-500">+{ws.lines_added}</span>
+                  <span className="font-mono text-green-500" data-vd-status="success">
+                    +{ws.lines_added}
+                  </span>
                 )}
                 {ws.lines_removed != null && ws.lines_removed > 0 && (
-                  <span className="font-mono text-red-500">-{ws.lines_removed}</span>
+                  <span className="font-mono text-red-500" data-vd-status="danger">
+                    -{ws.lines_removed}
+                  </span>
                 )}
               </>
             )}
             {showsDevServerControls && (
-              <span className="inline-flex items-center gap-1 rounded-full border border-cyan-500/30 bg-cyan-500/15 px-2 py-0.5 font-medium text-cyan-400">
+              <span
+                className="inline-flex items-center gap-1 rounded-full border border-cyan-500/30 bg-cyan-500/15 px-2 py-0.5 font-medium text-cyan-400"
+                data-vd-component="badge"
+                data-vd-status="accent"
+              >
                 <span className="w-1.5 h-1.5 rounded-full bg-cyan-400 animate-pulse" />
                 Dev server
               </span>
@@ -209,6 +244,8 @@ export function WorkspaceRow({
             onClick={onStopDevServer}
             disabled={isStoppingDevServer}
             className="px-2 py-1 rounded text-xs font-medium bg-red-500/15 text-red-400 border border-red-500/30 hover:bg-red-500/25 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+            data-vd-component="button"
+            data-vd-tone="danger"
           >
             {isStoppingDevServer ? "Stopping..." : "Stop server"}
           </button>
@@ -219,6 +256,8 @@ export function WorkspaceRow({
             onClick={tabGroupNav.onNavigate}
             title={`Go to "${tabGroupNav.label}"`}
             className="px-2 py-1 rounded text-xs font-medium bg-indigo-500/15 text-indigo-400 border border-indigo-500/30 hover:bg-indigo-500/25 transition-colors"
+            data-vd-component="button"
+            data-vd-tone="accent"
           >
             Go to craft
           </button>
@@ -227,6 +266,7 @@ export function WorkspaceRow({
             onClick={onOpenInNewTabGroup}
             aria-label={`Open ${ws.name}`}
             className="px-2 py-1 rounded text-xs font-medium bg-zinc-700 text-zinc-300 border border-zinc-600 hover:bg-zinc-600 hover:text-white transition-colors"
+            data-vd-component="button"
           >
             Open
           </button>
@@ -249,7 +289,7 @@ export function Pagination({
 
   return (
     <div className="flex items-center justify-between mt-4">
-      <span className="text-xs text-zinc-500">
+      <span className="text-xs text-zinc-500" data-vd-muted>
         Page {page + 1} of {totalPages}
       </span>
       <div className="flex gap-2">
@@ -257,6 +297,8 @@ export function Pagination({
           disabled={page === 0}
           onClick={() => onPageChange(page - 1)}
           className="px-3 py-1 rounded text-xs font-medium bg-zinc-800 text-zinc-400 border border-zinc-700 hover:bg-zinc-700 hover:text-zinc-300 transition-colors disabled:opacity-30 disabled:cursor-not-allowed disabled:hover:bg-zinc-800 disabled:hover:text-zinc-400"
+          data-vd-component="button"
+          data-vd-tone="quiet"
         >
           Previous
         </button>
@@ -264,6 +306,8 @@ export function Pagination({
           disabled={page >= totalPages - 1}
           onClick={() => onPageChange(page + 1)}
           className="px-3 py-1 rounded text-xs font-medium bg-zinc-800 text-zinc-400 border border-zinc-700 hover:bg-zinc-700 hover:text-zinc-300 transition-colors disabled:opacity-30 disabled:cursor-not-allowed disabled:hover:bg-zinc-800 disabled:hover:text-zinc-400"
+          data-vd-component="button"
+          data-vd-tone="quiet"
         >
           Next
         </button>

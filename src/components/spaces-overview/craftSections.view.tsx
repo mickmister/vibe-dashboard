@@ -25,12 +25,16 @@ export function TabGroupRow({
     <button
       onClick={onNavigate}
       className="w-full flex items-start gap-3 px-4 py-2.5 rounded-lg bg-zinc-800/50 border border-zinc-700/50 hover:border-zinc-600 transition-colors group text-left"
+      data-vd-component="row"
     >
       <div className="min-w-0 flex-1">
         <span className="text-sm font-medium text-white break-words block">
           {label ?? tg.label}
         </span>
-        <span className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-zinc-500">
+        <span
+          className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-zinc-500"
+          data-vd-muted
+        >
           <span>{space.name}</span>
           <span>
             {tg.tabs.length} view{tg.tabs.length !== 1 ? "s" : ""}
@@ -74,7 +78,7 @@ export function StarredTabGroups({
   if (starred.length === 0) return null;
 
   return (
-    <div className="mb-8">
+    <div className="mb-8" data-vd-slot="starred-craft">
       <h2 className="text-lg font-semibold text-white mb-3">Starred</h2>
       <div className="space-y-1">
         {starred.map(({ space, tg }) => (
@@ -110,12 +114,13 @@ export function RecentSessionsSection({
   if (sortedSessions.length === 0) return null;
 
   return (
-    <div className="mb-8">
+    <div className="mb-8" data-vd-slot="recent-sessions">
       <div className="flex items-center justify-between mb-3 gap-3">
         <h2 className="text-lg font-semibold text-white">All Voyages</h2>
         <button
           onClick={actions.startNewSession}
           className="px-3 py-1.5 rounded text-xs font-medium bg-zinc-800 text-zinc-300 border border-zinc-700 hover:bg-zinc-700 hover:text-white transition-colors"
+          data-vd-component="button"
         >
           New Voyage
         </button>
@@ -163,6 +168,7 @@ export function RecentSessionsSection({
             <div
               key={session.id}
               className="rounded-lg bg-zinc-800/50 border border-zinc-700/50 overflow-hidden"
+              data-vd-component="card"
             >
               <div
                 className="flex flex-col gap-2 px-4 py-2.5 cursor-pointer sm:flex-row sm:items-start"
@@ -181,6 +187,8 @@ export function RecentSessionsSection({
                   <button
                     type="button"
                     className="mt-0.5 text-zinc-500 hover:text-white transition-colors shrink-0"
+                    data-vd-component="button"
+                    data-vd-tone="quiet"
                     aria-label={isExpanded ? 'Collapse voyage' : 'Expand voyage'}
                     onClick={(event) => {
                       event.stopPropagation();
@@ -216,11 +224,16 @@ export function RecentSessionsSection({
                       <span className="text-sm font-medium text-white break-words block">
                         {sessionName}
                       </span>
-                      <span className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-zinc-500">
+                      <span
+                        className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-zinc-500"
+                        data-vd-muted
+                      >
                         <span>{sessionLocation}</span>
                         <span>{formatRelativeTime(session.updatedAt)}</span>
                         {session.id === currentSessionId && (
-                          <span className="text-primary-300">Current</span>
+                          <span className="text-primary-300" data-vd-status="accent">
+                            Current
+                          </span>
                         )}
                       </span>
                     </>
@@ -234,6 +247,8 @@ export function RecentSessionsSection({
                       actions.startRenameSession(session.id, sessionName);
                     }}
                     className="text-xs text-zinc-400 hover:text-white shrink-0"
+                    data-vd-component="button"
+                    data-vd-tone="quiet"
                   >
                     Rename
                   </button>
@@ -249,6 +264,8 @@ export function RecentSessionsSection({
                       }
                     }}
                     className="text-xs text-red-400 hover:text-red-300 shrink-0"
+                    data-vd-component="button"
+                    data-vd-tone="danger"
                   >
                     Delete
                   </button>
@@ -262,15 +279,21 @@ export function RecentSessionsSection({
                         key={key}
                         onClick={() => actions.navigateToTabGroup(ownerSpace.id, tabGroup.id)}
                         className="w-full flex items-start justify-between gap-3 px-3 py-2 rounded bg-zinc-800/70 hover:bg-zinc-700/70 text-left"
+                        data-vd-component="row"
                       >
                         <div className="min-w-0 flex-1">
                           <div className="text-sm text-white break-words">
                             {tabGroup.label}
                             {tabGroup.id === session.activeTabGroupId ? (
-                              <span className="ml-2 text-xs text-primary-300">Active</span>
+                              <span className="ml-2 text-xs text-primary-300" data-vd-status="accent">
+                                Active
+                              </span>
                             ) : null}
                           </div>
-                          <div className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-zinc-500">
+                          <div
+                            className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-zinc-500"
+                            data-vd-muted
+                          >
                             {ownerSpace.name}
                             <span>
                               {tabGroup.tabs.length} view{tabGroup.tabs.length !== 1 ? 's' : ''}
@@ -280,7 +303,7 @@ export function RecentSessionsSection({
                       </button>
                     ))
                   ) : (
-                    <div className="text-xs text-zinc-500">
+                    <div className="text-xs text-zinc-500" data-vd-muted>
                       No available craft found for this voyage. Resume will recover it with a fallback craft.
                     </div>
                   )}
@@ -312,7 +335,7 @@ export function RecentlyVisitedTabGroups({
   if (items.length === 0) return null;
 
   return (
-    <div className="mb-8">
+    <div className="mb-8" data-vd-slot="recently-visited-craft">
       <h2 className="text-lg font-semibold text-white mb-3">
         Recently Visited
       </h2>
@@ -355,7 +378,7 @@ export function RecentlyCreatedTabGroups({
   if (items.length === 0) return null;
 
   return (
-    <div className="mb-8">
+    <div className="mb-8" data-vd-slot="recently-created-craft">
       <h2 className="text-lg font-semibold text-white mb-3">
         Recently Created
       </h2>
@@ -395,17 +418,17 @@ export function SpacesSection({
   if (spacesWithTabGroups.length === 0) return null;
 
   return (
-    <div>
+    <div data-vd-slot="spaces-list">
       <h2 className="text-lg font-semibold text-white mb-3">All Spaces</h2>
       <div className="space-y-1">
         {spacesWithTabGroups.map(({ space, tabGroups }) => (
-          <div key={space.id}>
+          <div key={space.id} data-vd-component="section">
             {/* Space header row */}
             <div className="flex items-center gap-3 px-4 py-2 mt-3 first:mt-0">
               <span className="text-sm font-semibold text-zinc-300">
                 {space.name}
               </span>
-              <span className="text-xs text-zinc-600">
+              <span className="text-xs text-zinc-600" data-vd-muted>
                 {tabGroups.length} craft
               </span>
             </div>
@@ -415,12 +438,16 @@ export function SpacesSection({
                 key={tg.id}
                 onClick={() => onNavigateToTabGroup(space.id, tg.id)}
                 className="w-full flex items-start gap-3 px-4 py-2.5 rounded-lg bg-zinc-800/50 border border-zinc-700/50 hover:border-zinc-600 transition-colors group text-left"
+                data-vd-component="row"
               >
                 <div className="min-w-0 flex-1">
                   <span className="text-sm text-white font-medium break-words block">
                     {tabGroupDisplayLabelById.get(tg.id) ?? tg.label}
                   </span>
-                  <span className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-zinc-500">
+                  <span
+                    className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-zinc-500"
+                    data-vd-muted
+                  >
                     <span>
                       {tg.tabs.length} view{tg.tabs.length !== 1 ? "s" : ""}
                     </span>

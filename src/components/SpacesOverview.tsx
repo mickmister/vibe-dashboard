@@ -6,6 +6,7 @@ import {
   type Repo,
   type RepoWithBranch,
 } from "../lib/vk-client";
+import { SkinRoot } from "../theme/skins";
 import { selectedSpacesOverviewView } from "./spaces-overview/SpacesOverview.selected";
 import type {
   DashboardWorkspace,
@@ -233,6 +234,7 @@ export function SpacesOverviewView({
   initialSelectedRepoId = null,
   initialSpacePickerTargetId = null,
   initialOpenCraftActionError = null,
+  skinState,
   presentation: Presentation = selectedSpacesOverviewView,
 }: SpacesOverviewViewProps) {
   const [selectedRepoId, setSelectedRepoId] = useState<string | null>(
@@ -536,7 +538,11 @@ export function SpacesOverviewView({
     ],
   );
 
-  return <Presentation model={model} actions={actions} />;
+  return (
+    <SkinRoot state={skinState}>
+      <Presentation model={model} actions={actions} />
+    </SkinRoot>
+  );
 }
 
 function getDashboardOpenCraftErrorMessage(error: unknown): string {

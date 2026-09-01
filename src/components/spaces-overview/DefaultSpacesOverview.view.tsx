@@ -15,12 +15,15 @@ import { RunningDevServersSection } from "./RunningDevServersSection.view";
 import { SpacePickerModal } from "./SpacePickerModal.view";
 import { Pagination, RepoFilterBar, WorkspaceRow } from "./workspaceList.view";
 import { createSpacesOverviewUI } from "./SpacesOverview.ui";
+import styles from "./SpacesOverview.skin.module.css";
 
 export function DefaultPageHeader(_props: SpacesOverviewComponentProps) {
   return (
-    <div className="mb-6">
+    <div className="mb-6" data-vd-slot="page-header">
       <h1 className="text-2xl font-bold text-white">Dashboard</h1>
-      <p className="text-sm text-zinc-500 mt-1">Workspace activity feed</p>
+      <p className="mt-1 text-sm text-zinc-500" data-vd-muted>
+        Workspace activity feed
+      </p>
     </div>
   );
 }
@@ -117,11 +120,11 @@ export function DefaultWorkspaceListSection({
   } = model;
 
   return (
-    <div className="mb-10">
+    <div className="mb-10" data-vd-slot="workspace-list">
       <div className="flex items-center justify-between mb-3">
         <h2 className="text-lg font-semibold text-white">VK Workspaces</h2>
         {!loading && sortedWorkspaces.length > 0 && (
-          <span className="text-xs text-zinc-500">
+          <span className="text-xs text-zinc-500" data-vd-muted>
             {sortedWorkspaces.length} workspace
             {sortedWorkspaces.length !== 1 ? "s" : ""}
           </span>
@@ -135,18 +138,21 @@ export function DefaultWorkspaceListSection({
       />
 
       {loading ? (
-        <div className="flex items-center justify-center py-12">
+        <div
+          className="flex items-center justify-center py-12"
+          data-vd-component="loading-state"
+        >
           <div className="w-6 h-6 border-2 border-zinc-600 border-t-zinc-300 rounded-full animate-spin" />
         </div>
       ) : error ? (
-        <div className="text-center py-8">
+        <div className="py-8 text-center" data-vd-component="error-state">
           <p className="text-zinc-500 text-sm">{error}</p>
-          <p className="text-zinc-600 text-xs mt-1">
+          <p className="mt-1 text-xs text-zinc-600" data-vd-muted>
             VK backend may not be running
           </p>
         </div>
       ) : sortedWorkspaces.length === 0 ? (
-        <div className="text-center py-8">
+        <div className="py-8 text-center" data-vd-component="empty-state">
           <p className="text-zinc-500 text-sm">
             {selectedRepoId
               ? "No workspaces for this repository"
@@ -206,7 +212,7 @@ export function DefaultSpacesSection({
 
   return (
     <>
-      <div className="border-t border-zinc-800 my-8" />
+      <div className="my-8 border-t border-zinc-800" />
       <SpacesSection
         spacesWithTabGroups={model.spacesWithTabGroups}
         onNavigateToTabGroup={actions.navigateToTabGroup}
@@ -269,13 +275,19 @@ export function DefaultSpacesOverviewLayout({
   model,
   actions,
   ui,
+  viewPackId = "default",
 }: {
   model: SpacesOverviewViewModel;
   actions: SpacesOverviewViewActions;
   ui: SpacesOverviewUIPack;
+  viewPackId?: string;
 }) {
   return (
-    <div className="h-full w-full overflow-auto bg-zinc-900 p-6 md:p-8">
+    <div
+      className={`${styles.surface} h-full w-full overflow-auto p-6 md:p-8`}
+      data-vd-surface="spaces-overview"
+      data-vd-view-pack={viewPackId}
+    >
       <div className="max-w-4xl mx-auto">
         <ui.PageHeader model={model} actions={actions} />
         <ui.RecentSessionsSection model={model} actions={actions} />

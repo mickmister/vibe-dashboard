@@ -31,7 +31,10 @@ export function RunningDevServersSection({
   if (loading || devServerWorkspaces.length === 0) return null;
 
   return (
-    <div className="mb-8 rounded-xl border border-cyan-500/30 bg-cyan-500/5 p-4">
+    <div
+      className="mb-8 rounded-xl border border-cyan-500/30 bg-cyan-500/5 p-4"
+      data-vd-slot="running-dev-servers"
+    >
       <div className="flex items-center justify-between mb-3">
         <div className="flex items-center gap-2">
           <span className="w-2 h-2 rounded-full bg-cyan-400 animate-pulse" />
@@ -39,7 +42,7 @@ export function RunningDevServersSection({
             Running Dev Servers
           </h2>
         </div>
-        <span className="text-xs text-zinc-500">
+        <span className="text-xs text-zinc-500" data-vd-muted>
           {devServerWorkspaces.length} workspace
           {devServerWorkspaces.length !== 1 ? "s" : ""}
         </span>

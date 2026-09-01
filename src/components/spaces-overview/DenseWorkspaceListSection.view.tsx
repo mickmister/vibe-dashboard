@@ -19,14 +19,17 @@ export function DenseWorkspaceListSection({
   } = model;
 
   return (
-    <div className="mb-10 rounded-xl border border-zinc-800 bg-zinc-950/30">
+    <div
+      className="mb-10 rounded-xl border border-zinc-800 bg-zinc-950/30"
+      data-vd-slot="workspace-list"
+    >
       <div className="flex flex-col gap-3 border-b border-zinc-800 px-4 py-3 sm:flex-row sm:items-center sm:justify-between">
         <div>
           <h2 className="text-sm font-semibold uppercase tracking-[0.16em] text-zinc-300">
             VK Workspaces
           </h2>
           {!loading && sortedWorkspaces.length > 0 && (
-            <p className="mt-1 text-xs text-zinc-500">
+            <p className="mt-1 text-xs text-zinc-500" data-vd-muted>
               {sortedWorkspaces.length} workspace
               {sortedWorkspaces.length !== 1 ? "s" : ""}
               {selectedRepoId ? " in this repository" : ""}
@@ -40,6 +43,8 @@ export function DenseWorkspaceListSection({
                 ? "rounded-full border border-white/20 bg-white/10 px-3 py-1 text-xs font-medium text-white"
                 : "rounded-full border border-zinc-800 bg-zinc-900 px-3 py-1 text-xs font-medium text-zinc-400 hover:text-zinc-200"
             }
+            data-vd-component="button"
+            data-vd-tone={selectedRepoId === null ? "accent" : "quiet"}
             onClick={() => actions.selectRepo(null)}
           >
             All
@@ -52,6 +57,8 @@ export function DenseWorkspaceListSection({
                   ? "rounded-full border border-white/20 bg-white/10 px-3 py-1 text-xs font-medium text-white"
                   : "rounded-full border border-zinc-800 bg-zinc-900 px-3 py-1 text-xs font-medium text-zinc-400 hover:text-zinc-200"
               }
+              data-vd-component="button"
+              data-vd-tone={selectedRepoId === repo.id ? "accent" : "quiet"}
               onClick={() => actions.selectRepo(repo.id)}
             >
               {repo.display_name || repo.name}
@@ -61,18 +68,24 @@ export function DenseWorkspaceListSection({
       </div>
 
       {loading ? (
-        <div className="px-4 py-8 text-center text-sm text-zinc-500">
+        <div
+          className="px-4 py-8 text-center text-sm text-zinc-500"
+          data-vd-component="loading-state"
+        >
           Loading workspaces…
         </div>
       ) : error ? (
-        <div className="px-4 py-8 text-center">
+        <div className="px-4 py-8 text-center" data-vd-component="error-state">
           <p className="text-sm text-zinc-400">{error}</p>
-          <p className="mt-1 text-xs text-zinc-600">
+          <p className="mt-1 text-xs text-zinc-600" data-vd-muted>
             VK backend may not be running
           </p>
         </div>
       ) : sortedWorkspaces.length === 0 ? (
-        <div className="px-4 py-8 text-center text-sm text-zinc-500">
+        <div
+          className="px-4 py-8 text-center text-sm text-zinc-500"
+          data-vd-component="empty-state"
+        >
           {selectedRepoId
             ? "No workspaces for this repository"
             : "No active workspaces"}
@@ -88,6 +101,7 @@ export function DenseWorkspaceListSection({
                 <div
                   key={workspace.id}
                   className="grid gap-3 px-4 py-2.5 text-xs text-zinc-400 sm:grid-cols-[minmax(0,1.4fr)_minmax(0,1fr)_auto] sm:items-center"
+                  data-vd-component="row"
                 >
                   <div className="min-w-0">
                     <div className="flex min-w-0 items-center gap-2">
@@ -111,6 +125,7 @@ export function DenseWorkspaceListSection({
                       <span
                         key={repo.id}
                         className="rounded bg-zinc-800 px-1.5 py-0.5 text-zinc-500"
+                        data-vd-component="badge"
                       >
                         {repo.display_name || repo.name}
                       </span>
@@ -120,13 +135,19 @@ export function DenseWorkspaceListSection({
                     )}
                     {workspace.lines_added != null &&
                       workspace.lines_added > 0 && (
-                        <span className="font-mono text-green-500">
+                        <span
+                          className="font-mono text-green-500"
+                          data-vd-status="success"
+                        >
                           +{workspace.lines_added}
                         </span>
                       )}
                     {workspace.lines_removed != null &&
                       workspace.lines_removed > 0 && (
-                        <span className="font-mono text-red-500">
+                        <span
+                          className="font-mono text-red-500"
+                          data-vd-status="danger"
+                        >
                           -{workspace.lines_removed}
                         </span>
                       )}
@@ -143,6 +164,8 @@ export function DenseWorkspaceListSection({
                       <button
                         className="rounded border border-red-500/30 bg-red-500/10 px-2 py-1 font-medium text-red-400 disabled:cursor-not-allowed disabled:opacity-50"
                         disabled={isStopping}
+                        data-vd-component="button"
+                        data-vd-tone="danger"
                         onClick={() => actions.stopDevServer(workspace.id)}
                       >
                         {isStopping ? "Stopping…" : "Stop"}
@@ -151,6 +174,8 @@ export function DenseWorkspaceListSection({
                     {nav ? (
                       <button
                         className="rounded border border-indigo-500/30 bg-indigo-500/10 px-2 py-1 font-medium text-indigo-300"
+                        data-vd-component="button"
+                        data-vd-tone="accent"
                         title={`Go to "${nav.label}"`}
                         onClick={() =>
                           actions.navigateToTabGroup(
@@ -165,6 +190,7 @@ export function DenseWorkspaceListSection({
                       <button
                         className="rounded border border-zinc-700 bg-zinc-800 px-2 py-1 font-medium text-zinc-300"
                         aria-label={`Open ${workspace.name}`}
+                        data-vd-component="button"
                         onClick={() =>
                           actions.openSpacePickerForWorkspace(workspace)
                         }
