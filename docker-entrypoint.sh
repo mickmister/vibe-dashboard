@@ -60,6 +60,16 @@ ensure_vkuser_shared_dir() {
     done
 }
 
+expose_npm_global_tool() {
+    local tool="$1"
+    local source="/home/vkuser/.npm-global/bin/${tool}"
+    local destination="/usr/local/bin/${tool}"
+    if [ -x "$source" ] && [ ! -e "$destination" ]; then
+        ln -s "$source" "$destination"
+        startup_log "Exposed npm global tool on PATH: ${destination} -> ${source}"
+    fi
+}
+
 # Fix docker group GID to match the mounted socket
 startup_step_begin "configure docker socket group"
 if [ -S /var/run/docker.sock ]; then
@@ -97,6 +107,16 @@ startup_step_begin "prepare shared runtime volume roots"
 startup_debug_path_summary /var/lib/vd
 startup_debug_path_summary /var/tmp/vibe-kanban
 ensure_shared_dir /var/lib/vd /var/tmp/vibe-kanban
+startup_step_end
+
+# Tools installed in vkuser's npm-global prefix can survive container restarts
+# while /usr/local/bin may not contain the matching shims in every environment.
+# Expose OpenLint and its ast-grep dependency through /usr/local/bin so plain npm
+# scripts that call `ol` work in non-login shells.
+startup_step_begin "expose npm global developer tools"
+expose_npm_global_tool ol
+expose_npm_global_tool openlint
+expose_npm_global_tool ast-grep
 startup_step_end
 
 # Initialize vibe-kanban-vscode-web repository in repos volume. The seed copy
