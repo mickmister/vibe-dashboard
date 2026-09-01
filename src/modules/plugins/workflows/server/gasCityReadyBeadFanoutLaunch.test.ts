@@ -156,6 +156,24 @@ describe("GasCityReadyBeadFanoutLauncher GCW-7B", () => {
     expect(JSON.stringify(result)).not.toMatch(/gc sling|bd show|git status|\/Users|\/tmp|stdout|stderr|provider diagnostics|raw XML|raw JSON/i);
   });
 
+
+  it("awaits same-key concurrent fanout requests and launches only one provider call set", async () => {
+    const gasCityProvider = new SlowGasCityProvider();
+    const { launcher: fanout } = launcher({ gasCityProvider, beads: [bead({ id: "bead-a" }), bead({ id: "bead-b" })] });
+
+    const first = fanout.launchReadyBeads(request("same-concurrent-key"));
+    const second = fanout.launchReadyBeads(request("same-concurrent-key"));
+    gasCityProvider.release();
+    const [firstResult, secondResult] = await Promise.all([first, second]);
+
+    expect(firstResult).toEqual(secondResult);
+    expect(firstResult.counts.launched).toBe(2);
+    expect(gasCityProvider.launches.map((launch) => [launch.sourceBeadId, launch.idempotencyKey])).toEqual([
+      ["bead-a", "same-concurrent-key:bead-a"],
+      ["bead-b", "same-concurrent-key:bead-b"],
+    ]);
+  });
+
   it("uses a short workspace lock to suppress concurrent launch preparation", async () => {
     const gasCityProvider = new SlowGasCityProvider();
     const { launcher: fanout } = launcher({ gasCityProvider, beads: [bead({ id: "bead-a" }), bead({ id: "bead-b" })] });

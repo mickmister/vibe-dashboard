@@ -65,6 +65,11 @@ interface CachedFanoutLaunch {
   result: ReadyBeadFanoutLaunchResult;
 }
 
+interface InFlightFanoutLaunch {
+  identity: string;
+  promise: Promise<ReadyBeadFanoutLaunchResult>;
+}
+
 interface WorkspaceLock {
   owner: string;
   expiresAt: number;
@@ -78,6 +83,7 @@ export class GasCityReadyBeadFanoutLauncher {
   private readonly now: () => number;
   private readonly lockTtlMs: number;
   private readonly launchesByKey = new Map<string, CachedFanoutLaunch>();
+  private readonly inFlightByKey = new Map<string, InFlightFanoutLaunch>();
   private readonly workspaceLocks = new Map<string, WorkspaceLock>();
 
   constructor(options: GasCityReadyBeadFanoutLauncherOptions) {
@@ -96,7 +102,22 @@ export class GasCityReadyBeadFanoutLauncher {
       if (cached.identity !== identity) return blockedResult(request, "This fanout launch key already belongs to different work.", this.now());
       return cloneResult(cached.result);
     }
+    const inFlight = this.inFlightByKey.get(idempotencyKey);
+    if (inFlight) {
+      if (inFlight.identity !== identity) return blockedResult(request, "This fanout launch key already belongs to different work.", this.now());
+      return cloneResult(await inFlight.promise);
+    }
 
+    const promise = this.performLaunchReadyBeads(request, idempotencyKey, identity);
+    this.inFlightByKey.set(idempotencyKey, { identity, promise });
+    try {
+      return cloneResult(await promise);
+    } finally {
+      if (this.inFlightByKey.get(idempotencyKey)?.promise === promise) this.inFlightByKey.delete(idempotencyKey);
+    }
+  }
+
+  private async performLaunchReadyBeads(request: ReadyBeadFanoutLaunchRequest, idempotencyKey: string, identity: string): Promise<ReadyBeadFanoutLaunchResult> {
     const preview = await this.previewProvider.previewReadyBeadFanout(request.preview);
     const lock = this.acquireWorkspaceLock(preview.workspaceId, idempotencyKey);
     if (!lock.ok) {
