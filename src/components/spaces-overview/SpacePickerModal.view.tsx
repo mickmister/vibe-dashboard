@@ -37,22 +37,25 @@ export function SpacePickerModal({
         onClick={(e) => e.stopPropagation()}
       >
         <div className="px-5 pt-5 pb-3">
-          <h3 className="text-sm font-semibold text-white">
+          <h3 className="text-sm font-semibold" data-vd-text="primary">
             Open craft in space
           </h3>
-          <p className="mt-1 truncate text-xs text-zinc-500" data-vd-muted>
+          <p className="mt-1 truncate text-xs" data-vd-muted>
             {targetWorkspace.name}
           </p>
         </div>
         {actionError && (
           <div
             role="alert"
-            className="mx-5 mb-3 rounded-md border border-red-500/40 bg-red-500/10 p-3 text-xs text-red-200"
+            className="mx-5 mb-3 rounded-md border border-red-500/40 bg-red-500/10 p-3 text-xs"
+            data-vd-status="danger"
           >
             <div>{actionError}</div>
             {onRetry && (
               <button
-                className="mt-2 rounded border border-red-400/50 px-2 py-1 font-medium text-red-100 transition-colors hover:bg-red-500/20"
+                className="mt-2 rounded border border-red-400/50 px-2 py-1 font-medium transition-colors hover:bg-red-500/20"
+                data-vd-component="button"
+                data-vd-tone="danger"
                 onClick={onRetry}
               >
                 Retry
@@ -63,7 +66,7 @@ export function SpacePickerModal({
         <div className="px-3 pb-3 max-h-64 overflow-y-auto">
           {spaces.length === 0 ? (
             <p
-              className="px-2 py-4 text-center text-xs text-zinc-500"
+              className="px-2 py-4 text-center text-xs"
               data-vd-muted
             >
               No spaces available. Create a space first.
@@ -78,16 +81,15 @@ export function SpacePickerModal({
                   className="w-full flex items-center gap-3 px-3 py-2.5 rounded-lg hover:bg-zinc-800 transition-colors text-left disabled:cursor-not-allowed disabled:opacity-60 disabled:hover:bg-transparent"
                   data-vd-component="row"
                 >
-                  <span className="text-sm text-white">{space.name}</span>
+                  <span className="text-sm" data-vd-text="primary">
+                    {space.name}
+                  </span>
                   {pendingSpaceId === space.id && (
-                    <span
-                      className="text-xs text-cyan-300"
-                      data-vd-status="accent"
-                    >
+                    <span className="text-xs" data-vd-status="accent">
                       Opening…
                     </span>
                   )}
-                  <span className="ml-auto text-xs text-zinc-600" data-vd-muted>
+                  <span className="ml-auto text-xs" data-vd-muted>
                     {
                       ws.tabGroups.filter((tg) =>
                         space.tabGroupIds.includes(tg.id),
@@ -104,7 +106,7 @@ export function SpacePickerModal({
           <button
             onClick={onClose}
             disabled={isPending}
-            className="w-full px-3 py-1.5 rounded text-xs font-medium bg-zinc-800 text-zinc-400 border border-zinc-700 hover:bg-zinc-700 hover:text-zinc-300 transition-colors disabled:cursor-not-allowed disabled:opacity-60 disabled:hover:bg-zinc-800 disabled:hover:text-zinc-400"
+            className="w-full px-3 py-1.5 rounded text-xs font-medium bg-zinc-800 border border-zinc-700 hover:bg-zinc-700 transition-colors disabled:cursor-not-allowed disabled:opacity-60 disabled:hover:bg-zinc-800"
             data-vd-component="button"
             data-vd-tone="quiet"
           >

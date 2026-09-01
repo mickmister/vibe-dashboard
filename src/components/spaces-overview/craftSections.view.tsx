@@ -28,11 +28,14 @@ export function TabGroupRow({
       data-vd-component="row"
     >
       <div className="min-w-0 flex-1">
-        <span className="text-sm font-medium text-white break-words block">
+        <span
+          className="text-sm font-medium break-words block"
+          data-vd-text="primary"
+        >
           {label ?? tg.label}
         </span>
         <span
-          className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-zinc-500"
+          className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs"
           data-vd-muted
         >
           <span>{space.name}</span>
@@ -45,7 +48,8 @@ export function TabGroupRow({
         </span>
       </div>
       <svg
-        className="mt-1 w-3.5 h-3.5 text-zinc-600 group-hover:text-white transition-colors shrink-0"
+        className="mt-1 w-3.5 h-3.5 transition-colors shrink-0"
+        data-vd-icon="chevron"
         fill="none"
         stroke="currentColor"
         viewBox="0 0 24 24"
@@ -79,7 +83,9 @@ export function StarredTabGroups({
 
   return (
     <div className="mb-8" data-vd-slot="starred-craft">
-      <h2 className="text-lg font-semibold text-white mb-3">Starred</h2>
+      <h2 className="text-lg font-semibold mb-3" data-vd-text="primary">
+        Starred
+      </h2>
       <div className="space-y-1">
         {starred.map(({ space, tg }) => (
           <TabGroupRow
@@ -116,10 +122,12 @@ export function RecentSessionsSection({
   return (
     <div className="mb-8" data-vd-slot="recent-sessions">
       <div className="flex items-center justify-between mb-3 gap-3">
-        <h2 className="text-lg font-semibold text-white">All Voyages</h2>
+        <h2 className="text-lg font-semibold" data-vd-text="primary">
+          All Voyages
+        </h2>
         <button
           onClick={actions.startNewSession}
-          className="px-3 py-1.5 rounded text-xs font-medium bg-zinc-800 text-zinc-300 border border-zinc-700 hover:bg-zinc-700 hover:text-white transition-colors"
+          className="px-3 py-1.5 rounded text-xs font-medium bg-zinc-800 border border-zinc-700 hover:bg-zinc-700 transition-colors"
           data-vd-component="button"
         >
           New Voyage
@@ -186,7 +194,7 @@ export function RecentSessionsSection({
                 <div className="flex min-w-0 flex-1 items-start gap-3">
                   <button
                     type="button"
-                    className="mt-0.5 text-zinc-500 hover:text-white transition-colors shrink-0"
+                    className="mt-0.5 transition-colors shrink-0"
                     data-vd-component="button"
                     data-vd-tone="quiet"
                     aria-label={isExpanded ? 'Collapse voyage' : 'Expand voyage'}
@@ -216,22 +224,26 @@ export function RecentSessionsSection({
                       onBlur={() => {
                         actions.submitRenameSession(session.id);
                       }}
-                      className="w-full rounded border border-zinc-600 bg-zinc-900 px-2 py-1 text-sm text-white"
+                      className="w-full rounded border border-zinc-600 bg-zinc-900 px-2 py-1 text-sm"
+                      data-vd-text="primary"
                       autoFocus
                     />
                   ) : (
                     <>
-                      <span className="text-sm font-medium text-white break-words block">
+                      <span
+                        className="text-sm font-medium break-words block"
+                        data-vd-text="primary"
+                      >
                         {sessionName}
                       </span>
                       <span
-                        className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-zinc-500"
+                        className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs"
                         data-vd-muted
                       >
                         <span>{sessionLocation}</span>
                         <span>{formatRelativeTime(session.updatedAt)}</span>
                         {session.id === currentSessionId && (
-                          <span className="text-primary-300" data-vd-status="accent">
+                          <span data-vd-status="accent">
                             Current
                           </span>
                         )}
@@ -246,7 +258,7 @@ export function RecentSessionsSection({
                       event.stopPropagation();
                       actions.startRenameSession(session.id, sessionName);
                     }}
-                    className="text-xs text-zinc-400 hover:text-white shrink-0"
+                    className="text-xs shrink-0"
                     data-vd-component="button"
                     data-vd-tone="quiet"
                   >
@@ -263,7 +275,7 @@ export function RecentSessionsSection({
                         actions.deleteSession(session.id);
                       }
                     }}
-                    className="text-xs text-red-400 hover:text-red-300 shrink-0"
+                    className="text-xs shrink-0"
                     data-vd-component="button"
                     data-vd-tone="danger"
                   >
@@ -282,16 +294,19 @@ export function RecentSessionsSection({
                         data-vd-component="row"
                       >
                         <div className="min-w-0 flex-1">
-                          <div className="text-sm text-white break-words">
+                          <div
+                            className="text-sm break-words"
+                            data-vd-text="primary"
+                          >
                             {tabGroup.label}
                             {tabGroup.id === session.activeTabGroupId ? (
-                              <span className="ml-2 text-xs text-primary-300" data-vd-status="accent">
+                              <span className="ml-2 text-xs" data-vd-status="accent">
                                 Active
                               </span>
                             ) : null}
                           </div>
                           <div
-                            className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-zinc-500"
+                            className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs"
                             data-vd-muted
                           >
                             {ownerSpace.name}
@@ -303,7 +318,7 @@ export function RecentSessionsSection({
                       </button>
                     ))
                   ) : (
-                    <div className="text-xs text-zinc-500" data-vd-muted>
+                    <div className="text-xs" data-vd-muted>
                       No available craft found for this voyage. Resume will recover it with a fallback craft.
                     </div>
                   )}
@@ -336,7 +351,7 @@ export function RecentlyVisitedTabGroups({
 
   return (
     <div className="mb-8" data-vd-slot="recently-visited-craft">
-      <h2 className="text-lg font-semibold text-white mb-3">
+      <h2 className="text-lg font-semibold mb-3" data-vd-text="primary">
         Recently Visited
       </h2>
       <div className="space-y-1">
@@ -379,7 +394,7 @@ export function RecentlyCreatedTabGroups({
 
   return (
     <div className="mb-8" data-vd-slot="recently-created-craft">
-      <h2 className="text-lg font-semibold text-white mb-3">
+      <h2 className="text-lg font-semibold mb-3" data-vd-text="primary">
         Recently Created
       </h2>
       <div className="space-y-1">
@@ -419,16 +434,18 @@ export function SpacesSection({
 
   return (
     <div data-vd-slot="spaces-list">
-      <h2 className="text-lg font-semibold text-white mb-3">All Spaces</h2>
+      <h2 className="text-lg font-semibold mb-3" data-vd-text="primary">
+        All Spaces
+      </h2>
       <div className="space-y-1">
         {spacesWithTabGroups.map(({ space, tabGroups }) => (
           <div key={space.id} data-vd-component="section">
             {/* Space header row */}
             <div className="flex items-center gap-3 px-4 py-2 mt-3 first:mt-0">
-              <span className="text-sm font-semibold text-zinc-300">
+              <span className="text-sm font-semibold" data-vd-text="secondary">
                 {space.name}
               </span>
-              <span className="text-xs text-zinc-600" data-vd-muted>
+              <span className="text-xs" data-vd-muted>
                 {tabGroups.length} craft
               </span>
             </div>
@@ -441,11 +458,14 @@ export function SpacesSection({
                 data-vd-component="row"
               >
                 <div className="min-w-0 flex-1">
-                  <span className="text-sm text-white font-medium break-words block">
+                  <span
+                    className="text-sm font-medium break-words block"
+                    data-vd-text="primary"
+                  >
                     {tabGroupDisplayLabelById.get(tg.id) ?? tg.label}
                   </span>
                   <span
-                    className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-zinc-500"
+                    className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs"
                     data-vd-muted
                   >
                     <span>
@@ -459,7 +479,8 @@ export function SpacesSection({
                   </span>
                 </div>
                 <svg
-                  className="mt-1 w-3.5 h-3.5 text-zinc-600 group-hover:text-white transition-colors shrink-0"
+                  className="mt-1 w-3.5 h-3.5 transition-colors shrink-0"
+                  data-vd-icon="chevron"
                   fill="none"
                   stroke="currentColor"
                   viewBox="0 0 24 24"

@@ -20,8 +20,10 @@ import styles from "./SpacesOverview.skin.module.css";
 export function DefaultPageHeader(_props: SpacesOverviewComponentProps) {
   return (
     <div className="mb-6" data-vd-slot="page-header">
-      <h1 className="text-2xl font-bold text-white">Dashboard</h1>
-      <p className="mt-1 text-sm text-zinc-500" data-vd-muted>
+      <h1 className="text-2xl font-bold" data-vd-text="primary">
+        Dashboard
+      </h1>
+      <p className="mt-1 text-sm" data-vd-muted>
         Workspace activity feed
       </p>
     </div>
@@ -122,9 +124,11 @@ export function DefaultWorkspaceListSection({
   return (
     <div className="mb-10" data-vd-slot="workspace-list">
       <div className="flex items-center justify-between mb-3">
-        <h2 className="text-lg font-semibold text-white">VK Workspaces</h2>
+        <h2 className="text-lg font-semibold" data-vd-text="primary">
+          VK Workspaces
+        </h2>
         {!loading && sortedWorkspaces.length > 0 && (
-          <span className="text-xs text-zinc-500" data-vd-muted>
+          <span className="text-xs" data-vd-muted>
             {sortedWorkspaces.length} workspace
             {sortedWorkspaces.length !== 1 ? "s" : ""}
           </span>
@@ -146,14 +150,16 @@ export function DefaultWorkspaceListSection({
         </div>
       ) : error ? (
         <div className="py-8 text-center" data-vd-component="error-state">
-          <p className="text-zinc-500 text-sm">{error}</p>
-          <p className="mt-1 text-xs text-zinc-600" data-vd-muted>
+          <p className="text-sm" data-vd-text="secondary">
+            {error}
+          </p>
+          <p className="mt-1 text-xs" data-vd-muted>
             VK backend may not be running
           </p>
         </div>
       ) : sortedWorkspaces.length === 0 ? (
         <div className="py-8 text-center" data-vd-component="empty-state">
-          <p className="text-zinc-500 text-sm">
+          <p className="text-sm" data-vd-muted>
             {selectedRepoId
               ? "No workspaces for this repository"
               : "No active workspaces"}

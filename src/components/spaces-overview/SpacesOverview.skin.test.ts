@@ -1,4 +1,5 @@
 import React from "react";
+import { readFileSync } from "node:fs";
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
 import { SpacesOverviewView, type DashboardWorkspace } from "../SpacesOverview";
@@ -14,6 +15,18 @@ import {
   storybookWorkspace,
   storybookWorkspaceSummaries,
 } from "../../stories/fixtures";
+
+const skinnedViewFiles = [
+  "src/components/spaces-overview/DefaultSpacesOverview.view.tsx",
+  "src/components/spaces-overview/DenseWorkspaceListSection.view.tsx",
+  "src/components/spaces-overview/RunningDevServersSection.view.tsx",
+  "src/components/spaces-overview/SpacePickerModal.view.tsx",
+  "src/components/spaces-overview/craftSections.view.tsx",
+  "src/components/spaces-overview/workspaceList.view.tsx",
+];
+
+const hardcodedTextColorUtility =
+  /\b(?:hover:|group-hover:|disabled:hover:)?text-(?:white|black|zinc|slate|gray|neutral|stone|red|green|amber|yellow|blue|cyan|indigo|violet|purple|primary)-[^\s"`']+/g;
 
 const dashboardWorkspaces: DashboardWorkspace[] = storybookVKWorkspaces.map(
   (workspace) => {
@@ -80,12 +93,30 @@ describe("SpacesOverview skin customization seam", () => {
     const html = renderSpacesOverview();
 
     expect(html).toContain("data-vd-skin-root=\"true\"");
+    expect(html).toMatch(
+      /<div class="[^"]*\bh-full\b[^"]*\bw-full\b" data-vd-density=/,
+    );
     expect(html).toContain("data-vd-surface=\"spaces-overview\"");
     expect(html).toContain("data-vd-slot=\"page-header\"");
     expect(html).toContain("data-vd-slot=\"recent-sessions\"");
     expect(html).toContain("data-vd-slot=\"workspace-list\"");
     expect(html).toContain("data-vd-slot=\"spaces-list\"");
     expect(html).toContain("data-vd-component=\"row\"");
+    expect(html).toContain("data-vd-text=\"primary\"");
+    expect(html).toContain("data-vd-text=\"secondary\"");
+  });
+
+  it("keeps SpacesOverview foreground colors controlled by semantic skin hooks", () => {
+    const hardcodedColorMatches = skinnedViewFiles.flatMap((filePath) => {
+      const source = readFileSync(filePath, "utf8");
+
+      return Array.from(source.matchAll(hardcodedTextColorUtility), (match) => ({
+        filePath,
+        utility: match[0],
+      }));
+    });
+
+    expect(hardcodedColorMatches).toEqual([]);
   });
 
   it("can materially change SpacesOverview through an alternate global skin without changing the controller", () => {

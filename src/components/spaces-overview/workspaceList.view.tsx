@@ -31,7 +31,7 @@ export function StatusBadge({
   if (hasPendingApproval) {
     return (
       <span
-        className="px-2 py-0.5 rounded-full text-xs font-medium bg-amber-500/15 text-amber-400 border border-amber-500/30"
+        className="px-2 py-0.5 rounded-full text-xs font-medium bg-amber-500/15 border border-amber-500/30"
         data-vd-component="badge"
         data-vd-status="warning"
       >
@@ -44,7 +44,7 @@ export function StatusBadge({
     case "running":
       return (
         <span
-          className="px-2 py-0.5 rounded-full text-xs font-medium bg-green-500/15 text-green-400 border border-green-500/30 flex items-center gap-1"
+          className="px-2 py-0.5 rounded-full text-xs font-medium bg-green-500/15 border border-green-500/30 flex items-center gap-1"
           data-vd-component="badge"
           data-vd-status="success"
         >
@@ -55,7 +55,7 @@ export function StatusBadge({
     case "completed":
       return (
         <span
-          className="px-2 py-0.5 rounded-full text-xs font-medium bg-blue-500/15 text-blue-400 border border-blue-500/30"
+          className="px-2 py-0.5 rounded-full text-xs font-medium bg-blue-500/15 border border-blue-500/30"
           data-vd-component="badge"
           data-vd-status="accent"
         >
@@ -66,7 +66,7 @@ export function StatusBadge({
     case "killed":
       return (
         <span
-          className="px-2 py-0.5 rounded-full text-xs font-medium bg-red-500/15 text-red-400 border border-red-500/30"
+          className="px-2 py-0.5 rounded-full text-xs font-medium bg-red-500/15 border border-red-500/30"
           data-vd-component="badge"
           data-vd-status="danger"
         >
@@ -84,16 +84,23 @@ export function PRBadge({
   status: "open" | "merged" | "closed" | "unknown";
 }) {
   const styles = {
-    open: "bg-green-500/15 text-green-400 border-green-500/30",
-    merged: "bg-purple-500/15 text-purple-400 border-purple-500/30",
-    closed: "bg-red-500/15 text-red-400 border-red-500/30",
-    unknown: "bg-zinc-500/15 text-zinc-400 border-zinc-500/30",
+    open: "bg-green-500/15 border-green-500/30",
+    merged: "bg-purple-500/15 border-purple-500/30",
+    closed: "bg-red-500/15 border-red-500/30",
+    unknown: "bg-zinc-500/15 border-zinc-500/30",
+  };
+  const tones = {
+    open: "success",
+    merged: "accent",
+    closed: "danger",
+    unknown: "secondary",
   };
 
   return (
     <span
       className={`px-1.5 py-0.5 rounded text-xs border ${styles[status]}`}
       data-vd-component="badge"
+      data-vd-status={tones[status]}
     >
       PR {status}
     </span>
@@ -110,9 +117,9 @@ export function RepoFilterBar({
   onSelectRepo: (repoId: string | null) => void;
 }) {
   const active =
-    "px-3 py-1 rounded-full text-xs font-medium bg-white/10 text-white border border-white/20";
+    "px-3 py-1 rounded-full text-xs font-medium bg-white/10 border border-white/20";
   const inactive =
-    "px-3 py-1 rounded-full text-xs font-medium bg-zinc-800 text-zinc-400 border border-transparent hover:bg-zinc-700 hover:text-zinc-300 transition-colors";
+    "px-3 py-1 rounded-full text-xs font-medium bg-zinc-800 border border-transparent hover:bg-zinc-700 transition-colors";
 
   return (
     <div className="flex gap-2 overflow-x-auto pb-3 mb-4 scrollbar-none">
@@ -181,17 +188,27 @@ export function WorkspaceRow({
         {/* Name + metadata */}
         <div className="min-w-0 flex-1">
           <div className="flex flex-wrap items-center gap-x-1.5 gap-y-1">
-            {ws.pinned && <span className="text-amber-400 text-xs">*</span>}
-            <span className="min-w-0 text-sm text-white font-medium break-words">
+            {ws.pinned && (
+              <span className="text-xs" data-vd-status="warning">
+                *
+              </span>
+            )}
+            <span
+              className="min-w-0 text-sm font-medium break-words"
+              data-vd-text="primary"
+            >
               {ws.name}
             </span>
           </div>
-          <div className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-zinc-500">
+          <div
+            className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs"
+            data-vd-muted
+          >
             <span className="font-mono break-all">{ws.branch}</span>
             {ws.repos.map((r) => (
               <span
                 key={r.id}
-                className="rounded bg-zinc-700 px-1.5 py-0.5 text-zinc-400"
+                className="rounded bg-zinc-700 px-1.5 py-0.5"
                 data-vd-component="badge"
               >
                 {r.display_name || r.name}
@@ -203,12 +220,12 @@ export function WorkspaceRow({
                   <span>{ws.files_changed} file{ws.files_changed !== 1 ? "s" : ""}</span>
                 )}
                 {ws.lines_added != null && ws.lines_added > 0 && (
-                  <span className="font-mono text-green-500" data-vd-status="success">
+                  <span className="font-mono" data-vd-status="success">
                     +{ws.lines_added}
                   </span>
                 )}
                 {ws.lines_removed != null && ws.lines_removed > 0 && (
-                  <span className="font-mono text-red-500" data-vd-status="danger">
+                  <span className="font-mono" data-vd-status="danger">
                     -{ws.lines_removed}
                   </span>
                 )}
@@ -216,7 +233,7 @@ export function WorkspaceRow({
             )}
             {showsDevServerControls && (
               <span
-                className="inline-flex items-center gap-1 rounded-full border border-cyan-500/30 bg-cyan-500/15 px-2 py-0.5 font-medium text-cyan-400"
+                className="inline-flex items-center gap-1 rounded-full border border-cyan-500/30 bg-cyan-500/15 px-2 py-0.5 font-medium"
                 data-vd-component="badge"
                 data-vd-status="accent"
               >
@@ -243,7 +260,7 @@ export function WorkspaceRow({
           <button
             onClick={onStopDevServer}
             disabled={isStoppingDevServer}
-            className="px-2 py-1 rounded text-xs font-medium bg-red-500/15 text-red-400 border border-red-500/30 hover:bg-red-500/25 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+            className="px-2 py-1 rounded text-xs font-medium bg-red-500/15 border border-red-500/30 hover:bg-red-500/25 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
             data-vd-component="button"
             data-vd-tone="danger"
           >
@@ -255,7 +272,7 @@ export function WorkspaceRow({
           <button
             onClick={tabGroupNav.onNavigate}
             title={`Go to "${tabGroupNav.label}"`}
-            className="px-2 py-1 rounded text-xs font-medium bg-indigo-500/15 text-indigo-400 border border-indigo-500/30 hover:bg-indigo-500/25 transition-colors"
+            className="px-2 py-1 rounded text-xs font-medium bg-indigo-500/15 border border-indigo-500/30 hover:bg-indigo-500/25 transition-colors"
             data-vd-component="button"
             data-vd-tone="accent"
           >
@@ -265,8 +282,9 @@ export function WorkspaceRow({
           <button
             onClick={onOpenInNewTabGroup}
             aria-label={`Open ${ws.name}`}
-            className="px-2 py-1 rounded text-xs font-medium bg-zinc-700 text-zinc-300 border border-zinc-600 hover:bg-zinc-600 hover:text-white transition-colors"
+            className="px-2 py-1 rounded text-xs font-medium bg-zinc-700 border border-zinc-600 hover:bg-zinc-600 transition-colors"
             data-vd-component="button"
+            data-vd-tone="quiet"
           >
             Open
           </button>
@@ -289,14 +307,14 @@ export function Pagination({
 
   return (
     <div className="flex items-center justify-between mt-4">
-      <span className="text-xs text-zinc-500" data-vd-muted>
+      <span className="text-xs" data-vd-muted>
         Page {page + 1} of {totalPages}
       </span>
       <div className="flex gap-2">
         <button
           disabled={page === 0}
           onClick={() => onPageChange(page - 1)}
-          className="px-3 py-1 rounded text-xs font-medium bg-zinc-800 text-zinc-400 border border-zinc-700 hover:bg-zinc-700 hover:text-zinc-300 transition-colors disabled:opacity-30 disabled:cursor-not-allowed disabled:hover:bg-zinc-800 disabled:hover:text-zinc-400"
+          className="px-3 py-1 rounded text-xs font-medium bg-zinc-800 border border-zinc-700 hover:bg-zinc-700 transition-colors disabled:opacity-30 disabled:cursor-not-allowed disabled:hover:bg-zinc-800"
           data-vd-component="button"
           data-vd-tone="quiet"
         >
@@ -305,7 +323,7 @@ export function Pagination({
         <button
           disabled={page >= totalPages - 1}
           onClick={() => onPageChange(page + 1)}
-          className="px-3 py-1 rounded text-xs font-medium bg-zinc-800 text-zinc-400 border border-zinc-700 hover:bg-zinc-700 hover:text-zinc-300 transition-colors disabled:opacity-30 disabled:cursor-not-allowed disabled:hover:bg-zinc-800 disabled:hover:text-zinc-400"
+          className="px-3 py-1 rounded text-xs font-medium bg-zinc-800 border border-zinc-700 hover:bg-zinc-700 transition-colors disabled:opacity-30 disabled:cursor-not-allowed disabled:hover:bg-zinc-800"
           data-vd-component="button"
           data-vd-tone="quiet"
         >

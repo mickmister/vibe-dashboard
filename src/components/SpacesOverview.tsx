@@ -539,7 +539,7 @@ export function SpacesOverviewView({
   );
 
   return (
-    <SkinRoot state={skinState}>
+    <SkinRoot className="h-full w-full" state={skinState}>
       <Presentation model={model} actions={actions} />
     </SkinRoot>
   );

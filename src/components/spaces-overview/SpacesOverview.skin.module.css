@@ -39,6 +39,46 @@
   color: var(--vd-color-muted, #a1a1aa);
 }
 
+.surface :global([data-vd-text="primary"]) {
+  color: var(
+    --vd-surface-spaces-overview-foreground,
+    var(--vd-color-foreground, #f4f4f5)
+  );
+}
+
+.surface :global([data-vd-text="secondary"]) {
+  color: var(--vd-component-row-foreground, var(--vd-color-foreground, #f4f4f5));
+}
+
+.surface :global([data-vd-component="card"] [data-vd-text="primary"]) {
+  color: var(
+    --vd-component-card-foreground,
+    var(--vd-color-foreground, #f4f4f5)
+  );
+}
+
+.surface :global([data-vd-component="row"] [data-vd-text="primary"]) {
+  color: var(
+    --vd-component-row-foreground,
+    var(--vd-color-foreground, #f4f4f5)
+  );
+}
+
+.surface :global([data-vd-component="dialog"] [data-vd-text="primary"]) {
+  color: var(
+    --vd-surface-modal-foreground,
+    var(--vd-color-foreground, #f4f4f5)
+  );
+}
+
+.surface :global([data-vd-icon="chevron"]) {
+  color: var(--vd-color-muted, #a1a1aa);
+}
+
+.surface :global([data-vd-component="row"]:hover [data-vd-icon="chevron"]) {
+  color: var(--vd-color-accent, #60a5fa);
+}
+
 .surface :global([data-vd-component="card"]) {
   background: var(--vd-component-card-background, var(--vd-color-panel, #18181b));
   border-color: var(--vd-component-card-border, var(--vd-color-border, #27272a));
@@ -84,6 +124,7 @@
 }
 
 .surface :global([data-vd-component="button"][data-vd-tone="quiet"]) {
+  color: var(--vd-color-muted, #a1a1aa);
   min-height: auto;
 }
 
@@ -126,16 +167,72 @@
   color: var(--vd-color-success, #4ade80);
 }
 
+.surface :global([data-vd-component="badge"][data-vd-status="success"]) {
+  background: color-mix(
+    in srgb,
+    var(--vd-color-success, #4ade80) 14%,
+    transparent
+  );
+  border-color: color-mix(
+    in srgb,
+    var(--vd-color-success, #4ade80) 34%,
+    transparent
+  );
+}
+
 .surface :global([data-vd-status="danger"]) {
   color: var(--vd-color-danger, #f87171);
+}
+
+.surface :global([data-vd-component="badge"][data-vd-status="danger"]) {
+  background: color-mix(
+    in srgb,
+    var(--vd-color-danger, #f87171) 14%,
+    transparent
+  );
+  border-color: color-mix(
+    in srgb,
+    var(--vd-color-danger, #f87171) 34%,
+    transparent
+  );
 }
 
 .surface :global([data-vd-status="warning"]) {
   color: var(--vd-color-warning, #fbbf24);
 }
 
+.surface :global([data-vd-component="badge"][data-vd-status="warning"]) {
+  background: color-mix(
+    in srgb,
+    var(--vd-color-warning, #fbbf24) 16%,
+    transparent
+  );
+  border-color: color-mix(
+    in srgb,
+    var(--vd-color-warning, #fbbf24) 38%,
+    transparent
+  );
+}
+
 .surface :global([data-vd-status="accent"]) {
   color: var(--vd-color-accent, #60a5fa);
+}
+
+.surface :global([data-vd-status="secondary"]) {
+  color: var(--vd-color-muted, #a1a1aa);
+}
+
+.surface :global([data-vd-component="badge"][data-vd-status="accent"]) {
+  background: color-mix(
+    in srgb,
+    var(--vd-color-accent, #60a5fa) 14%,
+    transparent
+  );
+  border-color: color-mix(
+    in srgb,
+    var(--vd-color-accent, #60a5fa) 34%,
+    transparent
+  );
 }
 
 .surface :global([data-vd-slot="running-dev-servers"]) {

@@ -38,11 +38,11 @@ export function RunningDevServersSection({
       <div className="flex items-center justify-between mb-3">
         <div className="flex items-center gap-2">
           <span className="w-2 h-2 rounded-full bg-cyan-400 animate-pulse" />
-          <h2 className="text-lg font-semibold text-white">
+          <h2 className="text-lg font-semibold" data-vd-text="primary">
             Running Dev Servers
           </h2>
         </div>
-        <span className="text-xs text-zinc-500" data-vd-muted>
+        <span className="text-xs" data-vd-muted>
           {devServerWorkspaces.length} workspace
           {devServerWorkspaces.length !== 1 ? "s" : ""}
         </span>
