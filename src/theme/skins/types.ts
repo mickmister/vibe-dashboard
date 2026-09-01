@@ -39,7 +39,13 @@ export type VDSkinSlotId =
   | "workspace-list"
   | "workspace-row"
   | "spaces-list"
-  | "space-picker-modal";
+  | "space-picker-modal"
+  | "skin-editor-header"
+  | "skin-editor-library"
+  | "skin-editor-editor"
+  | "skin-editor-preview"
+  | "skin-editor-import-export"
+  | "skin-editor-diagnostics";
 
 export type VDSkinAssetKind = "image" | "font" | "icon";
 

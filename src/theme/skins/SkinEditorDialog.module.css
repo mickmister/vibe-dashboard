@@ -1,0 +1,143 @@
+.root {
+  min-height: 100%;
+}
+
+.surface {
+  background:
+    radial-gradient(
+      circle at top right,
+      color-mix(in srgb, var(--vd-color-accent, #60a5fa) 13%, transparent),
+      transparent 26rem
+    ),
+    var(--vd-surface-skin-editor-background, var(--vd-color-background, #09090b));
+  border: 1px solid
+    var(--vd-surface-skin-editor-border, var(--vd-color-border, #27272a));
+  border-radius: var(--vd-surface-skin-editor-radius, 1rem);
+  box-shadow: var(--vd-surface-skin-editor-shadow, var(--vd-shadow-panel, none));
+  color: var(
+    --vd-surface-skin-editor-foreground,
+    var(--vd-color-foreground, #f4f4f5)
+  );
+  font-family: var(
+    --vd-font-family,
+    Inter,
+    ui-sans-serif,
+    system-ui,
+    sans-serif
+  );
+  font-size: var(--vd-font-size-base, 14px);
+  letter-spacing: var(--vd-letter-spacing, normal);
+}
+
+.surface :global([data-vd-text="primary"]) {
+  color: var(
+    --vd-surface-skin-editor-foreground,
+    var(--vd-color-foreground, #f4f4f5)
+  );
+}
+
+.surface :global([data-vd-text="secondary"]) {
+  color: var(--vd-component-row-foreground, var(--vd-color-foreground, #f4f4f5));
+}
+
+.surface :global([data-vd-muted]) {
+  color: var(--vd-color-muted, #a1a1aa);
+}
+
+.surface :global([data-vd-status="accent"]) {
+  color: var(--vd-color-accent, #60a5fa);
+}
+
+.surface :global([data-vd-status="danger"]) {
+  color: var(--vd-color-danger, #f87171);
+}
+
+.surface :global([data-vd-status="success"]) {
+  color: var(--vd-color-success, #4ade80);
+}
+
+.surface :global([data-vd-status="warning"]) {
+  color: var(--vd-color-warning, #fbbf24);
+}
+
+.surface :global([data-vd-component="card"]),
+.surface :global([data-vd-component="row"]) {
+  background: var(--vd-component-card-background, var(--vd-color-panel, #18181b));
+  border-color: var(--vd-component-card-border, var(--vd-color-border, #27272a));
+  border-radius: var(--vd-component-card-radius, 0.75rem);
+  color: var(
+    --vd-component-card-foreground,
+    var(--vd-color-foreground, #f4f4f5)
+  );
+}
+
+.surface :global([data-vd-component="button"]) {
+  background: var(--vd-component-button-background, #27272a);
+  border-color: var(--vd-component-button-border, var(--vd-color-border, #3f3f46));
+  border-radius: var(--vd-component-button-radius, 0.5rem);
+  color: var(
+    --vd-component-button-foreground,
+    var(--vd-color-foreground, #f4f4f5)
+  );
+  min-height: var(--vd-control-height, 2.25rem);
+}
+
+.surface :global([data-vd-component="button"][data-vd-tone="accent"]) {
+  background: color-mix(
+    in srgb,
+    var(--vd-color-accent, #60a5fa) 16%,
+    transparent
+  );
+  border-color: color-mix(
+    in srgb,
+    var(--vd-color-accent, #60a5fa) 42%,
+    transparent
+  );
+  color: var(--vd-color-accent, #60a5fa);
+}
+
+.surface :global([data-vd-component="button"][data-vd-tone="danger"]) {
+  background: color-mix(
+    in srgb,
+    var(--vd-color-danger, #f87171) 14%,
+    transparent
+  );
+  border-color: color-mix(
+    in srgb,
+    var(--vd-color-danger, #f87171) 40%,
+    transparent
+  );
+  color: var(--vd-color-danger, #f87171);
+}
+
+.surface :global([data-vd-component="button"][data-vd-tone="quiet"]) {
+  background: transparent;
+  color: var(--vd-color-muted, #a1a1aa);
+  min-height: auto;
+}
+
+.surface :global([data-vd-component="badge"]) {
+  background: var(--vd-component-badge-background, #27272a);
+  border-color: var(--vd-component-badge-border, #3f3f46);
+  border-radius: var(--vd-component-badge-radius, 999px);
+  color: var(--vd-component-badge-foreground, #d4d4d8);
+}
+
+.field {
+  background: color-mix(
+    in srgb,
+    var(--vd-color-panel, #18181b) 88%,
+    transparent
+  );
+  border: 1px solid var(--vd-component-input-border, var(--vd-color-border, #3f3f46));
+  border-radius: var(--vd-component-input-radius, 0.5rem);
+  color: var(--vd-component-input-foreground, var(--vd-color-foreground, #f4f4f5));
+}
+
+.field::placeholder {
+  color: var(--vd-color-muted, #a1a1aa);
+}
+
+.swatch {
+  background: var(--skin-editor-swatch-color, var(--vd-color-accent, #60a5fa));
+}

@@ -71,6 +71,14 @@ export const defaultDarkSkin: VDSkinManifestV1 = {
       radius: "1rem",
       shadow: "0 24px 80px rgb(0 0 0 / 0.55)",
     },
+    "skin-editor": {
+      background: "#09090b",
+      foreground: "#f4f4f5",
+      border: "#3f3f46",
+      radius: "1rem",
+      shadow: "0 24px 80px rgb(0 0 0 / 0.35)",
+      accent: "#60a5fa",
+    },
   },
   components: {
     button: {
@@ -152,6 +160,14 @@ export const lightStudioSkin: VDSkinManifestV1 = {
       border: "#cbd5e1",
       radius: "1rem",
       shadow: "0 24px 80px rgb(15 23 42 / 0.18)",
+    },
+    "skin-editor": {
+      background: "#f8fafc",
+      foreground: "#0f172a",
+      border: "#cbd5e1",
+      radius: "1rem",
+      shadow: "0 24px 80px rgb(15 23 42 / 0.14)",
+      accent: "#2563eb",
     },
   },
   components: {

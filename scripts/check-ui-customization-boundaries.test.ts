@@ -35,6 +35,18 @@ function writeFixture(root: string, overrides: Record<string, string> = {}) {
       <VDRow><span data-vd-text="primary">Workspace</span></VDRow>
       <VDAction>Open</VDAction>
     `,
+    "src/theme/skins/SkinEditorDialog.view.tsx": `
+      import { VDAction, VDCard, VDHeading, VDText } from "./primitives.view";
+      export function SkinEditorDialogView() {
+        return <section data-vd-surface="skin-editor">
+          <VDCard data-vd-slot="skin-editor-library"><VDHeading level={2}>Library</VDHeading></VDCard>
+          <VDCard data-vd-slot="skin-editor-editor"><VDText>Editor</VDText></VDCard>
+          <VDCard data-vd-slot="skin-editor-preview"><VDText>Preview</VDText></VDCard>
+          <VDCard data-vd-slot="skin-editor-import-export"><VDAction>Import</VDAction></VDCard>
+          <VDCard data-vd-slot="skin-editor-diagnostics"><VDText status="success">Valid</VDText></VDCard>
+        </section>;
+      }
+    `,
     "src/components/spaces-overview/SpacesOverview.skin.module.css": `
       .surface :global([data-vd-text="primary"]) { color: var(--vd-surface-spaces-overview-foreground); }
       .surface :global([data-vd-text="secondary"]) { color: var(--vd-color-muted); }
@@ -122,8 +134,14 @@ describe("CI UI customization wiring", () => {
     expect(packageJson.scripts["lint:tsx-view-boundary:migrated"]).toContain(
       "OPENLINT_POLICY_DIR=.github/openlint",
     );
+    expect(packageJson.scripts["lint:tsx-view-boundary:migrated"]).toContain(
+      "src/theme/skins/SkinEditorDialog.view.tsx",
+    );
     expect(packageJson.scripts["lint:ui-fences:migrated"]).toContain(
       "OPENLINT_POLICY_DIR=.github/openlint",
+    );
+    expect(packageJson.scripts["lint:ui-fences:migrated"]).toContain(
+      "src/theme/skins/SkinEditorDialog.view.tsx",
     );
     expect(packageJson.scripts["lint:ui-customization"]).toContain(
       "lint:tsx-view-boundary:migrated",

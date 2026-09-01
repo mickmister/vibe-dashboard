@@ -18,6 +18,22 @@ export {
 export { SkinRoot, type SkinRootProps } from "./SkinRoot";
 export { SkinRootView, type SkinRootViewProps } from "./SkinRoot.view";
 export {
+  SkinEditorDialog,
+  type SkinEditorDialogProps,
+} from "./SkinEditorDialog";
+export type {
+  SkinEditorActions,
+  SkinEditorColorField,
+  SkinEditorDialogViewProps,
+  SkinEditorSaveResult,
+  SkinEditorSkinOption,
+  SkinEditorViewActions,
+  SkinEditorViewModel,
+} from "./SkinEditorDialog.contracts";
+export {
+  SkinEditorDialogView,
+} from "./SkinEditorDialog.view";
+export {
   VDAction,
   VDBadge,
   VDCard,
@@ -30,6 +46,18 @@ export {
   type VDSemanticStatus,
   type VDSemanticTextTone,
 } from "./primitives.view";
+export {
+  EDITABLE_COLOR_TOKEN_KEYS,
+  buildSingleSkinExportPackage,
+  createEditableSkinFromBase,
+  createSkinEditorPreviewState,
+  createUserSkinId,
+  mergeImportedSkinState,
+  setActiveGlobalSkinFromEditor,
+  upsertUserSkinAndSetGlobal,
+  validateSkinEditorDraft,
+  type EditableColorTokenKey,
+} from "./editor";
 export {
   getSkinRuntimeState,
   type VDSkinCSSVariableName,

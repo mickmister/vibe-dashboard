@@ -58,6 +58,12 @@ const SLOT_IDS: VDSkinSlotId[] = [
   "workspace-row",
   "spaces-list",
   "space-picker-modal",
+  "skin-editor-header",
+  "skin-editor-library",
+  "skin-editor-editor",
+  "skin-editor-preview",
+  "skin-editor-import-export",
+  "skin-editor-diagnostics",
 ];
 
 const SURFACE_ID_SET = new Set<string>(SURFACE_IDS);

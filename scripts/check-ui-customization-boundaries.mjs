@@ -12,6 +12,7 @@ const skinnedViewFiles = [
   "src/components/spaces-overview/SpacePickerModal.view.tsx",
   "src/components/spaces-overview/craftSections.view.tsx",
   "src/components/spaces-overview/workspaceList.view.tsx",
+  "src/theme/skins/SkinEditorDialog.view.tsx",
 ];
 
 const hardcodedTextColorUtility =
@@ -47,6 +48,36 @@ const requiredHooks = [
     filePath: "src/components/spaces-overview/craftSections.view.tsx",
     hook: 'data-vd-slot="spaces-list"',
     rationale: "Spaces list is part of the stable SpacesOverview skin contract.",
+  },
+  {
+    filePath: "src/theme/skins/SkinEditorDialog.view.tsx",
+    hook: 'data-vd-surface="skin-editor"',
+    rationale: "Skin Editor needs a stable surface hook for global skin targeting.",
+  },
+  {
+    filePath: "src/theme/skins/SkinEditorDialog.view.tsx",
+    hook: 'data-vd-slot="skin-editor-library"',
+    rationale: "Skin Editor library is part of the stable Skin Editor skin contract.",
+  },
+  {
+    filePath: "src/theme/skins/SkinEditorDialog.view.tsx",
+    hook: 'data-vd-slot="skin-editor-editor"',
+    rationale: "Skin Editor token editor is part of the stable Skin Editor skin contract.",
+  },
+  {
+    filePath: "src/theme/skins/SkinEditorDialog.view.tsx",
+    hook: 'data-vd-slot="skin-editor-preview"',
+    rationale: "Skin Editor preview is part of the stable Skin Editor skin contract.",
+  },
+  {
+    filePath: "src/theme/skins/SkinEditorDialog.view.tsx",
+    hook: 'data-vd-slot="skin-editor-import-export"',
+    rationale: "Skin Editor import/export is part of the stable Skin Editor skin contract.",
+  },
+  {
+    filePath: "src/theme/skins/SkinEditorDialog.view.tsx",
+    hook: 'data-vd-slot="skin-editor-diagnostics"',
+    rationale: "Skin Editor diagnostics are part of the stable Skin Editor skin contract.",
   },
 ];
 
@@ -91,6 +122,7 @@ const requiredSkinSelectors = [
 const representativePrimitiveFiles = [
   "src/components/spaces-overview/DefaultSpacesOverview.view.tsx",
   "src/components/spaces-overview/workspaceList.view.tsx",
+  "src/theme/skins/SkinEditorDialog.view.tsx",
 ];
 
 const findings = [];
@@ -126,7 +158,7 @@ for (const filePath of representativePrimitiveFiles) {
   const source = readProjectFile(filePath);
   if (source === null) continue;
 
-  if (!/from\s+["']\.\.\/\.\.\/theme\/skins["']/.test(source)) {
+  if (!/from\s+["'](?:\.\.\/\.\.\/theme\/skins|\.\/primitives\.view)["']/.test(source)) {
     findings.push({
       filePath,
       message: "Missing shared skin primitive import.",
