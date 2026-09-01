@@ -15,4 +15,13 @@ export {
   setGlobalSkin,
   validateSkinManifest,
 } from "./schema";
+export { SkinRoot, type SkinRootProps } from "./SkinRoot";
+export { SkinRootView, type SkinRootViewProps } from "./SkinRoot.view";
+export {
+  getSkinRuntimeState,
+  type VDSkinCSSVariableName,
+  type VDSkinRuntimeOptions,
+  type VDSkinRuntimeState,
+  type VDSkinStyleVariables,
+} from "./runtime";
 export * from "./types";
