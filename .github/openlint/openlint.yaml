@@ -1,0 +1,259 @@
+version: 1
+repo_config_mode: ignore
+repo_local:
+  enabled: false
+
+rules:
+  jsx/attribute-ban:
+    description: Ban an explicitly named JSX attribute in JSX/TSX files.
+    integration: jsx-attribute-ban
+    native_rule: attribute-ban
+    params:
+      attribute:
+        type: string
+        required: true
+    value_template:
+      attribute: "{{attribute}}"
+  jsx/attribute-prefix-ban:
+    description: Ban explicitly selected string-literal JSX attribute value prefixes.
+    integration: jsx-attribute-prefix-ban
+    native_rule: attribute-prefix-ban
+    params:
+      attribute:
+        type: string
+        required: true
+      prefixes:
+        type: string
+        required: true
+    value_template:
+      attribute: "{{attribute}}"
+      prefixes: "{{prefixes}}"
+
+packs:
+  tsx-view-boundary:
+    description: Keep intrinsic JSX in *.view.tsx files and hooks out of view files.
+    rules:
+      - openlint/no-intrinsic-jsx-outside-view
+      - openlint/no-hooks-in-view
+  no-inline-style:
+    description: UI customization fence banning inline style attributes by explicit policy choice.
+    rules:
+      - jsx/attribute-ban(attribute=style)
+  no-ui-class-prefixes:
+    description: UI customization fence banning explicit className prefixes used by generated/local styling shortcuts.
+    rules:
+      - "jsx/attribute-prefix-ban(attribute=className,prefixes=tw-,css-)"
+  ui-customization-fences:
+    description: Architectural UI fences for view boundaries and explicitly selected JSX customization bans.
+    packs:
+      - tsx-view-boundary
+      - no-inline-style
+      - no-ui-class-prefixes
+
+presets:
+  tsx-view-boundary:
+    description: Enforce separation between TSX view files and non-view TSX components.
+    integrations:
+      - tsx-no-intrinsic-jsx-outside-view
+      - tsx-no-hooks-in-view
+    packs:
+      - tsx-view-boundary
+  ui-customization-fences:
+    description: Run TSX view-boundary and explicitly selected JSX UI customization fences.
+    integrations:
+      - tsx-no-intrinsic-jsx-outside-view
+      - tsx-no-hooks-in-view
+      - jsx-attribute-ban
+      - jsx-attribute-prefix-ban
+    packs:
+      - ui-customization-fences
+
+integrations:
+  tsx-no-intrinsic-jsx-outside-view:
+    enabled: true
+    required: true
+    run_by_default: false
+    rules:
+      - openlint/no-intrinsic-jsx-outside-view
+    spec:
+      id: tsx-no-intrinsic-jsx-outside-view
+      schema_version: 1
+      kind: shell
+      adapter: generic-json
+      rule_support: rule_files
+      availability:
+        command: ast-grep
+      inputs:
+        paths: target_or_changed_files
+      shell:
+        cwd: target_root
+        timeout_secs: 60
+        command: |
+          ast-grep scan --json=compact --include-metadata --rule {{policy_file:rules/ast-grep/no-intrinsic-jsx-outside-view.yml}} {{target_or_changed_files}}
+      output:
+        parser: json_diagnostics
+        source: stdout
+        diagnostics:
+          items: $[*]
+          rule_id:
+            first_present: [$.ruleId, $.rule_id, $.rule.id]
+            default: openlint/no-intrinsic-jsx-outside-view
+          message:
+            path: $.message
+            default: Intrinsic JSX elements are only allowed in *.view.tsx files.
+          severity:
+            path: $.severity
+            default: error
+          file:
+            first_present: [$.file, $.path]
+            default: ""
+          line:
+            first_present: [$.range.start.line, $.line]
+            add: 1
+          column:
+            first_present: [$.range.start.column, $.column]
+            add: 1
+          help:
+            path: $.note
+  tsx-no-hooks-in-view:
+    enabled: true
+    required: true
+    run_by_default: false
+    rules:
+      - openlint/no-hooks-in-view
+    spec:
+      id: tsx-no-hooks-in-view
+      schema_version: 1
+      kind: shell
+      adapter: generic-json
+      rule_support: rule_files
+      availability:
+        command: ast-grep
+      inputs:
+        paths: target_or_changed_files
+      shell:
+        cwd: target_root
+        timeout_secs: 60
+        command: |
+          ast-grep scan --json=compact --include-metadata --rule {{policy_file:rules/ast-grep/no-hooks-in-view.yml}} {{target_or_changed_files}}
+      output:
+        parser: json_diagnostics
+        source: stdout
+        diagnostics:
+          items: $[*]
+          rule_id:
+            first_present: [$.ruleId, $.rule_id, $.rule.id]
+            default: openlint/no-hooks-in-view
+          message:
+            path: $.message
+            default: View files must not contain or call hook-like functions beginning with use.
+          severity:
+            path: $.severity
+            default: error
+          file:
+            first_present: [$.file, $.path]
+            default: ""
+          line:
+            first_present: [$.range.start.line, $.line]
+            add: 1
+          column:
+            first_present: [$.range.start.column, $.column]
+            add: 1
+          help:
+            path: $.note
+  jsx-attribute-ban:
+    enabled: true
+    required: true
+    run_by_default: false
+    file_triggers:
+      include:
+        - "**/*.tsx"
+        - "**/*.jsx"
+    spec:
+      id: jsx-attribute-ban
+      schema_version: 1
+      kind: shell
+      adapter: generic-json
+      rule_support: rule_files
+      availability:
+        command: ast-grep
+      inputs:
+        paths: target_or_changed_files
+      shell:
+        cwd: target_root
+        timeout_secs: 60
+        command: |
+          ast-grep scan --json=compact --include-metadata --rule {{generated_rule_file}} {{target_or_changed_files}}
+      output:
+        parser: json_diagnostics
+        source: stdout
+        diagnostics:
+          items: $[*]
+          rule_id:
+            first_present: [$.ruleId, $.rule_id, $.rule.id]
+            default: jsx/attribute-ban
+          message:
+            path: $.message
+            default: JSX attribute is banned by OpenLint policy.
+          severity:
+            path: $.severity
+            default: error
+          file:
+            first_present: [$.file, $.path]
+            default: ""
+          line:
+            first_present: [$.range.start.line, $.line]
+            add: 1
+          column:
+            first_present: [$.range.start.column, $.column]
+            add: 1
+          help:
+            path: $.note
+  jsx-attribute-prefix-ban:
+    enabled: true
+    required: true
+    run_by_default: false
+    file_triggers:
+      include:
+        - "**/*.tsx"
+        - "**/*.jsx"
+    spec:
+      id: jsx-attribute-prefix-ban
+      schema_version: 1
+      kind: shell
+      adapter: generic-json
+      rule_support: rule_files
+      availability:
+        command: ast-grep
+      inputs:
+        paths: target_or_changed_files
+      shell:
+        cwd: target_root
+        timeout_secs: 60
+        command: |
+          ast-grep scan --json=compact --include-metadata --rule {{generated_rule_file}} {{target_or_changed_files}}
+      output:
+        parser: json_diagnostics
+        source: stdout
+        diagnostics:
+          items: $[*]
+          rule_id:
+            first_present: [$.ruleId, $.rule_id, $.rule.id]
+            default: jsx/attribute-prefix-ban
+          message:
+            path: $.message
+            default: JSX attribute value uses a banned prefix by OpenLint policy.
+          severity:
+            path: $.severity
+            default: error
+          file:
+            first_present: [$.file, $.path]
+            default: ""
+          line:
+            first_present: [$.range.start.line, $.line]
+            add: 1
+          column:
+            first_present: [$.range.start.column, $.column]
+            add: 1
+          help:
+            path: $.note

@@ -1,0 +1,32 @@
+id: openlint/no-hooks-in-view
+language: Tsx
+severity: error
+message: View files must not contain or call hook-like functions beginning with use.
+note: Keep hooks in non-view/controller modules and pass plain props into *.view.tsx files.
+rule:
+  any:
+    - kind: call_expression
+      has:
+        kind: identifier
+        regex: "^use($|[A-Z0-9_])"
+    - kind: call_expression
+      has:
+        kind: member_expression
+        has:
+          kind: property_identifier
+          regex: "^use($|[A-Z0-9_])"
+    - kind: function_declaration
+      has:
+        kind: identifier
+        regex: "^use($|[A-Z0-9_])"
+    - kind: variable_declarator
+      all:
+        - has:
+            kind: identifier
+            regex: "^use($|[A-Z0-9_])"
+        - has:
+            any:
+              - kind: arrow_function
+              - kind: function_expression
+files:
+  - "**/*.view.tsx"

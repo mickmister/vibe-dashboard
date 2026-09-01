@@ -1,0 +1,19 @@
+id: openlint/no-intrinsic-jsx-outside-view
+language: Tsx
+severity: error
+message: Intrinsic JSX elements are only allowed in *.view.tsx files.
+note: Move intrinsic JSX into a *.view.tsx file, or render a named component here.
+rule:
+  any:
+    - kind: jsx_opening_element
+      has:
+        kind: identifier
+        regex: "^[a-z]"
+    - kind: jsx_self_closing_element
+      has:
+        kind: identifier
+        regex: "^[a-z]"
+files:
+  - "**/*.tsx"
+ignores:
+  - "**/*.view.tsx"

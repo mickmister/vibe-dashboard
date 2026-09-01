@@ -104,11 +104,27 @@ describe("UI customization boundary check", () => {
 });
 
 describe("CI UI customization wiring", () => {
+  it("commits the OpenLint policy used by UI customization checks", () => {
+    const policy = readFileSync(".github/openlint/openlint.yaml", "utf8");
+
+    expect(policy).toContain("tsx-view-boundary:");
+    expect(policy).toContain("ui-customization-fences:");
+    expect(policy).toContain("openlint/no-intrinsic-jsx-outside-view");
+    expect(policy).toContain("openlint/no-hooks-in-view");
+    expect(policy).toContain("jsx/attribute-ban(attribute=style)");
+  });
+
   it("exposes one local npm command for OpenLint fences and skinability checks", () => {
     const packageJson = JSON.parse(readFileSync("package.json", "utf8")) as {
       scripts: Record<string, string>;
     };
 
+    expect(packageJson.scripts["lint:tsx-view-boundary:migrated"]).toContain(
+      "OPENLINT_POLICY_DIR=.github/openlint",
+    );
+    expect(packageJson.scripts["lint:ui-fences:migrated"]).toContain(
+      "OPENLINT_POLICY_DIR=.github/openlint",
+    );
     expect(packageJson.scripts["lint:ui-customization"]).toContain(
       "lint:tsx-view-boundary:migrated",
     );
@@ -122,11 +138,21 @@ describe("CI UI customization wiring", () => {
 
   it("runs the UI customization boundary command in CI on pushes and pull requests", () => {
     const workflow = readFileSync(".github/workflows/ci.yml", "utf8");
+    const uiJobStart = workflow.indexOf("  ui-customization-boundaries:");
+    const nextJobStart = workflow.indexOf("\n  test-workflow-core:", uiJobStart);
+    const uiJob = workflow.slice(uiJobStart, nextJobStart);
 
     expect(workflow).toContain("pull_request:");
     expect(workflow).toMatch(/push:\s*\n\s*branches:\s*\n\s*-\s+main/);
-    expect(workflow).toContain("ui-customization-boundaries:");
-    expect(workflow).toContain("npm run lint:ui-customization");
+    expect(uiJob).toContain("ui-customization-boundaries:");
+    expect(uiJob).toContain("repository: vibe-dashboard/open-lint");
+    expect(uiJob).toContain(
+      "ref: 5bbc87c895d6c50c6da454e891a64213dcbb9518",
+    );
+    expect(uiJob).toContain("dtolnay/rust-toolchain@stable");
+    expect(uiJob).toContain("npm install --global .tmp/open-lint");
+    expect(uiJob).toContain("OPENLINT_POLICY_DIR: .github/openlint");
+    expect(uiJob).toContain("npm run lint:ui-customization");
     expect(workflow).toContain("- ui-customization-boundaries");
   });
 });
