@@ -194,6 +194,7 @@ export function toReadyBeadFanoutBead(bead: GasCityBeadDto): ReadyBeadFanoutBead
       ...(safe.workflow?.rootBeadId ? { "gc.root_bead_id": safe.workflow.rootBeadId } : {}),
       ...(safe.workflow?.formula ? { "gc.formula": safe.workflow.formula } : {}),
       ...(safe.workflow?.target ? { "gc.target": safe.workflow.target } : {}),
+      ...(safe.workflow?.status ? { "gc.workflow_status": safe.workflow.status, workflow_status: safe.workflow.status } : {}),
     },
   };
 }

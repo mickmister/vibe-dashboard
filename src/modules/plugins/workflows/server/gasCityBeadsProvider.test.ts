@@ -118,7 +118,48 @@ describe("GasCityBeadsProvider GCW-11", () => {
       "gc.root_bead_id": "root-a",
       "gc.formula": "review-flow",
       "gc.target": "worker",
+      "gc.workflow_status": "running",
+      workflow_status: "running",
     });
+  });
+
+  it("does not treat completed or failed typed workflow linkage as already running in fanout preview", async () => {
+    const typedProvider = new FakeGasCityBeadsProvider({
+      beads: [
+        bead({
+          id: "completed-bead",
+          workflow: { workflowId: "workflow-completed", rootBeadId: "root-completed", sourceBeadId: "completed-bead", formula: "review-flow", target: "worker", status: "completed" },
+        }),
+        bead({
+          id: "failed-bead",
+          workflow: { workflowId: "workflow-failed", rootBeadId: "root-failed", sourceBeadId: "failed-bead", formula: "review-flow", target: "worker", status: "failed" },
+        }),
+        bead({
+          id: "running-bead",
+          workflow: { workflowId: "workflow-running", rootBeadId: "root-running", sourceBeadId: "running-bead", formula: "review-flow", target: "worker", status: "running" },
+        }),
+      ],
+    });
+
+    const preview = await new GasCityReadyBeadFanoutPreviewProvider({
+      now: () => 1001,
+      gasCityProvider: new FakeGasCityWorkflowProvider({
+        targets: [{ target: "worker", label: "Worker" }],
+        formulas: [{ formula: "review-flow", label: "Review flow", contract: "graph.v2" }],
+      }),
+      beadProvider: new GasCityReadyBeadFanoutBeadsAdapter(typedProvider),
+    }).previewReadyBeadFanout({
+      context: { workspaceId: "workspace-a" },
+      target: "worker",
+      source: { explicitBeadIds: ["completed-bead", "failed-bead", "running-bead"] },
+      limits: { maxActiveSourceWorkflows: 10 },
+    });
+
+    expect(preview.items.map((item) => [item.beadId, item.status, item.reasonCode])).toEqual([
+      ["completed-bead", "will_launch", undefined],
+      ["failed-bead", "will_launch", undefined],
+      ["running-bead", "already_running", "already_running"],
+    ]);
   });
 
   it("provides explicit idempotent workflow linkage and result-note write contracts", async () => {

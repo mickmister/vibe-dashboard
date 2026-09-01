@@ -97,6 +97,8 @@ export interface ReadyBeadFanoutPreviewProviderOptions {
 
 const TERMINAL_STATUSES = new Set(["closed", "archived", "removed"]);
 const READY_STATUSES = new Set(["open", "ready"]);
+const LIVE_WORKFLOW_STATUSES = new Set(["pending", "running", "waiting", "blocked"]);
+const TERMINAL_WORKFLOW_STATUSES = new Set(["completed", "failed", "canceled", "cancelled", "closed", "archived", "removed"]);
 const DEFAULT_MAX_ACTIVE = 1;
 const DEFAULT_MAX_LAUNCHES = 25;
 
@@ -260,7 +262,14 @@ function resolveFormulaForBead(bead: ReadyBeadFanoutBead, defaultFormula?: strin
 
 function hasLiveWorkflowMetadata(bead: ReadyBeadFanoutBead): boolean {
   const metadata = bead.metadata ?? {};
-  return Boolean(cleanOptional(metadata.workflow_id) ?? cleanOptional(metadata["gc.workflow_id"]) ?? cleanOptional(metadata["gc.root_bead_id"]));
+  const workflowId = cleanOptional(metadata.workflow_id) ?? cleanOptional(metadata["gc.workflow_id"]) ?? cleanOptional(metadata["gc.root_bead_id"]);
+  if (!workflowId) return false;
+  const status = cleanOptional(metadata["gc.workflow_status"]) ?? cleanOptional(metadata.workflow_status);
+  if (!status) return true;
+  const normalized = status.toLowerCase();
+  if (LIVE_WORKFLOW_STATUSES.has(normalized)) return true;
+  if (TERMINAL_WORKFLOW_STATUSES.has(normalized)) return false;
+  return true;
 }
 
 function previewItem(bead: ReadyBeadFanoutBead, status: ReadyBeadFanoutItemStatus, reasonCode?: ReadyBeadFanoutSkipReason, reason?: string, formula?: string | null): ReadyBeadFanoutPreviewItem {
