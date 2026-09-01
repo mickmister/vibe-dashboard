@@ -534,7 +534,7 @@ the rest of the app before adding new migrated targets.
 The repo-owned target manifest is:
 
 ```text
-openlint/ui-injection-targets.json
+openlint/ui-customization-targets.json
 ```
 
 Current scope:
@@ -548,15 +548,23 @@ Current scope:
       "status": "pilot"
     }
   ],
-  "reportOnly": [
-    "src/components",
-    "src/theme/skins"
+  "reviewOnlySurfaces": [
+    {
+      "name": "app-components",
+      "path": "src/components"
+    },
+    {
+      "name": "skin-runtime",
+      "path": "src/theme/skins"
+    }
   ]
 }
 ```
 
 OpenLint does not consume this manifest directly yet; it is a checked-in
 contract for scripts, reviews, and future OpenLint target-manifest support.
+Use `npm --silent run ... -- --json` when another tool needs machine-readable
+JSON without npm's script banner.
 
 ### Rules to add over time
 
