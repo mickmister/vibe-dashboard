@@ -28,6 +28,9 @@ const skinnedViewFiles = [
 const hardcodedTextColorUtility =
   /\b(?:hover:|group-hover:|disabled:hover:)?text-(?:white|black|zinc|slate|gray|neutral|stone|red|green|amber|yellow|blue|cyan|indigo|violet|purple|primary)-[^\s"`']+/g;
 
+const broadSlotHeadingSelector =
+  /\.surface\s+:global\(\[data-vd-slot\]\s+h[1-3]\)/;
+
 const dashboardWorkspaces: DashboardWorkspace[] = storybookVKWorkspaces.map(
   (workspace) => {
     const summary = storybookWorkspaceSummaries.find(
@@ -117,6 +120,17 @@ describe("SpacesOverview skin customization seam", () => {
     });
 
     expect(hardcodedColorMatches).toEqual([]);
+  });
+
+  it("does not let broad slot heading selectors override semantic primary text", () => {
+    const source = readFileSync(
+      "src/components/spaces-overview/SpacesOverview.skin.module.css",
+      "utf8",
+    );
+
+    expect(source).not.toMatch(broadSlotHeadingSelector);
+    expect(source).toContain('[data-vd-text="primary"]');
+    expect(source).toContain("--vd-surface-spaces-overview-foreground");
   });
 
   it("can materially change SpacesOverview through an alternate global skin without changing the controller", () => {

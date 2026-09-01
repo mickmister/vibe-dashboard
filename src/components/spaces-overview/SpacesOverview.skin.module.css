@@ -29,12 +29,6 @@
   scroll-margin-block: calc(var(--vd-space-unit, 0.75rem) * 2);
 }
 
-.surface :global([data-vd-slot] h1),
-.surface :global([data-vd-slot] h2),
-.surface :global([data-vd-slot] h3) {
-  color: var(--vd-color-foreground, #f4f4f5);
-}
-
 .surface :global([data-vd-muted]) {
   color: var(--vd-color-muted, #a1a1aa);
 }
