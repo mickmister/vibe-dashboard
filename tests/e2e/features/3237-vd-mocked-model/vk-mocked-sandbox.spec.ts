@@ -338,7 +338,7 @@ async function closeSidebarOverlayIfPresent(page: Page) {
 async function clickMenuItem(page: Page, name: string) {
   const menuItem = page.getByRole('menuitem', { name });
   await expect(menuItem).toBeVisible();
-  await menuItem.click();
+  await clickLocatorInViewport(page, menuItem);
 }
 
 async function expectMobileNewCraftNavigationSettled(page: Page) {
