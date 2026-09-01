@@ -86,13 +86,44 @@ describe("GasCityCliWorkflowProvider GCW-5", () => {
   it("validates formula through released gc when the formula was not predeclared", async () => {
     const runner = runnerReturning((_file, args) => {
       if (args[0] === "version") return JSON.stringify({ schema_version: "1", version: DEFAULT_PINNED_GAS_CITY_VERSION });
-      return args[0] === "formula" ? JSON.stringify({ schema_version: "1", ok: true, name: "vd-review-v1" }) : "{}";
+      return args[0] === "formula" ? JSON.stringify({ schema_version: "1", ok: true, name: "vd-review-v1", contract: "graph.v2" }) : "{}";
     });
     const provider = new GasCityCliWorkflowProvider({ runner, targets: [{ target: "reviewer", label: "Reviewer" }] });
 
     await expect(provider.validateLaunch(launchRequest())).resolves.toEqual([]);
     expect(runner.execFile).toHaveBeenCalledWith("gc", ["version", "--json"], expect.objectContaining({ timeout: 30_000 }));
     expect(runner.execFile).toHaveBeenCalledWith("gc", ["formula", "show", "vd-review-v1", "--json"], expect.objectContaining({ timeout: 30_000 }));
+  });
+
+  it.each([
+    ["missing contract", { schema_version: "1", ok: true, name: "vd-review-v1" }],
+    ["unknown contract", { schema_version: "1", ok: true, name: "vd-review-v1", contract: "unknown" }],
+    ["wrong contract", { schema_version: "1", ok: true, name: "vd-review-v1", contract: "orders.v1" }],
+  ])("blocks formula show success with %s because graph.v2 evidence is required", async (_name, payload) => {
+    const runner = runnerReturning((_file, args) => {
+      if (args[0] === "version") return JSON.stringify({ schema_version: "1", version: DEFAULT_PINNED_GAS_CITY_VERSION });
+      return args[0] === "formula" ? JSON.stringify(payload) : "not used";
+    });
+    const provider = new GasCityCliWorkflowProvider({ runner });
+
+    const issues = await provider.validateLaunch(launchRequest());
+    const launch = await provider.launchSourceWorkflow(launchRequest());
+
+    expect(issues).toEqual([expect.objectContaining({ code: "GAS_CITY_FORMULA_UNSUPPORTED", path: "formula" })]);
+    expect(launch.status).toBe("blocked");
+    expect(JSON.stringify({ issues, launch })).not.toMatch(/orders.v1|stdout|stderr|provider diagnostics|gc formula|gc sling|\/Users|raw XML/i);
+  });
+
+  it("accepts graph.v2 evidence from generated formula metadata", async () => {
+    const runner = runnerReturning((_file, args) => {
+      if (args[0] === "version") return JSON.stringify({ schema_version: "1", version: DEFAULT_PINNED_GAS_CITY_VERSION });
+      return args[0] === "formula"
+        ? JSON.stringify({ schema_version: "1", ok: true, name: "vd-review-v1", metadata: { gc: { formula_contract: "graph.v2" } } })
+        : "{}";
+    });
+    const provider = new GasCityCliWorkflowProvider({ runner });
+
+    await expect(provider.validateLaunch(launchRequest())).resolves.toEqual([]);
   });
 
   it("launches a single explicit source bead through gc sling and returns product-safe refs", async () => {

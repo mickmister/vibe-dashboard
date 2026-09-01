@@ -241,7 +241,7 @@ export class GasCityCliWorkflowProvider implements GasCityWorkflowProvider {
       const command = buildGasCityFormulaShowCommand({ gcPath: this.gcPath, formula });
       const result = await this.runner.execFile(command.file, command.args, commandOptions(this.cwd, 64 * 1024));
       const payload = readJsonLine<GasCityFormulaShowJsonPayload>(result.stdout);
-      if (payload && payload.ok === false) {
+      if (!payload || payload.ok === false || !hasGraphV2Evidence(payload)) {
         return { ok: false, message: "Gas City could not validate this graph.v2 formula." };
       }
       return { ok: true };
@@ -286,6 +286,25 @@ const defaultGasCityCommandRunner: GasCityCommandRunner = {
     return { stdout: String(result.stdout ?? ""), stderr: String(result.stderr ?? "") };
   },
 };
+
+function hasGraphV2Evidence(payload: GasCityFormulaShowJsonPayload): boolean {
+  if (payload.contract === "graph.v2") return true;
+  return containsGraphV2Contract(payload.metadata) || containsGraphV2Contract(payload.steps);
+}
+
+function containsGraphV2Contract(value: unknown): boolean {
+  if (!value || typeof value !== "object") return false;
+  if (Array.isArray(value)) return value.some(containsGraphV2Contract);
+  const record = value as Record<string, unknown>;
+  for (const [key, nested] of Object.entries(record)) {
+    const normalizedKey = key.toLowerCase().replace(/[^a-z0-9]/gu, "");
+    if ((normalizedKey === "contract" || normalizedKey === "formulacontract" || normalizedKey === "gcformulacontract") && nested === "graph.v2") {
+      return true;
+    }
+    if (containsGraphV2Contract(nested)) return true;
+  }
+  return false;
+}
 
 function commandOptions(cwd: string | undefined, maxBuffer: number): ExecFileOptions {
   return { cwd, timeout: 30_000, maxBuffer };
