@@ -8,6 +8,7 @@ import {
   createEditableSkinFromBase,
   createSkinEditorPreviewState,
   mergeImportedSkinState,
+  normalizeSkinEditorColorSwatchValue,
   upsertUserSkinAndSetGlobal,
   validateSkinEditorDraft,
   type EditableColorTokenKey,
@@ -109,6 +110,9 @@ export function SkinEditorDialog({
     (key) => ({
       key,
       label: COLOR_LABELS[key],
+      swatchValue: normalizeSkinEditorColorSwatchValue(
+        colorSource.tokens.colors[key],
+      ),
       value: colorSource.tokens.colors[key] ?? "",
     }),
   );
@@ -303,8 +307,23 @@ export function SkinEditorDialog({
       } else {
         setStatusMessage(null);
       }
+    } catch (error) {
+      setDiagnostics([
+        diagnostic(
+          "save-failed",
+          `Skin state could not be saved. ${getErrorMessage(error)}`,
+          "saveSkinState",
+        ),
+      ]);
+      setStatusMessage(null);
     } finally {
       setIsSaving(false);
     }
   }
+}
+
+function getErrorMessage(error: unknown): string {
+  if (error instanceof Error && error.message.trim()) return error.message.trim();
+  if (typeof error === "string" && error.trim()) return error.trim();
+  return "Try again.";
 }

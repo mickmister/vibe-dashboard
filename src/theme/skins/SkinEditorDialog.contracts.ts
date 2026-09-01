@@ -16,6 +16,7 @@ export interface SkinEditorActions {
 export interface SkinEditorColorField {
   key: string;
   label: string;
+  swatchValue: string;
   value: string;
 }
 

@@ -188,7 +188,7 @@ export function SkinEditorDialogView({
                         actions.updateColorToken(field.key, event.target.value)
                       }
                       type="color"
-                      value={field.value}
+                      value={field.swatchValue}
                     />
                     <input
                       aria-label={`${field.label} color`}

@@ -28,6 +28,9 @@ export const EDITABLE_COLOR_TOKEN_KEYS = [
 export type EditableColorTokenKey = (typeof EDITABLE_COLOR_TOKEN_KEYS)[number];
 
 const BUILT_IN_SKIN_IDS = new Set(BUILT_IN_VD_SKINS.map((skin) => skin.id));
+const COLOR_SWATCH_FALLBACK = "#000000";
+const HEX_COLOR_SWATCH_PATTERN =
+  /^#(?<short>[0-9a-f]{3})$|^#(?<long>[0-9a-f]{6})(?:[0-9a-f]{2})?$/i;
 
 function diagnostic(
   code: string,
@@ -74,6 +77,42 @@ export function createUserSkinId(
   }
 
   return id;
+}
+
+export function normalizeSkinEditorColorSwatchValue(
+  value: unknown,
+  fallback = COLOR_SWATCH_FALLBACK,
+): string {
+  const fallbackValue = normalizeSkinEditorColorSwatchValueWithoutFallback(
+    fallback,
+  );
+  const normalizedFallback = fallbackValue ?? COLOR_SWATCH_FALLBACK;
+
+  if (typeof value !== "string") return normalizedFallback;
+
+  return normalizeSkinEditorColorSwatchValueWithoutFallback(value) ??
+    normalizedFallback;
+}
+
+function normalizeSkinEditorColorSwatchValueWithoutFallback(
+  value: string,
+): string | null {
+  const candidate = value.trim();
+  const match = HEX_COLOR_SWATCH_PATTERN.exec(candidate);
+  if (!match?.groups) return null;
+
+  if (match.groups.short) {
+    return `#${match.groups.short
+      .split("")
+      .map((char) => `${char}${char}`)
+      .join("")}`.toLowerCase();
+  }
+
+  if (match.groups.long) {
+    return `#${match.groups.long}`.toLowerCase();
+  }
+
+  return null;
 }
 
 export function createEditableSkinFromBase({

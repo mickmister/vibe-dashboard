@@ -8,6 +8,7 @@ import {
   importSkinPackage,
   lightStudioSkin,
   mergeImportedSkinState,
+  normalizeSkinEditorColorSwatchValue,
   upsertUserSkinAndSetGlobal,
   validateSkinEditorDraft,
 } from "./index";
@@ -114,5 +115,13 @@ describe("skin editor state model", () => {
       imported.id,
     ]);
     expect(merged.activeGlobalSkinId).toBe(imported.id);
+  });
+
+  it("normalizes schema-valid colors for native color swatch display only", () => {
+    expect(normalizeSkinEditorColorSwatchValue("#abc")).toBe("#aabbcc");
+    expect(normalizeSkinEditorColorSwatchValue("#A1B2C3")).toBe("#a1b2c3");
+    expect(normalizeSkinEditorColorSwatchValue("#a1b2c3dd")).toBe("#a1b2c3");
+    expect(normalizeSkinEditorColorSwatchValue("not-a-color")).toBe("#000000");
+    expect(normalizeSkinEditorColorSwatchValue("")).toBe("#000000");
   });
 });

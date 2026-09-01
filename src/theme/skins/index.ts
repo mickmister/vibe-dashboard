@@ -53,6 +53,7 @@ export {
   createSkinEditorPreviewState,
   createUserSkinId,
   mergeImportedSkinState,
+  normalizeSkinEditorColorSwatchValue,
   setActiveGlobalSkinFromEditor,
   upsertUserSkinAndSetGlobal,
   validateSkinEditorDraft,

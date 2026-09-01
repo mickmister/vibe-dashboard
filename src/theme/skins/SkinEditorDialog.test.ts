@@ -95,6 +95,33 @@ describe("SkinEditorDialog controller", () => {
     });
   });
 
+  it("shows diagnostics and preserves draft state when save rejects", async () => {
+    const onSave = vi
+      .fn<SkinEditorActions["saveSkinState"]>()
+      .mockRejectedValueOnce(new Error("disk full"))
+      .mockResolvedValueOnce({ ok: true });
+    renderEditor({ onSave });
+
+    fireEvent.click(screen.getByRole("button", { name: "Create editable copy" }));
+    fireEvent.change(screen.getByDisplayValue("VD Default Dark Custom"), {
+      target: { value: "Neon Flight" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Save and apply" }));
+
+    await waitFor(() => expect(onSave).toHaveBeenCalledTimes(1));
+    expect(
+      screen.getByText(/Skin state could not be saved\. disk full/),
+    ).toBeTruthy();
+    expect(screen.getByDisplayValue("Neon Flight")).toBeTruthy();
+
+    fireEvent.click(screen.getByRole("button", { name: "Save and apply" }));
+
+    await waitFor(() => expect(onSave).toHaveBeenCalledTimes(2));
+    expect(
+      screen.queryByText(/Skin state could not be saved\. disk full/),
+    ).toBeNull();
+  });
+
   it("shows import diagnostics without saving invalid JSON", () => {
     const { onSave } = renderEditor();
 
@@ -105,6 +132,39 @@ describe("SkinEditorDialog controller", () => {
 
     expect(onSave).not.toHaveBeenCalled();
     expect(screen.getByText("Skin package JSON could not be parsed.")).toBeTruthy();
+  });
+
+  it("keeps color token text as source of truth while normalizing swatches", () => {
+    const shorthandSkin = {
+      ...lightStudioSkin,
+      id: "vd-user-shorthand",
+      name: "Shorthand Skin",
+      rawCss: [],
+      tokens: {
+        ...lightStudioSkin.tokens,
+        colors: {
+          ...lightStudioSkin.tokens.colors,
+          accent: "#abc",
+        },
+      },
+    };
+
+    renderEditor({
+      skinState: {
+        version: 1,
+        activeGlobalSkinId: shorthandSkin.id,
+        userSkins: [shorthandSkin],
+      },
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: "Edit custom skin" }));
+
+    expect(screen.getByLabelText("Accent color").getAttribute("value")).toBe(
+      "#abc",
+    );
+    expect(screen.getByLabelText("Accent swatch").getAttribute("value")).toBe(
+      "#aabbcc",
+    );
   });
 
   it("imports a valid global skin package and preserves existing custom skins", async () => {
@@ -144,6 +204,43 @@ describe("SkinEditorDialog controller", () => {
       importedSkin.id,
     ]);
     expect(savedState.activeGlobalSkinId).toBe(importedSkin.id);
+  });
+
+  it("routes rejected import saves through the same retryable diagnostic path", async () => {
+    const importedSkin = {
+      ...lightStudioSkin,
+      id: "vd-user-imported",
+      name: "Imported Skin",
+      rawCss: [],
+    };
+    const skinPackage: VDSkinImportExportPackage = {
+      packageVersion: 1,
+      activeGlobalSkinId: importedSkin.id,
+      skins: [importedSkin],
+    };
+    const importJson = JSON.stringify(skinPackage);
+    const onSave = vi
+      .fn<SkinEditorActions["saveSkinState"]>()
+      .mockRejectedValueOnce("offline")
+      .mockResolvedValueOnce({ ok: true });
+    renderEditor({ onSave });
+
+    fireEvent.change(screen.getByLabelText("Skin package JSON"), {
+      target: { value: importJson },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Import package" }));
+
+    await waitFor(() => expect(onSave).toHaveBeenCalledTimes(1));
+    expect(
+      screen.getByText(/Skin state could not be saved\. offline/),
+    ).toBeTruthy();
+    expect(
+      (screen.getByLabelText("Skin package JSON") as HTMLTextAreaElement).value,
+    ).toBe(importJson);
+
+    fireEvent.click(screen.getByRole("button", { name: "Import package" }));
+
+    await waitFor(() => expect(onSave).toHaveBeenCalledTimes(2));
   });
 
   it("reverts to the default global skin while keeping saved custom skins", async () => {
@@ -191,7 +288,12 @@ describe("SkinEditorDialog view", () => {
       model: {
         activeGlobalSkinId: lightStudioSkin.id,
         colorFields: [
-          { key: "accent", label: "Accent", value: "#22d3ee" },
+          {
+            key: "accent",
+            label: "Accent",
+            swatchValue: "#22d3ee",
+            value: "#22d3ee",
+          },
         ],
         diagnostics: [],
         draftSkin: null,
