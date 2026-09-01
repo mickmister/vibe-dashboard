@@ -41,3 +41,13 @@ Milestone 4 checks should enforce outcomes, not annotation count:
 - keep controller/view boundaries clean;
 - allow primitives and inherited foregrounds to satisfy the semantic contract;
 - avoid requiring blanket `data-vd-text` attributes.
+
+Run the combined local/CI boundary command with:
+
+```sh
+npm run lint:ui-customization
+```
+
+That command runs OpenLint's migrated view/controller and customization fence
+presets, then runs the project-owned skinability check for migrated
+SpacesOverview surfaces.

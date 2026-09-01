@@ -2,6 +2,9 @@ name: CI
 
 on:
   push:
+    branches:
+      - main
+  pull_request:
 
 permissions:
   contents: read
@@ -59,6 +62,38 @@ jobs:
 
       - name: Run app server unit tests
         run: npm run test:server
+
+  ui-customization-boundaries:
+    name: UI customization boundaries
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Verify OpenLint is available
+        run: |
+          if ! command -v ol >/dev/null 2>&1; then
+            echo "::error::OpenLint (ol) is required for UI customization boundary checks."
+            echo "::error::Install/provide the environment OpenLint CLI before running npm run lint:ui-customization."
+            exit 1
+          fi
+          ol --version
+
+      - name: Run UI customization boundary checks
+        run: npm run lint:ui-customization
 
   test-workflow-core:
     name: workflow-core tests
@@ -291,6 +326,7 @@ jobs:
     needs:
       - check-types
       - app-server-tests
+      - ui-customization-boundaries
       - test-workflow-core
       - test-e2e
       - build-app
