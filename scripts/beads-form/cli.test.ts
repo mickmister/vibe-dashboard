@@ -771,6 +771,60 @@ describe('beads-form CLI helpers', () => {
     }]);
   });
 
+  it('rejects unsafe bead-backed attachment refs before persistence', () => {
+    for (const ref of [
+      'attachment://',
+      'attachment://../secret.md',
+      'attachment:///secret.md',
+      'attachment://docs/../../secret.md',
+      'attachment://docs\\..\\secret.md',
+      'attachment://https://example.test/secret.md',
+    ]) {
+      expect(() => parseFormsJsonForAttach(JSON.stringify({
+        ...standardForm,
+        content: [{
+          type: 'markdown-attachment',
+          id: 'unsafe_doc',
+          title: 'Unsafe doc',
+          ref,
+        }],
+      }))).toThrow('uses unsafe attachment ref');
+    }
+  });
+
+  it('rejects stored unsafe bead-backed attachment refs during show without updating metadata', async () => {
+    const calls: string[][] = [];
+    const exec = vi.fn<ExecFileLike>(async (_file, args) => {
+      calls.push([...args]);
+      return {
+        stdout: JSON.stringify([{
+          id: 'bd-1',
+          title: 'Bead',
+          metadata: {
+            beadForms: {
+              forms: [{
+                ...storedReviewForm,
+                content: [{
+                  type: 'attachments',
+                  id: 'refs',
+                  title: 'Refs',
+                  items: [{ id: 'secret', label: 'Secret', ref: 'attachment://../secret.md', mediaType: 'markdown' }],
+                }],
+              }],
+            },
+          },
+        }]),
+        stderr: '',
+      };
+    });
+
+    await expect(showBeadsForm({
+      execFile: exec,
+      options: { dir: '/repo', beadId: 'bd-1', formId: 'review' },
+    })).rejects.toThrow('uses unsafe attachment ref');
+    expect(calls.map((args) => args[0])).toEqual(['show']);
+  });
+
   it('shows legacy missing-goal standard forms while stripping stale generated fields', async () => {
     const exec = vi.fn<ExecFileLike>(async () => ({
       stdout: JSON.stringify([{

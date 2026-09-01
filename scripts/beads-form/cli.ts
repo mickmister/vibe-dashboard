@@ -450,7 +450,9 @@ function normalizeForm(value: unknown): BeadsFormDefinition | undefined {
   }
   if (!isStandardForm(value)) return undefined;
   compileBeadsForm(value);
-  return stripGeneratedBeadsFormFields(value);
+  const form = stripGeneratedBeadsFormFields(value);
+  assertNoLocalBeadBackedMediaRefs(form);
+  return form;
 }
 
 function isHtmlForm(value: unknown): value is JsonObject & { id: string; title: string; html: string } {
@@ -502,7 +504,6 @@ export function parseFormsJsonForAttach(text: string): BeadsFormDefinition[] {
   }
   const forms = formsFromJsonForAttach(parsed);
   assertUniqueFormIds(forms);
-  for (const form of forms) assertNoLocalBeadBackedMediaRefs(form);
   return forms;
 }
 
@@ -591,11 +592,24 @@ function assertNoLocalBeadBackedMediaRefs(form: BeadsFormDefinition): void {
   for (const ref of collectMediaRefs(form)) {
     for (const [field, value] of Object.entries({ src: ref.src, ref: ref.ref, poster: ref.poster })) {
       if (typeof value !== 'string' || !value) continue;
+      if (isUnsafeAttachmentRef(value)) {
+        throw new Error(`Form ${form.id} uses unsafe attachment ${field} "${value}"; attachment:// refs must be relative paths under .beads/attachments without absolute paths, traversal, backslashes, or nested schemes`);
+      }
       if (isLocalMediaRef(value)) {
         throw new Error(`Form ${form.id} uses local attachment ${field} "${value}"; bead-backed attachments support http(s) or attachment:// refs only`);
       }
     }
   }
+}
+
+function isUnsafeAttachmentRef(value: string): boolean {
+  const trimmed = value.trim();
+  if (!trimmed.toLowerCase().startsWith('attachment://')) return false;
+  const path = trimmed.slice('attachment://'.length);
+  if (!path || path.startsWith('/') || path.startsWith('\\')) return true;
+  if (path.includes('\\')) return true;
+  if (/^[a-z][a-z0-9+.-]*:/i.test(path)) return true;
+  return path.split('/').some((segment) => segment === '..' || segment === '');
 }
 
 function isLocalMediaRef(value: string): boolean {
@@ -763,6 +777,7 @@ function normalizeStoredForm(value: unknown): BeadsFormDefinition {
   }
   const stored = stripGeneratedBeadsFormFields(withLegacyFallbackGoal(value));
   compileBeadsForm(stored);
+  assertNoLocalBeadBackedMediaRefs(stored);
   return stored;
 }
 
