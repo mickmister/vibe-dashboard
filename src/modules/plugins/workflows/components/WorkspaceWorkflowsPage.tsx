@@ -40,6 +40,31 @@ import {
   type BrowserWorkflowNotificationState,
 } from "../extensions/workflowNotifications";
 
+export type GasCityWorkflowEngineUiModel = {
+  health: {
+    status: "healthy" | "unconfigured" | "unavailable";
+    summary: string;
+    version?: string | null;
+    checkedAt?: number | null;
+    warnings?: string[];
+  };
+  recipes?: Array<{
+    id: string;
+    name: string;
+    summary?: string | null;
+    sourceWorkflow?: string | null;
+    status: "ready" | "preview" | "unavailable";
+  }>;
+  launch?: {
+    enabled: boolean;
+    sourceBeadId?: string | null;
+    target?: string | null;
+    recipeId?: string | null;
+    summary: string;
+  } | null;
+  diagnosticsRef?: string | null;
+};
+
 export function WorkspaceWorkflowsPage({
   workspaceId: workspaceIdOverride,
   embedded = false,
@@ -97,6 +122,7 @@ export function WorkspaceWorkflowsHomeView({
   onHomeUpdated,
   embedded = false,
   routeParams,
+  gasCityEngine,
 }: {
   home: WorkspaceWorkflowsHomeModel | null;
   loading: boolean;
@@ -105,6 +131,7 @@ export function WorkspaceWorkflowsHomeView({
   onHomeUpdated?: (home: WorkspaceWorkflowsHomeModel) => void;
   embedded?: boolean;
   routeParams?: URLSearchParams;
+  gasCityEngine?: GasCityWorkflowEngineUiModel | null;
 }): React.ReactElement {
   const [launchWorkflow, setLaunchWorkflow] =
     useState<WorkspaceWorkflowSummary | null>(null);
@@ -426,6 +453,7 @@ export function WorkspaceWorkflowsHomeView({
         description="Secondary workflow tools for roadmap planning, isolated lanes, and diagnostics."
       >
         <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_minmax(0,1fr)]">
+          <GasCityWorkflowEnginePanel engine={gasCityEngine ?? defaultGasCityEngineUiModel(home?.workspaceId ?? null)} routeParams={routeParams} />
           <div className="rounded-lg border border-zinc-800 bg-zinc-950 p-4">
             <h3 className="font-semibold text-zinc-100">Run over beads / roadmap</h3>
             <p className="mt-2 text-sm text-zinc-400">Use the roadmap to choose beads, then start a meta-workflow from the supported workspace route.</p>
@@ -514,6 +542,169 @@ export function WorkspaceWorkflowsHomeView({
       ) : null}
     </StandaloneDashboardPage>
   );
+}
+
+
+function defaultGasCityEngineUiModel(workspaceId: string | null): GasCityWorkflowEngineUiModel {
+  return {
+    health: {
+      status: "unconfigured",
+      summary: workspaceId
+        ? "Workflow orchestration is not configured for this workspace yet."
+        : "Choose a workspace to check workflow orchestration setup.",
+      version: null,
+      checkedAt: null,
+      warnings: [],
+    },
+    recipes: [],
+    launch: {
+      enabled: false,
+      summary: workspaceId
+        ? "Recipe generation is available for review; launching from a task will be enabled when this workspace is connected."
+        : "Choose a workspace before starting task-backed workflow work.",
+    },
+    diagnosticsRef: null,
+  };
+}
+
+function GasCityWorkflowEnginePanel({
+  engine,
+  routeParams,
+}: {
+  engine: GasCityWorkflowEngineUiModel;
+  routeParams?: URLSearchParams;
+}): React.ReactElement {
+  const safeEngine = sanitizeGasCityEngineUiModel(engine);
+  const healthTone = safeEngine.health.status === "healthy"
+    ? "border-emerald-800 bg-emerald-950/20 text-emerald-100"
+    : safeEngine.health.status === "unconfigured"
+      ? "border-amber-800 bg-amber-950/20 text-amber-100"
+      : "border-red-900 bg-red-950/20 text-red-100";
+  return (
+    <div className="rounded-lg border border-zinc-800 bg-zinc-950 p-4" aria-label="Workflow engine status">
+      <div className="flex items-start justify-between gap-3">
+        <div>
+          <h3 className="font-semibold text-zinc-100">Workflow engine</h3>
+          <p className="mt-2 text-sm text-zinc-400">
+            Production workflow recipes are powered by the required orchestration engine. VD shows a supplemental view while task data remains authoritative.
+          </p>
+        </div>
+        <span className={`rounded-full border px-2 py-1 text-xs font-medium ${healthTone}`}>
+          {workflowEngineStatusLabel(safeEngine.health.status)}
+        </span>
+      </div>
+      <p className="mt-3 text-sm text-zinc-300">{safeEngine.health.summary}</p>
+      {safeEngine.health.version ? (
+        <p className="mt-1 text-xs text-zinc-500">Pinned release: {safeEngine.health.version}</p>
+      ) : null}
+      {safeEngine.health.warnings?.length ? (
+        <ul className="mt-2 list-disc space-y-1 pl-5 text-xs text-amber-100">
+          {safeEngine.health.warnings.map((warning, index) => <li key={`${warning}-${index}`}>{warning}</li>)}
+        </ul>
+      ) : null}
+      <div className="mt-4 rounded-md border border-zinc-800 bg-zinc-900/60 p-3">
+        <div className="flex items-center justify-between gap-3">
+          <div>
+            <div className="text-sm font-medium text-zinc-100">Generated workflow recipes</div>
+            <div className="mt-1 text-xs text-zinc-400">Generated from VD workflow designs into runtime-managed recipe files.</div>
+          </div>
+          <span className="text-xs text-zinc-500">{safeEngine.recipes?.length ?? 0} ready</span>
+        </div>
+        {safeEngine.recipes?.length ? (
+          <div className="mt-3 space-y-2">
+            {safeEngine.recipes.slice(0, 3).map((recipe) => (
+              <div key={recipe.id} className="rounded border border-zinc-800 bg-zinc-950/80 px-3 py-2">
+                <div className="flex items-center justify-between gap-2">
+                  <div className="text-sm text-zinc-100">{recipe.name}</div>
+                  <StatusPill label={recipe.status === "ready" ? "Ready" : recipe.status === "preview" ? "Preview" : "Unavailable"} tone={recipe.status === "ready" ? "emerald" : recipe.status === "preview" ? "cyan" : "amber"} />
+                </div>
+                {recipe.summary ? <div className="mt-1 text-xs text-zinc-400">{recipe.summary}</div> : null}
+              </div>
+            ))}
+          </div>
+        ) : (
+          <p className="mt-3 text-sm text-zinc-500">No generated workflow recipes are available yet.</p>
+        )}
+      </div>
+      <div className="mt-4 flex flex-wrap items-center gap-2">
+        {safeEngine.launch?.enabled ? (
+          <button type="button" className="rounded-md border border-cyan-700 px-3 py-2 text-sm text-cyan-100 hover:bg-cyan-950/40">
+            Start from task
+          </button>
+        ) : (
+          <span className="rounded-md border border-zinc-800 px-3 py-2 text-sm text-zinc-500">
+            Start from task unavailable
+          </span>
+        )}
+        <span className="text-xs text-zinc-500">{safeEngine.launch?.summary ?? "Connect the workflow engine before starting task-backed work."}</span>
+      </div>
+      <details className="mt-4 rounded-md border border-zinc-800 bg-zinc-900/50 p-3 text-xs text-zinc-400">
+        <summary className="cursor-pointer font-medium text-zinc-200">Advanced engine details</summary>
+        <div className="mt-2 space-y-1">
+          <div>Engine: Gas City-backed orchestration</div>
+          {safeEngine.diagnosticsRef ? <div>Diagnostics reference: {safeEngine.diagnosticsRef}</div> : <div>Diagnostics reference: not available yet</div>}
+          <a className="inline-flex text-cyan-200 hover:text-cyan-100" href={workflowRouteHref("/dashboard/workflows/roadmap", routeParams)}>
+            Open workflow roadmap
+          </a>
+        </div>
+      </details>
+    </div>
+  );
+}
+
+function workflowEngineStatusLabel(status: GasCityWorkflowEngineUiModel["health"]["status"]): string {
+  if (status === "healthy") return "Ready";
+  if (status === "unconfigured") return "Setup needed";
+  return "Unavailable";
+}
+
+function sanitizeGasCityEngineUiModel(engine: GasCityWorkflowEngineUiModel): GasCityWorkflowEngineUiModel {
+  return {
+    health: {
+      status: engine.health.status,
+      summary: scrubWorkflowEngineText(engine.health.summary, "Workflow engine status is unavailable."),
+      version: engine.health.version ? scrubWorkflowEngineText(engine.health.version, "unknown") : null,
+      checkedAt: engine.health.checkedAt ?? null,
+      warnings: (engine.health.warnings ?? []).map((warning) => scrubWorkflowEngineText(warning, "Workflow engine warning.")),
+    },
+    recipes: (engine.recipes ?? []).map((recipe) => ({
+      id: scrubWorkflowEngineIdentifier(recipe.id),
+      name: scrubWorkflowEngineText(recipe.name, "Workflow recipe"),
+      summary: recipe.summary ? scrubWorkflowEngineText(recipe.summary, "Generated workflow recipe") : null,
+      sourceWorkflow: recipe.sourceWorkflow ? scrubWorkflowEngineText(recipe.sourceWorkflow, "Workflow") : null,
+      status: recipe.status,
+    })),
+    launch: engine.launch ? {
+      enabled: engine.launch.enabled,
+      sourceBeadId: engine.launch.sourceBeadId ? scrubWorkflowEngineIdentifier(engine.launch.sourceBeadId) : null,
+      target: engine.launch.target ? scrubWorkflowEngineIdentifier(engine.launch.target) : null,
+      recipeId: engine.launch.recipeId ? scrubWorkflowEngineIdentifier(engine.launch.recipeId) : null,
+      summary: scrubWorkflowEngineText(engine.launch.summary, "Workflow launch is not available yet."),
+    } : null,
+    diagnosticsRef: engine.diagnosticsRef ? scrubWorkflowEngineIdentifier(engine.diagnosticsRef) : null,
+  };
+}
+
+function scrubWorkflowEngineIdentifier(value: string): string {
+  return value.trim().replace(/[^A-Za-z0-9_.:-]+/g, "-").slice(0, 160) || "workflow-ref";
+}
+
+function scrubWorkflowEngineText(value: unknown, fallback: string): string {
+  const text = typeof value === "string" ? value : fallback;
+  const cleaned = text
+    .replace(/\/Users\/[^\s)]+/gi, "local path")
+    .replace(/\/private\/var\/[^\s)]+/gi, "local path")
+    .replace(/\/tmp\/[^\s)]+/gi, "local path")
+    .replace(/\b(?:bd|git|gc)\s+[\w:./=-]+(?:\s+[\w:./=-]+)*/gi, "engine action")
+    .replace(/\bstd(?:out|err)\b/gi, "engine output")
+    .replace(/\bprovider diagnostics?\b/gi, "engine status")
+    .replace(/\bwebhook\b/gi, "callback")
+    .replace(/\bqueue[_ -]?item\b/gi, "work item")
+    .replace(/\braw\s+(?:XML|JSON)\b/gi, "response details")
+    .replace(/<\/?[A-Za-z_][^>]*>/g, "response details")
+    .replace(/\s+/g, " ")
+    .trim();
+  return (cleaned || fallback).slice(0, 280);
 }
 
 

@@ -51,6 +51,11 @@ describe("WorkspaceWorkflowsHomeView", () => {
     expect(html).toContain("Recent Batch runs");
     expect(html).toContain("Recent runs");
     expect(html).toContain("Needs attention");
+    expect(html).toContain("Workflow engine");
+    expect(html).toContain("Production workflow recipes are powered by the required orchestration engine.");
+    expect(html).toContain("Setup needed");
+    expect(html).toContain("Start from task unavailable");
+    expect(html).toContain("Generated workflow recipes");
     expect(html).toContain("Workspace lanes");
     expect(html).toContain("Feature lane");
     expect(html).toContain("Ready for isolated workflow work.");
@@ -162,6 +167,48 @@ describe("WorkspaceWorkflowsHomeView", () => {
     expect(html).toContain('href="/dashboard/workflows/library?voyage=v1&amp;filter=active"');
     expect(html).not.toContain('/beads/project');
     for (const term of forbiddenTerms) expect(html).not.toContain(term);
+  });
+
+  it("renders Gas City-backed orchestration status with product-safe setup and recipe states", () => {
+    const html = renderToStaticMarkup(
+      React.createElement(WorkspaceWorkflowsHomeView, {
+        home: fixture(),
+        loading: false,
+        error: null,
+        onRefresh: () => {},
+        gasCityEngine: {
+          health: {
+            status: "healthy",
+            summary: "gc sling reviewer bead --on formula succeeded with provider diagnostics from /tmp/private",
+            version: "1.4.1",
+            warnings: ["raw XML from webhook queue item /Users/me/secret"],
+          },
+          recipes: [
+            {
+              id: "recipe-drt",
+              name: "Dev Review Tester recipe",
+              summary: "Generated from the published workflow design.",
+              sourceWorkflow: "Dev Review Tester",
+              status: "ready",
+            },
+          ],
+          launch: {
+            enabled: false,
+            summary: "Use gc sling later after launch wiring is enabled.",
+          },
+          diagnosticsRef: "gas-city-launch:abc123",
+        },
+      }),
+    );
+
+    expect(html).toContain("Workflow engine");
+    expect(html).toContain("Ready");
+    expect(html).toContain("Pinned release: 1.4.1");
+    expect(html).toContain("Dev Review Tester recipe");
+    expect(html).toContain("Start from task unavailable");
+    expect(html).toContain("Advanced engine details");
+    expect(html).toContain("Diagnostics reference: gas-city-launch:abc123");
+    expect(html).not.toMatch(/gc sling|provider diagnostics|raw XML|webhook|queue item|\/Users|\/tmp|stdout|stderr|bd show|git status/i);
   });
 
   it("TEST_CASE_M104_1A renders launch summary, run-scoped instructions context, and session choices", () => {

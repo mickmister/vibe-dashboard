@@ -43,6 +43,53 @@ export const DenseWorkspaceDashboard: Story = {
   },
 };
 
+export const GasCityBackedOrchestrationReady: Story = {
+  args: {
+    home: workflowsHomeFixture(),
+    loading: false,
+    error: null,
+    onRefresh: () => undefined,
+    onHomeUpdated: () => undefined,
+    embedded: true,
+    gasCityEngine: {
+      health: {
+        status: 'healthy',
+        summary: 'Workflow orchestration is connected and ready for task-backed workflow recipes.',
+        version: '1.4.1',
+        warnings: [],
+      },
+      recipes: [
+        { id: 'recipe-dev-review-tester', name: 'Dev / Review / Tester recipe', summary: 'Generated from the published Dev / Review / Tester workflow.', sourceWorkflow: 'Dev / Review / Tester', status: 'ready' },
+        { id: 'recipe-create-form', name: 'Create form from agent recipe', summary: 'Preview recipe for creating a human input form from an agent decision.', sourceWorkflow: 'Create form from agent', status: 'preview' },
+      ],
+      launch: { enabled: false, summary: 'Start from task is shown here as a safe preview until launch routes are connected.' },
+      diagnosticsRef: 'gas-city-launch:storybook',
+    },
+  },
+};
+
+export const GasCityBackedOrchestrationUnavailable: Story = {
+  args: {
+    home: workflowsHomeFixture(),
+    loading: false,
+    error: null,
+    onRefresh: () => undefined,
+    onHomeUpdated: () => undefined,
+    embedded: true,
+    gasCityEngine: {
+      health: {
+        status: 'unavailable',
+        summary: 'Workflow orchestration is unavailable. Check setup and retry from this workspace.',
+        version: null,
+        warnings: ['Workflow engine version could not be verified.'],
+      },
+      recipes: [],
+      launch: { enabled: false, summary: 'Connect the workflow engine before starting task-backed workflow work.' },
+      diagnosticsRef: null,
+    },
+  },
+};
+
 
 export const GlobalAllWorkspacesOverview: Story = {
   args: {
