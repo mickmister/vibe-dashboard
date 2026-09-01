@@ -1,10 +1,15 @@
 import { readFileSync } from "fs";
 import { describe, expect, it } from "vitest";
 
-const workflowPath = ".github/workflows/docker-github-builder-build.yml";
+const dockerBuilderWorkflowPath = ".github/workflows/docker-github-builder-build.yml";
+const publishWorkflowPath = ".github/workflows/publish-ghcr-vk-vd.yml";
 
-function readWorkflow() {
-  return readFileSync(workflowPath, "utf8");
+function readDockerBuilderWorkflow() {
+  return readFileSync(dockerBuilderWorkflowPath, "utf8");
+}
+
+function readPublishWorkflow() {
+  return readFileSync(publishWorkflowPath, "utf8");
 }
 
 function stepBlock(workflow: string, stepName: string, occurrence = 1) {
@@ -26,7 +31,7 @@ function stepBlock(workflow: string, stepName: string, occurrence = 1) {
 
 describe("docker-github-builder-build workflow", () => {
   it("does not install cosign or verify dependency signatures when signing is explicitly disabled", () => {
-    const workflow = readWorkflow();
+    const workflow = readDockerBuilderWorkflow();
     const prepareCosign = stepBlock(workflow, "Install Cosign", 1);
     const dependencySignatureCheck = stepBlock(workflow, "Check dependencies signatures");
 
@@ -39,7 +44,7 @@ describe("docker-github-builder-build workflow", () => {
   });
 
   it("does not make GitHub Actions cache signing force cosign when output signing is disabled", () => {
-    const workflow = readWorkflow();
+    const workflow = readDockerBuilderWorkflow();
     const buildCosign = stepBlock(workflow, "Install Cosign", 2);
 
     expect(workflow).toContain(
@@ -49,5 +54,18 @@ describe("docker-github-builder-build workflow", () => {
       "if: ${{ needs.prepare.outputs.sign == 'true' || needs.prepare.outputs.ghaCacheSign == 'true' }}",
     );
     expect(buildCosign).not.toContain("|| inputs.cache");
+  });
+});
+
+describe("Publish VK/VD Image to GHCR workflow", () => {
+  it("exposes the resolved VD ref and commit before passing them to the Docker Git context", () => {
+    const workflow = readPublishWorkflow();
+
+    expect(workflow).toContain("vd_ref: ${{ steps.resolve.outputs.vd_ref }}");
+    expect(workflow).toContain("vd_commit: ${{ steps.resolve.outputs.vd_commit }}");
+    expect(workflow).toContain("source-ref: ${{ needs.resolve-vk-ref.outputs.vd_ref }}");
+    expect(workflow).toContain(
+      "source-checksum: ${{ needs.resolve-vk-ref.outputs.vd_commit }}",
+    );
   });
 });
