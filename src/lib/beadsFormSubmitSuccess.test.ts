@@ -37,11 +37,12 @@ describe('BeadsForm submit success helpers', () => {
     expect(text).toContain('<choiceGroup id="decision">');
     expect(text).toContain('<choice id="approve" selected="true" />');
     expect(text).toContain('<choice id="defer" selected="false" />');
-    expect(text).toContain('<answer id="plan" type="markdown"># Heading');
+    expect(text).toContain('<answer id="plan" type="markdown">\n\n# Heading');
     expect(text).toContain('```ts\nconst value = a &lt; b &amp;&amp; b &gt; c;\n```');
-    expect(text).toContain('<note id="decision_approve_more_info" type="markdown">Ship because A &amp; B are ready.</note>');
-    expect(text).toContain('<note id="decision_more_info" type="markdown">Question-level note with a ]]&gt; sequence.</note>');
-    expect(text).toContain('<additionalNotes id="additional_notes" type="markdown">Use &lt;safe&gt; escaping &amp; preserve text.</additionalNotes>');
+    expect(text).toContain('<note id="decision_approve_more_info" type="markdown">\n\nShip because A &amp; B are ready.\n\n    </note>');
+    expect(text).toContain('<note id="decision_more_info" type="markdown">\n\nQuestion-level note with a ]]&gt; sequence.\n\n    </note>');
+    expect(text).toContain('<additionalNotes id="additional_notes" type="markdown">\n\nUse &lt;safe&gt; escaping &amp; preserve text.\n\n    </additionalNotes>');
+    expect(text).not.toContain('type="markdown">Ship because');
   });
 
   it('copies XML with plain normalized booleans and no choice provenance metadata', () => {
@@ -63,7 +64,7 @@ describe('BeadsForm submit success helpers', () => {
 
     expect(result.status).toBe('copied');
     expect(result.text).toContain('<formId>form-1</formId>');
-    expect(result.text).toContain('<answer id="answer" type="markdown">saved</answer>');
+    expect(result.text).toContain('<answer id="answer" type="markdown">\n\nsaved\n\n    </answer>');
     expect(writeText).toHaveBeenCalledWith(result.text);
   });
 
@@ -75,7 +76,7 @@ describe('BeadsForm submit success helpers', () => {
     const result = await copySubmittedResultHandoffXml({ writeText }, { answer: 'saved' });
 
     expect(result.status).toBe('failed');
-    expect(result.text).toContain('<answer id="answer" type="markdown">saved</answer>');
+    expect(result.text).toContain('<answer id="answer" type="markdown">\n\nsaved\n\n    </answer>');
     expect(result.warning).toContain('Clipboard copy failed: denied');
     expect(result.warning).toContain('manual XML handoff field');
   });
@@ -83,7 +84,7 @@ describe('BeadsForm submit success helpers', () => {
   it('represents pending clipboard copy without a false failure warning', () => {
     expect(pendingSubmittedResultHandoffCopy({ answer: 'saved' })).toEqual({
       status: 'pending',
-      text: '<beadsFormSubmission>\n  <answers>\n    <answer id="answer" type="markdown">saved</answer>\n  </answers>\n</beadsFormSubmission>',
+      text: '<beadsFormSubmission>\n  <answers>\n    <answer id="answer" type="markdown">\n\nsaved\n\n    </answer>\n  </answers>\n</beadsFormSubmission>',
     });
   });
 });

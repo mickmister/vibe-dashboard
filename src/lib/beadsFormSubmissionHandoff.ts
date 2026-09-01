@@ -43,7 +43,21 @@ function answerLines(id: string, value: unknown, indent: string): string[] {
   }
   const tag = answerTagForId(id);
   const type = scalarType(value);
-  return [`${indent}<${tag} id="${escapeXmlAttribute(id)}" type="${type}">${escapeXmlText(stringifyValue(value))}</${tag}>`];
+  const attributes = `id="${escapeXmlAttribute(id)}" type="${type}"`;
+  if (type === 'markdown') {
+    return blockTextElementLines(tag, attributes, stringifyValue(value), indent);
+  }
+  return [`${indent}<${tag} ${attributes}>${escapeXmlText(stringifyValue(value))}</${tag}>`];
+}
+
+function blockTextElementLines(tag: string, attributes: string, value: string, indent: string): string[] {
+  return [
+    `${indent}<${tag} ${attributes}>`,
+    '',
+    escapeXmlText(value),
+    '',
+    `${indent}</${tag}>`,
+  ];
 }
 
 function choiceGroupLines(id: string, choices: Record<string, boolean>, indent: string): string[] {
