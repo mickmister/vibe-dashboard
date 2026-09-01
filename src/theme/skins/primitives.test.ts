@@ -72,4 +72,36 @@ describe("skin-aware view primitives", () => {
     expect(html).toContain("disabled=\"\"");
     expect(html).toContain("data-vd-tone=\"quiet\"");
   });
+
+  it("defaults action buttons to non-submit buttons while preserving overrides", () => {
+    const html = renderToStaticMarkup(
+      React.createElement(
+        React.Fragment,
+        null,
+        React.createElement(VDAction, null, "Default action"),
+        React.createElement(VDAction, { type: "submit" }, "Submit action"),
+        React.createElement(VDAction, { type: "reset" }, "Reset action"),
+      ),
+    );
+
+    expect(html).toMatch(/<button[^>]*type="button"/);
+    expect(html).toMatch(/<button[^>]*type="submit"/);
+    expect(html).toMatch(/<button[^>]*type="reset"/);
+  });
+
+  it("defaults button rows to non-submit buttons while preserving overrides", () => {
+    const html = renderToStaticMarkup(
+      React.createElement(
+        React.Fragment,
+        null,
+        React.createElement(VDRow, { as: "button" }, "Default row"),
+        React.createElement(VDRow, { as: "button", type: "submit" }, "Submit row"),
+        React.createElement(VDRow, { as: "button", type: "reset" }, "Reset row"),
+      ),
+    );
+
+    expect(html).toMatch(/<button[^>]*type="button"/);
+    expect(html).toMatch(/<button[^>]*type="submit"/);
+    expect(html).toMatch(/<button[^>]*type="reset"/);
+  });
 });

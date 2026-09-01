@@ -104,8 +104,15 @@ interface VDActionProps extends ButtonHTMLAttributes<HTMLButtonElement> {
   tone?: VDActionTone;
 }
 
-export function VDAction({ tone, ...props }: VDActionProps) {
-  return <button {...props} data-vd-component="button" data-vd-tone={tone} />;
+export function VDAction({ tone, type, ...props }: VDActionProps) {
+  return (
+    <button
+      {...props}
+      data-vd-component="button"
+      data-vd-tone={tone}
+      type={type ?? "button"}
+    />
+  );
 }
 
 interface VDBadgeProps extends HTMLAttributes<HTMLSpanElement> {
@@ -132,9 +139,15 @@ export function VDRow(props: VDDivRowProps): ReactElement;
 export function VDRow(props: VDButtonRowProps): ReactElement;
 export function VDRow(props: VDRowProps): ReactElement {
   if (props.as === "button") {
-    const { as: _as, ...buttonProps } = props;
+    const { as: _as, type, ...buttonProps } = props;
 
-    return <button {...buttonProps} data-vd-component="row" />;
+    return (
+      <button
+        {...buttonProps}
+        data-vd-component="row"
+        type={type ?? "button"}
+      />
+    );
   }
 
   const { as: _as, ...divProps } = props;
