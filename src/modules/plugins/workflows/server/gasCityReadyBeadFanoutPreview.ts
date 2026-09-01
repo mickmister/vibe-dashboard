@@ -173,9 +173,10 @@ export class GasCityReadyBeadFanoutPreviewProvider {
   }
 
   private async loadExplicitBeads(workspaceId: string, explicitIds: string[]): Promise<ReadyBeadFanoutBead[]> {
-    if (this.beadProvider.getBeadsByIds) return this.beadProvider.getBeadsByIds({ workspaceId, beadIds: explicitIds });
-    const ready = await this.beadProvider.listReadyBeads({ workspaceId });
-    const byId = new Map(ready.map((bead) => [bead.id, bead]));
+    const found = this.beadProvider.getBeadsByIds
+      ? await this.beadProvider.getBeadsByIds({ workspaceId, beadIds: explicitIds })
+      : await this.beadProvider.listReadyBeads({ workspaceId });
+    const byId = new Map(found.map((bead) => [bead.id, bead]));
     return explicitIds.map((id) => byId.get(id) ?? missingBead(id, workspaceId));
   }
 

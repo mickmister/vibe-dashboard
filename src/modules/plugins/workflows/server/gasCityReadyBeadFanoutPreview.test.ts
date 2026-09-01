@@ -83,6 +83,37 @@ describe("GasCityReadyBeadFanoutPreviewProvider GCW-7A", () => {
     expect(preview.nextAction).toBe("Review 2 ready tasks before launching.");
   });
 
+  it("keeps missing explicit IDs visible when getBeadsByIds returns only found beads", async () => {
+    const preview = await new GasCityReadyBeadFanoutPreviewProvider({
+      now: () => 456,
+      gasCityProvider: new FakeGasCityWorkflowProvider({
+        available: true,
+        targets: [{ target: "worker", label: "Worker" }],
+        formulas: [{ formula: "review-flow", label: "Review flow", contract: "graph.v2" }],
+      }),
+      beadProvider: {
+        async listReadyBeads() {
+          return [];
+        },
+        async getBeadsByIds() {
+          return [bead({ id: "bead-found" })];
+        },
+      },
+    }).previewReadyBeadFanout({
+      context: { workspaceId: "workspace-a" },
+      target: "worker",
+      formula: "review-flow",
+      source: { explicitBeadIds: ["bead-found", "bead-missing"] },
+      limits: { maxActiveSourceWorkflows: 10 },
+    });
+
+    expect(preview.items.map((item) => [item.beadId, item.status, item.reasonCode])).toEqual([
+      ["bead-found", "will_launch", undefined],
+      ["bead-missing", "blocked", "bead_not_found"],
+    ]);
+    expect(preview.counts).toMatchObject({ willLaunch: 1, blocked: 1 });
+  });
+
   it("TEST_CASE_GCW7A_1B previews parent/convoy filtered ready beads and skip mismatches", async () => {
     const preview = await provider({
       beads: [
