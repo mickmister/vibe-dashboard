@@ -350,6 +350,7 @@ export function sanitizeGasCityProviderText(value: unknown, fallback = "Gas City
     .replace(/\bdelivery\s*id\b/gi, "delivery reference")
     .replace(/\bHMAC\b/gi, "signature")
     .replace(/\bprovider diagnostics?\b/gi, "provider status")
+    .replace(/\bstd(?:out|err)\b/gi, "provider output")
     .replace(/\braw\s+(?:XML|JSON)\b/gi, "response details")
     .replace(/<\/?[A-Za-z_][^>]*>/g, "response details")
     .replace(/\s+/g, " ")
