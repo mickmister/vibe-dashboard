@@ -169,4 +169,25 @@ describe("VD global skin runtime", () => {
     expect(html).not.toContain("<style");
     expect(html).not.toContain("rawCss");
   });
+
+  it("does not project invalid user skin CSS-variable values after migration", () => {
+    const unsafeSkin = completeSkin({
+      tokens: {
+        ...completeSkin().tokens,
+        spacing: {
+          row: "0.5rem; color: red",
+        },
+      },
+    });
+    const runtime = getSkinRuntimeState({
+      state: {
+        version: 1,
+        userSkins: [unsafeSkin],
+        activeGlobalSkinId: unsafeSkin.id,
+      },
+    });
+
+    expect(runtime.skin.id).toBe(DEFAULT_VD_SKIN_ID);
+    expect(Object.values(runtime.style)).not.toContain("0.5rem; color: red");
+  });
 });

@@ -215,6 +215,105 @@ describe("VD global skin schema", () => {
     );
   });
 
+  it("accepts only conservative safe values for CSS-variable token categories", () => {
+    const result = validateSkinManifest({
+      ...completeSkin(),
+      tokens: {
+        ...completeSkin().tokens,
+        typography: {
+          ...completeSkin().tokens.typography,
+          letterSpacing: "-0.01em",
+        },
+        spacing: {
+          xs: "0",
+          panel: "1.25rem",
+        },
+        radii: {
+          card: "1rem",
+          pill: "999px",
+        },
+        shadows: {
+          none: "none",
+          ring: "0 0 0 2px #00ffff",
+          panel: "0 20px 60px rgb(0 0 0 / 0.35), 0 1px 2px #000",
+        },
+      },
+      components: {
+        ...completeSkin().components,
+        card: {
+          ...completeSkin().components.card,
+          shadow: "0 18px 45px rgb(0 0 0 / 0.35)",
+        },
+      },
+    });
+
+    expect(result.ok).toBe(true);
+    expect(result.value?.tokens.shadows?.panel).toBe(
+      "0 20px 60px rgb(0 0 0 / 0.35), 0 1px 2px #000",
+    );
+    expect(result.value?.components.card?.shadow).toBe(
+      "0 18px 45px rgb(0 0 0 / 0.35)",
+    );
+  });
+
+  it("rejects unsafe CSS-variable token values before runtime projection", () => {
+    const result = validateSkinManifest({
+      ...completeSkin(),
+      tokens: {
+        ...completeSkin().tokens,
+        typography: {
+          ...completeSkin().tokens.typography,
+          letterSpacing: "calc(1px + 1em)",
+        },
+        spacing: {
+          row: "0.5rem; color: red",
+          control: "1rem\u0001",
+        },
+        radii: {
+          panel: "url(https://example.test/radius)",
+        },
+        shadows: {
+          panel: "0 20px 60px rgb(0 0 0 / 0.35); background: red",
+          image: "0 0 8px url(https://example.test/shadow.png)",
+          dynamic: "expression(alert(1))",
+        },
+      },
+      components: {
+        ...completeSkin().components,
+        card: {
+          ...completeSkin().components.card,
+          shadow: "0 0 0 1px #fff } .escape { color: red",
+        },
+      },
+    });
+
+    expect(result.ok).toBe(false);
+    expect(result.diagnostics.map((diagnostic) => diagnostic.code)).toEqual(
+      expect.arrayContaining([
+        "invalid-length",
+        "unsafe-css-value",
+      ]),
+    );
+  });
+
+  it("rejects unsupported shadow grammar until intentionally expanded", () => {
+    const result = validateSkinManifest({
+      ...completeSkin(),
+      tokens: {
+        ...completeSkin().tokens,
+        shadows: {
+          "gradient-like": "0 0 8px color-mix(in srgb, #000, #fff)",
+          "named-color": "0 0 8px red",
+        },
+      },
+    });
+
+    expect(result.ok).toBe(false);
+    expect(result.diagnostics.map((diagnostic) => diagnostic.code)).toContain(
+      "invalid-shadow",
+    );
+  });
+
   it("rejects duplicate package assets and duplicate raw CSS block ids", () => {
     const result = validateSkinManifest({
       ...completeSkin(),

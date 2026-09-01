@@ -71,6 +71,13 @@ const HEX_COLOR_PATTERN = /^#(?:[0-9a-f]{3}|[0-9a-f]{6}|[0-9a-f]{8})$/i;
 const LENGTH_PATTERN =
   /^(?:0|-?(?:\d+|\d*\.\d+)(?:px|rem|em|%|vh|vw|ch|lh))$/;
 const SAFE_FONT_PATTERN = /^[a-zA-Z0-9\s'",.-]+$/;
+const UNSAFE_CSS_FRAGMENT_PATTERN =
+  /[;{}]|\burl\s*\(|@import\b|\bexpression\s*\(|[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f]/i;
+const SHADOW_LENGTH_PATTERN =
+  /^(?:0|-?(?:\d+|\d*\.\d+)(?:px|rem|em|ch))$/;
+const SHADOW_HEX_COLOR_PATTERN = /^#(?:[0-9a-f]{3}|[0-9a-f]{6}|[0-9a-f]{8})$/i;
+const SHADOW_RGB_COLOR_PATTERN =
+  /^rgb\(\s*(?:\d|[1-9]\d|1\d\d|2[0-4]\d|25[0-5])\s+(?:\d|[1-9]\d|1\d\d|2[0-4]\d|25[0-5])\s+(?:\d|[1-9]\d|1\d\d|2[0-4]\d|25[0-5])(?:\s*\/\s*(?:0|1|0?\.\d+))?\s*\)$/i;
 const ALLOWED_ASSET_EXTENSIONS: Record<VDSkinAssetKind, Set<string>> = {
   image: new Set(["png", "jpg", "jpeg", "webp", "gif", "svg"]),
   icon: new Set(["png", "jpg", "jpeg", "webp", "gif", "svg"]),
@@ -108,6 +115,26 @@ function asString(value: unknown): string | undefined {
   return typeof value === "string" ? value.trim() : undefined;
 }
 
+function hasUnsafeCssFragment(value: string): boolean {
+  return UNSAFE_CSS_FRAGMENT_PATTERN.test(value);
+}
+
+function rejectUnsafeCssFragment(
+  value: string,
+  diagnostics: VDSkinDiagnostic[],
+  path: string,
+): boolean {
+  if (!hasUnsafeCssFragment(value)) return false;
+  diagnostics.push(
+    error(
+      "unsafe-css-value",
+      "CSS variable values cannot contain raw CSS escape hatches.",
+      path,
+    ),
+  );
+  return true;
+}
+
 function normalizeColor(
   value: unknown,
   diagnostics: VDSkinDiagnostic[],
@@ -127,8 +154,16 @@ function normalizeLength(
   diagnostics: VDSkinDiagnostic[],
   path: string,
 ): string | undefined {
+  if (value == null) return undefined;
+  if (typeof value !== "string") {
+    diagnostics.push(
+      error("invalid-length", "Length values must use safe CSS length units.", path),
+    );
+    return undefined;
+  }
   const candidate = asString(value);
   if (!candidate) return undefined;
+  if (rejectUnsafeCssFragment(candidate, diagnostics, path)) return undefined;
   if (!LENGTH_PATTERN.test(candidate)) {
     diagnostics.push(
       error("invalid-length", "Length values must use safe CSS length units.", path),
@@ -138,10 +173,15 @@ function normalizeLength(
   return candidate;
 }
 
-function normalizeTokenMap(
+function normalizeTokenMapValues(
   value: unknown,
   diagnostics: VDSkinDiagnostic[],
   path: string,
+  normalizeValue: (
+    value: unknown,
+    diagnostics: VDSkinDiagnostic[],
+    path: string,
+  ) => string | undefined,
 ): Record<string, string> | undefined {
   if (value == null) return undefined;
   if (!isRecord(value)) {
@@ -156,16 +196,96 @@ function normalizeTokenMap(
       );
       continue;
     }
-    const stringValue = asString(rawValue);
-    if (!stringValue) {
-      diagnostics.push(
-        error("invalid-token-value", "Token values must be strings.", `${path}.${key}`),
-      );
-      continue;
-    }
+    const stringValue = normalizeValue(rawValue, diagnostics, `${path}.${key}`);
+    if (!stringValue) continue;
     normalized[key] = stringValue;
   }
   return normalized;
+}
+
+function normalizeShadow(
+  value: unknown,
+  diagnostics: VDSkinDiagnostic[],
+  path: string,
+): string | undefined {
+  const candidate = asString(value);
+  if (!candidate) {
+    diagnostics.push(error("invalid-shadow", "Shadow values must be strings.", path));
+    return undefined;
+  }
+  if (rejectUnsafeCssFragment(candidate, diagnostics, path)) return undefined;
+  if (!isSafeShadow(candidate)) {
+    diagnostics.push(
+      error(
+        "invalid-shadow",
+        "Shadow values must use the conservative box-shadow whitelist.",
+        path,
+      ),
+    );
+    return undefined;
+  }
+  return candidate;
+}
+
+function isSafeShadow(value: string): boolean {
+  if (value === "none") return true;
+
+  const layers = splitShadowLayers(value);
+  return Boolean(layers.length) && layers.every(isSafeShadowLayer);
+}
+
+function splitShadowLayers(value: string): string[] {
+  const layers: string[] = [];
+  let depth = 0;
+  let start = 0;
+
+  for (let index = 0; index < value.length; index += 1) {
+    const char = value[index];
+    if (char === "(") depth += 1;
+    if (char === ")") depth -= 1;
+    if (depth < 0) return [];
+    if (char === "," && depth === 0) {
+      const layer = value.slice(start, index).trim();
+      if (!layer) return [];
+      layers.push(layer);
+      start = index + 1;
+    }
+  }
+
+  if (depth !== 0) return [];
+  const finalLayer = value.slice(start).trim();
+  if (!finalLayer) return [];
+  layers.push(finalLayer);
+  return layers;
+}
+
+function isSafeShadowLayer(value: string): boolean {
+  const tokens = value.match(/rgb\([^)]+\)|#[0-9a-f]{3,8}|[^\s]+/gi) ?? [];
+  if (!tokens.length) return false;
+
+  const remaining = [...tokens];
+  if (remaining[0]?.toLowerCase() === "inset") {
+    remaining.shift();
+  }
+
+  const colors = remaining.filter(isSafeShadowColor);
+  if (colors.length > 1) return false;
+  for (const color of colors) {
+    remaining.splice(remaining.indexOf(color), 1);
+  }
+
+  return (
+    remaining.length >= 2 &&
+    remaining.length <= 4 &&
+    remaining.every((token) => SHADOW_LENGTH_PATTERN.test(token))
+  );
+}
+
+function isSafeShadowColor(value: string): boolean {
+  return (
+    SHADOW_HEX_COLOR_PATTERN.test(value) ||
+    SHADOW_RGB_COLOR_PATTERN.test(value)
+  );
 }
 
 function normalizeFont(
@@ -342,7 +462,10 @@ function normalizeRecipe(
   const radius = normalizeLength(source.radius, diagnostics, `${path}.radius`);
   const padding = normalizeLength(source.padding, diagnostics, `${path}.padding`);
   const gap = normalizeLength(source.gap, diagnostics, `${path}.gap`);
-  const shadow = asString(source.shadow);
+  const shadow =
+    source.shadow == null
+      ? undefined
+      : normalizeShadow(source.shadow, diagnostics, `${path}.shadow`);
 
   return {
     ...(background ? { background } : {}),
@@ -455,9 +578,29 @@ function normalizeTokens(
     diagnostics,
     "tokens.density.rowHeight",
   );
-  const spacing = normalizeTokenMap(source.spacing, diagnostics, "tokens.spacing");
-  const radii = normalizeTokenMap(source.radii, diagnostics, "tokens.radii");
-  const shadows = normalizeTokenMap(source.shadows, diagnostics, "tokens.shadows");
+  const letterSpacing = normalizeLength(
+    typography.letterSpacing,
+    diagnostics,
+    "tokens.typography.letterSpacing",
+  );
+  const spacing = normalizeTokenMapValues(
+    source.spacing,
+    diagnostics,
+    "tokens.spacing",
+    normalizeLength,
+  );
+  const radii = normalizeTokenMapValues(
+    source.radii,
+    diagnostics,
+    "tokens.radii",
+    normalizeLength,
+  );
+  const shadows = normalizeTokenMapValues(
+    source.shadows,
+    diagnostics,
+    "tokens.shadows",
+    normalizeShadow,
+  );
 
   return {
     colors: {
@@ -481,9 +624,7 @@ function normalizeTokens(
       ...(typeof typography.bodyWeight === "number"
         ? { bodyWeight: typography.bodyWeight }
         : {}),
-      ...(asString(typography.letterSpacing)
-        ? { letterSpacing: asString(typography.letterSpacing) }
-        : {}),
+      ...(letterSpacing ? { letterSpacing } : {}),
     },
     density: {
       ...(scale ? { scale } : {}),
