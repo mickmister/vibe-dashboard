@@ -409,12 +409,14 @@ function isSafeMediaReference(value: string): boolean {
   const trimmed = value.trim();
   const lower = trimmed.toLowerCase();
   if (!trimmed) return false;
-  if (lower.startsWith('javascript:') || lower.startsWith('data:') || lower.startsWith('http:') || lower.startsWith('https:') || lower.startsWith('//')) {
+  if (lower.startsWith('javascript:') || lower.startsWith('data:') || lower.startsWith('//')) {
     return false;
   }
   return lower.startsWith('/')
     || lower.startsWith('./')
     || lower.startsWith('../')
+    || lower.startsWith('http://')
+    || lower.startsWith('https://')
     || lower.startsWith('attachment://')
     || !/^[a-z][a-z0-9+.-]*:/i.test(trimmed);
 }

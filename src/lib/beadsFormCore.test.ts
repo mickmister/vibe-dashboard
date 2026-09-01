@@ -485,8 +485,11 @@ describe('BeadsForm core', () => {
         <object data="bad"></object>
         <embed src="bad">
         <img src="attachments/safe.png" alt="Safe">
-        <img src="https://evil.example/track.png" alt="Unsafe">
-        <video src="attachment://demo.webm" poster="screenshots/demo.png" controls></video>
+        <img src="https://cdn.example/shot.png" alt="Hosted">
+        <img src="javascript:alert(1)" alt="Unsafe script">
+        <img src="data:image/png;base64,bad" alt="Unsafe data">
+        <img src="//cdn.example/protocol-relative.png" alt="Unsafe protocol relative">
+        <video src="attachment://demo.webm" poster="https://cdn.example/poster.png" controls></video>
         <video src="data:video/webm;base64,bad" poster="javascript:bad()" controls></video>
         <label for="comment">Comment</label>
         <textarea id="comment" name="comment" required rows="5"></textarea>
@@ -500,11 +503,14 @@ describe('BeadsForm core', () => {
     expect(html).not.toContain('<iframe');
     expect(html).not.toContain('<object');
     expect(html).not.toContain('<embed');
-    expect(html).not.toContain('https://evil.example');
     expect(html).toContain('href="https://docs.example"');
     expect(html).toContain('<img src="attachments/safe.png" alt="Safe">');
-    expect(html).toContain('<video src="attachment://demo.webm" poster="screenshots/demo.png" controls=""></video>');
+    expect(html).toContain('<img src="https://cdn.example/shot.png" alt="Hosted">');
+    expect(html).toContain('<video src="attachment://demo.webm" poster="https://cdn.example/poster.png" controls=""></video>');
+    expect(html).not.toContain('javascript:alert');
     expect(html).not.toContain('data:video');
+    expect(html).not.toContain('data:image');
+    expect(html).not.toContain('protocol-relative.png');
     expect(html).toContain('method="post"');
     expect(html).toContain('textarea');
     expect(html).toContain('name="decision"');
