@@ -16,9 +16,33 @@ application views normally.
 | `TabContextMenu` | `TabContextMenu.stories.tsx` covers view, pinned, pair, craft, and no-action states. |
 | `IframePanel` | `IframePanel.stories.tsx` covers placeholder/disabled iframes, loading/error overlays, split pairs, and blocked self-app URLs. The global **Iframes** toolbar controls supported stories. |
 | `SpacesOverview` | `SpacesOverview.stories.tsx` covers loading, backend error, empty, populated, repo-filtered, linked/open craft, space-picker, mutation-error, and pending stop states via the dumb `SpacesOverviewView`. |
+| `SpacesOverview` SkinLab | `SpacesOverview.stories.tsx` opts into the shared `src/stories/skinLab.ts` matrix convention for default and alternate skins, default and dense view packs, state fixtures, desktop density, and a mobile density proof. |
+| `SkinEditorDialog` SkinLab | `SkinEditorDialog.stories.tsx` opts into the shared SkinLab matrix convention as the second migrated UI customization surface. It covers default/custom global skin state fixtures plus desktop and mobile density proofs; production settings wiring remains tracked separately. |
 | `AddVKWorkspaceModal` | `dialogs/AddVKWorkspaceModal.stories.tsx` covers loading, populated, empty, refresh, load error, search, repo filter, already-open workspace, space picker, custom path, pending add, action error, and no-space states through `AddVKWorkspaceModalView`. |
 | `AddTabModal` | `AddTabModal.stories.tsx` covers presets, custom URL, new craft, Open Craft, pending Open Craft, and error states with an injected VK-workspace modal renderer. |
 | `WorkspaceShell` shell scenes | `WorkspaceShellScenes.stories.tsx` covers desktop/mobile Voyage bars, Voyage actions, switcher normal/rename/empty, new Voyage prompt, duplicate craft prompt, pending/error Open Craft, expanded craft strips, mobile craft menu, create-first-voyage, and voyage-not-found scenes. |
+
+## SkinLab convention for migrated customization surfaces
+
+Migrated global-skin surfaces should prefer the shared `createSkinLabStories`
+convention over hand-copying one-off Storybook variants. Each opted-in surface
+declares a small matrix of:
+
+- state fixtures;
+- skin presets;
+- view-pack presets;
+- density presets; and
+- explicit story rows that compose those dimensions.
+
+The convention keeps CSF exports stable while adding `parameters.skinLab`
+metadata and Storybook docs text that names the active state, skin, view pack,
+and density for each generated story. Surface stories can still expose ordinary
+Storybook controls for the presets so designers and agents can iterate without
+editing controller code.
+
+`Design Directions/Spaces Overview` remains preserved as a static reference
+exploration. It is intentionally not pruned because those stories capture older
+visual concept work that can inform future skins and view packs.
 
 ## Documented exclusions
 
