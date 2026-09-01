@@ -1,17 +1,14 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-SANDBOX_URL="${VK_MOCKED_SANDBOX_URL:-http://localhost:50005}"
 RUN_DIR="${VK_MOCKED_SANDBOX_RUN_DIR:-.vk-mocked-sandbox/current}"
 SANDBOX_LOG="$RUN_DIR/ci-sandbox.log"
 READY_TIMEOUT_SECONDS="${VK_MOCKED_SANDBOX_READY_TIMEOUT_SECONDS:-1200}"
 
-export VK_MOCKED_BACKEND_PORT="${VK_MOCKED_BACKEND_PORT:-50000}"
-export VK_MOCKED_FRONTEND_PORT="${VK_MOCKED_FRONTEND_PORT:-50001}"
-export VK_MOCKED_PREVIEW_PROXY_PORT="${VK_MOCKED_PREVIEW_PROXY_PORT:-50002}"
-export VK_MOCKED_VD_DASHBOARD_PORT="${VK_MOCKED_VD_DASHBOARD_PORT:-50003}"
-export VK_MOCKED_VD_SERVER_PORT="${VK_MOCKED_VD_SERVER_PORT:-50004}"
-export VK_MOCKED_CADDY_PORT="${VK_MOCKED_CADDY_PORT:-50005}"
+if [[ -n "${VK_MOCKED_SANDBOX_URL:-}" && -z "${VK_MOCKED_CADDY_PORT:-}" ]]; then
+  export VK_MOCKED_CADDY_PORT
+  VK_MOCKED_CADDY_PORT="$(node -e "console.log(new URL(process.env.VK_MOCKED_SANDBOX_URL).port || '80')")"
+fi
 
 cleanup() {
   if [[ -n "${sandbox_pid:-}" ]] && kill -0 "$sandbox_pid" 2>/dev/null; then
@@ -28,6 +25,12 @@ npm run e2e:vk-mocked-sandbox:reset -- --variant basic-seeded
 echo "::group::Prepare VK mocked sandbox"
 VK_MOCKED_PREBUILD_BACKEND=1 node --experimental-strip-types scripts/vk-mocked-sandbox.ts setup
 echo "::endgroup::"
+
+# Reuse the free ports selected during setup instead of forcing fixed defaults.
+# shellcheck disable=SC1090
+source "$RUN_DIR/env.sh"
+SANDBOX_URL="${VK_MOCKED_SANDBOX_URL:-${VK_MOCKED_VD_URL:-http://localhost:${VK_MOCKED_CADDY_PORT}}}"
+export VK_MOCKED_SANDBOX_URL="$SANDBOX_URL"
 
 echo "Starting VK mocked sandbox; log: $SANDBOX_LOG"
 VK_MOCKED_SKIP_SETUP_COMMANDS=1 npm run dev:vk-mocked-sandbox >"$SANDBOX_LOG" 2>&1 &
