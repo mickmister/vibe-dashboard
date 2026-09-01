@@ -31,6 +31,9 @@ const hardcodedTextColorUtility =
 const broadSlotHeadingSelector =
   /\.surface\s+:global\(\[data-vd-slot\]\s+h[1-3]\)/;
 
+const sharedPrimitiveImport =
+  /from\s+["']\.\.\/\.\.\/theme\/skins["']/;
+
 const dashboardWorkspaces: DashboardWorkspace[] = storybookVKWorkspaces.map(
   (workspace) => {
     const summary = storybookWorkspaceSummaries.find(
@@ -131,6 +134,21 @@ describe("SpacesOverview skin customization seam", () => {
     expect(source).not.toMatch(broadSlotHeadingSelector);
     expect(source).toContain('[data-vd-text="primary"]');
     expect(source).toContain("--vd-surface-spaces-overview-foreground");
+  });
+
+  it("uses shared skin primitives instead of only hand-authored attributes", () => {
+    const representativeViewSources = [
+      "src/components/spaces-overview/DefaultSpacesOverview.view.tsx",
+      "src/components/spaces-overview/workspaceList.view.tsx",
+    ].map((filePath) => readFileSync(filePath, "utf8"));
+
+    expect(
+      representativeViewSources.every((source) =>
+        sharedPrimitiveImport.test(source),
+      ),
+    ).toBe(true);
+    expect(representativeViewSources.join("\n")).toContain("VDHeading");
+    expect(representativeViewSources.join("\n")).toContain("VDAction");
   });
 
   it("can materially change SpacesOverview through an alternate global skin without changing the controller", () => {

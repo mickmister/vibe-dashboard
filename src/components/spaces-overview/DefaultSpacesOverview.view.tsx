@@ -16,16 +16,17 @@ import { SpacePickerModal } from "./SpacePickerModal.view";
 import { Pagination, RepoFilterBar, WorkspaceRow } from "./workspaceList.view";
 import { createSpacesOverviewUI } from "./SpacesOverview.ui";
 import styles from "./SpacesOverview.skin.module.css";
+import { VDHeading, VDText } from "../../theme/skins";
 
 export function DefaultPageHeader(_props: SpacesOverviewComponentProps) {
   return (
     <div className="mb-6" data-vd-slot="page-header">
-      <h1 className="text-2xl font-bold" data-vd-text="primary">
+      <VDHeading className="text-2xl font-bold" level={1}>
         Dashboard
-      </h1>
-      <p className="mt-1 text-sm" data-vd-muted>
+      </VDHeading>
+      <VDText as="p" className="mt-1 text-sm" tone="muted">
         Workspace activity feed
-      </p>
+      </VDText>
     </div>
   );
 }
@@ -124,14 +125,14 @@ export function DefaultWorkspaceListSection({
   return (
     <div className="mb-10" data-vd-slot="workspace-list">
       <div className="flex items-center justify-between mb-3">
-        <h2 className="text-lg font-semibold" data-vd-text="primary">
+        <VDHeading className="text-lg font-semibold" level={2}>
           VK Workspaces
-        </h2>
+        </VDHeading>
         {!loading && sortedWorkspaces.length > 0 && (
-          <span className="text-xs" data-vd-muted>
+          <VDText className="text-xs" tone="muted">
             {sortedWorkspaces.length} workspace
             {sortedWorkspaces.length !== 1 ? "s" : ""}
-          </span>
+          </VDText>
         )}
       </div>
 
@@ -150,20 +151,20 @@ export function DefaultWorkspaceListSection({
         </div>
       ) : error ? (
         <div className="py-8 text-center" data-vd-component="error-state">
-          <p className="text-sm" data-vd-text="secondary">
+          <VDText as="p" className="text-sm" tone="secondary">
             {error}
-          </p>
-          <p className="mt-1 text-xs" data-vd-muted>
+          </VDText>
+          <VDText as="p" className="mt-1 text-xs" tone="muted">
             VK backend may not be running
-          </p>
+          </VDText>
         </div>
       ) : sortedWorkspaces.length === 0 ? (
         <div className="py-8 text-center" data-vd-component="empty-state">
-          <p className="text-sm" data-vd-muted>
+          <VDText as="p" className="text-sm" tone="muted">
             {selectedRepoId
               ? "No workspaces for this repository"
               : "No active workspaces"}
-          </p>
+          </VDText>
         </div>
       ) : (
         <>

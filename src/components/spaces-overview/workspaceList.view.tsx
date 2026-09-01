@@ -2,6 +2,7 @@ import type {
   DashboardWorkspace,
   SpacesOverviewRepo,
 } from "./SpacesOverview.contracts";
+import { VDAction, VDBadge, VDText } from "../../theme/skins";
 
 export function formatRelativeTime(isoString: string): string {
   const now = Date.now();
@@ -30,48 +31,44 @@ export function StatusBadge({
 }) {
   if (hasPendingApproval) {
     return (
-      <span
+      <VDBadge
         className="px-2 py-0.5 rounded-full text-xs font-medium bg-amber-500/15 border border-amber-500/30"
-        data-vd-component="badge"
-        data-vd-status="warning"
+        status="warning"
       >
         Waiting
-      </span>
+      </VDBadge>
     );
   }
 
   switch (status) {
     case "running":
       return (
-        <span
+        <VDBadge
           className="px-2 py-0.5 rounded-full text-xs font-medium bg-green-500/15 border border-green-500/30 flex items-center gap-1"
-          data-vd-component="badge"
-          data-vd-status="success"
+          status="success"
         >
           <span className="w-1.5 h-1.5 rounded-full bg-green-400 animate-pulse" />
           Running
-        </span>
+        </VDBadge>
       );
     case "completed":
       return (
-        <span
+        <VDBadge
           className="px-2 py-0.5 rounded-full text-xs font-medium bg-blue-500/15 border border-blue-500/30"
-          data-vd-component="badge"
-          data-vd-status="accent"
+          status="accent"
         >
           Done
-        </span>
+        </VDBadge>
       );
     case "failed":
     case "killed":
       return (
-        <span
+        <VDBadge
           className="px-2 py-0.5 rounded-full text-xs font-medium bg-red-500/15 border border-red-500/30"
-          data-vd-component="badge"
-          data-vd-status="danger"
+          status="danger"
         >
           {status === "failed" ? "Failed" : "Killed"}
-        </span>
+        </VDBadge>
       );
     default:
       return null;
@@ -94,16 +91,15 @@ export function PRBadge({
     merged: "accent",
     closed: "danger",
     unknown: "secondary",
-  };
+  } as const;
 
   return (
-    <span
+    <VDBadge
       className={`px-1.5 py-0.5 rounded text-xs border ${styles[status]}`}
-      data-vd-component="badge"
-      data-vd-status={tones[status]}
+      status={tones[status]}
     >
       PR {status}
-    </span>
+    </VDBadge>
   );
 }
 
@@ -123,24 +119,24 @@ export function RepoFilterBar({
 
   return (
     <div className="flex gap-2 overflow-x-auto pb-3 mb-4 scrollbar-none">
-      <button
+      <VDAction
         className={selectedRepoId === null ? active : inactive}
-        data-vd-component="button"
-        data-vd-tone={selectedRepoId === null ? "accent" : "quiet"}
+        tone={selectedRepoId === null ? "accent" : "quiet"}
         onClick={() => onSelectRepo(null)}
+        type="button"
       >
         All
-      </button>
+      </VDAction>
       {repos.map((repo) => (
-        <button
+        <VDAction
           key={repo.id}
           className={selectedRepoId === repo.id ? active : inactive}
-          data-vd-component="button"
-          data-vd-tone={selectedRepoId === repo.id ? "accent" : "quiet"}
+          tone={selectedRepoId === repo.id ? "accent" : "quiet"}
           onClick={() => onSelectRepo(repo.id)}
+          type="button"
         >
           {repo.display_name || repo.name}
-        </button>
+        </VDAction>
       ))}
     </div>
   );
@@ -189,16 +185,15 @@ export function WorkspaceRow({
         <div className="min-w-0 flex-1">
           <div className="flex flex-wrap items-center gap-x-1.5 gap-y-1">
             {ws.pinned && (
-              <span className="text-xs" data-vd-status="warning">
+              <VDText className="text-xs" status="warning">
                 *
-              </span>
+              </VDText>
             )}
-            <span
+            <VDText
               className="min-w-0 text-sm font-medium break-words"
-              data-vd-text="primary"
             >
               {ws.name}
-            </span>
+            </VDText>
           </div>
           <div
             className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs"
@@ -206,13 +201,12 @@ export function WorkspaceRow({
           >
             <span className="font-mono break-all">{ws.branch}</span>
             {ws.repos.map((r) => (
-              <span
+              <VDBadge
                 key={r.id}
                 className="rounded bg-zinc-700 px-1.5 py-0.5"
-                data-vd-component="badge"
               >
                 {r.display_name || r.name}
-              </span>
+              </VDBadge>
             ))}
             {hasDiffStats && (
               <>
@@ -220,26 +214,25 @@ export function WorkspaceRow({
                   <span>{ws.files_changed} file{ws.files_changed !== 1 ? "s" : ""}</span>
                 )}
                 {ws.lines_added != null && ws.lines_added > 0 && (
-                  <span className="font-mono" data-vd-status="success">
+                  <VDText className="font-mono" status="success">
                     +{ws.lines_added}
-                  </span>
+                  </VDText>
                 )}
                 {ws.lines_removed != null && ws.lines_removed > 0 && (
-                  <span className="font-mono" data-vd-status="danger">
+                  <VDText className="font-mono" status="danger">
                     -{ws.lines_removed}
-                  </span>
+                  </VDText>
                 )}
               </>
             )}
             {showsDevServerControls && (
-              <span
+              <VDBadge
                 className="inline-flex items-center gap-1 rounded-full border border-cyan-500/30 bg-cyan-500/15 px-2 py-0.5 font-medium"
-                data-vd-component="badge"
-                data-vd-status="accent"
+                status="accent"
               >
                 <span className="w-1.5 h-1.5 rounded-full bg-cyan-400 animate-pulse" />
                 Dev server
-              </span>
+              </VDBadge>
             )}
             {ws.pr_status && ws.pr_status !== "unknown" && (
               <PRBadge status={ws.pr_status} />
@@ -257,37 +250,37 @@ export function WorkspaceRow({
 
       <div className="flex w-full shrink-0 flex-wrap justify-start gap-2 pl-5 sm:w-auto sm:justify-end sm:pl-0">
         {showsDevServerControls && onStopDevServer && (
-          <button
+          <VDAction
             onClick={onStopDevServer}
             disabled={isStoppingDevServer}
             className="px-2 py-1 rounded text-xs font-medium bg-red-500/15 border border-red-500/30 hover:bg-red-500/25 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-            data-vd-component="button"
-            data-vd-tone="danger"
+            tone="danger"
+            type="button"
           >
             {isStoppingDevServer ? "Stopping..." : "Stop server"}
-          </button>
+          </VDAction>
         )}
 
         {tabGroupNav ? (
-          <button
+          <VDAction
             onClick={tabGroupNav.onNavigate}
             title={`Go to "${tabGroupNav.label}"`}
             className="px-2 py-1 rounded text-xs font-medium bg-indigo-500/15 border border-indigo-500/30 hover:bg-indigo-500/25 transition-colors"
-            data-vd-component="button"
-            data-vd-tone="accent"
+            tone="accent"
+            type="button"
           >
             Go to craft
-          </button>
+          </VDAction>
         ) : onOpenInNewTabGroup ? (
-          <button
+          <VDAction
             onClick={onOpenInNewTabGroup}
             aria-label={`Open ${ws.name}`}
             className="px-2 py-1 rounded text-xs font-medium bg-zinc-700 border border-zinc-600 hover:bg-zinc-600 transition-colors"
-            data-vd-component="button"
-            data-vd-tone="quiet"
+            tone="quiet"
+            type="button"
           >
             Open
-          </button>
+          </VDAction>
         ) : null}
       </div>
     </div>
@@ -307,28 +300,28 @@ export function Pagination({
 
   return (
     <div className="flex items-center justify-between mt-4">
-      <span className="text-xs" data-vd-muted>
+      <VDText className="text-xs" tone="muted">
         Page {page + 1} of {totalPages}
-      </span>
+      </VDText>
       <div className="flex gap-2">
-        <button
+        <VDAction
           disabled={page === 0}
           onClick={() => onPageChange(page - 1)}
           className="px-3 py-1 rounded text-xs font-medium bg-zinc-800 border border-zinc-700 hover:bg-zinc-700 transition-colors disabled:opacity-30 disabled:cursor-not-allowed disabled:hover:bg-zinc-800"
-          data-vd-component="button"
-          data-vd-tone="quiet"
+          tone="quiet"
+          type="button"
         >
           Previous
-        </button>
-        <button
+        </VDAction>
+        <VDAction
           disabled={page >= totalPages - 1}
           onClick={() => onPageChange(page + 1)}
           className="px-3 py-1 rounded text-xs font-medium bg-zinc-800 border border-zinc-700 hover:bg-zinc-700 transition-colors disabled:opacity-30 disabled:cursor-not-allowed disabled:hover:bg-zinc-800"
-          data-vd-component="button"
-          data-vd-tone="quiet"
+          tone="quiet"
+          type="button"
         >
           Next
-        </button>
+        </VDAction>
       </div>
     </div>
   );

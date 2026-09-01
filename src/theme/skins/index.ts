@@ -18,6 +18,19 @@ export {
 export { SkinRoot, type SkinRootProps } from "./SkinRoot";
 export { SkinRootView, type SkinRootViewProps } from "./SkinRoot.view";
 export {
+  VDAction,
+  VDBadge,
+  VDCard,
+  VDHeading,
+  VDIcon,
+  VDRow,
+  VDText,
+  type VDActionTone,
+  type VDIconName,
+  type VDSemanticStatus,
+  type VDSemanticTextTone,
+} from "./primitives.view";
+export {
   getSkinRuntimeState,
   type VDSkinCSSVariableName,
   type VDSkinRuntimeOptions,
