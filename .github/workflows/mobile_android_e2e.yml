@@ -7,24 +7,53 @@ on:
         description: Platform to run E2E for
         type: choice
         required: true
-        default: all
+        default: ios
         options:
           - all
           - android
           - ios
+      test_mode:
+        description: Mobile shell to test
+        type: choice
+        required: true
+        default: native
+        options:
+          - all
+          - webview
+          - native
+      reuse_build_run_id:
+        description: Optional prior workflow run ID to reuse a single mobile app build artifact from
+        type: string
+        required: false
+        default: ''
 
 jobs:
-  mobile-e2e:
-    name: ${{ matrix.platform }} ${{ matrix.test_mode }} mobile E2E
+  validate-inputs:
+    name: Validate inputs
+    runs-on: ubuntu-latest
+    steps:
+      - name: Validate build artifact reuse inputs
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ -n "${{ inputs.reuse_build_run_id }}" ] && { [ "${{ inputs.platform }}" = "all" ] || [ "${{ inputs.test_mode }}" = "all" ]; }; then
+            echo "reuse_build_run_id can only be used when platform and test_mode are both narrowed to one matrix scenario." >&2
+            echo "Choose one platform (android or ios) and one test_mode (webview or native)." >&2
+            exit 1
+          fi
+
+  build-mobile-app:
+    name: Build ${{ matrix.platform }} ${{ matrix.test_mode }} mobile app
+    needs: validate-inputs
+    if: inputs.reuse_build_run_id == ''
     runs-on: ${{ matrix.runner }}
     timeout-minutes: 90
     strategy:
       fail-fast: false
       matrix:
-        include: ${{ fromJSON(inputs.platform == 'android' && '[{"platform":"android","test_mode":"webview","runner":"ubuntu-latest","eas_platform":"android","eas_profile":"mobile-e2e","site_url":"http://10.0.2.2:1337","appium_driver":"uiautomator2","use_webview_shell":"true"},{"platform":"android","test_mode":"native","runner":"ubuntu-latest","eas_platform":"android","eas_profile":"mobile-e2e-native","site_url":"http://10.0.2.2:1337","appium_driver":"uiautomator2","use_webview_shell":"false"}]' || inputs.platform == 'ios' && '[{"platform":"ios","test_mode":"webview","runner":"macos-15","eas_platform":"ios","eas_profile":"mobile-e2e-ios-simulator","site_url":"http://127.0.0.1:1337","appium_driver":"xcuitest","use_webview_shell":"true"},{"platform":"ios","test_mode":"native","runner":"macos-15","eas_platform":"ios","eas_profile":"mobile-e2e-ios-simulator-native","site_url":"http://127.0.0.1:1337","appium_driver":"xcuitest","use_webview_shell":"false"}]' || '[{"platform":"android","test_mode":"webview","runner":"ubuntu-latest","eas_platform":"android","eas_profile":"mobile-e2e","site_url":"http://10.0.2.2:1337","appium_driver":"uiautomator2","use_webview_shell":"true"},{"platform":"android","test_mode":"native","runner":"ubuntu-latest","eas_platform":"android","eas_profile":"mobile-e2e-native","site_url":"http://10.0.2.2:1337","appium_driver":"uiautomator2","use_webview_shell":"false"},{"platform":"ios","test_mode":"webview","runner":"macos-15","eas_platform":"ios","eas_profile":"mobile-e2e-ios-simulator","site_url":"http://127.0.0.1:1337","appium_driver":"xcuitest","use_webview_shell":"true"},{"platform":"ios","test_mode":"native","runner":"macos-15","eas_platform":"ios","eas_profile":"mobile-e2e-ios-simulator-native","site_url":"http://127.0.0.1:1337","appium_driver":"xcuitest","use_webview_shell":"false"}]') }}
+        include: ${{ fromJSON(inputs.platform == 'android' && inputs.test_mode == 'webview' && '[{"platform":"android","test_mode":"webview","runner":"ubuntu-latest","eas_platform":"android","eas_profile":"mobile-e2e","site_url":"http://10.0.2.2:1337","appium_driver":"uiautomator2","use_webview_shell":"true"}]' || inputs.platform == 'android' && inputs.test_mode == 'native' && '[{"platform":"android","test_mode":"native","runner":"ubuntu-latest","eas_platform":"android","eas_profile":"mobile-e2e-native","site_url":"http://10.0.2.2:1337","appium_driver":"uiautomator2","use_webview_shell":"false"}]' || inputs.platform == 'android' && '[{"platform":"android","test_mode":"webview","runner":"ubuntu-latest","eas_platform":"android","eas_profile":"mobile-e2e","site_url":"http://10.0.2.2:1337","appium_driver":"uiautomator2","use_webview_shell":"true"},{"platform":"android","test_mode":"native","runner":"ubuntu-latest","eas_platform":"android","eas_profile":"mobile-e2e-native","site_url":"http://10.0.2.2:1337","appium_driver":"uiautomator2","use_webview_shell":"false"}]' || inputs.platform == 'ios' && inputs.test_mode == 'webview' && '[{"platform":"ios","test_mode":"webview","runner":"macos-15","eas_platform":"ios","eas_profile":"mobile-e2e-ios-simulator","site_url":"http://127.0.0.1:1337","appium_driver":"xcuitest","use_webview_shell":"true"}]' || inputs.platform == 'ios' && inputs.test_mode == 'native' && '[{"platform":"ios","test_mode":"native","runner":"macos-15","eas_platform":"ios","eas_profile":"mobile-e2e-ios-simulator-native","site_url":"http://127.0.0.1:1337","appium_driver":"xcuitest","use_webview_shell":"false"}]' || inputs.platform == 'ios' && '[{"platform":"ios","test_mode":"webview","runner":"macos-15","eas_platform":"ios","eas_profile":"mobile-e2e-ios-simulator","site_url":"http://127.0.0.1:1337","appium_driver":"xcuitest","use_webview_shell":"true"},{"platform":"ios","test_mode":"native","runner":"macos-15","eas_platform":"ios","eas_profile":"mobile-e2e-ios-simulator-native","site_url":"http://127.0.0.1:1337","appium_driver":"xcuitest","use_webview_shell":"false"}]' || inputs.test_mode == 'webview' && '[{"platform":"android","test_mode":"webview","runner":"ubuntu-latest","eas_platform":"android","eas_profile":"mobile-e2e","site_url":"http://10.0.2.2:1337","appium_driver":"uiautomator2","use_webview_shell":"true"},{"platform":"ios","test_mode":"webview","runner":"macos-15","eas_platform":"ios","eas_profile":"mobile-e2e-ios-simulator","site_url":"http://127.0.0.1:1337","appium_driver":"xcuitest","use_webview_shell":"true"}]' || inputs.test_mode == 'native' && '[{"platform":"android","test_mode":"native","runner":"ubuntu-latest","eas_platform":"android","eas_profile":"mobile-e2e-native","site_url":"http://10.0.2.2:1337","appium_driver":"uiautomator2","use_webview_shell":"false"},{"platform":"ios","test_mode":"native","runner":"macos-15","eas_platform":"ios","eas_profile":"mobile-e2e-ios-simulator-native","site_url":"http://127.0.0.1:1337","appium_driver":"xcuitest","use_webview_shell":"false"}]' || '[{"platform":"android","test_mode":"webview","runner":"ubuntu-latest","eas_platform":"android","eas_profile":"mobile-e2e","site_url":"http://10.0.2.2:1337","appium_driver":"uiautomator2","use_webview_shell":"true"},{"platform":"android","test_mode":"native","runner":"ubuntu-latest","eas_platform":"android","eas_profile":"mobile-e2e-native","site_url":"http://10.0.2.2:1337","appium_driver":"uiautomator2","use_webview_shell":"false"},{"platform":"ios","test_mode":"webview","runner":"macos-15","eas_platform":"ios","eas_profile":"mobile-e2e-ios-simulator","site_url":"http://127.0.0.1:1337","appium_driver":"xcuitest","use_webview_shell":"true"},{"platform":"ios","test_mode":"native","runner":"macos-15","eas_platform":"ios","eas_profile":"mobile-e2e-ios-simulator-native","site_url":"http://127.0.0.1:1337","appium_driver":"xcuitest","use_webview_shell":"false"}]') }}
     env:
       MOBILE_E2E_SITE_URL: ${{ matrix.site_url }}
-      HOST_SITE_URL: http://127.0.0.1:1337
       PORT: '1337'
       SERVER_PORT: '1337'
       ARTIFACTS_DIR: artifacts/mobile-e2e/${{ matrix.platform }}-${{ matrix.test_mode }}
@@ -92,6 +121,88 @@ jobs:
           EXPO_LOAD_WEBVIEW_FROM_SITE_URL: 'true'
           EXPO_USE_WEBVIEW_SHELL: ${{ matrix.use_webview_shell }}
 
+      - name: Upload mobile app build artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: mobile-app-${{ matrix.platform }}-${{ matrix.test_mode }}
+          path: ${{ env.ARTIFACTS_DIR }}
+          retention-days: 5
+
+  mobile-e2e:
+    name: Test ${{ matrix.platform }} ${{ matrix.test_mode }} mobile app
+    needs:
+      - validate-inputs
+      - build-mobile-app
+    if: always() && needs.validate-inputs.result == 'success' && (inputs.reuse_build_run_id != '' || needs.build-mobile-app.result == 'success')
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      matrix:
+        include: ${{ fromJSON(inputs.platform == 'android' && inputs.test_mode == 'webview' && '[{"platform":"android","test_mode":"webview","runner":"ubuntu-latest","eas_platform":"android","eas_profile":"mobile-e2e","site_url":"http://10.0.2.2:1337","appium_driver":"uiautomator2","use_webview_shell":"true"}]' || inputs.platform == 'android' && inputs.test_mode == 'native' && '[{"platform":"android","test_mode":"native","runner":"ubuntu-latest","eas_platform":"android","eas_profile":"mobile-e2e-native","site_url":"http://10.0.2.2:1337","appium_driver":"uiautomator2","use_webview_shell":"false"}]' || inputs.platform == 'android' && '[{"platform":"android","test_mode":"webview","runner":"ubuntu-latest","eas_platform":"android","eas_profile":"mobile-e2e","site_url":"http://10.0.2.2:1337","appium_driver":"uiautomator2","use_webview_shell":"true"},{"platform":"android","test_mode":"native","runner":"ubuntu-latest","eas_platform":"android","eas_profile":"mobile-e2e-native","site_url":"http://10.0.2.2:1337","appium_driver":"uiautomator2","use_webview_shell":"false"}]' || inputs.platform == 'ios' && inputs.test_mode == 'webview' && '[{"platform":"ios","test_mode":"webview","runner":"macos-15","eas_platform":"ios","eas_profile":"mobile-e2e-ios-simulator","site_url":"http://127.0.0.1:1337","appium_driver":"xcuitest","use_webview_shell":"true"}]' || inputs.platform == 'ios' && inputs.test_mode == 'native' && '[{"platform":"ios","test_mode":"native","runner":"macos-15","eas_platform":"ios","eas_profile":"mobile-e2e-ios-simulator-native","site_url":"http://127.0.0.1:1337","appium_driver":"xcuitest","use_webview_shell":"false"}]' || inputs.platform == 'ios' && '[{"platform":"ios","test_mode":"webview","runner":"macos-15","eas_platform":"ios","eas_profile":"mobile-e2e-ios-simulator","site_url":"http://127.0.0.1:1337","appium_driver":"xcuitest","use_webview_shell":"true"},{"platform":"ios","test_mode":"native","runner":"macos-15","eas_platform":"ios","eas_profile":"mobile-e2e-ios-simulator-native","site_url":"http://127.0.0.1:1337","appium_driver":"xcuitest","use_webview_shell":"false"}]' || inputs.test_mode == 'webview' && '[{"platform":"android","test_mode":"webview","runner":"ubuntu-latest","eas_platform":"android","eas_profile":"mobile-e2e","site_url":"http://10.0.2.2:1337","appium_driver":"uiautomator2","use_webview_shell":"true"},{"platform":"ios","test_mode":"webview","runner":"macos-15","eas_platform":"ios","eas_profile":"mobile-e2e-ios-simulator","site_url":"http://127.0.0.1:1337","appium_driver":"xcuitest","use_webview_shell":"true"}]' || inputs.test_mode == 'native' && '[{"platform":"android","test_mode":"native","runner":"ubuntu-latest","eas_platform":"android","eas_profile":"mobile-e2e-native","site_url":"http://10.0.2.2:1337","appium_driver":"uiautomator2","use_webview_shell":"false"},{"platform":"ios","test_mode":"native","runner":"macos-15","eas_platform":"ios","eas_profile":"mobile-e2e-ios-simulator-native","site_url":"http://127.0.0.1:1337","appium_driver":"xcuitest","use_webview_shell":"false"}]' || '[{"platform":"android","test_mode":"webview","runner":"ubuntu-latest","eas_platform":"android","eas_profile":"mobile-e2e","site_url":"http://10.0.2.2:1337","appium_driver":"uiautomator2","use_webview_shell":"true"},{"platform":"android","test_mode":"native","runner":"ubuntu-latest","eas_platform":"android","eas_profile":"mobile-e2e-native","site_url":"http://10.0.2.2:1337","appium_driver":"uiautomator2","use_webview_shell":"false"},{"platform":"ios","test_mode":"webview","runner":"macos-15","eas_platform":"ios","eas_profile":"mobile-e2e-ios-simulator","site_url":"http://127.0.0.1:1337","appium_driver":"xcuitest","use_webview_shell":"true"},{"platform":"ios","test_mode":"native","runner":"macos-15","eas_platform":"ios","eas_profile":"mobile-e2e-ios-simulator-native","site_url":"http://127.0.0.1:1337","appium_driver":"xcuitest","use_webview_shell":"false"}]') }}
+    env:
+      MOBILE_E2E_SITE_URL: ${{ matrix.site_url }}
+      HOST_SITE_URL: http://127.0.0.1:1337
+      PORT: '1337'
+      SERVER_PORT: '1337'
+      ARTIFACTS_DIR: artifacts/mobile-e2e/${{ matrix.platform }}-${{ matrix.test_mode }}
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v4
+
+      - name: Enable KVM group permissions
+        if: matrix.platform == 'android'
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+
+      - name: Install pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 10.15.0
+
+      - name: Install Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: pnpm
+
+      - name: Install Java
+        if: matrix.platform == 'android'
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 17
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Build server bundle
+        run: pnpm run build
+        env:
+          PORT: ${{ env.PORT }}
+          SERVER_PORT: ${{ env.SERVER_PORT }}
+
+      - name: Prepare static assets for node server
+        run: cp -R dist/browser/. dist/
+
+      - name: Download current-run app build artifact
+        if: inputs.reuse_build_run_id == ''
+        uses: actions/download-artifact@v4
+        with:
+          name: mobile-app-${{ matrix.platform }}-${{ matrix.test_mode }}
+          path: ${{ env.ARTIFACTS_DIR }}
+
+      - name: Download reused app build artifact
+        if: inputs.reuse_build_run_id != ''
+        uses: actions/download-artifact@v4
+        with:
+          name: mobile-app-${{ matrix.platform }}-${{ matrix.test_mode }}
+          path: ${{ env.ARTIFACTS_DIR }}
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          run-id: ${{ inputs.reuse_build_run_id }}
+
       - name: Locate mobile app artifact
         id: app
         shell: bash
@@ -156,7 +267,7 @@ jobs:
           PUBLIC_SITE_URL: ${{ env.MOBILE_E2E_SITE_URL }}
           EXPO_PUBLIC_SITE_URL: ${{ env.MOBILE_E2E_SITE_URL }}
 
-      - name: Run Android WebView E2E test
+      - name: Run Android E2E test
         if: matrix.platform == 'android'
         uses: reactivecircus/android-emulator-runner@v2
         with:
