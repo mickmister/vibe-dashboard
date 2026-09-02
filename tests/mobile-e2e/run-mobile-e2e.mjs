@@ -125,6 +125,7 @@ function createCapabilities(platform, appPath) {
       'appium:automationName': process.env.APPIUM_AUTOMATION_NAME || 'XCUITest',
       'appium:app': appPath,
       'appium:deviceName': process.env.IOS_DEVICE_NAME || 'iPhone 16',
+      ...(process.env.IOS_DEVICE_UDID ? { 'appium:udid': process.env.IOS_DEVICE_UDID } : {}),
       ...(process.env.IOS_PLATFORM_VERSION ? { 'appium:platformVersion': process.env.IOS_PLATFORM_VERSION } : {}),
       'appium:autoAcceptAlerts': true,
       'appium:autoWebview': false,

@@ -190,27 +190,48 @@ jobs:
           set -euo pipefail
           mkdir -p "$ARTIFACTS_DIR/screenshots" "$ARTIFACTS_DIR/videos"
           xcrun simctl list devices available
-          device_name="${IOS_DEVICE_NAME:-iPhone 16}"
-          if ! xcrun simctl list devices available | grep -q "$device_name ("; then
-            device_name="$(xcrun simctl list devices available | awk -F '[()]' '/iPhone .*\((Shutdown|Booted)\)/ {gsub(/^[[:space:]]+|[[:space:]]+$/, "", $1); print $1; exit}')"
-          fi
-          if [ -z "$device_name" ]; then
-            echo "No available iPhone simulator found" >&2
-            exit 1
-          fi
+          device_info="$(IOS_DEVICE_NAME="${IOS_DEVICE_NAME:-iPhone 16}" python3 <<'PY'
+import json
+import os
+import subprocess
+
+preferred = os.environ["IOS_DEVICE_NAME"]
+data = json.loads(subprocess.check_output(["xcrun", "simctl", "list", "devices", "available", "-j"]))
+choices = []
+for runtime, devices in data.get("devices", {}).items():
+    if not runtime.startswith("com.apple.CoreSimulator.SimRuntime.iOS-"):
+        continue
+    version = runtime.rsplit("iOS-", 1)[1].replace("-", ".")
+    for device in devices:
+        if not device.get("isAvailable", False):
+            continue
+        choices.append((device.get("name"), device.get("udid"), version))
+
+selected = next((item for item in choices if item[0] == preferred), None)
+if selected is None:
+    selected = next((item for item in choices if str(item[0]).startswith("iPhone ")), None)
+if selected is None:
+    raise SystemExit("No available iPhone simulator found")
+print("|".join(selected))
+PY
+          )"
+          IFS='|' read -r device_name device_udid platform_version <<< "$device_info"
+          echo "Using iOS simulator: $device_name ($device_udid), iOS $platform_version"
           echo "IOS_DEVICE_NAME=$device_name" >> "$GITHUB_ENV"
-          xcrun simctl boot "$device_name" || true
-          xcrun simctl bootstatus booted -b
-          xcrun simctl io booted screenshot "$ARTIFACTS_DIR/screenshots/ios-before-test.png" || true
-          xcrun simctl io booted recordVideo --codec=h264 "$ARTIFACTS_DIR/videos/ios-mobile-e2e.mp4" > "$ARTIFACTS_DIR/videos/ios-record-video.log" 2>&1 &
+          echo "IOS_DEVICE_UDID=$device_udid" >> "$GITHUB_ENV"
+          echo "IOS_PLATFORM_VERSION=$platform_version" >> "$GITHUB_ENV"
+          xcrun simctl boot "$device_udid" || true
+          xcrun simctl bootstatus "$device_udid" -b
+          xcrun simctl io "$device_udid" screenshot "$ARTIFACTS_DIR/screenshots/ios-before-test.png" || true
+          xcrun simctl io "$device_udid" recordVideo --codec=h264 "$ARTIFACTS_DIR/videos/ios-mobile-e2e.mp4" > "$ARTIFACTS_DIR/videos/ios-record-video.log" 2>&1 &
           record_video_pid=$!
           set +e
-          IOS_DEVICE_NAME="$device_name" npm --prefix tests/mobile-e2e test
+          IOS_DEVICE_NAME="$device_name" IOS_DEVICE_UDID="$device_udid" IOS_PLATFORM_VERSION="$platform_version" npm --prefix tests/mobile-e2e test
           status=$?
-          xcrun simctl io booted screenshot "$ARTIFACTS_DIR/screenshots/ios-after-test.png" || true
+          xcrun simctl io "$device_udid" screenshot "$ARTIFACTS_DIR/screenshots/ios-after-test.png" || true
           kill -INT "$record_video_pid" >/dev/null 2>&1 || true
           wait "$record_video_pid" >/dev/null 2>&1 || true
-          xcrun simctl spawn booted log collect --last 20m --output "$ARTIFACTS_DIR/ios-simulator.logarchive" || true
+          xcrun simctl diagnose "$device_udid" -l "$ARTIFACTS_DIR/ios-simulator-diagnostics" || true
           exit $status
 
       - name: Stop server
