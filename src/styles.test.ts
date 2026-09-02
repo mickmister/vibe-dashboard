@@ -43,12 +43,13 @@ describe('BeadsForm styles', () => {
     expect(css).toMatch(/\.beadsform-root \.beads-form-more-info-textarea\[hidden\]\s*\{[^}]*display:\s*none/s);
   });
 
-  it('styles Markdown textarea preview controls as mobile-safe inline tabs', async () => {
+  it('styles Markdown textarea preview controls as a compact icon toggle', async () => {
     const css = await readFile(new URL('./styles.css', import.meta.url), 'utf8');
 
     expect(css).toMatch(/\.beadsform-root textarea\.beadsform-markdown-source-hidden\s*\{[^}]*display:\s*none/s);
-    expect(css).toMatch(/\.beadsform-root \.beadsform-markdown-editor-toolbar\s*\{[^}]*display:\s*flex[^}]*flex-wrap:\s*wrap/s);
-    expect(css).toMatch(/\.beadsform-root \.beadsform-markdown-editor-tab\.is-active\s*\{[^}]*border-color:\s*#60a5fa/s);
+    expect(css).toMatch(/\.beadsform-root \.beadsform-markdown-editor-toolbar\s*\{[^}]*display:\s*flex[^}]*justify-content:\s*flex-end/s);
+    expect(css).toMatch(/\.beadsform-root \.beadsform-markdown-preview-toggle\s*\{[^}]*display:\s*inline-flex[^}]*min-height:\s*2\.4rem/s);
+    expect(css).toMatch(/\.beadsform-root \.beadsform-markdown-preview-toggle\.is-active\s*\{[^}]*border-color:\s*#60a5fa/s);
     expect(css).toMatch(/\.beadsform-root \.beadsform-markdown-preview\s*\{[^}]*min-height:\s*8rem[^}]*border:\s*1px solid #3f3f46/s);
   });
 

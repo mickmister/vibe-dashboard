@@ -259,29 +259,35 @@ textarea {
 .beadsform-root .beadsform-markdown-editor-toolbar {
   display: flex;
   align-items: center;
-  flex-wrap: wrap;
-  gap: 0.45rem;
-  margin: 0.45rem 0 0.65rem;
+  justify-content: flex-end;
+  margin: 0.35rem 0 0.55rem;
 }
 
 .beadsform-root .beadsform-markdown-editor-toolbar[hidden] {
   display: none;
 }
 
-.beadsform-root .beadsform-markdown-editor-tab {
+.beadsform-root .beadsform-markdown-preview-toggle {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 2.4rem;
+  min-width: 2.4rem;
+  min-height: 2.4rem;
   border-radius: 999px;
-  padding: 0.4rem 0.75rem;
-  font-size: 0.85rem;
+  padding: 0;
+  color: #a1a1aa;
 }
 
-.beadsform-root .beadsform-markdown-editor-tab.is-active {
+.beadsform-root .beadsform-markdown-preview-toggle svg {
+  width: 1.05rem;
+  height: 1.05rem;
+}
+
+.beadsform-root .beadsform-markdown-preview-toggle.is-active {
   border-color: #60a5fa;
   background: #1e3a8a;
-}
-
-.beadsform-root .beadsform-markdown-editor-hint {
-  color: #a1a1aa;
-  font-size: 0.82rem;
+  color: #f8fafc;
 }
 
 .beadsform-root .beadsform-markdown-preview {

@@ -123,7 +123,7 @@ const metadataPatch = buildBeadsFormMetadata([form]);
 - Add `is_recommended_reason: "..."` to choices the agent recommends; the UI emphasizes those options and renders the reason. Do not use a reason-less boolean recommendation marker.
 - Add `defaultValue: true` to a choice only when the author-provided starting answer should be checked by default; the UI labels it as Default. In `choiceGroups`, prefer `defaultChoiceId` for exactly-one/no-preference defaults. Do not use defaults to simulate either/or behavior; use `choiceGroups`.
 - Descriptions support safe Markdown such as `**bold**`, `*emphasis*`, `` `code` ``, and safe links. Raw HTML in descriptions is escaped.
-- Textarea answers are plain Markdown source. The dashboard adds Write/Preview controls for easier authoring, but submitted/draft/restored values remain the raw Markdown text, never generated preview HTML.
+- Textarea answers are plain Markdown source. The dashboard adds a compact preview control for easier authoring, but submitted/draft/restored values remain the raw Markdown text, never generated preview HTML.
 - Standard choice questions normalize as per-option booleans, for example
   `"preview_flow_result": { "loaded_successfully": true, "json_copy_worked": false }`.
 - Submitted success screens copy/display a BeadsForm XML handoff by default so Markdown-heavy answers remain readable in plain text. The XML is derived from normalized values: choice maps become `<choiceGroup>` / `<choice selected="true|false" />`, text and Markdown answers become `<answer type="markdown">`, per-choice/per-question notes become `<note>`, and global Additional Notes become `<additionalNotes>`. XML text is escaped, not raw HTML.

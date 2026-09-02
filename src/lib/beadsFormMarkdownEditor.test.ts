@@ -5,7 +5,7 @@ import { initializeMarkdownTextareaEditors, refreshMarkdownTextareaEditors } fro
 import { initializeSingleQuestionMode } from './beadsFormSingleQuestion';
 
 describe('BeadsForm Markdown textarea editor', () => {
-  it('adds accessible write/preview controls while preserving the textarea as Markdown source', () => {
+  it('adds an accessible compact preview toggle while preserving the textarea as Markdown source', () => {
     document.body.innerHTML = `
       <form>
         <label for="plan">Plan</label>
@@ -26,11 +26,17 @@ const value = a < b && b > c;
     const textarea = document.querySelector<HTMLTextAreaElement>('textarea[name="plan"]')!;
     const toolbar = document.querySelector<HTMLElement>('.beadsform-markdown-editor-toolbar')!;
     const previewButton = toolbar.querySelector<HTMLButtonElement>('[data-beadsform-markdown-action="preview"]')!;
-    const sourceButton = toolbar.querySelector<HTMLButtonElement>('[data-beadsform-markdown-action="write"]')!;
     const preview = document.querySelector<HTMLElement>('.beadsform-markdown-preview')!;
 
     expect(toolbar.getAttribute('role')).toBe('group');
     expect(toolbar.getAttribute('aria-label')).toBe('Markdown editor controls for Plan');
+    expect(toolbar.textContent).not.toContain('Write Markdown');
+    expect(toolbar.textContent).not.toContain('Preview');
+    expect(toolbar.textContent).not.toContain('Answers are saved as Markdown source.');
+    expect(previewButton.querySelector('svg')).not.toBeNull();
+    expect(previewButton.getAttribute('aria-label')).toBe('Show Markdown preview for Plan');
+    expect(previewButton.getAttribute('title')).toBe('Show Markdown preview for Plan');
+    expect(previewButton.getAttribute('aria-pressed')).toBe('false');
     expect(preview.getAttribute('role')).toBe('region');
     expect(preview.getAttribute('aria-label')).toBe('Markdown preview for Plan');
     expect(preview.hidden).toBe(true);
@@ -45,14 +51,21 @@ const value = a < b && b > c;
     expect(preview.innerHTML).toContain('&lt;script&gt;alert(1)&lt;/script&gt; &amp; text');
     expect(preview.innerHTML).not.toContain('<script>');
     expect(textarea.classList.contains('beadsform-markdown-source-hidden')).toBe(true);
+    expect(previewButton.classList.contains('is-active')).toBe(true);
+    expect(previewButton.getAttribute('aria-label')).toBe('Hide Markdown preview for Plan');
+    expect(previewButton.getAttribute('title')).toBe('Hide Markdown preview for Plan');
+    expect(previewButton.getAttribute('aria-pressed')).toBe('true');
     expect(formValuesFromDom(document.querySelector('form')!)).toEqual({
       plan: textarea.value,
     });
 
-    sourceButton.click();
+    previewButton.click();
 
     expect(preview.hidden).toBe(true);
     expect(textarea.classList.contains('beadsform-markdown-source-hidden')).toBe(false);
+    expect(previewButton.classList.contains('is-active')).toBe(false);
+    expect(previewButton.getAttribute('aria-label')).toBe('Show Markdown preview for Plan');
+    expect(previewButton.getAttribute('aria-pressed')).toBe('false');
   });
 
   it('refreshes preview content after draft or submitted values are restored', () => {

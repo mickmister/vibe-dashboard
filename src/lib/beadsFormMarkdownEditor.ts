@@ -1,7 +1,6 @@
 type MarkdownEditorElements = {
   toolbar: HTMLElement;
   preview: HTMLElement;
-  sourceButton: HTMLButtonElement;
   previewButton: HTMLButtonElement;
 };
 
@@ -24,12 +23,9 @@ export function initializeMarkdownTextareaEditors(host: ParentNode): void {
     textarea.addEventListener('beadsform:textarea-visibility-change', () => {
       syncEditorHiddenState(textarea, elements);
     });
-    elements.sourceButton.addEventListener('click', () => {
-      setPreviewMode(textarea, elements, false);
-    });
     elements.previewButton.addEventListener('click', () => {
       renderPreview(textarea, elements.preview);
-      setPreviewMode(textarea, elements, true);
+      setPreviewMode(textarea, elements, elements.preview.hidden);
     });
     if (typeof MutationObserver !== 'undefined') {
       const observer = new MutationObserver(() => syncEditorHiddenState(textarea, elements));
@@ -54,25 +50,16 @@ function createEditorElements(textarea: HTMLTextAreaElement): MarkdownEditorElem
   toolbar.setAttribute('role', 'group');
   toolbar.setAttribute('aria-label', `Markdown editor controls for ${label}`);
 
-  const sourceButton = document.createElement('button');
-  sourceButton.type = 'button';
-  sourceButton.className = 'beadsform-markdown-editor-tab is-active';
-  sourceButton.dataset.beadsformMarkdownAction = 'write';
-  sourceButton.setAttribute('aria-pressed', 'true');
-  sourceButton.textContent = 'Write Markdown';
-
   const previewButton = document.createElement('button');
   previewButton.type = 'button';
-  previewButton.className = 'beadsform-markdown-editor-tab';
+  previewButton.className = 'beadsform-markdown-preview-toggle';
   previewButton.dataset.beadsformMarkdownAction = 'preview';
   previewButton.setAttribute('aria-pressed', 'false');
-  previewButton.textContent = 'Preview';
+  previewButton.setAttribute('aria-label', `Show Markdown preview for ${label}`);
+  previewButton.setAttribute('title', `Show Markdown preview for ${label}`);
+  previewButton.innerHTML = eyeIconSvg();
 
-  const hint = document.createElement('span');
-  hint.className = 'beadsform-markdown-editor-hint';
-  hint.textContent = 'Answers are saved as Markdown source.';
-
-  toolbar.append(sourceButton, previewButton, hint);
+  toolbar.append(previewButton);
 
   const preview = document.createElement('div');
   preview.className = 'beadsform-markdown-preview beads-form-description';
@@ -81,7 +68,7 @@ function createEditorElements(textarea: HTMLTextAreaElement): MarkdownEditorElem
   preview.hidden = true;
   renderPreview(textarea, preview);
 
-  return { toolbar, preview, sourceButton, previewButton };
+  return { toolbar, preview, previewButton };
 }
 
 function editorElementsForTextarea(textarea: HTMLTextAreaElement): MarkdownEditorElements | undefined {
@@ -89,19 +76,20 @@ function editorElementsForTextarea(textarea: HTMLTextAreaElement): MarkdownEdito
   const preview = toolbar?.nextElementSibling;
   if (!(toolbar instanceof HTMLElement) || !toolbar.classList.contains('beadsform-markdown-editor-toolbar')) return undefined;
   if (!(preview instanceof HTMLElement) || !preview.classList.contains('beadsform-markdown-preview')) return undefined;
-  const sourceButton = toolbar.querySelector<HTMLButtonElement>('[data-beadsform-markdown-action="write"]');
   const previewButton = toolbar.querySelector<HTMLButtonElement>('[data-beadsform-markdown-action="preview"]');
-  if (!sourceButton || !previewButton) return undefined;
-  return { toolbar, preview, sourceButton, previewButton };
+  if (!previewButton) return undefined;
+  return { toolbar, preview, previewButton };
 }
 
 function setPreviewMode(textarea: HTMLTextAreaElement, elements: MarkdownEditorElements, previewMode: boolean): void {
   textarea.classList.toggle(SOURCE_HIDDEN_CLASS, previewMode);
   elements.preview.hidden = !previewMode;
-  elements.sourceButton.classList.toggle('is-active', !previewMode);
   elements.previewButton.classList.toggle('is-active', previewMode);
-  elements.sourceButton.setAttribute('aria-pressed', String(!previewMode));
   elements.previewButton.setAttribute('aria-pressed', String(previewMode));
+  const label = textareaLabel(textarea);
+  const action = previewMode ? 'Hide' : 'Show';
+  elements.previewButton.setAttribute('aria-label', `${action} Markdown preview for ${label}`);
+  elements.previewButton.setAttribute('title', `${action} Markdown preview for ${label}`);
   if (!previewMode) textarea.focus();
 }
 
@@ -111,11 +99,21 @@ function syncEditorHiddenState(textarea: HTMLTextAreaElement, elements: Markdown
   if (hidden) {
     textarea.classList.remove(SOURCE_HIDDEN_CLASS);
     elements.preview.hidden = true;
-    elements.sourceButton.classList.add('is-active');
     elements.previewButton.classList.remove('is-active');
-    elements.sourceButton.setAttribute('aria-pressed', 'true');
     elements.previewButton.setAttribute('aria-pressed', 'false');
+    const label = textareaLabel(textarea);
+    elements.previewButton.setAttribute('aria-label', `Show Markdown preview for ${label}`);
+    elements.previewButton.setAttribute('title', `Show Markdown preview for ${label}`);
   }
+}
+
+function eyeIconSvg(): string {
+  return [
+    '<svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">',
+    '<path d="M10 12a2 2 0 1 0 4 0a2 2 0 0 0 -4 0" />',
+    '<path d="M21 12c-2.4 4 -5.4 6 -9 6c-3.6 0 -6.6 -2 -9 -6c2.4 -4 5.4 -6 9 -6c3.6 0 6.6 2 9 6" />',
+    '</svg>',
+  ].join('');
 }
 
 function renderPreview(textarea: HTMLTextAreaElement, preview: HTMLElement): void {
