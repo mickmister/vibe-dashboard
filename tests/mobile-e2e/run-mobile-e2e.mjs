@@ -32,7 +32,7 @@ console.log(`Using ${MOBILE_E2E_PLATFORM} app for ${MOBILE_E2E_TEST_MODE} E2E: $
 
 const appium = startAppium(MOBILE_E2E_PLATFORM);
 let driver;
-let screenRecordingStarted = false;
+let screenRecording;
 
 try {
   await waitForAppiumStatus();
@@ -47,7 +47,7 @@ try {
     capabilities: createCapabilities(MOBILE_E2E_PLATFORM, MOBILE_APP_PATH),
   });
 
-  screenRecordingStarted = await startScreenRecording(driver, MOBILE_E2E_PLATFORM);
+  screenRecording = await startScreenRecording(driver, MOBILE_E2E_PLATFORM);
 
   if (MOBILE_E2E_TEST_MODE === 'native') {
     await assertNativeChatView(driver);
@@ -65,8 +65,8 @@ try {
   process.exitCode = 1;
 } finally {
   if (driver) {
-    if (screenRecordingStarted) {
-      await stopScreenRecording(driver, path.resolve(VIDEOS_DIR, `${MOBILE_E2E_PLATFORM}-mobile-e2e.mp4`));
+    if (screenRecording) {
+      await stopScreenRecording(screenRecording);
     }
 
     await driver.deleteSession().catch((error) => {
@@ -100,36 +100,85 @@ function displayPlatform(platform) {
 async function startScreenRecording(driver, platform) {
   if (process.env.MOBILE_E2E_RECORD_VIDEO === 'false') {
     console.log('Mobile E2E screen recording disabled by MOBILE_E2E_RECORD_VIDEO=false.');
-    return false;
+    return undefined;
   }
 
-  const timeLimit = String(Number(process.env.MOBILE_E2E_RECORDING_TIME_LIMIT_SECONDS || 180));
-  const options = platform === 'ios'
-    ? { timeLimit, videoType: 'h264', videoQuality: 'medium', videoFps: 10 }
-    : { timeLimit, bitRate: 1_000_000, bugReport: true };
-
   try {
-    await driver.startRecordingScreen(options);
-    console.log(`Started ${displayPlatform(platform)} screen recording for active Appium test window.`);
-    return true;
+    if (platform === 'ios') {
+      const udid = process.env.IOS_DEVICE_UDID || 'booted';
+      const filePath = path.resolve(VIDEOS_DIR, 'ios-mobile-e2e.mp4');
+      const logPath = path.resolve(VIDEOS_DIR, 'ios-record-video.log');
+      const out = fs.openSync(logPath, 'a');
+      const child = spawn('xcrun', ['simctl', 'io', udid, 'recordVideo', '--codec=h264', filePath], {
+        stdio: ['ignore', out, out],
+      });
+      console.log(`Started iOS screen recording for active Appium test window: ${filePath}`);
+      await delay(1000);
+      return { platform, child, filePath };
+    }
+
+    const deviceFilePath = '/sdcard/mobile-e2e.mp4';
+    const logPath = path.resolve(VIDEOS_DIR, 'android-screenrecord.log');
+    const out = fs.openSync(logPath, 'a');
+    const child = spawn('adb', ['shell', 'screenrecord', '--bugreport', '--bit-rate', '1000000', deviceFilePath], {
+      stdio: ['ignore', out, out],
+    });
+    console.log(`Started Android screen recording for active Appium test window: ${deviceFilePath}`);
+    await delay(1000);
+    return { platform, child, deviceFilePath, filePath: path.resolve(VIDEOS_DIR, 'android-mobile-e2e.mp4') };
   } catch (error) {
     console.warn('Failed to start screen recording:', error);
-    return false;
+    return undefined;
   }
 }
 
-async function stopScreenRecording(driver, filePath) {
-  try {
-    const base64Video = await driver.stopRecordingScreen();
-    if (!base64Video) {
-      console.warn('Screen recording stopped but Appium returned no video data.');
-      return;
-    }
-    fs.writeFileSync(filePath, Buffer.from(base64Video, 'base64'));
-    console.log(`Saved screen recording to ${filePath}`);
-  } catch (error) {
-    console.warn('Failed to stop screen recording:', error);
+async function stopScreenRecording(recording) {
+  if (!recording) {
+    return;
   }
+
+  try {
+    recording.child.kill('SIGINT');
+    await waitForChild(recording.child, 10000);
+  } catch (error) {
+    console.warn('Failed to stop screen recording cleanly:', error);
+    recording.child.kill('SIGTERM');
+  }
+
+  if (recording.platform === 'android') {
+    await runCommand('adb', ['pull', recording.deviceFilePath, recording.filePath]).catch((error) => {
+      console.warn('Failed to pull Android screen recording:', error);
+    });
+    await runCommand('adb', ['shell', 'rm', recording.deviceFilePath]).catch(() => {});
+  }
+
+  console.log(`Saved screen recording to ${recording.filePath}`);
+}
+
+function waitForChild(child, timeoutMs) {
+  return new Promise((resolve, reject) => {
+    const timeout = setTimeout(() => {
+      reject(new Error(`Timed out waiting for process ${child.pid} to exit`));
+    }, timeoutMs);
+
+    child.once('exit', () => {
+      clearTimeout(timeout);
+      resolve();
+    });
+  });
+}
+
+function runCommand(command, args) {
+  return new Promise((resolve, reject) => {
+    const child = spawn(command, args, { stdio: 'inherit' });
+    child.once('exit', (code, signal) => {
+      if (code === 0) {
+        resolve();
+      } else {
+        reject(new Error(`${command} ${args.join(' ')} failed with code ${code} signal ${signal}`));
+      }
+    });
+  });
 }
 
 async function assertWebViewDashboard(driver) {
@@ -150,30 +199,29 @@ async function assertWebViewDashboard(driver) {
 }
 
 async function assertNativeChatView(driver) {
-  const welcome = await waitForAnyDisplayed(
-    driver,
-    [
-      '~Native chat welcome',
-      '//*[@text="How can I help you today?"]',
-      '-ios predicate string:label == "How can I help you today?" OR name == "How can I help you today?" OR value == "How can I help you today?"',
-    ],
-    120000,
-  );
-  const welcomeText = await welcome.getText();
-
-  if (!/How can I help you today\?/i.test(welcomeText)) {
-    throw new Error(`Expected native welcome text, got: ${welcomeText}`);
-  }
-
   await waitForAnyDisplayed(
     driver,
     [
-      '~Message input',
-      '//*[@text="Message..."]',
-      '-ios predicate string:label == "Message input" OR name == "Message input" OR value BEGINSWITH "Message"',
+      '~Native chat welcome',
+      '-ios predicate string:name CONTAINS "Native chat welcome" OR label CONTAINS "Native chat welcome"',
+      '//*[@content-desc="Native chat welcome"]',
     ],
-    30000,
+    120000,
   );
+
+  const source = await driver.getPageSource();
+  assertSourceIncludes(source, 'Native chat screen');
+  assertSourceIncludes(source, 'Native chat welcome');
+  assertSourceIncludes(source, "What's the weather in Tokyo?");
+  assertSourceIncludes(source, 'Tell me a joke');
+  assertSourceIncludes(source, 'Help me write an email');
+  assertSourceIncludes(source, 'Message input');
+}
+
+function assertSourceIncludes(source, expected) {
+  if (!source.includes(expected)) {
+    throw new Error(`Expected native page source to include ${JSON.stringify(expected)}`);
+  }
 }
 
 async function waitForAnyDisplayed(driver, selectors, timeoutMs) {
