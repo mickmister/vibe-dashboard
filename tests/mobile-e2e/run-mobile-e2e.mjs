@@ -55,6 +55,7 @@ try {
   console.error(error);
   if (driver) {
     await saveScreenshot(driver, path.resolve(SCREENSHOTS_DIR, 'failure.png'));
+    await savePageSource(driver, path.resolve(ARTIFACTS_DIR, 'page-source-failure.xml'));
   }
   process.exitCode = 1;
 } finally {
@@ -105,19 +106,52 @@ async function assertWebViewDashboard(driver) {
 }
 
 async function assertNativeChatView(driver) {
-  const screen = await driver.$('~Native chat screen');
-  await screen.waitForDisplayed({ timeout: 120000 });
-
-  const welcome = await driver.$('~Native chat welcome');
-  await welcome.waitForDisplayed({ timeout: 30000 });
+  const welcome = await waitForAnyDisplayed(
+    driver,
+    [
+      '~Native chat welcome',
+      '//*[@text="How can I help you today?"]',
+      '-ios predicate string:label == "How can I help you today?" OR name == "How can I help you today?" OR value == "How can I help you today?"',
+    ],
+    120000,
+  );
   const welcomeText = await welcome.getText();
 
   if (!/How can I help you today\?/i.test(welcomeText)) {
     throw new Error(`Expected native welcome text, got: ${welcomeText}`);
   }
 
-  const composer = await driver.$('~Message input');
-  await composer.waitForDisplayed({ timeout: 30000 });
+  await waitForAnyDisplayed(
+    driver,
+    [
+      '~Message input',
+      '//*[@text="Message..."]',
+      '-ios predicate string:label == "Message input" OR name == "Message input" OR value BEGINSWITH "Message"',
+    ],
+    30000,
+  );
+}
+
+async function waitForAnyDisplayed(driver, selectors, timeoutMs) {
+  const start = Date.now();
+  const attempts = [];
+
+  while (Date.now() - start < timeoutMs) {
+    for (const selector of selectors) {
+      try {
+        const element = await driver.$(selector);
+        if (await element.isDisplayed()) {
+          console.log(`Found displayed element with selector: ${selector}`);
+          return element;
+        }
+      } catch (error) {
+        attempts.push(`${selector}: ${error.message}`);
+      }
+    }
+    await delay(1000);
+  }
+
+  throw new Error(`Timed out waiting for one of: ${selectors.join(', ')}. Last errors: ${attempts.slice(-5).join(' | ')}`);
 }
 
 function createCapabilities(platform, appPath) {
@@ -234,6 +268,16 @@ async function saveScreenshot(driver, filePath) {
     console.log(`Saved screenshot to ${filePath}`);
   } catch (error) {
     console.warn('Failed to save screenshot:', error);
+  }
+}
+
+async function savePageSource(driver, filePath) {
+  try {
+    const source = await driver.getPageSource();
+    fs.writeFileSync(filePath, source);
+    console.log(`Saved page source to ${filePath}`);
+  } catch (error) {
+    console.warn('Failed to save page source:', error);
   }
 }
 

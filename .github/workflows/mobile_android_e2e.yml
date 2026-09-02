@@ -342,7 +342,7 @@ jobs:
           xcrun simctl io "$device_udid" screenshot "$ARTIFACTS_DIR/screenshots/ios-after-test.png" || true
           kill -INT "$record_video_pid" >/dev/null 2>&1 || true
           wait "$record_video_pid" >/dev/null 2>&1 || true
-          xcrun simctl diagnose "$device_udid" -l "$ARTIFACTS_DIR/ios-simulator-diagnostics" || true
+          xcrun simctl diagnose --udid "$device_udid" --output "$ARTIFACTS_DIR/ios-simulator-diagnostics" || true
           exit $status
 
       - name: Stop server
