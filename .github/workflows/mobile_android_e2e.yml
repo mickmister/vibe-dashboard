@@ -165,10 +165,20 @@ jobs:
           profile: pixel_6
           disable-animations: true
           script: |
+            set -u
+            mkdir -p "$ARTIFACTS_DIR/screenshots" "$ARTIFACTS_DIR/videos"
             adb devices
+            adb exec-out screencap -p > "$ARTIFACTS_DIR/screenshots/android-before-test.png" || true
+            adb shell screenrecord --bugreport /sdcard/mobile-e2e.mp4 > "$ARTIFACTS_DIR/videos/android-screenrecord.log" 2>&1 &
+            screenrecord_pid=$!
             set +e
             npm --prefix tests/mobile-e2e test
             status=$?
+            adb exec-out screencap -p > "$ARTIFACTS_DIR/screenshots/android-after-test.png" || true
+            kill -INT "$screenrecord_pid" >/dev/null 2>&1 || true
+            wait "$screenrecord_pid" >/dev/null 2>&1 || true
+            adb pull /sdcard/mobile-e2e.mp4 "$ARTIFACTS_DIR/videos/android-mobile-e2e.mp4" || true
+            adb shell rm /sdcard/mobile-e2e.mp4 || true
             adb logcat -d > "$ARTIFACTS_DIR/logcat.txt" || true
             exit $status
 
@@ -177,6 +187,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
+          mkdir -p "$ARTIFACTS_DIR/screenshots" "$ARTIFACTS_DIR/videos"
           xcrun simctl list devices available
           device_name="${IOS_DEVICE_NAME:-iPhone 16}"
           if ! xcrun simctl list devices available | grep -q "$device_name ("; then
@@ -189,9 +200,15 @@ jobs:
           echo "IOS_DEVICE_NAME=$device_name" >> "$GITHUB_ENV"
           xcrun simctl boot "$device_name" || true
           xcrun simctl bootstatus booted -b
+          xcrun simctl io booted screenshot "$ARTIFACTS_DIR/screenshots/ios-before-test.png" || true
+          xcrun simctl io booted recordVideo --codec=h264 "$ARTIFACTS_DIR/videos/ios-mobile-e2e.mp4" > "$ARTIFACTS_DIR/videos/ios-record-video.log" 2>&1 &
+          record_video_pid=$!
           set +e
           IOS_DEVICE_NAME="$device_name" npm --prefix tests/mobile-e2e test
           status=$?
+          xcrun simctl io booted screenshot "$ARTIFACTS_DIR/screenshots/ios-after-test.png" || true
+          kill -INT "$record_video_pid" >/dev/null 2>&1 || true
+          wait "$record_video_pid" >/dev/null 2>&1 || true
           xcrun simctl spawn booted log collect --last 20m --output "$ARTIFACTS_DIR/ios-simulator.logarchive" || true
           exit $status
 
@@ -209,3 +226,4 @@ jobs:
         with:
           name: mobile-${{ matrix.platform }}-e2e-artifacts
           path: ${{ env.ARTIFACTS_DIR }}
+          retention-days: 5
