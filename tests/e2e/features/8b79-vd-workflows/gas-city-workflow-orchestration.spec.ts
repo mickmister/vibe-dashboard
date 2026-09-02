@@ -354,6 +354,90 @@ test.describe('GCW-14A/14B Gas City Docker orchestration harness and fixture lay
     expect(JSON.stringify(snapshot)).not.toMatch(/lane ready|sub-workspace ready|worktree ready/i);
   });
 
+  test('TEST_CASE_GC_FULL_E2E_1D generic CLI starts an equivalent task-backed workflow and returns detached', async ({ request }, testInfo) => {
+    await expectDashboardHealth(request);
+    const workspace = await firstWorkspace(request);
+    const beadId = 'gcw14f-cli-launch-bead';
+    const beadTitle = 'GCW-14F CLI launch task';
+    const fixtureBase = new URL('/dashboard/api/workflows/gas-city-e2e-fixture', sandboxUrl).toString();
+
+    const resetResponse = await request.post(`${fixtureBase}/reset`, {
+      data: {
+        workspaceId: workspace.id,
+        providerAvailable: true,
+        beads: [{
+          id: beadId,
+          title: beadTitle,
+          status: 'ready',
+          readiness: 'ready',
+          workspaceId: workspace.id,
+          dependencyBeadIds: [],
+          convoyIds: [],
+          workflow: null,
+          metadata: { formula: 'dev-review-test' },
+        }],
+      },
+    });
+    expect(resetResponse.ok(), await resetResponse.text()).toBe(true);
+
+    const cli = await execAndAttach(
+      testInfo,
+      'gcw14f-vibe-agent-workflow-run',
+      'node',
+      [
+        'bin/vibe-agent',
+        'workflow',
+        'run',
+        'dev-review-test',
+        '--workspace',
+        workspace.id,
+        '--bead',
+        beadId,
+        '--json',
+      ],
+      { env: { ...process.env, VIBE_API_URL: sandboxUrl, VK_WORKSPACE_ID: workspace.id } },
+    );
+    const output = readJsonDocument<{
+      ok?: boolean;
+      runId?: string;
+      status?: string;
+      workspaceId?: string;
+      workflow?: { id?: string; alias?: string; kind?: string };
+      beadIds?: string[];
+      runUrl?: string;
+      completionResponse?: { expected?: boolean };
+      nextAction?: string;
+    }>(cli.stdout);
+    expect(output).toMatchObject({
+      ok: true,
+      status: 'running',
+      workspaceId: workspace.id,
+      workflow: { id: 'gas-city/dev-review-test', alias: 'dev-review-test', kind: 'task_backed_recipe' },
+      beadIds: [beadId],
+      completionResponse: { expected: false },
+    });
+    expect(output?.runId).toMatch(/^gc-workflow-/);
+    expect(output?.runUrl).toContain('/dashboard/workflows?workspaceId=');
+    expect(output?.nextAction).toMatch(/End this turn/i);
+    expect(`${cli.stdout}\n${cli.stderr}`).not.toMatch(productForbidden);
+    expect(`${cli.stdout}\n${cli.stderr}`).not.toMatch(/<xs:schema|prompt:|skill:|@version|Built-in|contentHash|generated pack/i);
+
+    const routed = await waitForRoutedAgentPrompt(request, workspace.id, `Task workflow ${beadId}`, 'GCW14D_STEP:first_agent_message');
+    await testInfo.attach('gcw14f-cli-routed-first-agent-message.json', { body: JSON.stringify(routed, null, 2), contentType: 'application/json' });
+    expect(routed.prompt).toContain(beadId);
+    expect(routed.prompt).toContain(beadTitle);
+    expect(routed.prompt).not.toMatch(productForbidden);
+
+    const snapshotResponse = await request.get(fixtureBase, { headers: { Accept: 'application/json' } });
+    expect(snapshotResponse.ok(), await snapshotResponse.text()).toBe(true);
+    const snapshot = await snapshotResponse.json() as FixtureSnapshotResponse;
+    await testInfo.attach('gcw14f-fixture-snapshot.json', { body: JSON.stringify(snapshot, null, 2), contentType: 'application/json' });
+    const sourceBead = snapshot.state.beads.find((bead) => bead.id === beadId) as { workflow?: { status?: string; workflowId?: string; formula?: string; target?: string } } | undefined;
+    expect(sourceBead?.workflow).toMatchObject({ status: 'running', workflowId: output?.runId, formula: 'dev-review-test', target: 'worker' });
+    expect(JSON.stringify(snapshot)).not.toMatch(productForbidden);
+    expect(JSON.stringify(snapshot)).not.toMatch(/lane ready|sub-workspace ready|worktree ready/i);
+  });
+
   test.fixme(
     'TEST_CASE_GC_FULL_E2E_2A lane/sub-workspace and abrupt-turn recovery cases are BLOCKED_NOT_IMPLEMENTED for this slice',
     async () => {},
@@ -480,6 +564,16 @@ function readJsonLine<T>(stdout: string): T | null {
     }
   }
   return null;
+}
+
+function readJsonDocument<T>(stdout: string): T | null {
+  const trimmed = stdout.trim();
+  if (!trimmed) return null;
+  try {
+    return JSON.parse(trimmed) as T;
+  } catch {
+    return readJsonLine<T>(stdout);
+  }
 }
 
 
