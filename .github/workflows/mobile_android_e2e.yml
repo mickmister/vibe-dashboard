@@ -1,23 +1,39 @@
 name: mobile_android_e2e
 
 on:
-  # push:
   workflow_dispatch:
+    inputs:
+      platform:
+        description: Platform to run E2E for
+        type: choice
+        required: true
+        default: all
+        options:
+          - all
+          - android
+          - ios
 
 jobs:
-  android-mobile-e2e:
-    runs-on: ubuntu-latest
-    timeout-minutes: 60
+  mobile-e2e:
+    name: ${{ matrix.platform }} mobile E2E
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 90
+    strategy:
+      fail-fast: false
+      matrix:
+        include: ${{ fromJSON(inputs.platform == 'android' && '[{"platform":"android","runner":"ubuntu-latest","eas_platform":"android","eas_profile":"mobile-e2e","site_url":"http://10.0.2.2:1337","artifact_glob":"*.apk","appium_driver":"uiautomator2"}]' || inputs.platform == 'ios' && '[{"platform":"ios","runner":"macos-15","eas_platform":"ios","eas_profile":"mobile-e2e-ios-simulator","site_url":"http://127.0.0.1:1337","artifact_glob":"*.app","appium_driver":"xcuitest"}]' || '[{"platform":"android","runner":"ubuntu-latest","eas_platform":"android","eas_profile":"mobile-e2e","site_url":"http://10.0.2.2:1337","artifact_glob":"*.apk","appium_driver":"uiautomator2"},{"platform":"ios","runner":"macos-15","eas_platform":"ios","eas_profile":"mobile-e2e-ios-simulator","site_url":"http://127.0.0.1:1337","artifact_glob":"*.app","appium_driver":"xcuitest"}]') }}
     env:
-      MOBILE_E2E_SITE_URL: http://10.0.2.2:1337
+      MOBILE_E2E_SITE_URL: ${{ matrix.site_url }}
       HOST_SITE_URL: http://127.0.0.1:1337
       PORT: '1337'
       SERVER_PORT: '1337'
+      ARTIFACTS_DIR: artifacts/mobile-e2e/${{ matrix.platform }}
     steps:
       - name: Checkout repo
         uses: actions/checkout@v4
 
       - name: Enable KVM group permissions
+        if: matrix.platform == 'android'
         run: |
           echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
           sudo udevadm control --reload-rules
@@ -35,6 +51,7 @@ jobs:
           cache: pnpm
 
       - name: Install Java
+        if: matrix.platform == 'android'
         uses: actions/setup-java@v4
         with:
           distribution: temurin
@@ -59,48 +76,69 @@ jobs:
       - name: Prepare static assets for node server
         run: cp -R dist/browser/. dist/
 
-      - name: Build Android APK with EAS local mode
+      - name: Build mobile app with EAS local mode
         working-directory: apps/mobile
         run: |
-          mkdir -p "$GITHUB_WORKSPACE/artifacts/mobile-e2e"
-          eas build --non-interactive --wait --platform android --profile mobile-e2e --local
+          mkdir -p "$GITHUB_WORKSPACE/$ARTIFACTS_DIR"
+          eas build --non-interactive --wait --platform "${{ matrix.eas_platform }}" --profile "${{ matrix.eas_profile }}" --local
         env:
           EXPO_TOKEN: ${{ secrets.EXPO_TOKEN }}
           EXPO_GITHUB_ACTIONS_RUN: 'true'
-          EAS_LOCAL_BUILD_ARTIFACTS_DIR: ${{ github.workspace }}/artifacts/mobile-e2e
+          EAS_LOCAL_BUILD_ARTIFACTS_DIR: ${{ github.workspace }}/artifacts/mobile-e2e/${{ matrix.platform }}
           APP_PROFILE: mobile-e2e
           EXPO_APP_PROFILE: mobile-e2e
           PUBLIC_SITE_URL: ${{ env.MOBILE_E2E_SITE_URL }}
           EXPO_PUBLIC_SITE_URL: ${{ env.MOBILE_E2E_SITE_URL }}
           EXPO_LOAD_WEBVIEW_FROM_SITE_URL: 'true'
+          EXPO_USE_WEBVIEW_SHELL: 'true'
 
-      - name: Locate APK
-        id: apk
+      - name: Locate mobile app artifact
+        id: app
         shell: bash
         run: |
-          apk_path="$(find artifacts/mobile-e2e -type f -name '*.apk' | head -n 1)"
-          if [ -z "$apk_path" ]; then
-            echo "No APK found under artifacts/mobile-e2e" >&2
-            find artifacts/mobile-e2e -maxdepth 4 -type f >&2 || true
+          set -euo pipefail
+          artifacts_dir="$ARTIFACTS_DIR"
+
+          if [ "${{ matrix.platform }}" = "ios" ]; then
+            archive_path="$(find "$artifacts_dir" -type f \( -name '*.tar.gz' -o -name '*.tgz' -o -name '*.zip' \) | head -n 1 || true)"
+            if [ -n "$archive_path" ]; then
+              extract_dir="$artifacts_dir/extracted"
+              mkdir -p "$extract_dir"
+              case "$archive_path" in
+                *.zip) unzip -q "$archive_path" -d "$extract_dir" ;;
+                *) tar -xzf "$archive_path" -C "$extract_dir" ;;
+              esac
+            fi
+            app_path="$(find "$artifacts_dir" -type d -name '*.app' | head -n 1 || true)"
+          else
+            app_path="$(find "$artifacts_dir" -type f -name '*.apk' | head -n 1 || true)"
+          fi
+
+          if [ -z "$app_path" ]; then
+            echo "No ${{ matrix.platform }} app artifact found under $artifacts_dir" >&2
+            find "$artifacts_dir" -maxdepth 5 -print >&2 || true
             exit 1
           fi
-          echo "apk_path=$apk_path" >> "$GITHUB_OUTPUT"
-          echo "MOBILE_APK_PATH=$GITHUB_WORKSPACE/$apk_path" >> "$GITHUB_ENV"
+
+          echo "app_path=$app_path" >> "$GITHUB_OUTPUT"
+          echo "MOBILE_APP_PATH=$GITHUB_WORKSPACE/$app_path" >> "$GITHUB_ENV"
+          echo "MOBILE_E2E_PLATFORM=${{ matrix.platform }}" >> "$GITHUB_ENV"
+          echo "Found app artifact: $app_path"
 
       - name: Install mobile E2E dependencies
         working-directory: tests/mobile-e2e
         run: npm ci
 
-      - name: Install Appium Android driver
+      - name: Install Appium driver
         working-directory: tests/mobile-e2e
-        run: npx appium driver install uiautomator2
+        run: npx appium driver install ${{ matrix.appium_driver }}
 
       - name: Start server
         shell: bash
         run: |
-          mkdir -p artifacts/mobile-e2e
-          nohup pnpm start > artifacts/mobile-e2e/server.log 2>&1 &
-          echo $! > artifacts/mobile-e2e/server.pid
+          mkdir -p "$ARTIFACTS_DIR"
+          nohup pnpm start > "$ARTIFACTS_DIR/server.log" 2>&1 &
+          echo $! > "$ARTIFACTS_DIR/server.pid"
           for i in {1..60}; do
             if curl -fsS "$HOST_SITE_URL" >/dev/null; then
               echo "Server is ready at $HOST_SITE_URL"
@@ -109,7 +147,7 @@ jobs:
             sleep 1
           done
           echo "Server did not become ready" >&2
-          cat artifacts/mobile-e2e/server.log >&2 || true
+          cat "$ARTIFACTS_DIR/server.log" >&2 || true
           exit 1
         env:
           PORT: ${{ env.PORT }}
@@ -118,6 +156,7 @@ jobs:
           EXPO_PUBLIC_SITE_URL: ${{ env.MOBILE_E2E_SITE_URL }}
 
       - name: Run Android WebView E2E test
+        if: matrix.platform == 'android'
         uses: reactivecircus/android-emulator-runner@v2
         with:
           api-level: 35
@@ -130,19 +169,43 @@ jobs:
             set +e
             npm --prefix tests/mobile-e2e test
             status=$?
-            adb logcat -d > artifacts/mobile-e2e/logcat.txt || true
+            adb logcat -d > "$ARTIFACTS_DIR/logcat.txt" || true
             exit $status
+
+      - name: Run iOS WebView E2E test
+        if: matrix.platform == 'ios'
+        shell: bash
+        run: |
+          set -euo pipefail
+          xcrun simctl list devices available
+          device_name="${IOS_DEVICE_NAME:-iPhone 16}"
+          if ! xcrun simctl list devices available | grep -q "$device_name ("; then
+            device_name="$(xcrun simctl list devices available | awk -F '[()]' '/iPhone .*\((Shutdown|Booted)\)/ {gsub(/^[[:space:]]+|[[:space:]]+$/, "", $1); print $1; exit}')"
+          fi
+          if [ -z "$device_name" ]; then
+            echo "No available iPhone simulator found" >&2
+            exit 1
+          fi
+          echo "IOS_DEVICE_NAME=$device_name" >> "$GITHUB_ENV"
+          xcrun simctl boot "$device_name" || true
+          xcrun simctl bootstatus booted -b
+          set +e
+          IOS_DEVICE_NAME="$device_name" npm --prefix tests/mobile-e2e test
+          status=$?
+          xcrun simctl spawn booted log collect --last 20m --output "$ARTIFACTS_DIR/ios-simulator.logarchive" || true
+          exit $status
 
       - name: Stop server
         if: always()
+        shell: bash
         run: |
-          if [ -f artifacts/mobile-e2e/server.pid ]; then
-            kill "$(cat artifacts/mobile-e2e/server.pid)" || true
+          if [ -f "$ARTIFACTS_DIR/server.pid" ]; then
+            kill "$(cat "$ARTIFACTS_DIR/server.pid")" || true
           fi
 
       - name: Upload mobile E2E artifacts
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: mobile-android-e2e-artifacts
-          path: artifacts/mobile-e2e
+          name: mobile-${{ matrix.platform }}-e2e-artifacts
+          path: ${{ env.ARTIFACTS_DIR }}

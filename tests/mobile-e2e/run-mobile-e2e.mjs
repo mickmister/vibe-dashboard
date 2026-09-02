@@ -5,25 +5,29 @@ import { remote } from 'webdriverio';
 
 const APPIUM_PORT = Number(process.env.APPIUM_PORT || 4723);
 const APPIUM_HOST = process.env.APPIUM_HOST || '127.0.0.1';
+const MOBILE_E2E_PLATFORM = normalizePlatform(process.env.MOBILE_E2E_PLATFORM || 'android');
 const REPO_ROOT = path.resolve(import.meta.dirname, '../..');
-const ARTIFACTS_DIR = path.resolve(REPO_ROOT, 'artifacts/mobile-e2e');
+const ARTIFACTS_DIR = path.resolve(
+  REPO_ROOT,
+  process.env.MOBILE_E2E_ARTIFACTS_DIR || process.env.ARTIFACTS_DIR || `artifacts/mobile-e2e/${MOBILE_E2E_PLATFORM}`,
+);
 const SCREENSHOTS_DIR = path.resolve(ARTIFACTS_DIR, 'screenshots');
 const APPIUM_LOG = path.resolve(ARTIFACTS_DIR, 'appium.log');
-const MOBILE_APK_PATH = process.env.MOBILE_APK_PATH || findFirstApk(ARTIFACTS_DIR);
+const MOBILE_APP_PATH = process.env.MOBILE_APP_PATH || findFirstApp(ARTIFACTS_DIR, MOBILE_E2E_PLATFORM);
 
 fs.mkdirSync(SCREENSHOTS_DIR, { recursive: true });
 
-if (!MOBILE_APK_PATH) {
-  throw new Error(`MOBILE_APK_PATH is not set and no APK was found in ${ARTIFACTS_DIR}`);
+if (!MOBILE_APP_PATH) {
+  throw new Error(`MOBILE_APP_PATH is not set and no ${MOBILE_E2E_PLATFORM} app was found in ${ARTIFACTS_DIR}`);
 }
 
-if (!fs.existsSync(MOBILE_APK_PATH)) {
-  throw new Error(`APK does not exist: ${MOBILE_APK_PATH}`);
+if (!fs.existsSync(MOBILE_APP_PATH)) {
+  throw new Error(`App does not exist: ${MOBILE_APP_PATH}`);
 }
 
-console.log(`Using APK: ${MOBILE_APK_PATH}`);
+console.log(`Using ${MOBILE_E2E_PLATFORM} app: ${MOBILE_APP_PATH}`);
 
-const appium = startAppium();
+const appium = startAppium(MOBILE_E2E_PLATFORM);
 let driver;
 
 try {
@@ -34,17 +38,7 @@ try {
     port: APPIUM_PORT,
     path: '/',
     logLevel: 'info',
-    capabilities: {
-      platformName: 'Android',
-      'appium:automationName': 'UiAutomator2',
-      'appium:app': MOBILE_APK_PATH,
-      'appium:autoWebview': false,
-      'appium:newCommandTimeout': 240,
-      'appium:adbExecTimeout': 120000,
-      'appium:androidInstallTimeout': 180000,
-      'appium:chromedriverAutodownload': true,
-      'appium:ensureWebviewsHavePages': true,
-    },
+    capabilities: createCapabilities(MOBILE_E2E_PLATFORM, MOBILE_APP_PATH),
   });
 
   const webviewContext = await waitForWebViewContext(driver);
@@ -62,7 +56,7 @@ try {
     throw new Error(`Expected Dashboard heading, got: ${headingText}`);
   }
 
-  console.log('Android mobile WebView rendered the main Dashboard page.');
+  console.log(`${displayPlatform(MOBILE_E2E_PLATFORM)} mobile WebView rendered the main Dashboard page.`);
 } catch (error) {
   console.error(error);
   if (driver) {
@@ -79,27 +73,69 @@ try {
   appium.kill('SIGTERM');
 }
 
-function startAppium() {
+function normalizePlatform(platform) {
+  const normalized = platform.toLowerCase();
+  if (normalized !== 'android' && normalized !== 'ios') {
+    throw new Error(`Unsupported MOBILE_E2E_PLATFORM: ${platform}`);
+  }
+  return normalized;
+}
+
+function displayPlatform(platform) {
+  return platform === 'ios' ? 'iOS' : 'Android';
+}
+
+function createCapabilities(platform, appPath) {
+  if (platform === 'ios') {
+    return {
+      platformName: 'iOS',
+      'appium:automationName': process.env.APPIUM_AUTOMATION_NAME || 'XCUITest',
+      'appium:app': appPath,
+      'appium:deviceName': process.env.IOS_DEVICE_NAME || 'iPhone 16',
+      ...(process.env.IOS_PLATFORM_VERSION ? { 'appium:platformVersion': process.env.IOS_PLATFORM_VERSION } : {}),
+      'appium:autoAcceptAlerts': true,
+      'appium:autoWebview': false,
+      'appium:newCommandTimeout': 240,
+      'appium:includeSafariInWebviews': true,
+      'appium:fullContextList': true,
+      'appium:webviewConnectTimeout': 120000,
+    };
+  }
+
+  return {
+    platformName: 'Android',
+    'appium:automationName': process.env.APPIUM_AUTOMATION_NAME || 'UiAutomator2',
+    'appium:app': appPath,
+    'appium:autoWebview': false,
+    'appium:newCommandTimeout': 240,
+    'appium:adbExecTimeout': 120000,
+    'appium:androidInstallTimeout': 180000,
+    'appium:chromedriverAutodownload': true,
+    'appium:ensureWebviewsHavePages': true,
+  };
+}
+
+function startAppium(platform) {
   const out = fs.openSync(APPIUM_LOG, 'a');
-  const child = spawn(
-    process.platform === 'win32' ? 'npx.cmd' : 'npx',
-    [
-      'appium',
-      '--address',
-      APPIUM_HOST,
-      '--port',
-      String(APPIUM_PORT),
-      '--base-path',
-      '/',
-      '--allow-insecure',
-      'uiautomator2:chromedriver_autodownload',
-    ],
-    {
-      cwd: import.meta.dirname,
-      stdio: ['ignore', out, out],
-      detached: process.platform !== 'win32',
-    },
-  );
+  const args = [
+    'appium',
+    '--address',
+    APPIUM_HOST,
+    '--port',
+    String(APPIUM_PORT),
+    '--base-path',
+    '/',
+  ];
+
+  if (platform === 'android') {
+    args.push('--allow-insecure', 'uiautomator2:chromedriver_autodownload');
+  }
+
+  const child = spawn(process.platform === 'win32' ? 'npx.cmd' : 'npx', args, {
+    cwd: import.meta.dirname,
+    stdio: ['ignore', out, out],
+    detached: process.platform !== 'win32',
+  });
 
   child.on('exit', (code, signal) => {
     if (code !== null && code !== 0) {
@@ -160,7 +196,7 @@ async function saveScreenshot(driver, filePath) {
   }
 }
 
-function findFirstApk(root) {
+function findFirstApp(root, platform) {
   if (!fs.existsSync(root)) {
     return undefined;
   }
@@ -171,8 +207,11 @@ function findFirstApk(root) {
     for (const entry of fs.readdirSync(current, { withFileTypes: true })) {
       const fullPath = path.join(current, entry.name);
       if (entry.isDirectory()) {
+        if (platform === 'ios' && entry.name.endsWith('.app')) {
+          return fullPath;
+        }
         queue.push(fullPath);
-      } else if (entry.isFile() && entry.name.endsWith('.apk')) {
+      } else if (entry.isFile() && platform === 'android' && entry.name.endsWith('.apk')) {
         return fullPath;
       }
     }

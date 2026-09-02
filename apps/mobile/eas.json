@@ -55,7 +55,8 @@
         "EXPO_APP_PROFILE": "mobile-e2e",
         "EXPO_PUBLIC_SITE_URL": "http://10.0.2.2:1337",
         "PUBLIC_SITE_URL": "http://10.0.2.2:1337",
-        "EXPO_LOAD_WEBVIEW_FROM_SITE_URL": "true"
+        "EXPO_LOAD_WEBVIEW_FROM_SITE_URL": "true",
+        "EXPO_USE_WEBVIEW_SHELL": "true"
       },
       "android": {
         "buildType": "apk"
@@ -71,6 +72,24 @@
         "EXPO_APP_PROFILE": "production"
       },
       "environment": "production"
+    },
+    "mobile-e2e-ios-simulator": {
+      "channel": "mobile-e2e",
+      "distribution": "internal",
+      "extends": "mobile-e2e",
+      "developmentClient": false,
+      "env": {
+        "EXPO_APP_PROFILE": "mobile-e2e",
+        "EXPO_PUBLIC_SITE_URL": "http://127.0.0.1:1337",
+        "PUBLIC_SITE_URL": "http://127.0.0.1:1337",
+        "EXPO_LOAD_WEBVIEW_FROM_SITE_URL": "true",
+        "EXPO_USE_WEBVIEW_SHELL": "true"
+      },
+      "ios": {
+        "simulator": true,
+        "resourceClass": "m1-medium"
+      },
+      "environment": "preview"
     }
   }
 }

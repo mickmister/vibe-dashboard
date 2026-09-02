@@ -17,6 +17,7 @@ import initializeRNSpringboardEngine from './app/entrypoints/rn_init_module';
 
 const DATA_HOST = process.env.EXPO_PUBLIC_SITE_URL || 'http://127.0.0.1:1337';
 const LOAD_WEBVIEW_FROM_SITE_URL = Constants.expoConfig?.extra?.loadWebViewFromSiteUrl === true;
+const USE_WEBVIEW_SHELL = Constants.expoConfig?.extra?.useWebViewShell === true;
 
 void SplashScreen.preventAutoHideAsync();
 
@@ -35,9 +36,11 @@ export default function App() {
     remoteRpc,
   });
 
-  return <MobileMain sbInitResult={sbInitResult} />;
+  if (USE_WEBVIEW_SHELL) {
+    return WebviewMain(sbInitResult, onMessageFromRN);
+  }
 
-  // return WebviewMain(sbInitResult, onMessageFromRN);
+  return <MobileMain sbInitResult={sbInitResult} />;
 }
 
 const MobileMain = (_props: { sbInitResult: ReturnType<typeof useAndInitializeSpringboardEngine> }) => {

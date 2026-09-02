@@ -23,6 +23,8 @@ const loadWebViewFromSiteUrl = parseBooleanEnv(
   process.env.EXPO_LOAD_WEBVIEW_FROM_SITE_URL,
   appProfile !== 'local',
 );
+const allowsLocalHttpNetworking = siteUrl.startsWith('http://');
+const useWebViewShell = parseBooleanEnv(process.env.EXPO_USE_WEBVIEW_SHELL, false);
 
 const config: ExpoConfig = {
   name: `${appQualifierWithDash}Vibe Dashboard`,
@@ -46,6 +48,11 @@ const config: ExpoConfig = {
     supportsTablet: true,
     infoPlist: {
       ITSAppUsesNonExemptEncryption: false,
+      ...(allowsLocalHttpNetworking ? {
+        NSAppTransportSecurity: {
+          NSAllowsLocalNetworking: true,
+        },
+      } : {}),
     },
   },
   plugins: siteUrl.startsWith('http://')
@@ -59,6 +66,7 @@ const config: ExpoConfig = {
     } : {}),
     siteUrl,
     loadWebViewFromSiteUrl,
+    useWebViewShell,
   },
   ...(owner ? { owner } : {}),
   runtimeVersion: {
