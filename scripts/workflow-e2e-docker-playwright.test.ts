@@ -39,6 +39,11 @@ describe('workflow-e2e-docker-playwright harness', () => {
     expect(script).toContain('--env VK_QA_SCRIPTED_OUTCOME_FILE="${container_qa_scripted_outcome_file}"');
     expect(script).toContain('VK_QA_SCRIPTED_OUTCOME_FILE does not exist inside Docker');
     expect(script).toContain('--env WORKFLOW_E2E_PLAYWRIGHT_ARGS="${WORKFLOW_E2E_PLAYWRIGHT_ARGS:-}"');
+    expect(script).toContain('container_gas_city_fixture_file="${VD_GAS_CITY_E2E_FIXTURE_FILE:-}"');
+    expect(script).toContain('container_gas_city_fixture_file="/workspace/vibe-kanban-vscode-web/${container_gas_city_fixture_file#./}"');
+    expect(script).toContain('--env VD_GAS_CITY_E2E_FIXTURE="${VD_GAS_CITY_E2E_FIXTURE:-}"');
+    expect(script).toContain('--env VD_GAS_CITY_E2E_FIXTURE_FILE="${container_gas_city_fixture_file}"');
+    expect(script).toContain('VD_GAS_CITY_E2E_FIXTURE_FILE does not exist inside Docker');
     expect(script).toContain('VK mocked local web stub');
     expect(script).toContain('find /root/.cargo/git /tmp/vk-target -name "*.lock" -delete');
     expect(script).toContain('run_with_log gas-city-runtime-smoke bash scripts/smoke-gas-city-runtime.sh --skip-bridge');

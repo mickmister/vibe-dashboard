@@ -210,6 +210,8 @@ jobs:
         env:
           WORKFLOW_E2E_PLAYWRIGHT_ARGS: tests/e2e/features/8b79-vd-workflows/gas-city-workflow-orchestration.spec.ts
           WORKFLOW_E2E_LOG_DIR: ${{ github.workspace }}/workflow-gas-city-e2e-artifacts
+          VD_GAS_CITY_E2E_FIXTURE: "1"
+          VD_GAS_CITY_E2E_FIXTURE_FILE: tests/e2e/fixtures/gas-city-e2e-fixture.json
           VK_REPO_DIR: ${{ github.workspace }}/vibe-kanban
         run: npm run test:e2e:vk-workflows-docker
 

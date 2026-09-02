@@ -1,12 +1,13 @@
 /**
  * Covers:
  * - vibe-kanban-vscode-web-2u2q — GCW-14A Docker Gas City E2E harness and CI plumbing
+ * - vibe-kanban-vscode-web-31jo — GCW-14B Deterministic Beads/Gas City E2E fixture layer
  * - test-plans/branches/8b79-vd-workflows/test-plan-16.md
  *
  * This first Docker E2E slice proves the workflow Docker harness can run with
- * pinned Gas City, Beads, and gc-session-vibe runtime tools installed. It does
- * not claim full Gas City orchestration yet: real sub-workspace lanes and the
- * deterministic Beads/GC interaction fixture layer are intentionally deferred.
+ * pinned Gas City, Beads, and gc-session-vibe runtime tools installed, then
+ * proves an explicit test-only fixture layer can drive deterministic product
+ * events. It does not claim real sub-workspace lane readiness.
  */
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
@@ -19,7 +20,7 @@ const expectedBeadsVersion = '1.2.2';
 
 const productForbidden = /\b(?:gc|bd|git)\s+[\w:./=-]+|shell command|local path|\/Users\/|\/tmp\/|\/private\/var\/|stdout|stderr|provider diagnostics|queue[_ -]?item|webhook|trigger|delivery ID|execution process ID|raw XML|raw JSON|generated-packs|WorkflowStepState|runReady/i;
 
-test.describe('GCW-14A Gas City Docker orchestration harness', () => {
+test.describe('GCW-14A/14B Gas City Docker orchestration harness and fixture layer', () => {
   test('TEST_CASE_GCW14A_1A verifies pinned Gas City, Beads, and gc-session-vibe tools in Docker E2E runtime', async ({}, testInfo) => {
     const gasCity = await execAndAttach(testInfo, 'gc-version-json', 'gc', ['version', '--json']);
     const gasCityVersion = readJsonLine<{ version?: string }>(gasCity.stdout)?.version;
@@ -69,6 +70,101 @@ test.describe('GCW-14A Gas City Docker orchestration harness', () => {
     await testInfo.attach('gcw14a-engine-panel.txt', { body: visibleText, contentType: 'text/plain' });
   });
 
+  test('TEST_CASE_GCW14B_1A applies deterministic fixture events idempotently through the test-only API', async ({ request }, testInfo) => {
+    await expectDashboardHealth(request);
+    const workspace = await firstWorkspace(request);
+    const fixtureBase = new URL('/dashboard/api/workflows/gas-city-e2e-fixture', sandboxUrl).toString();
+    const beadId = 'gcw14b-bead-a';
+
+    const resetResponse = await request.post(`${fixtureBase}/reset`, {
+      data: {
+        workspaceId: workspace.id,
+        providerAvailable: true,
+        beads: [{
+          id: beadId,
+          title: 'GCW-14B deterministic fixture task',
+          status: 'open',
+          readiness: 'not_ready',
+          workspaceId: workspace.id,
+          dependencyBeadIds: [],
+          convoyIds: [],
+          workflow: null,
+          metadata: { formula: 'dev-review-test' },
+        }],
+      },
+    });
+    expect(resetResponse.ok(), await resetResponse.text()).toBe(true);
+
+    const readyEvent = {
+      eventId: 'gcw14b-ready-1',
+      type: 'mark_bead_ready',
+      workspaceId: workspace.id,
+      beadId,
+      title: 'GCW-14B deterministic fixture task',
+      summary: 'Task is ready for workflow work.',
+    };
+    const ready = await postFixtureEvent(request, readyEvent);
+    expect(ready.status()).toBe(200);
+    const readyBody = await ready.json() as FixtureEventResponse;
+    expect(readyBody).toMatchObject({ ok: true, result: { status: 'applied' } });
+    expect(readyBody.result.state.beads).toEqual(expect.arrayContaining([
+      expect.objectContaining({ id: beadId, status: 'ready', readiness: 'ready' }),
+    ]));
+
+    const replay = await postFixtureEvent(request, readyEvent);
+    expect(replay.status()).toBe(200);
+    await expect(replay.json()).resolves.toMatchObject({ ok: true, result: { status: 'already_applied' } });
+
+    const reviewApproved = await postFixtureEvent(request, {
+      eventId: 'gcw14b-review-approved-1',
+      type: 'mark_review_approved',
+      workspaceId: workspace.id,
+      beadId,
+      summary: 'Review approved.',
+    });
+    expect(reviewApproved.status()).toBe(200);
+
+    const resultNote = await postFixtureEvent(request, {
+      eventId: 'gcw14b-result-note-1',
+      type: 'record_agent_result_note',
+      workspaceId: workspace.id,
+      beadId,
+      summary: 'Agent result note recorded for the deterministic fixture.',
+    });
+    expect(resultNote.status()).toBe(200);
+
+    const testerApproved = await postFixtureEvent(request, {
+      eventId: 'gcw14b-tester-approved-1',
+      type: 'mark_tester_approved',
+      workspaceId: workspace.id,
+      beadId,
+      summary: 'Tester approved.',
+    });
+    expect(testerApproved.status()).toBe(200);
+
+    const conflict = await postFixtureEvent(request, { ...readyEvent, type: 'mark_tester_found_bug' });
+    expect(conflict.status()).toBe(409);
+    await expect(conflict.json()).resolves.toMatchObject({ ok: false, result: { status: 'conflict' } });
+
+    const snapshotResponse = await request.get(fixtureBase, { headers: { Accept: 'application/json' } });
+    expect(snapshotResponse.ok(), await snapshotResponse.text()).toBe(true);
+    const snapshot = await snapshotResponse.json() as FixtureSnapshotResponse;
+    await testInfo.attach('gcw14b-fixture-snapshot.json', { body: JSON.stringify(snapshot, null, 2), contentType: 'application/json' });
+    expect(snapshot.state.fixture).toMatchObject({ schemaVersion: 'gas-city-e2e-fixture.v1', providerId: 'gas_city_e2e_fixture', providerAvailable: true });
+    expect(snapshot.state.events.map((event) => event.eventId)).toEqual([
+      'gcw14b-ready-1',
+      'gcw14b-review-approved-1',
+      'gcw14b-result-note-1',
+      'gcw14b-tester-approved-1',
+    ]);
+    expect(snapshot.state.beads).toEqual(expect.arrayContaining([
+      expect.objectContaining({ id: beadId, status: 'closed', readiness: 'terminal' }),
+    ]));
+    expect(JSON.stringify(snapshot)).not.toMatch(productForbidden);
+    expect(JSON.stringify(snapshot)).not.toMatch(/lane ready|sub-workspace ready|worktree ready/i);
+  });
+
+
   test.fixme(
     'TEST_CASE_GC_FULL_E2E_1A full VD UI config/start through Gas City provider is deferred until GCW-14B+ fixture/launch wiring exists',
     async () => {},
@@ -80,7 +176,7 @@ test.describe('GCW-14A Gas City Docker orchestration harness', () => {
   );
 
   test.fixme(
-    'TEST_CASE_GC_FULL_E2E_1C fabricated Beads interaction advancement is deferred until deterministic fixture APIs exist',
+    'TEST_CASE_GC_FULL_E2E_1C full fabricated Beads advancement is deferred until fixture events are wired to launch/read-model orchestration',
     async () => {},
   );
 
@@ -148,4 +244,28 @@ function readJsonLine<T>(stdout: string): T | null {
     }
   }
   return null;
+}
+
+
+interface FixtureEventResponse {
+  ok: boolean;
+  result: {
+    status: string;
+    state: {
+      beads: Array<Record<string, unknown>>;
+    };
+  };
+}
+
+interface FixtureSnapshotResponse {
+  ok: boolean;
+  state: {
+    fixture: { schemaVersion: string; providerId: string; providerAvailable: boolean };
+    beads: Array<Record<string, unknown>>;
+    events: Array<{ eventId: string }>;
+  };
+}
+
+function postFixtureEvent(request: APIRequestContext, event: Record<string, unknown>) {
+  return request.post(new URL('/dashboard/api/workflows/gas-city-e2e-fixture/events', sandboxUrl).toString(), { data: event });
 }

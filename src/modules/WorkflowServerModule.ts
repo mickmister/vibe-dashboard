@@ -27,6 +27,7 @@ import { DeclarativeWorkflowRuntime } from '../workflows/declarative/runtime';
 import { createDeclarativeWorkflowWorker, getDeclarativeWorkflowWorkerIntervalMs, shouldStartDeclarativeWorkflowWorker } from '../workflows/declarative/worker';
 import { registerVkWorkspaceRoutes } from '../server/vk-workspace-routes';
 import { registerVkRepoRoutes } from '../server/vk-repo-routes';
+import { registerGasCityE2eFixtureRoutes } from '../server/gas-city-e2e-fixture-routes';
 import { registerPreviewResolverRoutes } from '../server/preview-resolver-routes';
 import { workflowRegistry } from '../workflows/registry';
 import type { CachedRepoAlias } from '../workflows/github-ci';
@@ -119,6 +120,7 @@ serverRegistry.registerServerModule((api) => {
   registerVkWorkspaceRoutes(api.hono);
   registerVkRepoRoutes(api.hono);
   registerPreviewResolverRoutes(api.hono);
+  registerGasCityE2eFixtureRoutes(api.hono);
 });
 
 async function getCachedGitRepos(): Promise<CachedRepoAlias[]> {

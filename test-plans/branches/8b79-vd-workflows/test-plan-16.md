@@ -4,7 +4,7 @@ Branch: `vk/8b79-vd-workflows`
 
 Primary planning topic: full VD + VK + Gas City + Beads workflow orchestration acceptance
 
-Status: GCW-14A implements the first Docker/CI harness smoke slice; full orchestration and real lane-dependent cases remain deferred until fixture/provider and lane implementation slices land
+Status: GCW-14A implements the first Docker/CI harness smoke slice; GCW-14B adds deterministic test-only fixture endpoints/events. Full orchestration and real lane-dependent cases remain deferred until launch/provider and lane implementation slices land
 
 ## Purpose
 
@@ -308,8 +308,7 @@ npm run test:e2e:vk-workflows-docker
 
 1. **Plan/current slice**: this document only.
 2. **GCW-14A harness/runtime smoke slice**: add Docker Playwright spec and CI plumbing that verifies pinned Gas City, Beads, and gc-session-vibe runtime availability without claiming full orchestration. Real sub-workspace lanes are not implemented and must not be asserted here.
-3. **Harness fixture slice**: add deterministic test-only Beads/GC fixture APIs or
-   temporary Beads repo setup without product-surface raw command leakage.
+3. **GCW-14B harness fixture slice**: add deterministic test-only Beads/GC fixture APIs/events without product-surface raw command leakage. Fixture events are explicit, idempotent, Docker-configurable by env/file, and do not claim real lane/sub-workspace readiness.
 4. **UI launch E2E slice**: VD UI config/start -> GC provider -> VK first message
    -> fabricated interaction -> next VK message -> VD run page.
 5. **CLI launch E2E slice**: `vibe-agent workflow run` -> GC provider -> callback

@@ -26,6 +26,10 @@ container_qa_scripted_outcome_file="${VK_QA_SCRIPTED_OUTCOME_FILE:-}"
 if [[ -n "${container_qa_scripted_outcome_file}" && "${container_qa_scripted_outcome_file}" != /* ]]; then
   container_qa_scripted_outcome_file="/workspace/vibe-kanban-vscode-web/${container_qa_scripted_outcome_file#./}"
 fi
+container_gas_city_fixture_file="${VD_GAS_CITY_E2E_FIXTURE_FILE:-}"
+if [[ -n "${container_gas_city_fixture_file}" && "${container_gas_city_fixture_file}" != /* ]]; then
+  container_gas_city_fixture_file="/workspace/vibe-kanban-vscode-web/${container_gas_city_fixture_file#./}"
+fi
 
 if ! command -v docker >/dev/null 2>&1; then
   echo "docker is required for workflow Playwright E2E" >&2
@@ -107,6 +111,8 @@ docker exec \
   --env VK_MOCKED_SKIP_LOCAL_WEB_BUILD=1 \
   --env VK_QA_SCRIPTED_OUTCOME_FILE="${container_qa_scripted_outcome_file}" \
   --env WORKFLOW_E2E_PLAYWRIGHT_ARGS="${WORKFLOW_E2E_PLAYWRIGHT_ARGS:-}" \
+  --env VD_GAS_CITY_E2E_FIXTURE="${VD_GAS_CITY_E2E_FIXTURE:-}" \
+  --env VD_GAS_CITY_E2E_FIXTURE_FILE="${container_gas_city_fixture_file}" \
   "${container_name}" bash -lc '
     set -euo pipefail
     run_with_log() {
@@ -147,6 +153,10 @@ docker exec \
     cd /workspace/vibe-kanban-vscode-web
     if [[ -n "${VK_QA_SCRIPTED_OUTCOME_FILE:-}" && ! -f "${VK_QA_SCRIPTED_OUTCOME_FILE}" ]]; then
       echo "VK_QA_SCRIPTED_OUTCOME_FILE does not exist inside Docker: ${VK_QA_SCRIPTED_OUTCOME_FILE}" >&2
+      exit 1
+    fi
+    if [[ -n "${VD_GAS_CITY_E2E_FIXTURE_FILE:-}" && ! -f "${VD_GAS_CITY_E2E_FIXTURE_FILE}" ]]; then
+      echo "VD_GAS_CITY_E2E_FIXTURE_FILE does not exist inside Docker: ${VD_GAS_CITY_E2E_FIXTURE_FILE}" >&2
       exit 1
     fi
     run_with_log gas-city-runtime-smoke bash scripts/smoke-gas-city-runtime.sh --skip-bridge
