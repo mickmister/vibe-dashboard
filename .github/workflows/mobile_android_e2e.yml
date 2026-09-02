@@ -281,16 +281,10 @@ jobs:
             mkdir -p "$ARTIFACTS_DIR/screenshots" "$ARTIFACTS_DIR/videos"
             adb devices
             adb exec-out screencap -p > "$ARTIFACTS_DIR/screenshots/android-before-test.png" || true
-            adb shell screenrecord --bugreport /sdcard/mobile-e2e.mp4 > "$ARTIFACTS_DIR/videos/android-screenrecord.log" 2>&1 &
-            screenrecord_pid=$!
             set +e
             npm --prefix tests/mobile-e2e test
             status=$?
             adb exec-out screencap -p > "$ARTIFACTS_DIR/screenshots/android-after-test.png" || true
-            kill -INT "$screenrecord_pid" >/dev/null 2>&1 || true
-            wait "$screenrecord_pid" >/dev/null 2>&1 || true
-            adb pull /sdcard/mobile-e2e.mp4 "$ARTIFACTS_DIR/videos/android-mobile-e2e.mp4" || true
-            adb shell rm /sdcard/mobile-e2e.mp4 || true
             adb logcat -d > "$ARTIFACTS_DIR/logcat.txt" || true
             exit $status
 
@@ -334,14 +328,10 @@ jobs:
           xcrun simctl boot "$device_udid" || true
           xcrun simctl bootstatus "$device_udid" -b
           xcrun simctl io "$device_udid" screenshot "$ARTIFACTS_DIR/screenshots/ios-before-test.png" || true
-          xcrun simctl io "$device_udid" recordVideo --codec=h264 "$ARTIFACTS_DIR/videos/ios-mobile-e2e.mp4" > "$ARTIFACTS_DIR/videos/ios-record-video.log" 2>&1 &
-          record_video_pid=$!
           set +e
           IOS_DEVICE_NAME="$device_name" IOS_DEVICE_UDID="$device_udid" IOS_PLATFORM_VERSION="$platform_version" npm --prefix tests/mobile-e2e test
           status=$?
           xcrun simctl io "$device_udid" screenshot "$ARTIFACTS_DIR/screenshots/ios-after-test.png" || true
-          kill -INT "$record_video_pid" >/dev/null 2>&1 || true
-          wait "$record_video_pid" >/dev/null 2>&1 || true
           xcrun simctl diagnose --udid "$device_udid" --output "$ARTIFACTS_DIR/ios-simulator-diagnostics" || true
           exit $status
 

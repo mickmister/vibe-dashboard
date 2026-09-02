@@ -14,9 +14,11 @@ const ARTIFACTS_DIR = path.resolve(
 );
 const SCREENSHOTS_DIR = path.resolve(ARTIFACTS_DIR, 'screenshots');
 const APPIUM_LOG = path.resolve(ARTIFACTS_DIR, 'appium.log');
+const VIDEOS_DIR = path.resolve(ARTIFACTS_DIR, 'videos');
 const MOBILE_APP_PATH = process.env.MOBILE_APP_PATH || findFirstApp(ARTIFACTS_DIR, MOBILE_E2E_PLATFORM);
 
 fs.mkdirSync(SCREENSHOTS_DIR, { recursive: true });
+fs.mkdirSync(VIDEOS_DIR, { recursive: true });
 
 if (!MOBILE_APP_PATH) {
   throw new Error(`MOBILE_APP_PATH is not set and no ${MOBILE_E2E_PLATFORM} app was found in ${ARTIFACTS_DIR}`);
@@ -30,6 +32,7 @@ console.log(`Using ${MOBILE_E2E_PLATFORM} app for ${MOBILE_E2E_TEST_MODE} E2E: $
 
 const appium = startAppium(MOBILE_E2E_PLATFORM);
 let driver;
+let screenRecordingStarted = false;
 
 try {
   await waitForAppiumStatus();
@@ -43,6 +46,8 @@ try {
     connectionRetryCount: Number(process.env.WEBDRIVER_CONNECTION_RETRY_COUNT || 1),
     capabilities: createCapabilities(MOBILE_E2E_PLATFORM, MOBILE_APP_PATH),
   });
+
+  screenRecordingStarted = await startScreenRecording(driver, MOBILE_E2E_PLATFORM);
 
   if (MOBILE_E2E_TEST_MODE === 'native') {
     await assertNativeChatView(driver);
@@ -60,6 +65,10 @@ try {
   process.exitCode = 1;
 } finally {
   if (driver) {
+    if (screenRecordingStarted) {
+      await stopScreenRecording(driver, path.resolve(VIDEOS_DIR, `${MOBILE_E2E_PLATFORM}-mobile-e2e.mp4`));
+    }
+
     await driver.deleteSession().catch((error) => {
       console.warn('Failed to delete Appium session:', error);
     });
@@ -86,6 +95,41 @@ function normalizeTestMode(testMode) {
 
 function displayPlatform(platform) {
   return platform === 'ios' ? 'iOS' : 'Android';
+}
+
+async function startScreenRecording(driver, platform) {
+  if (process.env.MOBILE_E2E_RECORD_VIDEO === 'false') {
+    console.log('Mobile E2E screen recording disabled by MOBILE_E2E_RECORD_VIDEO=false.');
+    return false;
+  }
+
+  const timeLimit = String(Number(process.env.MOBILE_E2E_RECORDING_TIME_LIMIT_SECONDS || 180));
+  const options = platform === 'ios'
+    ? { timeLimit, videoType: 'h264', videoQuality: 'medium', videoFps: 10 }
+    : { timeLimit, bitRate: 1_000_000, bugReport: true };
+
+  try {
+    await driver.startRecordingScreen(options);
+    console.log(`Started ${displayPlatform(platform)} screen recording for active Appium test window.`);
+    return true;
+  } catch (error) {
+    console.warn('Failed to start screen recording:', error);
+    return false;
+  }
+}
+
+async function stopScreenRecording(driver, filePath) {
+  try {
+    const base64Video = await driver.stopRecordingScreen();
+    if (!base64Video) {
+      console.warn('Screen recording stopped but Appium returned no video data.');
+      return;
+    }
+    fs.writeFileSync(filePath, Buffer.from(base64Video, 'base64'));
+    console.log(`Saved screen recording to ${filePath}`);
+  } catch (error) {
+    console.warn('Failed to stop screen recording:', error);
+  }
 }
 
 async function assertWebViewDashboard(driver) {
