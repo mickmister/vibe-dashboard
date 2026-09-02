@@ -380,6 +380,8 @@ test.describe('GCW-14A/14B Gas City Docker orchestration harness and fixture lay
     });
     expect(resetResponse.ok(), await resetResponse.text()).toBe(true);
 
+    await execAndAttach(testInfo, 'gcw14f-build-vibe-agent-cli', 'npm', ['run', 'build:vibe-agent-cli']);
+
     const cli = await execAndAttach(
       testInfo,
       'gcw14f-vibe-agent-workflow-run',
