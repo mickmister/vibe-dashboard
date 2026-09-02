@@ -111,6 +111,7 @@ async function startScreenRecording(driver, platform) {
       const out = fs.openSync(logPath, 'a');
       const child = spawn('xcrun', ['simctl', 'io', udid, 'recordVideo', '--codec=h264', filePath], {
         stdio: ['ignore', out, out],
+        detached: process.platform !== 'win32',
       });
       console.log(`Started iOS screen recording for active Appium test window: ${filePath}`);
       await delay(1000);
@@ -122,6 +123,7 @@ async function startScreenRecording(driver, platform) {
     const out = fs.openSync(logPath, 'a');
     const child = spawn('adb', ['shell', 'screenrecord', '--bugreport', '--bit-rate', '1000000', deviceFilePath], {
       stdio: ['ignore', out, out],
+      detached: process.platform !== 'win32',
     });
     console.log(`Started Android screen recording for active Appium test window: ${deviceFilePath}`);
     await delay(1000);
@@ -138,11 +140,11 @@ async function stopScreenRecording(recording) {
   }
 
   try {
-    recording.child.kill('SIGINT');
-    await waitForChild(recording.child, 10000);
+    signalChildProcessGroup(recording.child, 'SIGINT');
+    await waitForChild(recording.child, Number(process.env.MOBILE_E2E_RECORDING_STOP_TIMEOUT_MS || 60000));
   } catch (error) {
     console.warn('Failed to stop screen recording cleanly:', error);
-    recording.child.kill('SIGTERM');
+    signalChildProcessGroup(recording.child, 'SIGTERM');
   }
 
   if (recording.platform === 'android') {
@@ -153,6 +155,20 @@ async function stopScreenRecording(recording) {
   }
 
   console.log(`Saved screen recording to ${recording.filePath}`);
+}
+
+function signalChildProcessGroup(child, signal) {
+  if (process.platform === 'win32') {
+    child.kill(signal);
+    return;
+  }
+
+  try {
+    process.kill(-child.pid, signal);
+  } catch (error) {
+    console.warn(`Failed to signal process group for ${child.pid}; signaling child directly:`, error);
+    child.kill(signal);
+  }
 }
 
 function waitForChild(child, timeoutMs) {
