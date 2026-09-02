@@ -29,7 +29,10 @@ export interface RegisterGasCityE2eFixtureRoutesOptions {
 type GasCityE2eVkClient = Pick<
   VibeKanbanServerClient,
   "getSessions" | "createSession" | "queueFollowUp"
->;
+> & Partial<Pick<
+  VibeKanbanServerClient,
+  "upsertWorkflowCallback" | "updateWorkflowCallbackStatus"
+>>;
 
 interface GasCityE2eAgentMessage {
   status: "sent" | "unavailable" | "failed";
@@ -38,10 +41,30 @@ interface GasCityE2eAgentMessage {
   summary: string;
 }
 
+interface GasCityE2eCompletionIntent {
+  callbackKey: string;
+  workspaceId: string;
+  sourceBeadId: string;
+  sourceBeadTitle: string;
+  targetSessionId: string;
+  workflowRunId: string;
+  workflowName: string;
+}
+
+interface GasCityE2eCompletionMessage {
+  status: "pending" | "delivered" | "failed" | "unsupported";
+  callbackKey: string | null;
+  sessionId: string | null;
+  summary: string;
+  deliveredRef?: string | null;
+}
+
 let sharedFixture: GasCityE2eFixtureStore | null = null;
 let sharedGasCityProvider: GasCityWorkflowProvider | null = null;
 const firstAgentMessagesByKey = new Map<string, GasCityE2eAgentMessage>();
 const advancementMessagesByKey = new Map<string, GasCityE2eAgentMessage>();
+const completionIntentsByBeadKey = new Map<string, GasCityE2eCompletionIntent>();
+const completionMessagesByCallbackKey = new Map<string, GasCityE2eCompletionMessage>();
 
 const defaultTarget = "worker";
 const defaultFormula: GasCityProviderFormulaChoice = {
@@ -81,6 +104,8 @@ export function registerGasCityE2eFixtureRoutes(
     );
     firstAgentMessagesByKey.clear();
     advancementMessagesByKey.clear();
+    completionIntentsByBeadKey.clear();
+    completionMessagesByCallbackKey.clear();
     return c.json({ ok: true, state: fixture.reset(config) });
   });
 
@@ -107,24 +132,31 @@ export function registerGasCityE2eFixtureRoutes(
     if (result.status === "conflict") {
       return c.json({ ok: false, result }, 409);
     }
+    const event = {
+      eventId: typeof body.eventId === "string" ? body.eventId : "",
+      type:
+        typeof body.type === "string"
+          ? (body.type as GasCityE2eFixtureEventInput["type"])
+          : "record_agent_result_note",
+      workspaceId:
+        typeof body.workspaceId === "string"
+          ? body.workspaceId
+          : fixture.snapshot().fixture.workspaceId,
+      beadId: typeof body.beadId === "string" ? body.beadId : null,
+      title: typeof body.title === "string" ? body.title : null,
+    };
     const advancement = await routeAdvancementMessage({
       vkClient,
-      event: {
-        eventId: typeof body.eventId === "string" ? body.eventId : "",
-        type:
-          typeof body.type === "string"
-            ? (body.type as GasCityE2eFixtureEventInput["type"])
-            : "record_agent_result_note",
-        workspaceId:
-          typeof body.workspaceId === "string"
-            ? body.workspaceId
-            : fixture.snapshot().fixture.workspaceId,
-        beadId: typeof body.beadId === "string" ? body.beadId : null,
-        title: typeof body.title === "string" ? body.title : null,
-      },
+      event,
       shouldRoute: result.status === "applied",
     });
-    return c.json({ ok: true, result, advancement });
+    const completionResponse = await routeCompletionResponse({
+      vkClient,
+      event,
+      resultStatus: result.status,
+      summary: typeof body.summary === "string" ? body.summary : null,
+    });
+    return c.json({ ok: true, result, advancement, completionResponse });
   });
 
   hono.post("/dashboard/api/workflows/gas-city-e2e-fixture/launch", async (c) => {
@@ -196,6 +228,14 @@ export function registerGasCityE2eFixtureRoutes(
       },
       idempotencyKey,
     });
+    const completionResponse = await registerCompletionIntent({
+      vkClient,
+      workspaceId,
+      sourceBeadId,
+      sourceBeadTitle: bead.title,
+      workflowRunId: launch.workflowRef.workflowId ?? `workflow-${sourceBeadId}`,
+      body,
+    });
     const workflow = await gasCityProvider.getWorkflow(launch.workflowRef);
     const firstAgentMessage =
       launch.status === "accepted" || firstAgentMessagesByKey.has(idempotencyKey)
@@ -211,7 +251,7 @@ export function registerGasCityE2eFixtureRoutes(
         : alreadyRoutedFirstAgentMessage();
     const home = options.buildHome ? await options.buildHome(workspaceId) : undefined;
     return c.json(
-      { ok: true, launch, workflow, firstAgentMessage, home },
+      { ok: true, launch, workflow, firstAgentMessage, completionResponse, home },
       launch.status === "accepted" ? 201 : 200,
     );
   });
@@ -270,6 +310,162 @@ export function buildGasCityE2eEngineHomeModel(
     },
     diagnosticsRef: "gas-city-e2e-fixture",
   };
+}
+
+
+async function registerCompletionIntent(args: {
+  vkClient: GasCityE2eVkClient | null;
+  workspaceId: string;
+  sourceBeadId: string;
+  sourceBeadTitle: string;
+  workflowRunId: string;
+  body: Record<string, unknown>;
+}): Promise<GasCityE2eCompletionMessage> {
+  const completion = asRecord(args.body.completionResponse);
+  const targetSessionId = safeId(typeof completion?.sessionId === "string" ? completion.sessionId : "");
+  if (!targetSessionId) {
+    return {
+      status: "unsupported",
+      callbackKey: null,
+      sessionId: null,
+      summary: "Completion response is not requested for this task-backed workflow.",
+    };
+  }
+  const workflowRunId = safeId(args.workflowRunId);
+  const callbackKey = completionCallbackKey(workflowRunId, targetSessionId);
+  const intent: GasCityE2eCompletionIntent = {
+    callbackKey,
+    workspaceId: safeId(args.workspaceId),
+    sourceBeadId: safeId(args.sourceBeadId),
+    sourceBeadTitle: sanitizeGasCityProviderText(args.sourceBeadTitle, args.sourceBeadId),
+    targetSessionId,
+    workflowRunId,
+    workflowName: "Dev Review Test",
+  };
+  completionIntentsByBeadKey.set(completionBeadKey(intent.workspaceId, intent.sourceBeadId), intent);
+  const existing = completionMessagesByCallbackKey.get(callbackKey);
+  if (existing?.status === "delivered") return existing;
+  completionMessagesByCallbackKey.set(callbackKey, {
+    status: "pending",
+    callbackKey,
+    sessionId: targetSessionId,
+    summary: "Completion response will be sent when the task-backed workflow finishes.",
+  });
+  await args.vkClient?.upsertWorkflowCallback?.({
+    callback_key: callbackKey,
+    workspace_id: intent.workspaceId,
+    target_session_id: intent.targetSessionId,
+    kind: "workflow_completion",
+    workflow_run_id: intent.workflowRunId,
+    workflow_name: intent.workflowName,
+    workflow_design_id: null,
+    workflow_version: null,
+  });
+  return completionMessagesByCallbackKey.get(callbackKey)!;
+}
+
+async function routeCompletionResponse(args: {
+  vkClient: GasCityE2eVkClient | null;
+  event: {
+    type: GasCityE2eFixtureEventInput["type"];
+    workspaceId: string;
+    beadId: string | null;
+    title: string | null;
+  };
+  resultStatus: "applied" | "already_applied" | "conflict";
+  summary: string | null;
+}): Promise<GasCityE2eCompletionMessage | null> {
+  if (!args.event.beadId || !isTerminalFixtureEvent(args.event.type)) return null;
+  const intent = completionIntentsByBeadKey.get(completionBeadKey(args.event.workspaceId, args.event.beadId));
+  if (!intent) return null;
+  const cached = completionMessagesByCallbackKey.get(intent.callbackKey);
+  if (cached?.status === "delivered") return cached;
+  if (args.resultStatus !== "applied") return cached ?? null;
+  if (!args.vkClient) return markCompletionFailed(intent, "Completion response delivery is unavailable.");
+  try {
+    const prompt = buildCompletionResponsePrompt({
+      intent,
+      eventType: args.event.type,
+      summary: args.summary,
+    });
+    const queued = await args.vkClient.queueFollowUp(intent.targetSessionId, prompt, {
+      source: "workflow",
+      provenance: {
+        kind: "workflow",
+        label: "Workflow completion response",
+        workflow_run_id: intent.workflowRunId,
+        workflow_name: intent.workflowName,
+        workflow_design_id: null,
+      },
+    });
+    const deliveredRef = queued.queued_item?.id ? `vk:${queued.queued_item.id}` : null;
+    const delivered: GasCityE2eCompletionMessage = {
+      status: "delivered",
+      callbackKey: intent.callbackKey,
+      sessionId: intent.targetSessionId,
+      summary: "Completion response delivered to the caller session.",
+      deliveredRef,
+    };
+    completionMessagesByCallbackKey.set(intent.callbackKey, delivered);
+    await args.vkClient.updateWorkflowCallbackStatus?.(intent.callbackKey, {
+      status: "delivered",
+      delivered_ref: deliveredRef,
+    });
+    return delivered;
+  } catch {
+    return markCompletionFailed(intent, "Completion response could not be sent. Try again from the Workflows page.");
+  }
+}
+
+async function markCompletionFailed(intent: GasCityE2eCompletionIntent, summary: string): Promise<GasCityE2eCompletionMessage> {
+  const failed: GasCityE2eCompletionMessage = {
+    status: "failed",
+    callbackKey: intent.callbackKey,
+    sessionId: intent.targetSessionId,
+    summary: sanitizeGasCityProviderText(summary, "Completion response needs attention."),
+  };
+  completionMessagesByCallbackKey.set(intent.callbackKey, failed);
+  return failed;
+}
+
+function buildCompletionResponsePrompt(input: {
+  intent: GasCityE2eCompletionIntent;
+  eventType: GasCityE2eFixtureEventInput["type"];
+  summary: string | null;
+}): string {
+  const completed = input.eventType === "mark_tester_approved";
+  const title = completed ? "Task-backed workflow completed" : "Task-backed workflow needs attention";
+  const result = completed ? "Tester approved the task-backed workflow." : "Tester found a bug and the workflow needs attention.";
+  return [
+    "GCW14G_STEP:completion_response",
+    "",
+    title,
+    "",
+    `Status: ${completed ? "completed" : "blocked"}`,
+    `Workflow: ${input.intent.workflowName}`,
+    `Run: ${input.intent.workflowRunId}`,
+    `Task: ${input.intent.sourceBeadTitle} (${input.intent.sourceBeadId})`,
+    `Result: ${sanitizeGasCityProviderText(input.summary, result)}`,
+    "Open: Workflows page",
+    "",
+    "This response was sent by workflow coordination after the detached task-backed workflow finished.",
+  ].join("\n");
+}
+
+function isTerminalFixtureEvent(type: GasCityE2eFixtureEventInput["type"]): boolean {
+  return type === "mark_tester_approved" || type === "mark_tester_found_bug";
+}
+
+function completionCallbackKey(workflowRunId: string, sessionId: string): string {
+  return safeId(`workflow-completion:${workflowRunId}:${sessionId}`);
+}
+
+function completionBeadKey(workspaceId: string, beadId: string): string {
+  return `${safeId(workspaceId)}:${safeId(beadId)}`;
+}
+
+function asRecord(value: unknown): Record<string, unknown> | null {
+  return value && typeof value === "object" && !Array.isArray(value) ? value as Record<string, unknown> : null;
 }
 
 async function routeAdvancementMessage(args: {

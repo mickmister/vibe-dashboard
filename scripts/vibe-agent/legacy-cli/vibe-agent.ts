@@ -2896,6 +2896,9 @@ async function workflowRunGasCityRecipe(args: WorkflowRunGasCityRecipeArgs): Pro
       target,
       formula: recipeId,
       idempotencyKey,
+      completionResponse: args.flags.callerSessionId
+        ? { sessionId: args.flags.callerSessionId, source: 'vibe-agent-cli' }
+        : undefined,
     }),
   }) as {
     launch?: {
@@ -2904,12 +2907,14 @@ async function workflowRunGasCityRecipe(args: WorkflowRunGasCityRecipeArgs): Pro
       workflowRef?: { workflowId?: string | null; sourceBeadId?: string | null; formula?: string | null; target?: string | null };
     };
     workflow?: { status?: string | null; nextAction?: string | null } | null;
+    completionResponse?: { status?: string; callbackKey?: string | null; sessionId?: string | null; summary?: string | null };
   };
   const launch = response.launch;
   const runId = launch?.workflowRef?.workflowId || `task-workflow-${sourceBeadId}`;
   if (!launch?.status || !runId) throw new Error('Task-backed workflow launch did not return a run id.');
   const status = response.workflow?.status || launch.status;
   const runUrl = absoluteDashboardUrl(`/dashboard/workflows?workspaceId=${encodeURIComponent(args.workspaceId)}`);
+  const completionResponse = gasCityCompletionResponseOutput(response.completionResponse);
   const output = {
     ok: true,
     runId: productSafeWorkflowCliText(runId, 180),
@@ -2925,11 +2930,10 @@ async function workflowRunGasCityRecipe(args: WorkflowRunGasCityRecipeArgs): Pro
     },
     beadIds: [sourceBeadId],
     runUrl,
-    completionResponse: {
-      expected: false,
-      reason: 'Completion response is not supported for task-backed recipes yet; inspect from the Workflows page.',
-    },
-    nextAction: 'Request sent. End this turn; completion response is not supported for task-backed recipes yet. Inspect the task-backed workflow later from the Workflows page.',
+    completionResponse,
+    nextAction: completionResponse.expected
+      ? 'Request sent. End this turn; the workflow response will arrive later in this session through workflow coordination.'
+      : 'Request sent. End this turn; completion response is not supported for task-backed recipes yet. Inspect the task-backed workflow later from the Workflows page.',
   };
   if (args.flags.json) {
     console.log(JSON.stringify(output, null, 2));
@@ -2943,6 +2947,20 @@ async function workflowRunGasCityRecipe(args: WorkflowRunGasCityRecipeArgs): Pro
   console.log(`Open: ${runUrl}`);
   console.log('');
   console.log(output.nextAction);
+}
+
+function gasCityCompletionResponseOutput(response?: { status?: string; callbackKey?: string | null; sessionId?: string | null; summary?: string | null }): Record<string, unknown> {
+  if (response?.status === 'pending' || response?.status === 'delivered') {
+    return {
+      expected: true,
+      status: productSafeWorkflowCliText(response.status, 80),
+      sessionId: response.sessionId ? productSafeWorkflowCliText(response.sessionId, 180) : null,
+    };
+  }
+  return {
+    expected: false,
+    reason: productSafeWorkflowCliText(response?.summary || 'Completion response is not supported for task-backed recipes yet; inspect from the Workflows page.', 240),
+  };
 }
 
 function resolveGasCitySourceBeadId(flags: WorkflowCliParsedFlags, beadIds: string[]): string {

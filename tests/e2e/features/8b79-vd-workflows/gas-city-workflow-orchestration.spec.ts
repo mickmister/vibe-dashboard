@@ -395,8 +395,6 @@ test.describe('GCW-14A/14B Gas City Docker orchestration harness and fixture lay
         workspace.id,
         '--bead',
         beadId,
-        '--caller-session',
-        'gcw14f-caller-session',
         '--json',
       ],
       { env: { ...process.env, VIBE_API_URL: sandboxUrl, VK_WORKSPACE_ID: workspace.id } },
@@ -420,7 +418,7 @@ test.describe('GCW-14A/14B Gas City Docker orchestration harness and fixture lay
       beadIds: [beadId],
       completionResponse: { expected: false },
     });
-    expect(output?.completionResponse?.reason).toContain('not supported');
+    expect(output?.completionResponse?.reason).toMatch(/not requested|not supported/i);
     expect(output?.completionResponse).not.toHaveProperty('sessionId');
     expect(output?.runId).toMatch(/^gc-workflow-/);
     expect(output?.runUrl).toContain('/dashboard/workflows?workspaceId=');
@@ -442,6 +440,109 @@ test.describe('GCW-14A/14B Gas City Docker orchestration harness and fixture lay
     expect(sourceBead?.workflow).toMatchObject({ status: 'running', workflowId: output?.runId, formula: 'dev-review-test', target: 'worker' });
     expect(JSON.stringify(snapshot)).not.toMatch(productForbidden);
     expect(JSON.stringify(snapshot)).not.toMatch(/lane ready|sub-workspace ready|worktree ready/i);
+  });
+
+  test('TEST_CASE_GC_FULL_E2E_1E CLI task-backed workflow delivers caller completion response and activity', async ({ request }, testInfo) => {
+    await expectDashboardHealth(request);
+    const workspace = await firstWorkspace(request);
+    const callerSessionId = await firstSessionIdForWorkspace(request, workspace.id);
+    const beadId = 'gcw14g-cli-callback-bead';
+    const beadTitle = 'GCW-14G CLI callback task';
+    const fixtureBase = new URL('/dashboard/api/workflows/gas-city-e2e-fixture', sandboxUrl).toString();
+
+    const resetResponse = await request.post(`${fixtureBase}/reset`, {
+      data: {
+        workspaceId: workspace.id,
+        providerAvailable: true,
+        beads: [{
+          id: beadId,
+          title: beadTitle,
+          status: 'ready',
+          readiness: 'ready',
+          workspaceId: workspace.id,
+          dependencyBeadIds: [],
+          convoyIds: [],
+          workflow: null,
+          metadata: { formula: 'dev-review-test' },
+        }],
+      },
+    });
+    expect(resetResponse.ok(), await resetResponse.text()).toBe(true);
+
+    await execAndAttach(testInfo, 'gcw14g-build-vibe-agent-cli', 'npm', ['run', 'build:vibe-agent-cli']);
+    const cli = await execAndAttach(
+      testInfo,
+      'gcw14g-vibe-agent-workflow-run',
+      'node',
+      [
+        'bin/vibe-agent',
+        'workflow',
+        'run',
+        'dev-review-test',
+        '--workspace',
+        workspace.id,
+        '--bead',
+        beadId,
+        '--caller-session',
+        callerSessionId,
+        '--json',
+      ],
+      { env: { ...process.env, VIBE_API_URL: sandboxUrl, VK_WORKSPACE_ID: workspace.id, VK_SESSION_ID: callerSessionId } },
+    );
+    const output = readJsonDocument<{
+      ok?: boolean;
+      runId?: string;
+      status?: string;
+      completionResponse?: { expected?: boolean; status?: string; sessionId?: string | null };
+      nextAction?: string;
+    }>(cli.stdout);
+    expect(output).toMatchObject({
+      ok: true,
+      status: 'running',
+      completionResponse: { expected: true, status: 'pending', sessionId: callerSessionId },
+    });
+    expect(output?.runId).toMatch(/^gc-workflow-/);
+    expect(output?.nextAction).toContain('workflow response will arrive later');
+    expect(`${cli.stdout}\n${cli.stderr}`).not.toMatch(productForbidden);
+    expect(`${cli.stdout}\n${cli.stderr}`).not.toMatch(/<xs:schema|prompt:|skill:|@version|Built-in|contentHash|generated pack/i);
+
+    await waitForRoutedAgentPrompt(request, workspace.id, `Task workflow ${beadId}`, 'GCW14D_STEP:first_agent_message');
+
+    const terminalEvent = {
+      eventId: 'gcw14g-tester-approved-1',
+      type: 'mark_tester_approved',
+      workspaceId: workspace.id,
+      beadId,
+      title: beadTitle,
+      summary: 'Tester approved the deterministic task-backed workflow.',
+    };
+    const completed = await postFixtureEvent(request, terminalEvent);
+    expect(completed.status()).toBe(200);
+    const completedBody = await completed.json() as FixtureEventResponse & { completionResponse?: { status?: string; sessionId?: string | null; callbackKey?: string | null } | null };
+    await testInfo.attach('gcw14g-terminal-event.json', { body: JSON.stringify(completedBody, null, 2), contentType: 'application/json' });
+    expect(completedBody).toMatchObject({ ok: true, completionResponse: { status: 'delivered', sessionId: callerSessionId } });
+    expect(JSON.stringify(completedBody)).not.toMatch(productForbidden);
+
+    const callerPrompt = await pollCallerCompletionPrompt(request, callerSessionId, 'GCW14G_STEP:completion_response');
+    await testInfo.attach('gcw14g-caller-completion-message.txt', { body: callerPrompt, contentType: 'text/plain' });
+    expect(callerPrompt).toContain('Task-backed workflow completed');
+    expect(callerPrompt).toContain(beadId);
+    expect(callerPrompt).toContain(beadTitle);
+    expect(callerPrompt).not.toMatch(productForbidden);
+    expect(callerPrompt).not.toMatch(/<xs:schema|prompt:|skill:|@version|Built-in|contentHash|generated pack/i);
+
+    const replay = await postFixtureEvent(request, terminalEvent);
+    expect(replay.status()).toBe(200);
+    const replayBody = await replay.json() as FixtureEventResponse & { completionResponse?: { status?: string; sessionId?: string | null } | null };
+    await testInfo.attach('gcw14g-terminal-replay.json', { body: JSON.stringify(replayBody, null, 2), contentType: 'application/json' });
+    expect(replayBody).toMatchObject({ ok: true, result: { status: 'already_applied' }, completionResponse: { status: 'delivered', sessionId: callerSessionId } });
+
+    const callbackPrompts = await queuedPromptsContaining(request, callerSessionId, 'GCW14G_STEP:completion_response');
+    expect(callbackPrompts).toHaveLength(1);
+
+    const activitySnapshot = await pollActivityCallback(request, workspace.id, callerSessionId, output?.runId ?? '', 'delivered');
+    await testInfo.attach('gcw14g-activity-v1-snapshot.json', { body: JSON.stringify(activitySnapshot, null, 2), contentType: 'application/json' });
+    expect(JSON.stringify(activitySnapshot)).not.toMatch(productForbidden);
   });
 
   test.fixme(
@@ -468,6 +569,26 @@ async function firstWorkspace(request: APIRequestContext): Promise<{ id: string 
   const workspace = body.data?.[0];
   if (!workspace?.id) throw new Error('No VK workspace available for Gas City workflow E2E harness smoke.');
   return workspace;
+}
+
+async function firstSessionIdForWorkspace(request: APIRequestContext, workspaceId: string): Promise<string> {
+  const existing = await sessionsInWorkspace(request, workspaceId);
+  if (existing[0]?.id) return existing[0].id;
+  const create = await request.post(new URL('/vk-api/sessions', sandboxUrl).toString(), {
+    data: { workspace_id: workspaceId, executor: 'CODEX', name: 'GCW-14G caller session' },
+  });
+  expect(create.ok(), await create.text()).toBe(true);
+  const body = await create.json() as { data?: { id?: string } };
+  const sessionId = body.data?.id;
+  if (!sessionId) throw new Error('Could not create VK caller session for Gas City workflow callback E2E.');
+  return sessionId;
+}
+
+async function sessionsInWorkspace(request: APIRequestContext, workspaceId: string): Promise<Array<{ id: string; name?: string | null }>> {
+  const response = await request.get(new URL(`/vk-api/sessions?workspace_id=${encodeURIComponent(workspaceId)}`, sandboxUrl).toString(), { headers: { Accept: 'application/json' } });
+  expect(response.ok(), await response.text()).toBe(true);
+  const body = await response.json() as { data?: Array<{ id: string; name?: string | null }> };
+  return body.data ?? [];
 }
 
 
@@ -514,6 +635,36 @@ async function sessionsNamed(
   expect(response.ok(), await response.text()).toBe(true);
   const body = await response.json() as { data?: Array<{ id: string; name?: string | null }> };
   return (body.data ?? []).filter((candidate) => candidate.name === expectedSessionName);
+}
+
+async function pollCallerCompletionPrompt(request: APIRequestContext, sessionId: string, marker: string): Promise<string> {
+  let lastSeen = 'not-started';
+  await expect.poll(async () => {
+    const prompts = await queuedPromptsContaining(request, sessionId, marker);
+    if (prompts[0]) {
+      lastSeen = prompts[0];
+      return prompts[0];
+    }
+    const latest = await latestResponsePrompt(request, sessionId);
+    if (latest?.includes(marker)) {
+      lastSeen = latest;
+      return latest;
+    }
+    lastSeen = latest ? 'latest response did not contain callback marker' : 'no callback response yet';
+    return 'pending';
+  }, { timeout: 120_000, intervals: [1_000, 2_000, 5_000] }).toContain(marker);
+  return lastSeen;
+}
+
+async function queuedPromptsContaining(request: APIRequestContext, sessionId: string, marker: string): Promise<string[]> {
+  const response = await request.get(new URL(`/vk-api/sessions/${encodeURIComponent(sessionId)}/queue`, sandboxUrl).toString(), { headers: { Accept: 'application/json' } });
+  if (!response.ok()) return [];
+  const body = await response.json() as { data?: { message?: { data?: { message?: string } } | null; messages?: Array<{ data?: { message?: string } }> } };
+  const prompts = [
+    body.data?.message?.data?.message,
+    ...(body.data?.messages?.map((message) => message.data?.message) ?? []),
+  ].filter((message): message is string => typeof message === 'string');
+  return Array.from(new Set(prompts.filter((prompt) => prompt.includes(marker))));
 }
 
 async function latestQueuedPrompt(request: APIRequestContext, sessionId: string): Promise<string | null> {
@@ -580,6 +731,44 @@ function readJsonDocument<T>(stdout: string): T | null {
   } catch {
     return readJsonLine<T>(stdout);
   }
+}
+
+async function pollActivityCallback(request: APIRequestContext, workspaceId: string, sessionId: string, runId: string, status: string): Promise<unknown> {
+  let last: unknown = null;
+  await expect.poll(async () => {
+    const response = await request.get(new URL(`/vk-api/activity/v1?workspace_id=${encodeURIComponent(workspaceId)}&session_id=${encodeURIComponent(sessionId)}`, sandboxUrl).toString(), { headers: { Accept: 'application/json' } });
+    if (!response.ok()) return `http-${response.status()}`;
+    const body = await response.json() as { data?: unknown };
+    last = body.data ?? null;
+    return activityEventsHaveCallback([body.data], runId, status) ? status : 'waiting';
+  }, { timeout: 120_000, intervals: [1_000, 2_000, 5_000] }).toBe(status);
+  return last;
+}
+
+function activityEventsHaveCallback(events: unknown[], runId: string, status: string): boolean {
+  return extractActivityCallbacks(events, runId).some((callback) => callback.status === status);
+}
+
+function extractActivityCallbacks(events: unknown[], runId: string): Array<{ callback_id: string; status: string }> {
+  const callbacks: Array<{ callback_id: string; status: string }> = [];
+  for (const event of events) {
+    collectCallbacks(event, runId, callbacks);
+  }
+  return callbacks;
+}
+
+function collectCallbacks(value: unknown, runId: string, callbacks: Array<{ callback_id: string; status: string }>) {
+  if (!value || typeof value !== 'object') return;
+  if (Array.isArray(value)) {
+    for (const item of value) collectCallbacks(item, runId, callbacks);
+    return;
+  }
+  const record = value as Record<string, unknown>;
+  const workflow = record.workflow as Record<string, unknown> | undefined;
+  if (typeof record.callback_id === 'string' && typeof record.status === 'string' && workflow?.run_id === runId) {
+    callbacks.push({ callback_id: record.callback_id, status: record.status });
+  }
+  for (const child of Object.values(record)) collectCallbacks(child, runId, callbacks);
 }
 
 

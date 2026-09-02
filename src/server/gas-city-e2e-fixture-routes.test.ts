@@ -212,6 +212,99 @@ describe("registerGasCityE2eFixtureRoutes", () => {
     expect(queued[1]?.prompt).not.toMatch(/prompt:|skill:|@version|Built-in|contentHash|generated pack/i);
   });
 
+  it("delivers a caller completion response once when a fixture workflow reaches terminal success", async () => {
+    const app = new Hono();
+    const fixture = new GasCityE2eFixtureStore({
+      workspaceId: "workspace-a",
+      beads: [{ id: "bead-gcw14g-route", title: "Callback task", status: "ready", readiness: "ready", workspaceId: "workspace-a", dependencyBeadIds: [], convoyIds: [] }],
+    }, { now: () => 123 });
+    const queued: Array<{ sessionId: string; prompt: string; source?: string; provenance?: QueueFollowUpProvenance }> = [];
+    const callbacks: Array<{ kind: "upsert" | "status"; key: string; body: Record<string, unknown> }> = [];
+    const vkClient = {
+      getSessions: async () => [],
+      createSession: async (body: { workspace_id: string; executor: "CODEX"; name?: string | null }) => ({
+        id: "session-worker",
+        workspace_id: body.workspace_id,
+        executor: body.executor,
+        name: body.name ?? "Task workflow",
+        created_at: "now",
+        updated_at: "now",
+      }),
+      queueFollowUp: async (sessionId: string, prompt: string, options?: { source?: "workflow"; provenance?: QueueFollowUpProvenance }) => {
+        queued.push({ sessionId, prompt, source: options?.source, provenance: options?.provenance });
+        return {
+          queued_item: {
+            id: `queue-${queued.length}`,
+            session_id: sessionId,
+            workspace_id: "workspace-a",
+            status: "queued" as const,
+            source: "workflow" as const,
+            priority: 0,
+            data: { message: prompt, provenance: options?.provenance },
+          },
+          status: { count: queued.length, message: null, messages: [], status: "queued" as const },
+        };
+      },
+      upsertWorkflowCallback: async (body: unknown) => {
+        const record = body as Record<string, unknown>;
+        callbacks.push({ kind: "upsert", key: String(record.callback_key), body: record });
+        return {};
+      },
+      updateWorkflowCallbackStatus: async (callbackKey: string, body: unknown) => {
+        callbacks.push({ kind: "status", key: callbackKey, body: body as Record<string, unknown> });
+        return {};
+      },
+    };
+    registerGasCityE2eFixtureRoutes(app, { enabled: true, fixture, vkClient });
+
+    const launch = await app.request("/dashboard/api/workflows/gas-city-e2e-fixture/launch", {
+      method: "POST",
+      body: JSON.stringify({
+        workspaceId: "workspace-a",
+        sourceBeadId: "bead-gcw14g-route",
+        target: "worker",
+        formula: "dev-review-test",
+        idempotencyKey: "launch-gcw14g",
+        completionResponse: { sessionId: "caller-session", source: "vibe-agent-cli" },
+      }),
+      headers: { "content-type": "application/json" },
+    });
+    expect(launch.status).toBe(201);
+    const launchBody = await launch.json();
+    expect(launchBody).toMatchObject({ ok: true, completionResponse: { status: "pending", sessionId: "caller-session" } });
+
+    for (let index = 0; index < 2; index += 1) {
+      const event = await app.request("/dashboard/api/workflows/gas-city-e2e-fixture/events", {
+        method: "POST",
+        body: JSON.stringify({
+          eventId: "tester-approved-1",
+          type: "mark_tester_approved",
+          workspaceId: "workspace-a",
+          beadId: "bead-gcw14g-route",
+          title: "Callback task",
+          summary: "Tester approved the deterministic workflow.",
+        }),
+        headers: { "content-type": "application/json" },
+      });
+      expect(event.status).toBe(200);
+      const body = await event.json();
+      expect(body).toMatchObject({ ok: true, completionResponse: { status: "delivered", sessionId: "caller-session" } });
+      expect(JSON.stringify(body)).not.toMatch(forbidden);
+    }
+
+    expect(queued).toHaveLength(2);
+    expect(queued[0]?.prompt).toContain("GCW14D_STEP:first_agent_message");
+    expect(queued[1]).toMatchObject({ sessionId: "caller-session", source: "workflow" });
+    expect(queued[1]?.prompt).toContain("GCW14G_STEP:completion_response");
+    expect(queued[1]?.prompt).toContain("Task-backed workflow completed");
+    expect(queued[1]?.prompt).toContain("Callback task");
+    expect(queued[1]?.prompt).not.toMatch(forbidden);
+    const statusUpdates = callbacks.filter((entry) => entry.kind === "status");
+    expect(callbacks.filter((entry) => entry.kind === "upsert")).toHaveLength(1);
+    expect(statusUpdates).toHaveLength(1);
+    expect(statusUpdates[0]?.body).toMatchObject({ status: "delivered", delivered_ref: "vk:queue-2" });
+  });
+
   it("blocks launching a source bead that is not ready", async () => {
     const app = new Hono();
     const fixture = new GasCityE2eFixtureStore({

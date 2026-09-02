@@ -156,6 +156,7 @@ describe('vibe-agent workflow CLI foundation', () => {
           target: 'worker',
           formula: 'dev-review-test',
           idempotencyKey: 'vibe-agent-workflow-workspace-a-bead-gas-city-dev-review-test-worker',
+          completionResponse: { sessionId: 'caller-explicit', source: 'vibe-agent-cli' },
         });
         return json({
           launch: {
@@ -171,6 +172,7 @@ describe('vibe-agent workflow CLI foundation', () => {
             },
           },
           workflow: { status: 'running', nextAction: 'Agent is working.' },
+          completionResponse: { status: 'pending', callbackKey: 'workflow-completion:gc-workflow-bead-gas-city:caller-explicit', sessionId: 'caller-explicit', summary: 'Completion response will be sent.' },
         }, 201);
       }
       throw new Error(`unexpected fetch ${url}`);
@@ -187,12 +189,10 @@ describe('vibe-agent workflow CLI foundation', () => {
       workspaceId: 'workspace-a',
       workflow: { id: 'gas-city/dev-review-test', alias: 'dev-review-test', kind: 'task_backed_recipe' },
       beadIds: ['bead-gas-city'],
-      completionResponse: { expected: false, reason: expect.stringContaining('not supported') },
+      completionResponse: { expected: true, status: 'pending', sessionId: 'caller-explicit' },
     });
-    expect(output.completionResponse.reason).toContain('Workflows page');
-    expect(output.completionResponse).not.toHaveProperty('sessionId');
     expect(output.nextAction).toContain('End this turn');
-    expect(output.nextAction).toContain('not supported');
+    expect(output.nextAction).toContain('workflow response will arrive later');
     const serialized = JSON.stringify(output);
     expect(serialized).not.toMatch(/raw XML|raw JSON|prompt:|skill:|contentHash|provider diagnostics|\/Users\/|\/tmp\/|queue[_ -]?item|webhook|runReady|WorkflowStepState/i);
     expect(fetchMock).toHaveBeenCalledTimes(2);
