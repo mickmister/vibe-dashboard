@@ -183,7 +183,7 @@ jobs:
             adb logcat -d > "$ARTIFACTS_DIR/logcat.txt" || true
             exit $status
 
-      - name: Run iOS WebView E2E test
+      - name: Run iOS E2E test
         if: matrix.platform == 'ios'
         shell: bash
         run: |
