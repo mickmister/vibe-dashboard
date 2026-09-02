@@ -2579,6 +2579,13 @@ interface WorkflowCliHome {
   workspaceId: string | null;
   userWorkflows: WorkflowCliSummary[];
   starterTemplates: WorkflowCliSummary[];
+  gasCityEngine?: WorkflowCliGasCityEngine | null;
+}
+
+interface WorkflowCliGasCityEngine {
+  health?: { status?: string; summary?: string | null; version?: string | null } | null;
+  recipes?: Array<{ id: string; name: string; summary?: string | null; status?: string; sourceWorkflow?: string | null }>;
+  launch?: { enabled?: boolean; sourceBeadId?: string | null; target?: string | null; recipeId?: string | null; summary?: string | null } | null;
 }
 
 interface WorkflowCliPresentation {
@@ -2680,7 +2687,7 @@ async function workflowList(args: string[]): Promise<void> {
   console.log('');
   for (const entry of workflows) {
     const version = entry.workflow.version ? ` v${entry.workflow.version}` : '';
-    const source = entry.workflow.source === 'template' ? 'Starter template' : 'Published workflow';
+    const source = workflowSourceLabel(entry.workflow.source);
     console.log(`${entry.alias.padEnd(28)} ${productSafeWorkflowCliText(entry.workflow.title)}${version} — ${source}`);
   }
   if (!workflows.length) console.log('No workflows are available.');
@@ -2707,7 +2714,7 @@ async function workflowShow(args: string[], inputsOnly: boolean): Promise<void> 
   console.log(`${productSafeWorkflowCliText(resolved.workflow.title)}${resolved.workflow.version ? ` v${resolved.workflow.version}` : ''}`);
   console.log(`ID: ${productSafeWorkflowCliText(resolved.workflow.id)}`);
   console.log(`Alias: ${productSafeWorkflowCliText(resolved.alias)}`);
-  console.log(`Type: ${resolved.workflow.source === 'template' ? 'Starter template' : 'Published workflow'}`);
+  console.log(`Type: ${workflowSourceLabel(resolved.workflow.source)}`);
   if (resolved.workflow.description) console.log(`Description: ${productSafeWorkflowCliText(resolved.workflow.description)}`);
   console.log('');
   printWorkflowInputs(resolved.workflow);
@@ -2728,6 +2735,10 @@ async function workflowRun(args: string[]): Promise<void> {
   const resolved = resolveWorkflowReference(workflowRef, workflowCliCatalog(home));
   validateWorkflowCliInputs(resolved.workflow, flags.inputs);
   const beadIds = flags.beadIds.length ? flags.beadIds : currentWorkflowBeadIdsFromEnv();
+  if (isGasCityWorkflowCliSummary(resolved.workflow)) {
+    await workflowRunGasCityRecipe({ resolved, workspaceId, flags, beadIds });
+    return;
+  }
   const launchWorkflow = resolved.workflow.source === 'template'
     ? await materializeWorkflowTemplateForCli(resolved.workflow, workspaceId)
     : resolved.workflow;
@@ -2837,6 +2848,112 @@ async function fetchWorkflowCliPresentation(runId: string): Promise<WorkflowCliP
   return response.presentation;
 }
 
+function gasCityRecipeCliSummaries(home: WorkflowCliHome): WorkflowCliSummary[] {
+  const launch = home.gasCityEngine?.launch ?? null;
+  if (!launch?.enabled) return [];
+  const recipes = home.gasCityEngine?.recipes ?? [];
+  return recipes
+    .filter((recipe) => recipe.status !== 'unavailable')
+    .map((recipe) => ({
+      id: `gas-city/${recipe.id}`,
+      title: recipe.name || recipe.id,
+      description: recipe.summary ?? home.gasCityEngine?.health?.summary ?? 'Task-backed workflow recipe.',
+      source: 'gas_city_recipe',
+      status: recipe.status === 'ready' ? 'ready' : 'unavailable',
+      version: null,
+      unavailableReason: recipe.status === 'ready' ? null : 'This task-backed recipe is not ready to start.',
+      canRun: recipe.status === 'ready',
+      inputs: [],
+      roles: [],
+    }));
+}
+
+function isGasCityWorkflowCliSummary(workflow: WorkflowCliSummary): boolean {
+  return workflow.source === 'gas_city_recipe' || workflow.id.startsWith('gas-city/');
+}
+
+interface WorkflowRunGasCityRecipeArgs {
+  resolved: WorkflowResolution;
+  workspaceId: string;
+  flags: WorkflowCliParsedFlags;
+  beadIds: string[];
+}
+
+async function workflowRunGasCityRecipe(args: WorkflowRunGasCityRecipeArgs): Promise<void> {
+  const sourceBeadId = resolveGasCitySourceBeadId(args.flags, args.beadIds);
+  const recipeId = args.resolved.workflow.id.startsWith('gas-city/')
+    ? args.resolved.workflow.id.slice('gas-city/'.length)
+    : args.resolved.alias;
+  const target = typeof args.flags.inputs.target === 'string' && args.flags.inputs.target.trim()
+    ? args.flags.inputs.target.trim()
+    : 'worker';
+  const idempotencyKey = `vibe-agent-workflow-${args.workspaceId}-${sourceBeadId}-${recipeId}`;
+  const response = await dashboardRequest('/dashboard/api/workflows/gas-city-e2e-fixture/launch', {
+    method: 'POST',
+    body: JSON.stringify({
+      workspaceId: args.workspaceId,
+      sourceBeadId,
+      target,
+      formula: recipeId,
+      idempotencyKey,
+    }),
+  }) as {
+    launch?: {
+      status?: string;
+      summary?: string | null;
+      workflowRef?: { workflowId?: string | null; sourceBeadId?: string | null; formula?: string | null; target?: string | null };
+    };
+    workflow?: { status?: string | null; nextAction?: string | null } | null;
+  };
+  const launch = response.launch;
+  const runId = launch?.workflowRef?.workflowId || `task-workflow-${sourceBeadId}`;
+  if (!launch?.status || !runId) throw new Error('Task-backed workflow launch did not return a run id.');
+  const status = response.workflow?.status || launch.status;
+  const runUrl = absoluteDashboardUrl(`/dashboard/workflows?workspaceId=${encodeURIComponent(args.workspaceId)}`);
+  const output = {
+    ok: true,
+    runId: productSafeWorkflowCliText(runId, 180),
+    status: productSafeWorkflowCliText(status, 80),
+    workspaceId: args.workspaceId,
+    workflow: {
+      id: args.resolved.workflow.id,
+      requested: args.resolved.workflow.id,
+      alias: args.resolved.alias,
+      title: productSafeWorkflowCliText(args.resolved.workflow.title),
+      version: null,
+      kind: 'task_backed_recipe',
+    },
+    beadIds: [sourceBeadId],
+    runUrl,
+    completionResponse: args.flags.callerSessionId
+      ? { sessionId: productSafeWorkflowCliText(args.flags.callerSessionId, 180), expected: true }
+      : { expected: false, reason: 'No caller session was detected.' },
+    nextAction: args.flags.callerSessionId
+      ? 'Request sent. End this turn; the workflow response will arrive later in this session through workflow coordination.'
+      : 'Request sent. End this turn; inspect the task-backed workflow later from the Workflows page.',
+  };
+  if (args.flags.json) {
+    console.log(JSON.stringify(output, null, 2));
+    return;
+  }
+  console.log(`Started workflow: ${productSafeWorkflowCliText(args.resolved.workflow.title)}`);
+  console.log(`Run: ${output.runId}`);
+  console.log(`Status: ${output.status}`);
+  console.log(`Workspace: ${productSafeWorkflowCliText(args.workspaceId)}`);
+  console.log(`Beads: ${productSafeWorkflowCliText(sourceBeadId)}`);
+  console.log(`Open: ${runUrl}`);
+  console.log('');
+  console.log(output.nextAction);
+}
+
+function resolveGasCitySourceBeadId(flags: WorkflowCliParsedFlags, beadIds: string[]): string {
+  const inputSourceBead = typeof flags.inputs.sourceBeadId === 'string' ? flags.inputs.sourceBeadId.trim() : '';
+  const sourceBeadId = inputSourceBead || beadIds[0] || '';
+  if (!sourceBeadId) throw new Error('Task-backed workflow launch requires --bead <id> or --input sourceBeadId=<id>.');
+  if (beadIds.length > 1) throw new Error('Task-backed workflow launch supports one source bead in this slice. Run again for each bead.');
+  return productSafeWorkflowCliText(sourceBeadId, 160);
+}
+
 async function materializeWorkflowTemplateForCli(workflow: WorkflowCliSummary, workspaceId: string): Promise<WorkflowCliSummary> {
   const response = await dashboardRequest('/dashboard/api/workflow-templates/use', {
     method: 'POST',
@@ -2854,7 +2971,11 @@ async function materializeWorkflowTemplateForCli(workflow: WorkflowCliSummary, w
 }
 
 export function workflowCliCatalog(home: WorkflowCliHome): WorkflowResolution[] {
-  return [...(home.userWorkflows ?? []), ...(home.starterTemplates ?? [])]
+  return [
+    ...(home.userWorkflows ?? []),
+    ...(home.starterTemplates ?? []),
+    ...gasCityRecipeCliSummaries(home),
+  ]
     .filter((workflow) => workflow.status !== 'unavailable')
     .map((workflow) => ({ workflow, alias: workflowAlias(workflow), source: workflow.source }));
 }
@@ -2873,7 +2994,14 @@ export function resolveWorkflowReference(ref: string, workflows: WorkflowResolut
 
 function workflowAlias(workflow: WorkflowCliSummary): string {
   if (workflow.id.startsWith('built-in/')) return workflow.id.slice('built-in/'.length);
+  if (workflow.id.startsWith('gas-city/')) return workflow.id.slice('gas-city/'.length);
   return workflowSlug(workflow.title || workflow.id);
+}
+
+function workflowSourceLabel(source: string): string {
+  if (source === 'template') return 'Starter template';
+  if (source === 'gas_city_recipe') return 'Task-backed recipe';
+  return 'Published workflow';
 }
 
 function workflowSlug(value: string): string {

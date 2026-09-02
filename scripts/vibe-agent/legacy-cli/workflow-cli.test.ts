@@ -64,6 +64,20 @@ describe('vibe-agent workflow CLI foundation', () => {
     expect(resolveWorkflowReference('ask-teammate', workflowCliCatalog({ workspaceId: 'workspace-a', userWorkflows: [], starterTemplates: [workflow('built-in/ask-teammate', 'Ask teammate', 'template')] })).workflow.id).toBe('built-in/ask-teammate');
   });
 
+  it('discovers enabled task-backed Gas City recipes as generic workflow CLI entries', () => {
+    const catalog = workflowCliCatalog(gasCityHome());
+    const recipe = resolveWorkflowReference('dev-review-test', catalog);
+    expect(recipe).toMatchObject({
+      alias: 'dev-review-test',
+      source: 'gas_city_recipe',
+      workflow: {
+        id: 'gas-city/dev-review-test',
+        title: 'Dev Review Test recipe',
+        canRun: true,
+      },
+    });
+  });
+
   it('validates missing required inputs product-safely', () => {
     expect(() => validateWorkflowCliInputs(workflow('design-a', 'Ask teammate'), { role: 'review' })).toThrow('request');
     expect(() => resolveWorkflowWorkspace({}, { required: true })).toThrow('Workspace is required');
@@ -130,6 +144,68 @@ describe('vibe-agent workflow CLI foundation', () => {
     expect(output.runUrl).toContain('/dashboard/workflows/run-1');
   });
 
+  it('runs a task-backed Gas City recipe through the fixture launch seam and detaches cleanly', async () => {
+    process.env.VK_WORKSPACE_ID = 'workspace-a';
+    const fetchMock = vi.fn(async (url: string, init?: RequestInit) => {
+      if (url.endsWith('/dashboard/api/workflows/home?workspaceId=workspace-a')) return json({ home: gasCityHome() });
+      if (url.endsWith('/dashboard/api/workflows/gas-city-e2e-fixture/launch')) {
+        const body = JSON.parse(String(init?.body));
+        expect(body).toEqual({
+          workspaceId: 'workspace-a',
+          sourceBeadId: 'bead-gas-city',
+          target: 'worker',
+          formula: 'dev-review-test',
+          idempotencyKey: 'vibe-agent-workflow-workspace-a-bead-gas-city-dev-review-test',
+        });
+        return json({
+          launch: {
+            status: 'accepted',
+            summary: 'Task-backed workflow accepted.',
+            workflowRef: {
+              providerId: 'gas_city',
+              workspaceId: 'workspace-a',
+              sourceBeadId: 'bead-gas-city',
+              target: 'worker',
+              formula: 'dev-review-test',
+              workflowId: 'gc-workflow-bead-gas-city',
+            },
+          },
+          workflow: { status: 'running', nextAction: 'Agent is working.' },
+        }, 201);
+      }
+      throw new Error(`unexpected fetch ${url}`);
+    });
+    vi.stubGlobal('fetch', fetchMock);
+    const lines = captureConsole();
+    await workflowCommand(['run', 'dev-review-test', '--bead', 'bead-gas-city', '--json']);
+    const output = JSON.parse(lines.join('\n'));
+    expect(output).toMatchObject({
+      ok: true,
+      runId: 'gc-workflow-bead-gas-city',
+      status: 'running',
+      workspaceId: 'workspace-a',
+      workflow: { id: 'gas-city/dev-review-test', alias: 'dev-review-test', kind: 'task_backed_recipe' },
+      beadIds: ['bead-gas-city'],
+      completionResponse: { expected: false },
+    });
+    expect(output.nextAction).toContain('End this turn');
+    const serialized = JSON.stringify(output);
+    expect(serialized).not.toMatch(/raw XML|raw JSON|prompt:|skill:|contentHash|provider diagnostics|\/Users\/|\/tmp\/|queue[_ -]?item|webhook|runReady|WorkflowStepState/i);
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+  });
+
+  it('requires exactly one source bead for task-backed recipe launches', async () => {
+    process.env.VK_WORKSPACE_ID = 'workspace-a';
+    vi.stubGlobal('fetch', vi.fn(async (url: string) => {
+      if (url.endsWith('/dashboard/api/workflows/home?workspaceId=workspace-a')) return json({ home: gasCityHome() });
+      throw new Error(`unexpected fetch ${url}`);
+    }));
+    const lines = captureConsole();
+    await workflowCommand(['run', 'dev-review-test', '--json']);
+    expect(process.exitCode).toBe(1);
+    expect(JSON.parse(lines.join('\n'))).toMatchObject({ ok: false, error: expect.stringContaining('--bead') });
+  });
+
   it('submits explicit role/session binding overrides product-safely', async () => {
     process.env.VK_WORKSPACE_ID = 'workspace-a';
     const fetchMock = vi.fn(async (url: string, init?: RequestInit) => {
@@ -183,6 +259,31 @@ function workflow(id: string, title: string, source: 'published_design' | 'templ
       { id: 'successCriteria', type: 'markdown', required: false, description: 'Success criteria' },
     ],
     roles: [{ id: 'teammate', label: 'Teammate' }],
+  };
+}
+
+function gasCityHome() {
+  return {
+    workspaceId: 'workspace-a',
+    userWorkflows: [],
+    starterTemplates: [],
+    gasCityEngine: {
+      health: { status: 'healthy', summary: 'Workflow orchestration is available.', version: '1.4.1' },
+      recipes: [{
+        id: 'dev-review-test',
+        name: 'Dev Review Test recipe',
+        summary: 'Generated recipe available for deterministic task-backed workflow testing.',
+        sourceWorkflow: 'Dev Review Test',
+        status: 'ready',
+      }],
+      launch: {
+        enabled: true,
+        sourceBeadId: 'bead-gas-city',
+        target: 'worker',
+        recipeId: 'dev-review-test',
+        summary: 'Ready to start task-backed workflow work.',
+      },
+    },
   };
 }
 
