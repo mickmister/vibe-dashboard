@@ -7,6 +7,7 @@ import { registerWorkflowRoutes } from '../server/workflow-routes';
 import { registerPluginAssetRoutes } from '../server/plugin-asset-routes';
 import { registerPluginAdminRoutes } from '../server/plugin-admin-routes';
 import { registerPreviewResolverRoutes } from '../server/preview-resolver-routes';
+import { registerRuntimeInactivityStatusRoutes } from '../server/inactivity-status-routes';
 import { workflowRegistry } from '../workflows/registry';
 import type { CachedRepoAlias } from '../workflows/github-ci';
 
@@ -27,6 +28,7 @@ serverRegistry.registerServerModule((api) => {
   registerPluginAssetRoutes(api.hono, { installRoot: pluginInstallRoot });
   registerPluginAdminRoutes(api.hono);
   registerPreviewResolverRoutes(api.hono);
+  registerRuntimeInactivityStatusRoutes(api.hono);
 });
 
 async function getCachedGitRepos(): Promise<CachedRepoAlias[]> {

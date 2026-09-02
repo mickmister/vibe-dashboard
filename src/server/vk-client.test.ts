@@ -26,6 +26,24 @@ describe('resolveVibeApiBaseUrl', () => {
 });
 
 describe('VibeKanbanServerClient', () => {
+  it('fetches workspace summaries from the VK summaries endpoint', async () => {
+    const fetchImpl = vi.fn(async (url: string, init?: RequestInit) => {
+      if (url === 'http://vk.local/api/workspaces/summaries' && init?.method === 'POST') {
+        expect(JSON.parse(String(init.body))).toEqual({ archived: false });
+        return jsonResponse({
+          success: true,
+          data: { summaries: [{ workspace_id: 'ws1', latest_process_status: 'running' }] },
+        });
+      }
+      throw new Error(`unexpected request ${url}`);
+    });
+    const client = new VibeKanbanServerClient({ baseUrl: 'http://vk.local/api', fetch: fetchImpl });
+
+    await expect(client.getWorkspaceSummaries()).resolves.toEqual([
+      { workspace_id: 'ws1', latest_process_status: 'running' },
+    ]);
+  });
+
   it('fetches workspaces and workspace repos from VK API envelope', async () => {
     const fetchImpl = vi.fn(async (url: string) => {
       if (url === 'http://vk.local/api/workspaces') {
