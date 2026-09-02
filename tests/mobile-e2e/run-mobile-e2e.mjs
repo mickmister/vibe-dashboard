@@ -277,6 +277,8 @@ function createCapabilities(platform, appPath) {
       'appium:includeSafariInWebviews': true,
       'appium:fullContextList': true,
       'appium:webviewConnectTimeout': 120000,
+      'appium:isHeadless': process.env.IOS_SIMULATOR_HEADLESS !== 'false',
+      'appium:simulatorStartupTimeout': Number(process.env.IOS_SIMULATOR_STARTUP_TIMEOUT || 600000),
       'appium:wdaLaunchTimeout': Number(process.env.IOS_WDA_LAUNCH_TIMEOUT || 600000),
       'appium:wdaConnectionTimeout': Number(process.env.IOS_WDA_CONNECTION_TIMEOUT || 600000),
       'appium:wdaStartupRetries': Number(process.env.IOS_WDA_STARTUP_RETRIES || 2),
