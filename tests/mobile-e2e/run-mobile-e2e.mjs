@@ -105,17 +105,16 @@ async function startScreenRecording(driver, platform) {
 
   try {
     if (platform === 'ios') {
-      const udid = process.env.IOS_DEVICE_UDID || 'booted';
       const filePath = path.resolve(VIDEOS_DIR, 'ios-mobile-e2e.mp4');
-      const logPath = path.resolve(VIDEOS_DIR, 'ios-record-video.log');
-      const out = fs.openSync(logPath, 'a');
-      const child = spawn('xcrun', ['simctl', 'io', udid, 'recordVideo', '--codec=h264', filePath], {
-        stdio: ['ignore', out, out],
-        detached: process.platform !== 'win32',
+      const timeLimit = String(Number(process.env.MOBILE_E2E_RECORDING_TIME_LIMIT_SECONDS || 180));
+      await driver.startRecordingScreen({
+        timeLimit,
+        videoType: 'h264',
+        videoQuality: 'medium',
+        videoFps: 10,
       });
-      console.log(`Started iOS screen recording for active Appium test window: ${filePath}`);
-      await delay(1000);
-      return { platform, child, filePath };
+      console.log(`Started iOS Appium screen recording for active test window: ${filePath}`);
+      return { kind: 'appium', platform, driver, filePath };
     }
 
     const deviceFilePath = '/sdcard/mobile-e2e.mp4';
@@ -127,7 +126,7 @@ async function startScreenRecording(driver, platform) {
     });
     console.log(`Started Android screen recording for active Appium test window: ${deviceFilePath}`);
     await delay(1000);
-    return { platform, child, deviceFilePath, filePath: path.resolve(VIDEOS_DIR, 'android-mobile-e2e.mp4') };
+    return { kind: 'process', platform, child, deviceFilePath, filePath: path.resolve(VIDEOS_DIR, 'android-mobile-e2e.mp4') };
   } catch (error) {
     console.warn('Failed to start screen recording:', error);
     return undefined;
@@ -136,6 +135,21 @@ async function startScreenRecording(driver, platform) {
 
 async function stopScreenRecording(recording) {
   if (!recording) {
+    return;
+  }
+
+  if (recording.kind === 'appium') {
+    try {
+      const base64Video = await recording.driver.stopRecordingScreen();
+      if (!base64Video) {
+        console.warn('Screen recording stopped but Appium returned no video data.');
+        return;
+      }
+      fs.writeFileSync(recording.filePath, Buffer.from(base64Video, 'base64'));
+      console.log(`Saved screen recording to ${recording.filePath}`);
+    } catch (error) {
+      console.warn('Failed to stop Appium screen recording:', error);
+    }
     return;
   }
 

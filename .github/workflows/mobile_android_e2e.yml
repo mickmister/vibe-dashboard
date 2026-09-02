@@ -245,6 +245,14 @@ jobs:
         working-directory: tests/mobile-e2e
         run: npx appium driver install ${{ matrix.appium_driver }}
 
+      - name: Install iOS screen recording dependency
+        if: matrix.platform == 'ios'
+        shell: bash
+        run: |
+          if ! command -v ffmpeg >/dev/null 2>&1; then
+            brew install ffmpeg
+          fi
+
       - name: Start server
         shell: bash
         run: |
