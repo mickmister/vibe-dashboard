@@ -191,29 +191,29 @@ jobs:
           mkdir -p "$ARTIFACTS_DIR/screenshots" "$ARTIFACTS_DIR/videos"
           xcrun simctl list devices available
           device_info="$(IOS_DEVICE_NAME="${IOS_DEVICE_NAME:-iPhone 16}" python3 <<'PY'
-import json
-import os
-import subprocess
+          import json
+          import os
+          import subprocess
 
-preferred = os.environ["IOS_DEVICE_NAME"]
-data = json.loads(subprocess.check_output(["xcrun", "simctl", "list", "devices", "available", "-j"]))
-choices = []
-for runtime, devices in data.get("devices", {}).items():
-    if not runtime.startswith("com.apple.CoreSimulator.SimRuntime.iOS-"):
-        continue
-    version = runtime.rsplit("iOS-", 1)[1].replace("-", ".")
-    for device in devices:
-        if not device.get("isAvailable", False):
-            continue
-        choices.append((device.get("name"), device.get("udid"), version))
+          preferred = os.environ["IOS_DEVICE_NAME"]
+          data = json.loads(subprocess.check_output(["xcrun", "simctl", "list", "devices", "available", "-j"]))
+          choices = []
+          for runtime, devices in data.get("devices", {}).items():
+              if not runtime.startswith("com.apple.CoreSimulator.SimRuntime.iOS-"):
+                  continue
+              version = runtime.rsplit("iOS-", 1)[1].replace("-", ".")
+              for device in devices:
+                  if not device.get("isAvailable", False):
+                      continue
+                  choices.append((device.get("name"), device.get("udid"), version))
 
-selected = next((item for item in choices if item[0] == preferred), None)
-if selected is None:
-    selected = next((item for item in choices if str(item[0]).startswith("iPhone ")), None)
-if selected is None:
-    raise SystemExit("No available iPhone simulator found")
-print("|".join(selected))
-PY
+          selected = next((item for item in choices if item[0] == preferred), None)
+          if selected is None:
+              selected = next((item for item in choices if str(item[0]).startswith("iPhone ")), None)
+          if selected is None:
+              raise SystemExit("No available iPhone simulator found")
+          print("|".join(selected))
+          PY
           )"
           IFS='|' read -r device_name device_udid platform_version <<< "$device_info"
           echo "Using iOS simulator: $device_name ($device_udid), iOS $platform_version"
