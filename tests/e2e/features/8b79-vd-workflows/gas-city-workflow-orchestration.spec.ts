@@ -395,6 +395,8 @@ test.describe('GCW-14A/14B Gas City Docker orchestration harness and fixture lay
         workspace.id,
         '--bead',
         beadId,
+        '--caller-session',
+        'gcw14f-caller-session',
         '--json',
       ],
       { env: { ...process.env, VIBE_API_URL: sandboxUrl, VK_WORKSPACE_ID: workspace.id } },
@@ -407,7 +409,7 @@ test.describe('GCW-14A/14B Gas City Docker orchestration harness and fixture lay
       workflow?: { id?: string; alias?: string; kind?: string };
       beadIds?: string[];
       runUrl?: string;
-      completionResponse?: { expected?: boolean };
+      completionResponse?: { expected?: boolean; reason?: string; sessionId?: string };
       nextAction?: string;
     }>(cli.stdout);
     expect(output).toMatchObject({
@@ -418,6 +420,8 @@ test.describe('GCW-14A/14B Gas City Docker orchestration harness and fixture lay
       beadIds: [beadId],
       completionResponse: { expected: false },
     });
+    expect(output?.completionResponse?.reason).toContain('not supported');
+    expect(output?.completionResponse).not.toHaveProperty('sessionId');
     expect(output?.runId).toMatch(/^gc-workflow-/);
     expect(output?.runUrl).toContain('/dashboard/workflows?workspaceId=');
     expect(output?.nextAction).toMatch(/End this turn/i);

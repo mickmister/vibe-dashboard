@@ -2887,7 +2887,7 @@ async function workflowRunGasCityRecipe(args: WorkflowRunGasCityRecipeArgs): Pro
   const target = typeof args.flags.inputs.target === 'string' && args.flags.inputs.target.trim()
     ? args.flags.inputs.target.trim()
     : 'worker';
-  const idempotencyKey = `vibe-agent-workflow-${args.workspaceId}-${sourceBeadId}-${recipeId}`;
+  const idempotencyKey = `vibe-agent-workflow-${args.workspaceId}-${sourceBeadId}-${recipeId}-${target}`;
   const response = await dashboardRequest('/dashboard/api/workflows/gas-city-e2e-fixture/launch', {
     method: 'POST',
     body: JSON.stringify({
@@ -2925,12 +2925,11 @@ async function workflowRunGasCityRecipe(args: WorkflowRunGasCityRecipeArgs): Pro
     },
     beadIds: [sourceBeadId],
     runUrl,
-    completionResponse: args.flags.callerSessionId
-      ? { sessionId: productSafeWorkflowCliText(args.flags.callerSessionId, 180), expected: true }
-      : { expected: false, reason: 'No caller session was detected.' },
-    nextAction: args.flags.callerSessionId
-      ? 'Request sent. End this turn; the workflow response will arrive later in this session through workflow coordination.'
-      : 'Request sent. End this turn; inspect the task-backed workflow later from the Workflows page.',
+    completionResponse: {
+      expected: false,
+      reason: 'Completion response is not supported for task-backed recipes yet; inspect from the Workflows page.',
+    },
+    nextAction: 'Request sent. End this turn; completion response is not supported for task-backed recipes yet. Inspect the task-backed workflow later from the Workflows page.',
   };
   if (args.flags.json) {
     console.log(JSON.stringify(output, null, 2));
@@ -2951,6 +2950,9 @@ function resolveGasCitySourceBeadId(flags: WorkflowCliParsedFlags, beadIds: stri
   const sourceBeadId = inputSourceBead || beadIds[0] || '';
   if (!sourceBeadId) throw new Error('Task-backed workflow launch requires --bead <id> or --input sourceBeadId=<id>.');
   if (beadIds.length > 1) throw new Error('Task-backed workflow launch supports one source bead in this slice. Run again for each bead.');
+  if (inputSourceBead && beadIds[0] && inputSourceBead !== beadIds[0]) {
+    throw new Error('Task-backed workflow launch source bead mismatch: --bead and --input sourceBeadId must match.');
+  }
   return productSafeWorkflowCliText(sourceBeadId, 160);
 }
 
