@@ -180,22 +180,21 @@ test.describe('VK mocked-provider sandbox through VD UI', () => {
     ).toBeVisible();
 
     await page.setViewportSize({ width: 390, height: 844 });
-    await page.getByRole('button', { name: 'Voyage actions' }).last().click();
+    const mobileVoyageMenu = await openVoyageActionsMenu(page);
     await expect(
-      page.getByRole('menuitem', { name: 'New Craft' }),
+      mobileVoyageMenu.getByRole('menuitem', { name: 'New Craft' }),
     ).toBeVisible();
     await expect(
-      page.getByRole('menuitem', { name: 'Open Craft' }),
+      mobileVoyageMenu.getByRole('menuitem', { name: 'Open Craft' }),
     ).toBeVisible();
     await expect(
-      page.getByRole('menuitem', { name: 'Switch Voyage' }),
+      mobileVoyageMenu.getByRole('menuitem', { name: 'Switch Voyage' }),
     ).toBeVisible();
 
-    await clickMenuItem(page, 'New Craft');
+    await clickVoyageActionsMenuItem(page, 'New Craft');
     await expectMobileNewCraftNavigationSettled(page);
     await expectCreateWorkspaceFrameUrl(page);
-    await page.getByRole('button', { name: 'Voyage actions' }).last().click();
-    await clickMenuItem(page, 'Open Craft');
+    await clickVoyageActionsMenuItem(page, 'Open Craft');
     await page
       .getByRole('textbox', { name: 'Search workspaces...' })
       .fill(promptTitle);
@@ -335,10 +334,44 @@ async function closeSidebarOverlayIfPresent(page: Page) {
   }
 }
 
-async function clickMenuItem(page: Page, name: string) {
-  const menuItem = page.getByRole('menuitem', { name });
-  await expect(menuItem).toBeVisible();
-  await clickLocatorInViewport(page, menuItem);
+function getVisibleVoyageActionsTrigger(page: Page) {
+  return page
+    .getByRole('button', { name: 'Voyage actions' })
+    .filter({ visible: true });
+}
+
+async function openVoyageActionsMenu(page: Page) {
+  await closeSidebarOverlayIfPresent(page);
+  await page.keyboard.press('Escape').catch(() => {});
+
+  const trigger = getVisibleVoyageActionsTrigger(page).last();
+  await expect(trigger).toBeVisible();
+  await trigger.click();
+
+  const menu = page.getByRole('menu', { name: 'Voyage actions' });
+  await expect(menu).toBeVisible();
+  return menu;
+}
+
+async function clickVoyageActionsMenuItem(
+  page: Page,
+  name: 'New Craft' | 'Open Craft' | 'Switch Voyage',
+) {
+  let lastError: unknown;
+
+  for (let attempt = 0; attempt < 3; attempt += 1) {
+    try {
+      const voyageActionsMenu = await openVoyageActionsMenu(page);
+      const menuItem = voyageActionsMenu.getByRole('menuitem', { name });
+      await expect(menuItem).toBeVisible({ timeout: 2_000 });
+      await menuItem.click({ timeout: 2_000 });
+      return;
+    } catch (error) {
+      lastError = error;
+    }
+  }
+
+  throw lastError;
 }
 
 async function expectMobileNewCraftNavigationSettled(page: Page) {
