@@ -28,17 +28,38 @@ echo "::group::Prepare VK mocked sandbox"
 VK_MOCKED_PREBUILD_BACKEND=1 node --experimental-strip-types scripts/vk-mocked-sandbox.ts setup
 echo "::endgroup::"
 
-# Reuse the free ports selected during setup instead of forcing fixed defaults.
-# shellcheck disable=SC1090
-source "$RUN_DIR/env.sh"
-SANDBOX_URL="${VK_MOCKED_SANDBOX_URL:-${VK_MOCKED_VD_URL:-http://localhost:${VK_MOCKED_CADDY_PORT}}}"
-export VK_MOCKED_SANDBOX_URL="$SANDBOX_URL"
-
 echo "Starting VK mocked sandbox; log: $SANDBOX_LOG"
+# The setup phase can spend minutes prebuilding VK. Do not reuse the ports it
+# selected before that long build, because another runner process can claim one
+# before the sandbox starts. Let the start phase allocate fresh ports and then
+# read the environment file it writes immediately before spawning services.
+rm -f "$RUN_DIR/env.sh"
 VK_MOCKED_SKIP_SETUP_COMMANDS=1 npm run dev:vk-mocked-sandbox >"$SANDBOX_LOG" 2>&1 &
 sandbox_pid=$!
 
 deadline=$((SECONDS + READY_TIMEOUT_SECONDS))
+SANDBOX_URL=""
+while [[ -z "$SANDBOX_URL" ]]; do
+  if [[ -s "$RUN_DIR/env.sh" ]] && grep -q '^export VK_MOCKED_CADDY_PORT=' "$RUN_DIR/env.sh"; then
+    # shellcheck disable=SC1090
+    source "$RUN_DIR/env.sh"
+    SANDBOX_URL="${VK_MOCKED_SANDBOX_URL:-${VK_MOCKED_VD_URL:-http://localhost:${VK_MOCKED_CADDY_PORT}}}"
+    export VK_MOCKED_SANDBOX_URL="$SANDBOX_URL"
+    break
+  fi
+  if ! kill -0 "$sandbox_pid" 2>/dev/null; then
+    echo "VK mocked sandbox exited before writing env. Last log lines:" >&2
+    tail -200 "$SANDBOX_LOG" >&2 || true
+    exit 1
+  fi
+  if (( SECONDS >= deadline )); then
+    echo "Timed out waiting ${READY_TIMEOUT_SECONDS}s for sandbox env. Last log lines:" >&2
+    tail -200 "$SANDBOX_LOG" >&2 || true
+    exit 1
+  fi
+  sleep 1
+done
+
 until curl --fail --silent --show-error "$SANDBOX_URL/workspaces" >/dev/null; do
   if ! kill -0 "$sandbox_pid" 2>/dev/null; then
     echo "VK mocked sandbox exited before becoming ready. Last log lines:" >&2

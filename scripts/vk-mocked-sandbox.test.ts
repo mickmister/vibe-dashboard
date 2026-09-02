@@ -114,14 +114,19 @@ describe('VK mocked sandbox helpers', () => {
     ]);
   });
 
-  it('lets CI use dynamically allocated mocked sandbox ports', async () => {
+  it('lets CI start with freshly allocated mocked sandbox ports', async () => {
     const script = await readFile(
       'scripts/ci-run-vk-mocked-sandbox-e2e.sh',
       'utf8',
     );
 
-    expect(script).toContain('source "$RUN_DIR/env.sh"');
+    expect(script).toContain('rm -f "$RUN_DIR/env.sh"');
+    expect(script).toContain('while [[ -z "$SANDBOX_URL" ]]; do');
+    expect(script).toContain("grep -q '^export VK_MOCKED_CADDY_PORT='");
     expect(script).toContain('export VK_MOCKED_SANDBOX_URL="$SANDBOX_URL"');
+    expect(script.indexOf('npm run dev:vk-mocked-sandbox')).toBeLessThan(
+      script.indexOf('source "$RUN_DIR/env.sh"'),
+    );
     expect(script).not.toContain(
       'export VK_MOCKED_BACKEND_PORT="${VK_MOCKED_BACKEND_PORT:-50000}"',
     );
