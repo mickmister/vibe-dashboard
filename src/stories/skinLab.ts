@@ -57,6 +57,7 @@ export function createSkinLabStories<TArgs extends Record<string, unknown>>(
   const viewPackOptions = indexOptions(config.viewPacks);
   const densityOptions = indexOptions(config.densities);
   const stories: Record<string, SkinLabStory<TArgs>> = {};
+  const storyIdByExportName = new Map<string, string>();
 
   for (const story of config.stories) {
     const state = getOption("state", stateOptions, story.state);
@@ -64,6 +65,15 @@ export function createSkinLabStories<TArgs extends Record<string, unknown>>(
     const viewPack = getOption("view pack", viewPackOptions, story.viewPack);
     const density = getOption("density", densityOptions, story.density);
     const exportName = toSkinLabStoryExportName(story.id);
+    const priorStoryId = storyIdByExportName.get(exportName);
+
+    if (priorStoryId) {
+      throw new Error(
+        `Duplicate SkinLab generated export name "${exportName}" for story id "${story.id}"; already used by story id "${priorStoryId}".`,
+      );
+    }
+
+    storyIdByExportName.set(exportName, story.id);
 
     stories[exportName] = {
       name: story.label,

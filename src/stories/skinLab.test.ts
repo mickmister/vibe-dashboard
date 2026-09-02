@@ -91,6 +91,38 @@ describe("SkinLab Storybook matrix convention", () => {
     });
   });
 
+  it("fails fast when story ids normalize to duplicate CSF export names", () => {
+    expect(() =>
+      createSkinLabStories<DemoArgs>({
+        densities,
+        skins,
+        states,
+        stories: [
+          {
+            density: "desktop",
+            id: "light-studio.mobile",
+            label: "Light studio mobile",
+            skin: "light",
+            state: "populated",
+            viewPack: "default",
+          },
+          {
+            density: "desktop",
+            id: "light-studio-mobile",
+            label: "Light studio mobile duplicate",
+            skin: "light",
+            state: "populated",
+            viewPack: "default",
+          },
+        ],
+        surfaceId: "demo-surface",
+        viewPacks,
+      }),
+    ).toThrow(
+      'Duplicate SkinLab generated export name "LightStudioMobile" for story id "light-studio-mobile"; already used by story id "light-studio.mobile".',
+    );
+  });
+
   it("documents preserved old exploration stories instead of silently pruning them", () => {
     const stories = createSkinLabStories<DemoArgs>({
       densities,
