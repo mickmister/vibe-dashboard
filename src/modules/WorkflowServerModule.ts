@@ -120,7 +120,7 @@ serverRegistry.registerServerModule((api) => {
   registerVkWorkspaceRoutes(api.hono);
   registerVkRepoRoutes(api.hono);
   registerPreviewResolverRoutes(api.hono);
-  registerGasCityE2eFixtureRoutes(api.hono);
+  registerGasCityE2eFixtureRoutes(api.hono, { vkClient });
 });
 
 async function getCachedGitRepos(): Promise<CachedRepoAlias[]> {

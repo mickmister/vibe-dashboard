@@ -2,6 +2,7 @@ import { Hono } from "hono";
 import { describe, expect, it } from "vitest";
 import { GasCityE2eFixtureStore } from "../modules/plugins/workflows/server/gasCityE2eFixture";
 import { registerGasCityE2eFixtureRoutes } from "./gas-city-e2e-fixture-routes";
+import type { QueueFollowUpProvenance } from "./vk-client";
 
 const forbidden = /\b(?:gc|bd|git)\s+[\w:./=-]+|\/Users\/|\/tmp\/|\/private\/var\/|stdout|stderr|provider diagnostics|queue[_ -]?item|webhook|trigger|delivery ID|execution process ID|raw XML|raw JSON|generated-packs/i;
 
@@ -60,13 +61,13 @@ describe("registerGasCityE2eFixtureRoutes", () => {
     const app = new Hono();
     const fixture = new GasCityE2eFixtureStore({
       workspaceId: "workspace-a",
-      beads: [{ id: "bead-a", title: "Ready task", status: "ready", readiness: "ready", workspaceId: "workspace-a", dependencyBeadIds: [], convoyIds: [] }],
+      beads: [{ id: "bead-gcw14d", title: "Ready task", status: "ready", readiness: "ready", workspaceId: "workspace-a", dependencyBeadIds: [], convoyIds: [] }],
     }, { now: () => 123 });
     registerGasCityE2eFixtureRoutes(app, { enabled: true, fixture });
 
     const response = await app.request("/dashboard/api/workflows/gas-city-e2e-fixture/launch", {
       method: "POST",
-      body: JSON.stringify({ workspaceId: "workspace-a", sourceBeadId: "bead-a", target: "worker", formula: "dev-review-test", idempotencyKey: "launch-1" }),
+      body: JSON.stringify({ workspaceId: "workspace-a", sourceBeadId: "bead-gcw14d", target: "worker", formula: "dev-review-test", idempotencyKey: "launch-1" }),
       headers: { "content-type": "application/json" },
     });
 
@@ -74,13 +75,69 @@ describe("registerGasCityE2eFixtureRoutes", () => {
     const body = await response.json();
     expect(body).toMatchObject({
       ok: true,
-      launch: { status: "accepted", workflowRef: { workspaceId: "workspace-a", sourceBeadId: "bead-a", formula: "dev-review-test" } },
+      launch: { status: "accepted", workflowRef: { workspaceId: "workspace-a", sourceBeadId: "bead-gcw14d", formula: "dev-review-test" } },
       workflow: { status: "running" },
     });
     expect(JSON.stringify(body)).not.toMatch(forbidden);
 
     const snapshot = fixture.snapshot();
     expect(snapshot.beads[0]?.workflow).toMatchObject({ workflowId: expect.any(String), status: "running" });
+  });
+
+
+  it("routes a deterministic first agent message through VK once per idempotency key", async () => {
+    const app = new Hono();
+    const fixture = new GasCityE2eFixtureStore({
+      workspaceId: "workspace-a",
+      beads: [{ id: "bead-gcw14d-route", title: "Ready task", status: "ready", readiness: "ready", workspaceId: "workspace-a", dependencyBeadIds: [], convoyIds: [] }],
+    }, { now: () => 123 });
+    const sessions: Array<{ id: string; workspace_id: string; executor: "CODEX"; name: string; created_at: string; updated_at: string }> = [];
+    const queued: Array<{ sessionId: string; prompt: string; source?: string; provenance?: QueueFollowUpProvenance }> = [];
+    const vkClient = {
+      getSessions: async () => sessions,
+      createSession: async (body: { workspace_id: string; executor: "CODEX"; name?: string | null }) => {
+        const session = { id: "session-gcw14d-route", workspace_id: body.workspace_id, executor: body.executor, name: body.name ?? "Task workflow", created_at: "now", updated_at: "now" };
+        sessions.push(session);
+        return session;
+      },
+      queueFollowUp: async (sessionId: string, prompt: string, options?: { source?: "workflow"; provenance?: QueueFollowUpProvenance }) => {
+        queued.push({ sessionId, prompt, source: options?.source, provenance: options?.provenance });
+        return {
+          queued_item: {
+            id: "queue-1",
+            session_id: sessionId,
+            workspace_id: "workspace-a",
+            status: "queued" as const,
+            source: "workflow" as const,
+            priority: 0,
+            data: { message: prompt, provenance: options?.provenance },
+          },
+          status: { count: 1, message: null, messages: [], status: "queued" as const },
+        };
+      },
+    };
+    registerGasCityE2eFixtureRoutes(app, { enabled: true, fixture, vkClient });
+
+    for (let index = 0; index < 2; index += 1) {
+      const response = await app.request("/dashboard/api/workflows/gas-city-e2e-fixture/launch", {
+        method: "POST",
+        body: JSON.stringify({ workspaceId: "workspace-a", sourceBeadId: "bead-gcw14d-route", target: "worker", formula: "dev-review-test", idempotencyKey: "launch-1" }),
+        headers: { "content-type": "application/json" },
+      });
+      expect(response.status).toBe(index === 0 ? 201 : 200);
+      const body = await response.json();
+      expect(body).toMatchObject({ ok: true, firstAgentMessage: { status: "sent", sessionId: "session-gcw14d-route" } });
+      expect(JSON.stringify(body)).not.toMatch(forbidden);
+    }
+
+    expect(queued).toHaveLength(1);
+    expect(queued[0]).toMatchObject({ sessionId: "session-gcw14d-route", source: "workflow" });
+    expect(queued[0]?.prompt).toContain("GCW14D_STEP:first_agent_message");
+    expect(queued[0]?.prompt).toContain("bead-gcw14d-route");
+    expect(queued[0]?.prompt).toContain("Ready task");
+    expect(queued[0]?.prompt).toContain("Workflow recipe: Dev Review Test");
+    expect(queued[0]?.prompt).not.toMatch(forbidden);
+    expect(queued[0]?.prompt).not.toMatch(/prompt:|skill:|@version|Built-in|contentHash|generated pack/i);
   });
 
   it("blocks launching a source bead that is not ready", async () => {
@@ -93,7 +150,7 @@ describe("registerGasCityE2eFixtureRoutes", () => {
 
     const response = await app.request("/dashboard/api/workflows/gas-city-e2e-fixture/launch", {
       method: "POST",
-      body: JSON.stringify({ workspaceId: "workspace-a", sourceBeadId: "bead-a", target: "worker", formula: "dev-review-test", idempotencyKey: "launch-1" }),
+      body: JSON.stringify({ workspaceId: "workspace-a", sourceBeadId: "bead-a", target: "worker", formula: "dev-review-test", idempotencyKey: "launch-not-ready" }),
       headers: { "content-type": "application/json" },
     });
 
