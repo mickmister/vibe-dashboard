@@ -4,7 +4,7 @@ Branch: `vk/8b79-vd-workflows`
 
 Primary planning topic: full VD + VK + Gas City + Beads workflow orchestration acceptance
 
-Status: GCW-14A implements the first Docker/CI harness smoke slice; GCW-14B adds deterministic test-only fixture endpoints/events; GCW-14C adds the first UI start path for a fixture-backed task workflow; GCW-14D adds the first VK routed agent-message assertion for a UI-started task workflow; GCW-14E adds typed fixture interaction advancement to the next VK agent message. Real lane-dependent cases remain deferred until later slices land
+Status: GCW-14A implements the first Docker/CI harness smoke slice; GCW-14B adds deterministic test-only fixture endpoints/events; GCW-14C adds the first UI start path for a fixture-backed task workflow; GCW-14D adds the first VK routed agent-message assertion for a UI-started task workflow; GCW-14E adds typed fixture interaction advancement to the next VK agent message; GCW-14F adds generic vibe-agent workflow CLI detached launch coverage for the same fixture-backed task recipe. Real lane-dependent cases remain deferred until later slices land
 
 ## Purpose
 
