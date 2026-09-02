@@ -42,7 +42,7 @@ try {
     port: APPIUM_PORT,
     path: '/',
     logLevel: 'info',
-    connectionRetryTimeout: Number(process.env.WEBDRIVER_CONNECTION_RETRY_TIMEOUT || 300000),
+    connectionRetryTimeout: Number(process.env.WEBDRIVER_CONNECTION_RETRY_TIMEOUT || 720000),
     connectionRetryCount: Number(process.env.WEBDRIVER_CONNECTION_RETRY_COUNT || 1),
     capabilities: createCapabilities(MOBILE_E2E_PLATFORM, MOBILE_APP_PATH),
   });
@@ -213,11 +213,11 @@ function createCapabilities(platform, appPath) {
       'appium:includeSafariInWebviews': true,
       'appium:fullContextList': true,
       'appium:webviewConnectTimeout': 120000,
-      'appium:wdaLaunchTimeout': Number(process.env.IOS_WDA_LAUNCH_TIMEOUT || 240000),
-      'appium:wdaConnectionTimeout': Number(process.env.IOS_WDA_CONNECTION_TIMEOUT || 240000),
-      'appium:wdaStartupRetries': Number(process.env.IOS_WDA_STARTUP_RETRIES || 4),
+      'appium:wdaLaunchTimeout': Number(process.env.IOS_WDA_LAUNCH_TIMEOUT || 600000),
+      'appium:wdaConnectionTimeout': Number(process.env.IOS_WDA_CONNECTION_TIMEOUT || 600000),
+      'appium:wdaStartupRetries': Number(process.env.IOS_WDA_STARTUP_RETRIES || 2),
       'appium:wdaStartupRetryInterval': Number(process.env.IOS_WDA_STARTUP_RETRY_INTERVAL || 20000),
-      'appium:showXcodeLog': process.env.IOS_SHOW_XCODE_LOG === 'true',
+      'appium:showXcodeLog': process.env.IOS_SHOW_XCODE_LOG !== 'false',
     };
   }
 

@@ -291,6 +291,11 @@ jobs:
       - name: Run iOS E2E test
         if: matrix.platform == 'ios'
         shell: bash
+        env:
+          IOS_SHOW_XCODE_LOG: true
+          WEBDRIVER_CONNECTION_RETRY_TIMEOUT: 720000
+          IOS_WDA_LAUNCH_TIMEOUT: 600000
+          IOS_WDA_CONNECTION_TIMEOUT: 600000
         run: |
           set -euo pipefail
           mkdir -p "$ARTIFACTS_DIR/screenshots" "$ARTIFACTS_DIR/videos"
@@ -332,7 +337,7 @@ jobs:
           IOS_DEVICE_NAME="$device_name" IOS_DEVICE_UDID="$device_udid" IOS_PLATFORM_VERSION="$platform_version" npm --prefix tests/mobile-e2e test
           status=$?
           xcrun simctl io "$device_udid" screenshot "$ARTIFACTS_DIR/screenshots/ios-after-test.png" || true
-          xcrun simctl diagnose --udid "$device_udid" --output "$ARTIFACTS_DIR/ios-simulator-diagnostics" || true
+          xcrun simctl diagnose --udid="$device_udid" --output="$ARTIFACTS_DIR/ios-simulator-diagnostics" || true
           exit $status
 
       - name: Stop server
