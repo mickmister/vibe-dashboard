@@ -140,6 +140,78 @@ describe("registerGasCityE2eFixtureRoutes", () => {
     expect(queued[0]?.prompt).not.toMatch(/prompt:|skill:|@version|Built-in|contentHash|generated pack/i);
   });
 
+
+  it("advances a typed fixture event to the next VK agent message idempotently", async () => {
+    const app = new Hono();
+    const fixture = new GasCityE2eFixtureStore({
+      workspaceId: "workspace-a",
+      beads: [{ id: "bead-gcw14e-route", title: "Review task", status: "ready", readiness: "ready", workspaceId: "workspace-a", dependencyBeadIds: [], convoyIds: [] }],
+    }, { now: () => 123 });
+    const sessions: Array<{ id: string; workspace_id: string; executor: "CODEX"; name: string; created_at: string; updated_at: string }> = [];
+    const queued: Array<{ sessionId: string; prompt: string; source?: string; provenance?: QueueFollowUpProvenance }> = [];
+    const vkClient = {
+      getSessions: async () => sessions,
+      createSession: async (body: { workspace_id: string; executor: "CODEX"; name?: string | null }) => {
+        const session = { id: `session-${sessions.length + 1}`, workspace_id: body.workspace_id, executor: body.executor, name: body.name ?? "Task workflow", created_at: "now", updated_at: "now" };
+        sessions.push(session);
+        return session;
+      },
+      queueFollowUp: async (sessionId: string, prompt: string, options?: { source?: "workflow"; provenance?: QueueFollowUpProvenance }) => {
+        queued.push({ sessionId, prompt, source: options?.source, provenance: options?.provenance });
+        return {
+          queued_item: {
+            id: `queue-${queued.length}`,
+            session_id: sessionId,
+            workspace_id: "workspace-a",
+            status: "queued" as const,
+            source: "workflow" as const,
+            priority: 0,
+            data: { message: prompt, provenance: options?.provenance },
+          },
+          status: { count: queued.length, message: null, messages: [], status: "queued" as const },
+        };
+      },
+    };
+    registerGasCityE2eFixtureRoutes(app, { enabled: true, fixture, vkClient });
+
+    const launch = await app.request("/dashboard/api/workflows/gas-city-e2e-fixture/launch", {
+      method: "POST",
+      body: JSON.stringify({ workspaceId: "workspace-a", sourceBeadId: "bead-gcw14e-route", target: "worker", formula: "dev-review-test", idempotencyKey: "launch-gcw14e" }),
+      headers: { "content-type": "application/json" },
+    });
+    expect(launch.status).toBe(201);
+
+    for (let index = 0; index < 2; index += 1) {
+      const event = await app.request("/dashboard/api/workflows/gas-city-e2e-fixture/events", {
+        method: "POST",
+        body: JSON.stringify({
+          eventId: "agent-note-1",
+          type: "record_agent_result_note",
+          workspaceId: "workspace-a",
+          beadId: "bead-gcw14e-route",
+          title: "Review task",
+          summary: "First agent completed implementation note.",
+        }),
+        headers: { "content-type": "application/json" },
+      });
+      expect(event.status).toBe(200);
+      const body = await event.json();
+      expect(body).toMatchObject({ ok: true, advancement: { status: "sent" } });
+      expect(JSON.stringify(body)).not.toMatch(forbidden);
+    }
+
+    expect(queued).toHaveLength(2);
+    expect(queued[0]?.prompt).toContain("GCW14D_STEP:first_agent_message");
+    expect(queued[1]).toMatchObject({ source: "workflow" });
+    expect(queued[1]?.prompt).toContain("GCW14E_STEP:review_agent_message");
+    expect(queued[1]?.prompt).toContain("bead-gcw14e-route");
+    expect(queued[1]?.prompt).toContain("Review task");
+    expect(queued[1]?.prompt).toContain("Task-backed workflow advanced to review.");
+    expect(queued[1]?.prompt).toContain("Assigned role: reviewer");
+    expect(queued[1]?.prompt).not.toMatch(forbidden);
+    expect(queued[1]?.prompt).not.toMatch(/prompt:|skill:|@version|Built-in|contentHash|generated pack/i);
+  });
+
   it("blocks launching a source bead that is not ready", async () => {
     const app = new Hono();
     const fixture = new GasCityE2eFixtureStore({

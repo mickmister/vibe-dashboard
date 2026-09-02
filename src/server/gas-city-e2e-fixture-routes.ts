@@ -31,7 +31,7 @@ type GasCityE2eVkClient = Pick<
   "getSessions" | "createSession" | "queueFollowUp"
 >;
 
-interface GasCityE2eFirstAgentMessage {
+interface GasCityE2eAgentMessage {
   status: "sent" | "unavailable" | "failed";
   sessionId: string | null;
   sessionName: string | null;
@@ -40,7 +40,8 @@ interface GasCityE2eFirstAgentMessage {
 
 let sharedFixture: GasCityE2eFixtureStore | null = null;
 let sharedGasCityProvider: GasCityWorkflowProvider | null = null;
-const firstAgentMessagesByKey = new Map<string, GasCityE2eFirstAgentMessage>();
+const firstAgentMessagesByKey = new Map<string, GasCityE2eAgentMessage>();
+const advancementMessagesByKey = new Map<string, GasCityE2eAgentMessage>();
 
 const defaultTarget = "worker";
 const defaultFormula: GasCityProviderFormulaChoice = {
@@ -79,6 +80,7 @@ export function registerGasCityE2eFixtureRoutes(
       options.fixtureFile ?? process.env.VD_GAS_CITY_E2E_FIXTURE_FILE ?? null,
     );
     firstAgentMessagesByKey.clear();
+    advancementMessagesByKey.clear();
     return c.json({ ok: true, state: fixture.reset(config) });
   });
 
@@ -105,7 +107,24 @@ export function registerGasCityE2eFixtureRoutes(
     if (result.status === "conflict") {
       return c.json({ ok: false, result }, 409);
     }
-    return c.json({ ok: true, result });
+    const advancement = await routeAdvancementMessage({
+      vkClient,
+      event: {
+        eventId: typeof body.eventId === "string" ? body.eventId : "",
+        type:
+          typeof body.type === "string"
+            ? (body.type as GasCityE2eFixtureEventInput["type"])
+            : "record_agent_result_note",
+        workspaceId:
+          typeof body.workspaceId === "string"
+            ? body.workspaceId
+            : fixture.snapshot().fixture.workspaceId,
+        beadId: typeof body.beadId === "string" ? body.beadId : null,
+        title: typeof body.title === "string" ? body.title : null,
+      },
+      shouldRoute: result.status === "applied",
+    });
+    return c.json({ ok: true, result, advancement });
   });
 
   hono.post("/dashboard/api/workflows/gas-city-e2e-fixture/launch", async (c) => {
@@ -253,6 +272,109 @@ export function buildGasCityE2eEngineHomeModel(
   };
 }
 
+async function routeAdvancementMessage(args: {
+  vkClient: GasCityE2eVkClient | null;
+  event: {
+    eventId: string;
+    type: GasCityE2eFixtureEventInput["type"];
+    workspaceId: string;
+    beadId: string | null;
+    title: string | null;
+  };
+  shouldRoute: boolean;
+}): Promise<GasCityE2eAgentMessage | null> {
+  if (args.event.type !== "record_agent_result_note" || !args.event.beadId) {
+    return null;
+  }
+  const cacheKey = safeId(
+    `gcw14e-${args.event.workspaceId}-${args.event.beadId}-${args.event.eventId}-review`,
+  );
+  const cached = advancementMessagesByKey.get(cacheKey);
+  if (cached) return cached;
+  if (!args.shouldRoute) return null;
+  const result = await routeWorkflowAgentMessage({
+    cache: advancementMessagesByKey,
+    cacheKey,
+    vkClient: args.vkClient,
+    workspaceId: safeId(args.event.workspaceId),
+    sourceBeadId: safeId(args.event.beadId),
+    sourceBeadTitle: args.event.title ?? args.event.beadId,
+    target: "reviewer",
+    sessionName: nextAgentSessionName(args.event.beadId),
+    marker: "GCW14E_STEP:review_agent_message",
+    heading: "Task-backed workflow advanced to review.",
+    instruction:
+      "Review the completed first workflow turn using the task context above. Respond with concise review findings for the next workflow step.",
+    workflowRunId: cacheKey,
+  });
+  return result;
+}
+
+async function routeWorkflowAgentMessage(args: {
+  cache: Map<string, GasCityE2eAgentMessage>;
+  cacheKey: string;
+  vkClient: GasCityE2eVkClient | null;
+  workspaceId: string;
+  sourceBeadId: string;
+  sourceBeadTitle: string;
+  target: string;
+  sessionName: string;
+  marker: string;
+  heading: string;
+  instruction: string;
+  workflowRunId: string;
+}): Promise<GasCityE2eAgentMessage> {
+  const cached = args.cache.get(args.cacheKey);
+  if (cached) return cached;
+  if (!args.vkClient) {
+    return {
+      status: "unavailable",
+      sessionId: null,
+      sessionName: null,
+      summary: "Agent message delivery is unavailable in this test environment.",
+    };
+  }
+
+  try {
+    const sessions = await args.vkClient.getSessions(args.workspaceId);
+    const session =
+      sessions.find((candidate) => candidate.name === args.sessionName) ??
+      (await args.vkClient.createSession({
+        workspace_id: args.workspaceId,
+        executor: "CODEX",
+        name: args.sessionName,
+      }));
+    const prompt = buildAgentPrompt({
+      sourceBeadId: args.sourceBeadId,
+      sourceBeadTitle: args.sourceBeadTitle,
+      target: args.target,
+      marker: args.marker,
+      heading: args.heading,
+      instruction: args.instruction,
+    });
+    const queued = await args.vkClient.queueFollowUp(session.id, prompt, {
+      source: "workflow",
+      provenance: {
+        kind: "workflow",
+        label: "Task-backed workflow",
+        workflow_run_id: args.workflowRunId,
+        workflow_name: "Dev Review Test",
+        workflow_role_id: args.target,
+      },
+    });
+    const routed = agentMessageReadModel(session, queued);
+    args.cache.set(args.cacheKey, routed);
+    return routed;
+  } catch {
+    return {
+      status: "failed",
+      sessionId: null,
+      sessionName: null,
+      summary: "Agent message could not be sent. Try again after checking the workspace session.",
+    };
+  }
+}
+
 async function routeFirstAgentMessage(args: {
   vkClient: GasCityE2eVkClient | null;
   cacheKey: string;
@@ -261,59 +383,28 @@ async function routeFirstAgentMessage(args: {
   sourceBeadTitle: string;
   target: string;
   launch: Awaited<ReturnType<GasCityWorkflowProvider["launchSourceWorkflow"]>>;
-}): Promise<GasCityE2eFirstAgentMessage> {
-  const cached = firstAgentMessagesByKey.get(args.cacheKey);
-  if (cached) return cached;
-  if (!args.vkClient) {
-    return {
-      status: "unavailable",
-      sessionId: null,
-      sessionName: null,
-      summary: "First agent message delivery is unavailable in this test environment.",
-    };
-  }
-
-  try {
-    const sessionName = firstAgentSessionName(args.sourceBeadId);
-    const sessions = await args.vkClient.getSessions(args.workspaceId);
-    const session = sessions.find((candidate) => candidate.name === sessionName)
-      ?? await args.vkClient.createSession({
-        workspace_id: args.workspaceId,
-        executor: "CODEX",
-        name: sessionName,
-      });
-    const prompt = buildFirstAgentPrompt({
-      sourceBeadId: args.sourceBeadId,
-      sourceBeadTitle: args.sourceBeadTitle,
-      target: args.target,
-    });
-    const queued = await args.vkClient.queueFollowUp(session.id, prompt, {
-      source: "workflow",
-      provenance: {
-        kind: "workflow",
-        label: "Task-backed workflow",
-        workflow_run_id: args.launch.workflowRef.workflowId ?? args.cacheKey,
-        workflow_name: "Dev Review Test",
-        workflow_role_id: args.target,
-      },
-    });
-    const result = firstAgentMessageReadModel(session, queued);
-    firstAgentMessagesByKey.set(args.cacheKey, result);
-    return result;
-  } catch {
-    return {
-      status: "failed",
-      sessionId: null,
-      sessionName: null,
-      summary: "First agent message could not be sent. Try again after checking the workspace session.",
-    };
-  }
+}): Promise<GasCityE2eAgentMessage> {
+  return routeWorkflowAgentMessage({
+    cache: firstAgentMessagesByKey,
+    cacheKey: args.cacheKey,
+    vkClient: args.vkClient,
+    workspaceId: args.workspaceId,
+    sourceBeadId: args.sourceBeadId,
+    sourceBeadTitle: args.sourceBeadTitle,
+    target: args.target,
+    sessionName: firstAgentSessionName(args.sourceBeadId),
+    marker: "GCW14D_STEP:first_agent_message",
+    heading: "Task-backed workflow routed its first agent turn.",
+    instruction:
+      "Use the task context above and any explicitly available typed task tools to inspect more details when needed. Begin the first workflow turn and respond with a concise progress note.",
+    workflowRunId: args.launch.workflowRef.workflowId ?? args.cacheKey,
+  });
 }
 
-function firstAgentMessageReadModel(
+function agentMessageReadModel(
   session: Session,
   _queued: QueueFollowUpResponse,
-): GasCityE2eFirstAgentMessage {
+): GasCityE2eAgentMessage {
   return {
     status: "sent",
     sessionId: session.id,
@@ -326,18 +417,28 @@ function firstAgentSessionName(sourceBeadId: string): string {
   return sanitizeGasCityProviderText(`Task workflow ${sourceBeadId}`, "Task workflow");
 }
 
-function buildFirstAgentPrompt(input: {
+function nextAgentSessionName(sourceBeadId: string): string {
+  return sanitizeGasCityProviderText(
+    `Task workflow review ${sourceBeadId}`,
+    "Task workflow review",
+  );
+}
+
+function buildAgentPrompt(input: {
   sourceBeadId: string;
   sourceBeadTitle: string;
   target: string;
+  marker: string;
+  heading: string;
+  instruction: string;
 }): string {
   const beadId = safeId(input.sourceBeadId);
   const beadTitle = sanitizeGasCityProviderText(input.sourceBeadTitle, beadId);
   const role = sanitizeGasCityProviderText(input.target, "worker");
   return [
-    "GCW14D_STEP:first_agent_message",
+    input.marker,
     "",
-    "Task-backed workflow routed its first agent turn.",
+    input.heading,
     "",
     "Task context:",
     `- ID: ${beadId}`,
@@ -346,12 +447,11 @@ function buildFirstAgentPrompt(input: {
     "Workflow recipe: Dev Review Test",
     `Assigned role: ${role}`,
     "",
-    "Use the task context above and any explicitly available typed task tools to inspect more details when needed. Begin the first workflow turn and respond with a concise progress note.",
+    input.instruction,
   ].join("\n");
 }
 
-
-function alreadyRoutedFirstAgentMessage(): GasCityE2eFirstAgentMessage {
+function alreadyRoutedFirstAgentMessage(): GasCityE2eAgentMessage {
   return {
     status: "unavailable",
     sessionId: null,

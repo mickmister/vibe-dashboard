@@ -4,7 +4,7 @@ Branch: `vk/8b79-vd-workflows`
 
 Primary planning topic: full VD + VK + Gas City + Beads workflow orchestration acceptance
 
-Status: GCW-14A implements the first Docker/CI harness smoke slice; GCW-14B adds deterministic test-only fixture endpoints/events; GCW-14C adds the first UI start path for a fixture-backed task workflow; GCW-14D adds the first VK routed agent-message assertion for a UI-started task workflow. Fabricated Beads advancement and real lane-dependent cases remain deferred until later slices land
+Status: GCW-14A implements the first Docker/CI harness smoke slice; GCW-14B adds deterministic test-only fixture endpoints/events; GCW-14C adds the first UI start path for a fixture-backed task workflow; GCW-14D adds the first VK routed agent-message assertion for a UI-started task workflow; GCW-14E adds typed fixture interaction advancement to the next VK agent message. Real lane-dependent cases remain deferred until later slices land
 
 ## Purpose
 
@@ -150,9 +150,9 @@ Required assertions:
 ### TEST_CASE_GC_FULL_E2E_1C: Fabricated Beads interaction advances to the next agent
 
 Given the first agent has received work,
-when the E2E fixture records the expected Beads/Gas City interaction for that
+when the E2E fixture records the expected typed Beads/Gas City interaction for that
 formula step,
-then Gas City advances and VK receives the next expected agent message.
+then the fixture-backed workflow advances and VK receives the next expected agent message. In GCW-14E this is implemented by an env-gated deterministic fixture bridge; later native Gas City progression can replace the bridge without changing the assertion shape.
 
 Required assertions:
 

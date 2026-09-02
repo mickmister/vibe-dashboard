@@ -255,7 +255,7 @@ test.describe('GCW-14A/14B Gas City Docker orchestration harness and fixture lay
     await enginePanel.getByRole('button', { name: 'Start task-backed workflow' }).click();
     await expect(page.getByLabel('Task-backed workflow progress')).toContainText('Task-backed workflow is running');
 
-    const routed = await waitForRoutedFirstAgentPrompt(request, workspace.id, beadId);
+    const routed = await waitForRoutedAgentPrompt(request, workspace.id, `Task workflow ${beadId}`, 'GCW14D_STEP:first_agent_message');
     await testInfo.attach('gcw14d-routed-first-agent-message.json', { body: JSON.stringify(routed, null, 2), contentType: 'application/json' });
 
     expect(routed.session.name).toBe(`Task workflow ${beadId}`);
@@ -276,10 +276,83 @@ test.describe('GCW-14A/14B Gas City Docker orchestration harness and fixture lay
     expect(JSON.stringify(snapshot)).not.toMatch(productForbidden);
   });
 
-  test.fixme(
-    'TEST_CASE_GC_FULL_E2E_1C full fabricated Beads advancement is deferred until fixture events are wired to launch/read-model orchestration',
-    async () => {},
-  );
+  test('TEST_CASE_GC_FULL_E2E_1C typed fixture interaction advances to the next VK agent message', async ({ page, request }, testInfo) => {
+    await expectDashboardHealth(request);
+    const workspace = await firstWorkspace(request);
+    const beadId = 'gcw14e-advance-bead';
+    const beadTitle = 'GCW-14E advancement task';
+    const fixtureBase = new URL('/dashboard/api/workflows/gas-city-e2e-fixture', sandboxUrl).toString();
+
+    const resetResponse = await request.post(`${fixtureBase}/reset`, {
+      data: {
+        workspaceId: workspace.id,
+        providerAvailable: true,
+        beads: [{
+          id: beadId,
+          title: beadTitle,
+          status: 'ready',
+          readiness: 'ready',
+          workspaceId: workspace.id,
+          dependencyBeadIds: [],
+          convoyIds: [],
+          workflow: null,
+          metadata: { formula: 'dev-review-test' },
+        }],
+      },
+    });
+    expect(resetResponse.ok(), await resetResponse.text()).toBe(true);
+
+    await page.goto(`/dashboard/workflows?workspaceId=${encodeURIComponent(workspace.id)}`);
+    const enginePanel = page.getByLabel('Workflow engine status');
+    await expect(enginePanel).toContainText(`Ready to start task-backed workflow work for ${beadTitle}.`);
+    await enginePanel.getByRole('button', { name: 'Start task-backed workflow' }).click();
+    await expect(page.getByLabel('Task-backed workflow progress')).toContainText('Task-backed workflow is running');
+
+    const first = await waitForRoutedAgentPrompt(request, workspace.id, `Task workflow ${beadId}`, 'GCW14D_STEP:first_agent_message');
+    await testInfo.attach('gcw14e-first-agent-message.json', { body: JSON.stringify(first, null, 2), contentType: 'application/json' });
+
+    const advancementEvent = {
+      eventId: 'gcw14e-agent-result-1',
+      type: 'record_agent_result_note',
+      workspaceId: workspace.id,
+      beadId,
+      title: beadTitle,
+      summary: 'First agent completed the deterministic fixture step.',
+    };
+    const advanced = await postFixtureEvent(request, advancementEvent);
+    expect(advanced.status()).toBe(200);
+    const advancedBody = await advanced.json() as FixtureEventResponse & { advancement?: { status?: string; sessionId?: string | null } | null };
+    await testInfo.attach('gcw14e-advancement-event.json', { body: JSON.stringify(advancedBody, null, 2), contentType: 'application/json' });
+    expect(advancedBody).toMatchObject({ ok: true, result: { status: 'applied' }, advancement: { status: 'sent' } });
+    expect(JSON.stringify(advancedBody)).not.toMatch(productForbidden);
+
+    const review = await waitForRoutedAgentPrompt(request, workspace.id, `Task workflow review ${beadId}`, 'GCW14E_STEP:review_agent_message');
+    await testInfo.attach('gcw14e-review-agent-message.json', { body: JSON.stringify(review, null, 2), contentType: 'application/json' });
+    expect(review.prompt).toContain(beadId);
+    expect(review.prompt).toContain(beadTitle);
+    expect(review.prompt).toContain('Task-backed workflow advanced to review.');
+    expect(review.prompt).toContain('Assigned role: reviewer');
+    expect(review.prompt).not.toMatch(productForbidden);
+    expect(review.prompt).not.toMatch(/prompt:|skill:|@version|Built-in|contentHash|generated pack/i);
+
+    const replay = await postFixtureEvent(request, advancementEvent);
+    expect(replay.status()).toBe(200);
+    const replayBody = await replay.json() as FixtureEventResponse & { advancement?: { status?: string; sessionId?: string | null } | null };
+    await testInfo.attach('gcw14e-advancement-replay.json', { body: JSON.stringify(replayBody, null, 2), contentType: 'application/json' });
+    expect(replayBody).toMatchObject({ ok: true, result: { status: 'already_applied' }, advancement: { status: 'sent', sessionId: review.session.id } });
+    expect(JSON.stringify(replayBody)).not.toMatch(productForbidden);
+
+    const reviewSessions = await sessionsNamed(request, workspace.id, `Task workflow review ${beadId}`);
+    expect(reviewSessions).toHaveLength(1);
+
+    const snapshotResponse = await request.get(fixtureBase, { headers: { Accept: 'application/json' } });
+    expect(snapshotResponse.ok(), await snapshotResponse.text()).toBe(true);
+    const snapshot = await snapshotResponse.json() as FixtureSnapshotResponse;
+    await testInfo.attach('gcw14e-fixture-snapshot.json', { body: JSON.stringify(snapshot, null, 2), contentType: 'application/json' });
+    expect(snapshot.state.events.map((event) => event.eventId)).toContain('gcw14e-agent-result-1');
+    expect(JSON.stringify(snapshot)).not.toMatch(productForbidden);
+    expect(JSON.stringify(snapshot)).not.toMatch(/lane ready|sub-workspace ready|worktree ready/i);
+  });
 
   test.fixme(
     'TEST_CASE_GC_FULL_E2E_2A lane/sub-workspace and abrupt-turn recovery cases are BLOCKED_NOT_IMPLEMENTED for this slice',
@@ -308,12 +381,12 @@ async function firstWorkspace(request: APIRequestContext): Promise<{ id: string 
 }
 
 
-async function waitForRoutedFirstAgentPrompt(
+async function waitForRoutedAgentPrompt(
   request: APIRequestContext,
   workspaceId: string,
-  beadId: string,
+  expectedSessionName: string,
+  marker: string,
 ): Promise<{ session: { id: string; name: string | null }; prompt: string; source: string }> {
-  const expectedSessionName = `Task workflow ${beadId}`;
   const deadline = Date.now() + 120_000;
   let lastSeen = 'not-started';
   while (Date.now() < deadline) {
@@ -323,11 +396,11 @@ async function waitForRoutedFirstAgentPrompt(
       const session = sessionsBody.data?.find((candidate) => candidate.name === expectedSessionName);
       if (session?.id) {
         const queued = await latestQueuedPrompt(request, session.id);
-        if (queued?.includes('GCW14D_STEP:first_agent_message')) {
+        if (queued?.includes(marker)) {
           return { session: { id: session.id, name: session.name ?? null }, prompt: queued, source: 'queue-status' };
         }
         const latest = await latestResponsePrompt(request, session.id);
-        if (latest?.includes('GCW14D_STEP:first_agent_message')) {
+        if (latest?.includes(marker)) {
           return { session: { id: session.id, name: session.name ?? null }, prompt: latest, source: 'latest-response' };
         }
         lastSeen = `session ${session.id} exists without expected prompt yet`;
@@ -340,6 +413,17 @@ async function waitForRoutedFirstAgentPrompt(
     await new Promise((resolve) => setTimeout(resolve, 1_000));
   }
   throw new Error(`Timed out waiting for routed first agent prompt: ${lastSeen}`);
+}
+
+async function sessionsNamed(
+  request: APIRequestContext,
+  workspaceId: string,
+  expectedSessionName: string,
+): Promise<Array<{ id: string; name?: string | null }>> {
+  const response = await request.get(new URL(`/vk-api/sessions?workspace_id=${encodeURIComponent(workspaceId)}`, sandboxUrl).toString(), { headers: { Accept: 'application/json' } });
+  expect(response.ok(), await response.text()).toBe(true);
+  const body = await response.json() as { data?: Array<{ id: string; name?: string | null }> };
+  return (body.data ?? []).filter((candidate) => candidate.name === expectedSessionName);
 }
 
 async function latestQueuedPrompt(request: APIRequestContext, sessionId: string): Promise<string | null> {
