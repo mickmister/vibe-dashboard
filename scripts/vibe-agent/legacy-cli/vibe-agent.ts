@@ -19,7 +19,7 @@ import {
   getSessionForRole,
   roleToExecutor,
 } from '../core/context.js';
-import { BASE_ROLES, isValidRole } from '../config.js';
+import { BASE_ROLES, config, isValidRole } from '../config.js';
 
 // Message helpers
 
@@ -218,6 +218,11 @@ export function buildNoAssistantResponseLogMessage(processId: string): string {
 const TERMINAL_PROCESS_STATUSES = new Set(['completed', 'failed', 'killed']);
 const CALLBACK_IDLE_POLL_INTERVAL_MS = 2_000;
 const REQUEST_REVIEW_QUIET_WINDOW_MS = 10_000;
+const FULL_SUMMARY_DEFAULT_LIMIT_TURNS = 100;
+const FULL_SUMMARY_DEFAULT_LIMIT_SESSIONS = 25;
+const FULL_SUMMARY_DEFAULT_CONVERSATION_TIMEOUT_MS = 30_000;
+const FULL_SUMMARY_SESSION_FETCH_CONCURRENCY = 8;
+const FULL_SUMMARY_CONVERSATION_FETCH_CONCURRENCY = 6;
 
 export interface SessionTurnProcess {
   id?: string;
@@ -325,6 +330,7 @@ export interface ParsedFullSummaryArgs {
   includeRunning: boolean;
   limitTurns: number;
   limitSessions: number;
+  conversationTimeoutMs: number;
 }
 
 export interface ToolCallSummary {
@@ -471,8 +477,9 @@ export function parseFullSummaryArgs(args: string[]): ParsedFullSummaryArgs {
     noAdvance: false,
     jsonOutput: false,
     includeRunning: false,
-    limitTurns: 200,
-    limitSessions: 50,
+    limitTurns: FULL_SUMMARY_DEFAULT_LIMIT_TURNS,
+    limitSessions: FULL_SUMMARY_DEFAULT_LIMIT_SESSIONS,
+    conversationTimeoutMs: FULL_SUMMARY_DEFAULT_CONVERSATION_TIMEOUT_MS,
   };
 
   for (let i = 0; i < args.length; i++) {
@@ -524,12 +531,57 @@ export function parseFullSummaryArgs(args: string[]): ParsedFullSummaryArgs {
       parsed.limitSessions = parsePositiveInteger(arg.slice('--limit-sessions='.length), '--limit-sessions');
       continue;
     }
+    if (arg === '--conversation-timeout') {
+      parsed.conversationTimeoutMs = parseTimeoutMs(requireFlagValue(args, i, arg));
+      i++;
+      continue;
+    }
+    if (arg === '--conversation-timeout-ms') {
+      parsed.conversationTimeoutMs = parseTimeoutMs(requireFlagValue(args, i, arg), 'ms');
+      i++;
+      continue;
+    }
+    if (arg.startsWith('--conversation-timeout=')) {
+      parsed.conversationTimeoutMs = parseTimeoutMs(arg.slice('--conversation-timeout='.length));
+      continue;
+    }
+    if (arg.startsWith('--conversation-timeout-ms=')) {
+      parsed.conversationTimeoutMs = parseTimeoutMs(arg.slice('--conversation-timeout-ms='.length), 'ms');
+      continue;
+    }
 
     throw new Error(`Unknown full_summary option: ${arg}`);
   }
 
   parsed.sessionIds = [...new Set(parsed.sessionIds)];
   return parsed;
+}
+
+function formatTraceError(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
+}
+
+export async function mapWithConcurrency<T, R>(
+  items: readonly T[],
+  concurrency: number,
+  mapper: (item: T, index: number) => Promise<R>,
+): Promise<R[]> {
+  if (items.length === 0) return [];
+  if (!Number.isSafeInteger(concurrency) || concurrency <= 0) {
+    throw new Error('concurrency must be a positive integer');
+  }
+
+  const results = new Array<R>(items.length);
+  let nextIndex = 0;
+  const workers = Array.from({ length: Math.min(concurrency, items.length) }, async () => {
+    while (nextIndex < items.length) {
+      const index = nextIndex;
+      nextIndex += 1;
+      results[index] = await mapper(items[index] as T, index);
+    }
+  });
+  await Promise.all(workers);
+  return results;
 }
 
 function entryType(entry: ConversationEntry | undefined): string | undefined {
@@ -1704,9 +1756,18 @@ interface FullSummaryTurn {
   agentPreResponse: string | null;
   toolCalls: ToolCallSummary;
   agentResponse: string | null;
+  conversationFetchError: string | null;
   gitCommits: CommitSummary[];
   gitCommitSummaryNote: string | null;
   gitRepositoryPath: string | null;
+}
+
+export function getAdvanceableFullSummaryProcessIds(
+  turns: readonly { process: { id: string }; conversationFetchError: string | null }[],
+): string[] {
+  return turns
+    .filter(turn => !turn.conversationFetchError)
+    .map(turn => turn.process.id);
 }
 
 interface FullSummaryTextResult {
@@ -1797,6 +1858,9 @@ export function formatFullSummaryText(result: FullSummaryTextResult): string {
       web_searches: turn.toolCalls.webSearches,
       other: turn.toolCalls.other,
     })} />`);
+    if (turn.conversationFetchError) {
+      lines.push(xmlTextElement('      ', 'conversation_fetch_error', truncateText(turn.conversationFetchError, 2000), ''));
+    }
     lines.push(xmlTextElement('      ', 'agent_response', truncateText(turn.agentResponse, 6000), '(none)'));
     lines.push(`      <git_commit_summary${xmlAttrs({ repository_path: turn.gitRepositoryPath })}>`);
     if (turn.gitCommitSummaryNote) {
@@ -1841,7 +1905,7 @@ async function fullSummary(args: string[]): Promise<void> {
     parsed = parseFullSummaryArgs(args);
   } catch (err) {
     console.error(`Error: ${(err as Error).message}`);
-    console.error('Usage: vibe-agent full_summary [--session <id>] [--all] [--no-advance] [--include-running] [--limit-turns <n>] [--limit-sessions <n>] [--json]');
+    console.error('Usage: vibe-agent full_summary [--session <id>] [--all] [--no-advance] [--include-running] [--limit-turns <n>] [--limit-sessions <n>] [--conversation-timeout <duration>] [--json]');
     process.exit(1);
   }
 
@@ -1859,9 +1923,9 @@ async function fullSummary(args: string[]): Promise<void> {
     const readerState = state.readers[readerId] ?? { seenProcessIds: [], lastQueriedAt: new Date(0).toISOString() };
     const seenProcessIds = new Set(parsed.all ? [] : readerState.seenProcessIds);
     const excludedSessionIds = new Set(state.excludedSessionIds ?? []);
-
     const sessionFile = readSessionFile(workspaceId);
     let sessions = await client.getSessions(workspaceId);
+
     sessions = sessions.filter(s => s.id !== currentSessionId && !excludedSessionIds.has(s.id));
     if (parsed.sessionIds.length > 0) {
       const wanted = new Set(parsed.sessionIds);
@@ -1873,28 +1937,58 @@ async function fullSummary(args: string[]): Promise<void> {
     const sessionLimitHit = sessions.length > parsed.limitSessions;
     sessions = sessions.slice(0, parsed.limitSessions);
 
-    const turns: FullSummaryTurn[] = [];
-    let messageLimitHit = false;
-    for (let sessionIndex = 0; sessionIndex < sessions.length; sessionIndex++) {
-      const session = sessions[sessionIndex];
+    const sessionProcessBatches = await mapWithConcurrency(sessions, FULL_SUMMARY_SESSION_FETCH_CONCURRENCY, async (session) => {
       const processes = (await client.getSessionProcesses(session.id))
         .filter(process => parsed.includeRunning || isTerminalProcess(process))
         .filter(process => !seenProcessIds.has(process.id))
         .sort((a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime());
+      return { session, processes };
+    });
 
-      if (turns.length + processes.length > parsed.limitTurns) {
+    const plannedTurns: Array<{ session: Session; process: ExecutionProcess }> = [];
+    let messageLimitHit = false;
+    for (const [sessionIndex, batch] of sessionProcessBatches.entries()) {
+      if (plannedTurns.length + batch.processes.length > parsed.limitTurns) {
         messageLimitHit = true;
       }
+      for (const process of batch.processes) {
+        if (plannedTurns.length >= parsed.limitTurns) break;
+        plannedTurns.push({ session: batch.session, process });
+      }
+      if (plannedTurns.length >= parsed.limitTurns) {
+        if (sessionIndex < sessionProcessBatches.length - 1) {
+          messageLimitHit = true;
+        }
+        break;
+      }
+    }
 
-      for (const process of processes) {
-        if (turns.length >= parsed.limitTurns) break;
-        const entries = await client.fetchConversation(process.id, 10_000);
+    const gitRepositoryPathCache = new Map<string, string | null>();
+    const turns = await mapWithConcurrency(
+      plannedTurns,
+      FULL_SUMMARY_CONVERSATION_FETCH_CONCURRENCY,
+      async ({ session, process }) => {
+        let entries: ConversationEntry[] = [];
+        let conversationFetchError: string | null = null;
+        try {
+          entries = await client.fetchConversation(process.id, parsed.conversationTimeoutMs);
+        } catch (error) {
+          conversationFetchError = formatTraceError(error);
+        }
+
         const conversation = summarizeTurnConversation(entries);
-        const gitRepositoryPath = resolveProcessWorkingDirectory(process, workspaceId, globalThis.process.cwd());
+        const workingDirKey = extractWorkingDirFromProcess(process) ?? '';
+        let gitRepositoryPath: string | null;
+        if (gitRepositoryPathCache.has(workingDirKey)) {
+          gitRepositoryPath = gitRepositoryPathCache.get(workingDirKey) ?? null;
+        } else {
+          gitRepositoryPath = resolveProcessWorkingDirectory(process, workspaceId, globalThis.process.cwd());
+          gitRepositoryPathCache.set(workingDirKey, gitRepositoryPath);
+        }
         const gitNote = gitRepositoryPath
           ? null
           : 'Skipped: process working directory could not be resolved to a local git repository without using deprecated workspace APIs.';
-        turns.push({
+        return {
           session: {
             id: session.id,
             executor: session.executor,
@@ -1913,18 +2007,13 @@ async function fullSummary(args: string[]): Promise<void> {
           agentPreResponse: conversation.agentPreResponse,
           toolCalls: conversation.toolCalls,
           agentResponse: conversation.agentResponse,
+          conversationFetchError,
           gitCommits: gitRepositoryPath ? getCommitSummariesForTurn(process, conversation.agentResponse, conversation.toolCalls, gitRepositoryPath) : [],
           gitCommitSummaryNote: gitNote,
           gitRepositoryPath,
-        });
-      }
-      if (turns.length >= parsed.limitTurns) {
-        if (sessionIndex < sessions.length - 1) {
-          messageLimitHit = true;
-        }
-        break;
-      }
-    }
+        };
+      },
+    );
 
     const limited = sessionLimitHit || messageLimitHit;
     const result = {
@@ -1939,6 +2028,7 @@ async function fullSummary(args: string[]): Promise<void> {
         include_running: parsed.includeRunning,
         limit_turns: parsed.limitTurns,
         limit_sessions: parsed.limitSessions,
+        conversation_timeout_ms: parsed.conversationTimeoutMs,
       },
       guardrails: {
         total_matching_sessions: totalMatchingSessions,
@@ -1946,7 +2036,7 @@ async function fullSummary(args: string[]): Promise<void> {
         turns_returned: turns.length,
         limited,
         message: limited
-          ? 'Output was limited by guardrails. Re-run with --session <id>, --limit-messages <n> (alias: --limit-turns), --limit-sessions <n>, or --all intentionally.'
+          ? 'Output was limited by guardrails. Re-run with --session <id>, --limit-messages <n> (alias: --limit-turns), --limit-sessions <n>, --conversation-timeout <duration>, or --all intentionally.'
           : null,
       },
       turns,
@@ -1954,8 +2044,8 @@ async function fullSummary(args: string[]): Promise<void> {
 
     if (!parsed.noAdvance && !parsed.all) {
       const nextSeen = new Set(readerState.seenProcessIds);
-      for (const turn of turns) {
-        nextSeen.add(turn.process.id);
+      for (const processId of getAdvanceableFullSummaryProcessIds(turns)) {
+        nextSeen.add(processId);
       }
       state.readers[readerId] = {
         seenProcessIds: Array.from(nextSeen).slice(-5000),
@@ -2080,6 +2170,33 @@ Commands:
     --timeout-ms <ms>          Timeout for the response wait in milliseconds
     --json                     Output as JSON
 
+  workflow list                List workflow starters and published workflows
+    --workspace <id>            Workspace id; defaults from VK_WORKSPACE_ID when needed
+    --json                      Output as JSON
+
+  workflow show <workflow>      Show workflow inputs, roles, and launch example
+  workflow inputs <workflow>    Show required and optional workflow inputs
+    --json                      Output as JSON
+
+  workflow run <workflow>       Launch a workflow and return immediately
+    --workspace <id>            Workspace id; defaults from VK_WORKSPACE_ID
+    --input key=value           Runtime input (repeatable)
+    --bead <id>                 Bead context id (repeatable; defaults from VK_BEAD_ID)
+    --role-session role=id      Bind a workflow role to an existing VK session
+    --role-executor role=type   Optional executor override for a role binding
+    --role-model role=model     Optional model override for a role binding
+    --caller-session <id>       Session that should receive completion response
+    --no-caller-response        Do not queue a completion response back to caller
+    --json                      Output as JSON
+
+  workflow status <run-id>      Read clean workflow run status
+  workflow result <run-id>      Read clean workflow result outputs
+    --json                      Output as JSON
+
+  workflow run-once [workflow-id]
+                              Advance legacy declarative workflow worker once
+    --json                     Output as JSON
+
   submit "<message>"           Submit work for review (sends to reviewer)
     --files <file1,file2>      List of changed files
     --json                     Output as JSON
@@ -2109,9 +2226,13 @@ Commands:
     --all                      Ignore this caller's pager state for this run
     --no-advance               Do not update this caller's pager state
     --include-running          Include non-terminal turns too
-    --limit-messages <n>       Max turns/messages to print (default: 200)
+    --limit-messages <n>       Max turns/messages to print (default: ${FULL_SUMMARY_DEFAULT_LIMIT_TURNS})
     --limit-turns <n>          Alias for --limit-messages
-    --limit-sessions <n>       Max sessions to scan (default: 50)
+    --limit-sessions <n>       Max sessions to scan (default: ${FULL_SUMMARY_DEFAULT_LIMIT_SESSIONS})
+    --conversation-timeout <duration>
+                               Timeout per conversation fetch (default: 30s)
+    --conversation-timeout-ms <ms>
+                               Timeout per conversation fetch in milliseconds
     --json                     Output as JSON
 
   callback "command to run"    Run a shell command in the background and
@@ -2148,7 +2269,9 @@ function onboarding(): void {
   console.log(`Vibe agent onboarding
 
 Core workflow:
-  - Use bd for task tracking in this repo. Create or update beads for meaningful work.
+  - Use bd from PATH for task tracking in this repo. In VD images, bd/beads are wrapped to stamp workspace/session metadata.
+  - Create or update beads in the repo where the work belongs. For multi-repo workspaces, choose the relevant repo.
+  - If the relevant repo is not bead-initialized, run bd init in that repo. Do not create a parent git repo just to hold beads.
   - Always reference beads by id and title, for example: vkvw-3516 — Vendor vibe-agent and vk CLIs with onboarding.
   - Filter to branch-relevant beads before choosing work. Useful commands:
       bd list --json
@@ -2425,6 +2548,586 @@ function hasGitRemote(configRepoDir: string): boolean {
   }
 }
 
+
+interface WorkflowCliInputSummary {
+  id: string;
+  type?: string;
+  required?: boolean;
+  description?: string | null;
+}
+
+interface WorkflowCliRoleSummary {
+  id: string;
+  label?: string | null;
+  description?: string | null;
+}
+
+interface WorkflowCliSummary {
+  id: string;
+  title: string;
+  description?: string | null;
+  source: 'published_design' | 'template' | string;
+  status?: string;
+  version?: number | null;
+  unavailableReason?: string | null;
+  canRun?: boolean;
+  inputs?: WorkflowCliInputSummary[];
+  roles?: WorkflowCliRoleSummary[];
+}
+
+interface WorkflowCliHome {
+  workspaceId: string | null;
+  userWorkflows: WorkflowCliSummary[];
+  starterTemplates: WorkflowCliSummary[];
+}
+
+interface WorkflowCliPresentation {
+  instanceId: string;
+  workflowId: string;
+  workflowName: string;
+  status: string;
+  originalTask?: string | null;
+  summary?: {
+    statusLabel?: string;
+    currentOwner?: string | null;
+    waitingReason?: string | null;
+    nextAction?: string | null;
+  };
+  outputs?: Array<{ id: string; label: string; value: string; kind: string }>;
+  provenance?: { workflowDesignId?: string | null; workflowVersion?: number | null } | null;
+}
+
+interface WorkflowRunCliOptions {
+  workflowRef: string;
+  workspaceId: string;
+  inputs: Record<string, unknown>;
+  beadIds: string[];
+  json: boolean;
+}
+
+interface WorkflowCliRoleOverride {
+  roleId: string;
+  value: string;
+}
+
+interface WorkflowResolution {
+  workflow: WorkflowCliSummary;
+  alias: string;
+  source: 'published_design' | 'template' | string;
+}
+
+export async function workflowCommand(args: string[]): Promise<void> {
+  try {
+    await workflowCommandInner(args);
+  } catch (error) {
+    const message = productSafeWorkflowCliText(error instanceof Error ? error.message : String(error));
+    if (args.includes('--json')) {
+      console.log(JSON.stringify({ ok: false, error: message }, null, 2));
+      process.exitCode = 1;
+      return;
+    }
+    throw new Error(message);
+  }
+}
+
+async function workflowCommandInner(args: string[]): Promise<void> {
+  const subcommand = args[0];
+  if (subcommand === 'list') {
+    await workflowList(args.slice(1));
+    return;
+  }
+  if (subcommand === 'show') {
+    await workflowShow(args.slice(1), false);
+    return;
+  }
+  if (subcommand === 'inputs') {
+    await workflowShow(args.slice(1), true);
+    return;
+  }
+  if (subcommand === 'run') {
+    await workflowRun(args.slice(1));
+    return;
+  }
+  if (subcommand === 'status') {
+    await workflowStatus(args.slice(1), false);
+    return;
+  }
+  if (subcommand === 'result') {
+    await workflowStatus(args.slice(1), true);
+    return;
+  }
+  if (subcommand === 'run-once' || subcommand === 'tick') {
+    await workflowRunOnce(args.slice(1));
+    return;
+  }
+  if (subcommand === 'follow') {
+    await workflowStatus(args.slice(1), false);
+    return;
+  }
+  throw new Error('Usage: vibe-agent workflow <list|show|inputs|run|status|result|run-once> ...');
+}
+
+async function workflowList(args: string[]): Promise<void> {
+  const flags = parseWorkflowCliFlags(args);
+  const workspaceId = resolveWorkflowWorkspace(flags, { required: false });
+  const home = await fetchWorkflowCliHome(workspaceId);
+  const workflows = workflowCliCatalog(home);
+  if (flags.json) {
+    console.log(JSON.stringify({ ok: true, workspaceId: home.workspaceId ?? workspaceId ?? null, workflows: workflows.map(formatWorkflowForJson) }, null, 2));
+    return;
+  }
+  console.log('Available workflows');
+  console.log('');
+  for (const entry of workflows) {
+    const version = entry.workflow.version ? ` v${entry.workflow.version}` : '';
+    const source = entry.workflow.source === 'template' ? 'Starter template' : 'Published workflow';
+    console.log(`${entry.alias.padEnd(28)} ${productSafeWorkflowCliText(entry.workflow.title)}${version} — ${source}`);
+  }
+  if (!workflows.length) console.log('No workflows are available.');
+  console.log('');
+  console.log('Use: vibe-agent workflow run <workflow> --input key=value');
+}
+
+async function workflowShow(args: string[], inputsOnly: boolean): Promise<void> {
+  const flags = parseWorkflowCliFlags(args);
+  const workflowRef = flags.positionals[0];
+  if (!workflowRef) throw new Error(`Usage: vibe-agent workflow ${inputsOnly ? 'inputs' : 'show'} <workflow> [--json]`);
+  const workspaceId = resolveWorkflowWorkspace(flags, { required: false });
+  const home = await fetchWorkflowCliHome(workspaceId);
+  const resolved = resolveWorkflowReference(workflowRef, workflowCliCatalog(home));
+  const payload = formatWorkflowForJson(resolved);
+  if (flags.json) {
+    console.log(JSON.stringify(inputsOnly ? { ok: true, workflow: payload.workflow, inputs: payload.inputs } : { ok: true, ...payload }, null, 2));
+    return;
+  }
+  if (inputsOnly) {
+    printWorkflowInputs(resolved.workflow);
+    return;
+  }
+  console.log(`${productSafeWorkflowCliText(resolved.workflow.title)}${resolved.workflow.version ? ` v${resolved.workflow.version}` : ''}`);
+  console.log(`ID: ${productSafeWorkflowCliText(resolved.workflow.id)}`);
+  console.log(`Alias: ${productSafeWorkflowCliText(resolved.alias)}`);
+  console.log(`Type: ${resolved.workflow.source === 'template' ? 'Starter template' : 'Published workflow'}`);
+  if (resolved.workflow.description) console.log(`Description: ${productSafeWorkflowCliText(resolved.workflow.description)}`);
+  console.log('');
+  printWorkflowInputs(resolved.workflow);
+  console.log('');
+  console.log('Roles:');
+  for (const role of resolved.workflow.roles ?? []) console.log(`  ${productSafeWorkflowCliText(role.id)} — ${productSafeWorkflowCliText(role.label ?? role.id)}`);
+  console.log('');
+  console.log(`Launch example: vibe-agent workflow run ${resolved.alias} --input ${exampleInputFlag(resolved.workflow)}`);
+  console.log('Bead context: pass --bead <id> or use current bead environment.');
+}
+
+async function workflowRun(args: string[]): Promise<void> {
+  const flags = parseWorkflowCliFlags(args);
+  const workflowRef = flags.positionals[0];
+  if (!workflowRef) throw new Error('Usage: vibe-agent workflow run <workflow> --input key=value [--bead id] [--json]');
+  const workspaceId = resolveWorkflowWorkspace(flags, { required: true }) as string;
+  const home = await fetchWorkflowCliHome(workspaceId);
+  const resolved = resolveWorkflowReference(workflowRef, workflowCliCatalog(home));
+  validateWorkflowCliInputs(resolved.workflow, flags.inputs);
+  const beadIds = flags.beadIds.length ? flags.beadIds : currentWorkflowBeadIdsFromEnv();
+  const launchWorkflow = resolved.workflow.source === 'template'
+    ? await materializeWorkflowTemplateForCli(resolved.workflow, workspaceId)
+    : resolved.workflow;
+  const launchOptions = await fetchWorkflowCliLaunchOptions(workspaceId, launchWorkflow.id, launchWorkflow.version ?? undefined);
+  const roleBindings = buildWorkflowCliRoleBindings(launchOptions.workflow, flags);
+  const body = {
+    workspaceId,
+    designId: launchWorkflow.id,
+    version: launchWorkflow.version ?? undefined,
+    inputs: flags.inputs,
+    roleBindings,
+    beadIds,
+    completionResponse: flags.callerSessionId ? { sessionId: flags.callerSessionId, source: 'vibe-agent-cli' } : undefined,
+  };
+  const launched = await dashboardRequest('/dashboard/api/workflows/launch', { method: 'POST', body: JSON.stringify(body) }) as { run?: { runId: string; status: string; detailUrl?: string | null } };
+  const run = launched.run;
+  if (!run?.runId) throw new Error('Workflow launch did not return a run id.');
+  const runUrl = absoluteDashboardUrl(run.detailUrl ?? `/dashboard/workflows/${encodeURIComponent(run.runId)}`);
+  const output = {
+    ok: true,
+    runId: run.runId,
+    status: run.status,
+    workspaceId,
+    workflow: { id: launchWorkflow.id, requested: resolved.workflow.id, alias: resolved.alias, title: launchWorkflow.title, version: launchWorkflow.version ?? null },
+    beadIds,
+    runUrl,
+    completionResponse: flags.callerSessionId ? { sessionId: flags.callerSessionId, expected: true } : { expected: false, reason: 'No caller session was detected.' },
+    nextAction: flags.callerSessionId
+      ? 'Request sent. End this turn; the workflow response will arrive later in this session through workflow coordination.'
+      : 'Request sent. End this turn; inspect the workflow later with vibe-agent workflow result <run-id>.' ,
+  };
+  if (flags.json) {
+    console.log(JSON.stringify(output, null, 2));
+    return;
+  }
+  console.log(`Started workflow: ${productSafeWorkflowCliText(launchWorkflow.title)}`);
+  console.log(`Run: ${productSafeWorkflowCliText(run.runId)}`);
+  console.log(`Status: ${productSafeWorkflowCliText(run.status)}`);
+  console.log(`Workspace: ${productSafeWorkflowCliText(workspaceId)}`);
+  if (beadIds.length) console.log(`Beads: ${beadIds.map((id) => productSafeWorkflowCliText(id)).join(', ')}`);
+  console.log(`Open: ${runUrl}`);
+  console.log('');
+  if (flags.callerSessionId) {
+    console.log('Request sent. End this turn; the workflow response will arrive later in this session through workflow coordination.');
+  } else {
+    console.log('Request sent. End this turn; inspect the workflow later with vibe-agent workflow result <run-id>.');
+  }
+}
+
+async function workflowStatus(args: string[], resultOnly: boolean): Promise<void> {
+  const flags = parseWorkflowCliFlags(args);
+  const runId = flags.positionals[0];
+  if (!runId) throw new Error(`Usage: vibe-agent workflow ${resultOnly ? 'result' : 'status'} <run-id> [--json]`);
+  const presentation = await fetchWorkflowCliPresentation(runId);
+  const finalOutputs = (presentation.outputs ?? []).filter((output) => output.kind === 'summary' || output.kind === 'error' || output.kind === 'workflow_call_output' || output.kind === 'form_artifact');
+  const output = {
+    ok: true,
+    runId: presentation.instanceId,
+    status: presentation.status,
+    workflow: { id: presentation.workflowId, title: presentation.workflowName, version: presentation.provenance?.workflowVersion ?? null },
+    runUrl: absoluteDashboardUrl(`/dashboard/workflows/${encodeURIComponent(presentation.instanceId)}`),
+    currentOwner: presentation.summary?.currentOwner ?? null,
+    waitingReason: presentation.summary?.waitingReason ?? null,
+    nextAction: presentation.summary?.nextAction ?? null,
+    finalResult: finalOutputs.map((item) => ({ label: item.label, kind: item.kind, value: productSafeWorkflowCliText(item.value, 1200) })),
+  };
+  if (flags.json) {
+    console.log(JSON.stringify(output, null, 2));
+    return;
+  }
+  if (resultOnly) {
+    console.log(`${productSafeWorkflowCliText(presentation.workflowName)} result`);
+    console.log(`Status: ${productSafeWorkflowCliText(presentation.status)}`);
+    if (!finalOutputs.length) console.log('Result pending.');
+    for (const item of finalOutputs) console.log(`${productSafeWorkflowCliText(item.label)}: ${productSafeWorkflowCliText(item.value, 1200)}`);
+    return;
+  }
+  console.log(`${productSafeWorkflowCliText(presentation.workflowName)}`);
+  console.log(`Run: ${productSafeWorkflowCliText(presentation.instanceId)}`);
+  console.log(`Status: ${productSafeWorkflowCliText(presentation.summary?.statusLabel ?? presentation.status)}`);
+  if (presentation.summary?.currentOwner) console.log(`Current owner: ${productSafeWorkflowCliText(presentation.summary.currentOwner)}`);
+  if (presentation.summary?.waitingReason) console.log(`Waiting for: ${productSafeWorkflowCliText(presentation.summary.waitingReason)}`);
+  if (presentation.summary?.nextAction) console.log(`Next: ${productSafeWorkflowCliText(presentation.summary.nextAction)}`);
+  console.log(`Open: ${absoluteDashboardUrl(`/dashboard/workflows/${encodeURIComponent(presentation.instanceId)}`)}`);
+}
+
+async function fetchWorkflowCliHome(workspaceId: string | null | undefined): Promise<WorkflowCliHome> {
+  const params = new URLSearchParams();
+  if (workspaceId) params.set('workspaceId', workspaceId);
+  const query = params.toString();
+  const response = await dashboardRequest(`/dashboard/api/workflows/home${query ? `?${query}` : ''}`) as { home?: WorkflowCliHome };
+  if (!response.home) throw new Error('Workflow home read model is unavailable.');
+  return response.home;
+}
+
+async function fetchWorkflowCliLaunchOptions(workspaceId: string, designId: string, version?: number | null): Promise<{ workflow: WorkflowCliSummary }> {
+  const params = new URLSearchParams({ workspaceId, designId });
+  if (version != null) params.set('version', String(version));
+  const response = await dashboardRequest(`/dashboard/api/workflows/launch-options?${params.toString()}`) as { options?: { workflow: WorkflowCliSummary } };
+  if (!response.options?.workflow) throw new Error('Workflow launch options are unavailable.');
+  return { workflow: response.options.workflow };
+}
+
+async function fetchWorkflowCliPresentation(runId: string): Promise<WorkflowCliPresentation> {
+  const response = await dashboardRequest(`/dashboard/api/workflow-instances/${encodeURIComponent(runId)}/presentation`) as { presentation?: WorkflowCliPresentation };
+  if (!response.presentation) throw new Error('Workflow presentation is unavailable.');
+  return response.presentation;
+}
+
+async function materializeWorkflowTemplateForCli(workflow: WorkflowCliSummary, workspaceId: string): Promise<WorkflowCliSummary> {
+  const response = await dashboardRequest('/dashboard/api/workflow-templates/use', {
+    method: 'POST',
+    body: JSON.stringify({ templateId: workflow.id, workspaceId, name: workflow.title, description: workflow.description ?? null, publish: true }),
+  }) as { design?: { designId: string; name: string; latestPublishedVersion: number | null }, version?: { version: number } };
+  const designId = response.design?.designId;
+  if (!designId) throw new Error('Workflow starter copy did not return a design id.');
+  return {
+    ...workflow,
+    id: designId,
+    source: 'published_design',
+    version: response.version?.version ?? response.design?.latestPublishedVersion ?? 1,
+    canRun: true,
+  };
+}
+
+export function workflowCliCatalog(home: WorkflowCliHome): WorkflowResolution[] {
+  return [...(home.userWorkflows ?? []), ...(home.starterTemplates ?? [])]
+    .filter((workflow) => workflow.status !== 'unavailable')
+    .map((workflow) => ({ workflow, alias: workflowAlias(workflow), source: workflow.source }));
+}
+
+export function resolveWorkflowReference(ref: string, workflows: WorkflowResolution[]): WorkflowResolution {
+  const exactId = workflows.filter((entry) => entry.workflow.id === ref);
+  if (exactId.length === 1) return exactId[0] as WorkflowResolution;
+  const alias = workflows.filter((entry) => entry.alias === ref || workflowSlug(entry.workflow.title) === ref);
+  if (alias.length === 1) return alias[0] as WorkflowResolution;
+  const name = workflows.filter((entry) => entry.workflow.title.toLowerCase() === ref.toLowerCase());
+  if (name.length === 1) return name[0] as WorkflowResolution;
+  const matches = [...exactId, ...alias, ...name];
+  if (matches.length > 1) throw new Error(`Workflow reference is ambiguous. Choices: ${matches.map((entry) => `${entry.alias} (${entry.workflow.id})`).join(', ')}`);
+  throw new Error(`Workflow not found: ${ref}`);
+}
+
+function workflowAlias(workflow: WorkflowCliSummary): string {
+  if (workflow.id.startsWith('built-in/')) return workflow.id.slice('built-in/'.length);
+  return workflowSlug(workflow.title || workflow.id);
+}
+
+function workflowSlug(value: string): string {
+  return productSafeWorkflowCliText(value, 120).toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '') || 'workflow';
+}
+
+function formatWorkflowForJson(entry: WorkflowResolution) {
+  return {
+    alias: entry.alias,
+    workflow: {
+      id: entry.workflow.id,
+      title: productSafeWorkflowCliText(entry.workflow.title),
+      description: entry.workflow.description ? productSafeWorkflowCliText(entry.workflow.description, 500) : null,
+      source: entry.workflow.source,
+      version: entry.workflow.version ?? null,
+      canLaunch: entry.workflow.source === 'template' || Boolean(entry.workflow.canRun),
+    },
+    inputs: (entry.workflow.inputs ?? []).map((input) => ({ id: input.id, type: input.type ?? 'string', required: Boolean(input.required), description: input.description ? productSafeWorkflowCliText(input.description, 300) : null })),
+    roles: (entry.workflow.roles ?? []).map((role) => ({ id: role.id, label: productSafeWorkflowCliText(role.label ?? role.id) })),
+    supportsBeadContext: true,
+  };
+}
+
+function printWorkflowInputs(workflow: WorkflowCliSummary): void {
+  const inputs = workflow.inputs ?? [];
+  const required = inputs.filter((input) => input.required);
+  const optional = inputs.filter((input) => !input.required);
+  console.log('Required inputs:');
+  if (!required.length) console.log('  none');
+  for (const input of required) console.log(`  ${productSafeWorkflowCliText(input.id).padEnd(18)} ${productSafeWorkflowCliText(input.type ?? 'string')}${input.description ? ` — ${productSafeWorkflowCliText(input.description)}` : ''}`);
+  console.log('Optional inputs:');
+  if (!optional.length) console.log('  none');
+  for (const input of optional) console.log(`  ${productSafeWorkflowCliText(input.id).padEnd(18)} ${productSafeWorkflowCliText(input.type ?? 'string')}${input.description ? ` — ${productSafeWorkflowCliText(input.description)}` : ''}`);
+}
+
+function exampleInputFlag(workflow: WorkflowCliSummary): string {
+  const input = (workflow.inputs ?? []).find((candidate) => candidate.required) ?? workflow.inputs?.[0];
+  return input ? `${input.id}=...` : 'key=value';
+}
+
+export function validateWorkflowCliInputs(workflow: WorkflowCliSummary, inputs: Record<string, unknown>): void {
+  const missing = (workflow.inputs ?? []).filter((input) => input.required && !Object.prototype.hasOwnProperty.call(inputs, input.id)).map((input) => input.id);
+  if (missing.length) throw new Error(`Missing required workflow inputs: ${missing.join(', ')}`);
+}
+
+interface WorkflowCliParsedFlags {
+  json: boolean;
+  workspaceId?: string;
+  inputs: Record<string, unknown>;
+  beadIds: string[];
+  callerSessionId: string | null;
+  roleSessions: WorkflowCliRoleOverride[];
+  roleExecutors: WorkflowCliRoleOverride[];
+  roleModels: WorkflowCliRoleOverride[];
+  positionals: string[];
+}
+
+export function parseWorkflowCliFlags(args: string[]): WorkflowCliParsedFlags {
+  const result: WorkflowCliParsedFlags = { json: false, inputs: {}, beadIds: [], callerSessionId: detectWorkflowCallerSessionId(), roleSessions: [], roleExecutors: [], roleModels: [], positionals: [] };
+  for (let i = 0; i < args.length; i++) {
+    const arg = args[i] ?? '';
+    const readValue = (flag: string): string => {
+      const eqPrefix = `${flag}=`;
+      if (arg.startsWith(eqPrefix)) return arg.slice(eqPrefix.length);
+      const value = args[i + 1];
+      if (!value || value.startsWith('--')) throw new Error(`${flag} requires a value`);
+      i += 1;
+      return value;
+    };
+    if (arg === '--json') { result.json = true; continue; }
+    if (arg === '--workspace' || arg === '--workspace-id' || arg.startsWith('--workspace=') || arg.startsWith('--workspace-id=')) { result.workspaceId = readValue(arg.startsWith('--workspace-id') ? '--workspace-id' : '--workspace'); continue; }
+    if (arg === '--bead' || arg.startsWith('--bead=')) { result.beadIds.push(readValue('--bead')); continue; }
+    if (arg === '--caller-session' || arg.startsWith('--caller-session=')) { result.callerSessionId = readValue('--caller-session'); continue; }
+    if (arg === '--no-caller-response') { result.callerSessionId = null; continue; }
+    if (arg === '--role-session' || arg.startsWith('--role-session=')) { result.roleSessions.push(parseRoleValueFlag(readValue('--role-session'), '--role-session')); continue; }
+    if (arg === '--role-executor' || arg.startsWith('--role-executor=')) { result.roleExecutors.push(parseRoleValueFlag(readValue('--role-executor'), '--role-executor')); continue; }
+    if (arg === '--role-model' || arg.startsWith('--role-model=')) { result.roleModels.push(parseRoleValueFlag(readValue('--role-model'), '--role-model')); continue; }
+    if (arg === '--input' || arg.startsWith('--input=')) {
+      const raw = readValue('--input');
+      const eq = raw.indexOf('=');
+      if (eq <= 0) throw new Error('--input must use key=value');
+      result.inputs[raw.slice(0, eq)] = raw.slice(eq + 1);
+      continue;
+    }
+    if (arg.startsWith('--')) throw new Error(`Unknown workflow option: ${arg}`);
+    result.positionals.push(arg);
+  }
+  return result;
+}
+
+
+function buildWorkflowCliRoleBindings(workflow: WorkflowCliSummary, flags: WorkflowCliParsedFlags): Record<string, Record<string, unknown>> {
+  const roles = workflow.roles ?? [];
+  const roleIds = new Set(roles.map((role) => role.id));
+  const bindings = Object.fromEntries(roles.map((role) => [role.id, { mode: 'create_or_reuse', name: role.label || role.id } as Record<string, unknown>]));
+  for (const binding of flags.roleSessions) {
+    assertWorkflowRoleExists(roleIds, binding.roleId, '--role-session');
+    bindings[binding.roleId] = { ...(bindings[binding.roleId] ?? {}), mode: 'existing', sessionId: binding.value };
+  }
+  for (const override of flags.roleExecutors) {
+    assertWorkflowRoleExists(roleIds, override.roleId, '--role-executor');
+    bindings[override.roleId] = { ...(bindings[override.roleId] ?? {}), executorType: override.value };
+  }
+  for (const override of flags.roleModels) {
+    assertWorkflowRoleExists(roleIds, override.roleId, '--role-model');
+    bindings[override.roleId] = { ...(bindings[override.roleId] ?? {}), model: override.value };
+  }
+  return bindings;
+}
+
+function assertWorkflowRoleExists(roleIds: Set<string>, roleId: string, flag: string): void {
+  if (!roleIds.has(roleId)) throw new Error(`${flag} references unknown workflow role: ${roleId}`);
+}
+
+function parseRoleValueFlag(raw: string, flag: string): WorkflowCliRoleOverride {
+  const eq = raw.indexOf('=');
+  if (eq <= 0 || eq === raw.length - 1) throw new Error(`${flag} must use role=value`);
+  return { roleId: raw.slice(0, eq), value: raw.slice(eq + 1) };
+}
+
+function detectWorkflowCallerSessionId(): string | null {
+  return process.env.VK_SESSION_ID || process.env.VIBE_AGENT_SESSION_ID || null;
+}
+
+export function resolveWorkflowWorkspace(flags: Pick<WorkflowCliParsedFlags, 'workspaceId'>, options: { required: boolean }): string | null {
+  const workspaceId = flags.workspaceId || process.env.VK_WORKSPACE_ID || null;
+  if (!workspaceId && options.required) throw new Error('Workspace is required. Pass --workspace or set VK_WORKSPACE_ID.');
+  return workspaceId;
+}
+
+function currentWorkflowBeadIdsFromEnv(): string[] {
+  const bead = process.env.VK_BEAD_ID || process.env.VIBE_BEAD_ID || process.env.BEAD_ID || '';
+  return bead ? [bead] : [];
+}
+
+function absoluteDashboardUrl(pathname: string): string {
+  const base = config.BASE_URL.replace(/\/+$/, '');
+  return `${base}${pathname.startsWith('/') ? pathname : `/${pathname}`}`;
+}
+
+export function productSafeWorkflowCliText(value: unknown, maxLength = 500): string {
+  return String(value ?? '')
+    .replace(/<xs:schema[\s\S]*?<\/xs:schema>/giu, '[response contract]')
+    .replace(/raw\s+XML/giu, 'workflow details')
+    .replace(/raw\s+JSON/giu, 'workflow details')
+    .replace(/prompt:[^\s]+/giu, 'prompt content')
+    .replace(/skill:[^\s]+/giu, 'skill content')
+    .replace(/contentHash/giu, 'content version')
+    .replace(/provider diagnostics/giu, 'workflow details')
+    .replace(/execution process ID/giu, 'workflow process')
+    .replace(/delivery ID/giu, 'workflow update')
+    .replace(/\bHMAC\b/g, 'message signature')
+    .replace(/\bwebhook\b/giu, 'workflow update')
+    .replace(/\btrigger\b/giu, 'workflow update')
+    .replace(/\bqueue[-_ ]?item\b/giu, 'workflow item')
+    .replace(/\bWorkflowStepState\b/g, 'workflow step')
+    .replace(/\brunReady\b/g, 'workflow wakeup')
+    .replace(/\bbd\s+[^\n]*/giu, 'workflow action')
+    .replace(/\bshell\b/giu, 'workflow action')
+    .replace(/\bgit\s+[^\n]*/giu, 'version control action')
+    .replace(/\/Users\/[^\s<>'"]+/gu, '[redacted-path]')
+    .replace(/\/tmp\/[^\s<>'"]+/gu, '[redacted-path]')
+    .replace(/\/private\/var\/[^\s<>'"]+/gu, '[redacted-path]')
+    .slice(0, maxLength);
+}
+
+
+async function workflowRunOnce(args: string[]): Promise<void> {
+  const workflowId = args.find((arg) => !arg.startsWith('--')) ?? 'two-agent-review-round';
+  const flags = parseWorkflowFlags(args.filter((arg) => arg !== workflowId));
+  const definitionJson = getWorkflowFlag(flags, 'definition-json') ?? getWorkflowFlag(flags, 'definition-file');
+  const result = await dashboardRequest(`/dashboard/api/declarative-workflows/${encodeURIComponent(workflowId)}/run-once`, {
+    method: 'POST',
+    body: JSON.stringify(definitionJson ? { definition: readWorkflowJson(definitionJson) } : {}),
+  });
+  if (flags.has('json')) {
+    console.log(JSON.stringify(result, null, 2));
+    return;
+  }
+  const resumed = Array.isArray((result as any)?.result?.resumed) ? (result as any).result.resumed.length : 0;
+  const skipped = Array.isArray((result as any)?.result?.skipped) ? (result as any).result.skipped.length : 0;
+  const completed = Array.isArray((result as any)?.result?.completed) ? (result as any).result.completed.length : 0;
+  const errors = Array.isArray((result as any)?.result?.errors) ? (result as any).result.errors.length : 0;
+  console.log(`Workflow ${workflowId} run-once complete`);
+  console.log(`Resumed: ${resumed}`);
+  console.log(`Completed: ${completed}`);
+  console.log(`Skipped: ${skipped}`);
+  console.log(`Errors: ${errors}`);
+}
+
+
+function parseWorkflowFlags(args: string[]): Map<string, string | true> {
+  const flags = new Map<string, string | true>();
+  for (let i = 0; i < args.length; i++) {
+    const arg = args[i];
+    if (!arg.startsWith('--')) continue;
+    const eq = arg.indexOf('=');
+    if (eq !== -1) {
+      flags.set(arg.slice(2, eq), arg.slice(eq + 1));
+      continue;
+    }
+    const key = arg.slice(2);
+    const next = args[i + 1];
+    if (next && !next.startsWith('--')) {
+      flags.set(key, next);
+      i++;
+    } else {
+      flags.set(key, true);
+    }
+  }
+  return flags;
+}
+
+function getWorkflowFlag(flags: Map<string, string | true>, key: string): string | undefined {
+  const value = flags.get(key);
+  return typeof value === 'string' ? value : undefined;
+}
+
+function copyFlag(flags: Map<string, string | true>, input: Record<string, string>, flag: string, key: string): void {
+  const value = getWorkflowFlag(flags, flag);
+  if (value) input[key] = value;
+}
+
+function readWorkflowJson(value: string): unknown {
+  const maybePath = path.resolve(value);
+  const raw = fs.existsSync(maybePath) ? fs.readFileSync(maybePath, 'utf8') : value;
+  return JSON.parse(raw);
+}
+
+async function dashboardRequest(pathname: string, init: RequestInit = {}): Promise<unknown> {
+  const base = config.BASE_URL.replace(/\/+$/, '');
+  const url = `${base}${pathname}`;
+  const response = await fetch(url, {
+    ...init,
+    headers: { Accept: 'application/json', 'Content-Type': 'application/json', ...init.headers },
+  });
+  const text = await response.text();
+  let parsed: unknown = null;
+  if (text) {
+    try {
+      parsed = JSON.parse(text) as unknown;
+    } catch {
+      const preview = productSafeWorkflowCliText(text.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim(), 240);
+      throw new Error(`Workflow API returned a non-JSON response (${response.status}) for ${pathname}: ${preview || 'empty response'}`);
+    }
+  }
+  if (!response.ok) {
+    const record = parsed && typeof parsed === 'object' ? parsed as { error?: unknown; message?: unknown } : null;
+    const message = record?.message ?? record?.error ?? text;
+    throw new Error(`Workflow API failed (${response.status}) for ${pathname}: ${String(message)}`);
+  }
+  return parsed;
+}
+
 // Main entry point
 async function main(): Promise<void> {
   const args = process.argv.slice(2);
@@ -2454,6 +3157,9 @@ async function main(): Promise<void> {
       break;
     case 'request-review':
       await requestReview(commandArgs);
+      break;
+    case 'workflow':
+      await workflowCommand(commandArgs);
       break;
     case 'submit':
       await submit(commandArgs);

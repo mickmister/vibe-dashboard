@@ -3,7 +3,7 @@ import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { client as defaultClient } from '../core/client.js';
-import type { ConversationEntry, ExecutionProcess, SendMessageBody, Session, Workspace } from '../types.js';
+import type { ConversationEntry, ExecutionProcess, QueueMessageBody, QueueMessageResponse, Session, Workspace } from '../types.js';
 import { selectNudgeCandidateForSession, type NudgeCriteriaOptions } from './criteria.js';
 
 const DEFAULT_STATE_PATH = '/var/lib/vd/nudge-daemon/state.json';
@@ -18,7 +18,7 @@ export interface NudgeDaemonClient {
   getSessions(workspaceId: string): Promise<Session[]>;
   getSessionProcesses(sessionId: string): Promise<ExecutionProcess[]>;
   fetchConversation(processId: string, timeoutMs?: number): Promise<ConversationEntry[]>;
-  sendMessage(sessionId: string, body: SendMessageBody): Promise<ExecutionProcess>;
+  queueMessage(sessionId: string, body: QueueMessageBody): Promise<QueueMessageResponse>;
 }
 
 export interface NudgeDaemonState {
@@ -161,12 +161,9 @@ export async function runNudgeDaemonCycle(
         const candidate = selectNudgeCandidateForSession(processes, entriesByProcessId, options.criteria);
         if (!candidate) continue;
 
-        await daemonClient.sendMessage(session.id, {
-          prompt: options.nudgePrompt,
-          executor_config: { executor: session.executor },
-          retry_process_id: null,
-          force_when_dirty: null,
-          perform_git_reset: null,
+        await daemonClient.queueMessage(session.id, {
+          message: options.nudgePrompt,
+          source: 'system',
         });
         nudgedProcessIds.add(candidate.process.id);
         state.nudgedProcessIds = [...nudgedProcessIds];

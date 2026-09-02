@@ -7,6 +7,15 @@ import { HeroUIProvider } from "@heroui/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { AppLoadingScreen } from "../components/AppLoadingScreen";
 import { WorkspaceShell } from "../components/WorkspaceShell";
+import { AgentTeamsDashboard } from "../components/AgentTeamsDashboard";
+import { WorkflowPresentationPage } from "../components/WorkflowPresentationPage";
+import { WorkspaceWorkflowsPage } from "./plugins/workflows/components/WorkspaceWorkflowsPage";
+import { WorkflowBatchDetailPage } from "./plugins/workflows/components/WorkflowBatchDetailPage";
+import { WorkflowCreationWizardPage } from "./plugins/workflows/components/WorkflowCreationWizardPage";
+import { WorkflowGraphEditorPage } from "./plugins/workflows/components/WorkflowGraphEditorPage";
+import { WorkflowRoadmapPage } from "./plugins/workflows/components/WorkflowRoadmapPage";
+import { WorkflowMetaRunsPage } from "./plugins/workflows/components/WorkflowMetaRunsPage";
+import { WorkflowLibraryPage } from "./plugins/workflows/components/WorkflowLibraryPage";
 import { useSessionWorkspaceNav } from "../sessionState";
 import type { NewSessionInitialSelection } from "../sessionState";
 import { resolveWorkspaceContainerRef } from "../lib/vkWorkspaceOpen";
@@ -20,6 +29,11 @@ import {
   setStoredLastDashboardUrl,
   shortIdTokenMatches,
 } from "../lib/voyageUrl";
+import {
+  ExternalKanbanDashboardRoute,
+  hasExternalViewQueryParam,
+} from "./plugins/kanban/ExternalKanbanRoute";
+import { DashboardWorkspaceRoute } from "../components/DashboardWorkspaceRoute";
 import { resolveDashboardVoyage } from "../lib/voyageSession";
 import { getSavedWorkspaceSessions } from "../lib/savedVoyageState";
 import { getRenderedPairViewIds } from "../lib/renderedWorkspaceSelection";
@@ -31,6 +45,7 @@ import {
 import { usePluginRegistry } from "./plugins/vibe-dashboard/registry";
 import type { ResolvedWorkspaceComposition } from "./plugins/vibe-dashboard/workspace-composition";
 import { createEffectiveWorkspaceWithCraftSurfaces } from "./plugins/vibe-dashboard/craft-surfaces";
+import { VibeIntlProvider } from "../i18n";
 
 // Ensure dark class is on the document root so portaled elements (modals, popovers)
 // inherit dark mode styles
@@ -150,6 +165,14 @@ function resolveQueryCraftSelection(
 }
 
 springboard.registerModule("MainUIShell", {}, async (moduleAPI) => {
+  const DashboardRoute = () => {
+    const location = useLocation();
+    if (hasExternalViewQueryParam(location.search)) {
+      return <ExternalKanbanDashboardRoute search={location.search} />;
+    }
+    return <WorkspaceRoute />;
+  };
+
   // Shared route component with canonical voyage query-param support
   const WorkspaceRoute = () => {
     const workspaceModule = useModule("workspace");
@@ -245,7 +268,12 @@ springboard.registerModule("MainUIShell", {}, async (moduleAPI) => {
           queryCraftParam,
           queryViewsParam,
         ),
-      [activeSavedSession, effectiveWorkspace, queryCraftParam, queryViewsParam],
+      [
+        activeSavedSession,
+        effectiveWorkspace,
+        queryCraftParam,
+        queryViewsParam,
+      ],
     );
     const sessionNav = useSessionWorkspaceNav(
       effectiveWorkspace,
@@ -1199,14 +1227,20 @@ springboard.registerModule("MainUIShell", {}, async (moduleAPI) => {
 
   // Root is the canonical dashboard route so PWA installs/bookmarks start from
   // a stable app-home path while query params carry Voyage navigation state.
-  moduleAPI.registerRoute("/", { hideApplicationShell: true }, WorkspaceRoute);
+  moduleAPI.registerRoute("/", { hideApplicationShell: true }, DashboardRoute);
 
   // Compatibility dashboard route. It renders the same app and canonical URL
   // sync redirects Voyage links back to root with the query params intact.
   moduleAPI.registerRoute(
     "/dashboard",
     { hideApplicationShell: true },
-    WorkspaceRoute,
+    DashboardRoute,
+  );
+
+  moduleAPI.registerRoute(
+    "/dashboard/workspaces/:workspaceId",
+    { hideApplicationShell: true },
+    DashboardWorkspaceRoute,
   );
 
   moduleAPI.registerRoute(
@@ -1215,11 +1249,67 @@ springboard.registerModule("MainUIShell", {}, async (moduleAPI) => {
     AdminPluginsRoute,
   );
 
+  moduleAPI.registerRoute(
+    "/dashboard/teams",
+    { hideApplicationShell: true },
+    AgentTeamsDashboard,
+  );
+
+  moduleAPI.registerRoute(
+    "/dashboard/workflows",
+    { hideApplicationShell: true },
+    WorkspaceWorkflowsPage,
+  );
+
+  moduleAPI.registerRoute(
+    "/dashboard/workflows/new",
+    { hideApplicationShell: true },
+    WorkflowCreationWizardPage,
+  );
+
+  moduleAPI.registerRoute(
+    "/dashboard/workflows/roadmap",
+    { hideApplicationShell: true },
+    WorkflowRoadmapPage,
+  );
+
+  moduleAPI.registerRoute(
+    "/dashboard/workflows/library",
+    { hideApplicationShell: true },
+    WorkflowLibraryPage,
+  );
+
+  moduleAPI.registerRoute(
+    "/dashboard/workflows/meta-runs",
+    { hideApplicationShell: true },
+    WorkflowMetaRunsPage,
+  );
+
+  moduleAPI.registerRoute(
+    "/dashboard/workflows/editor/:designId",
+    { hideApplicationShell: true },
+    WorkflowGraphEditorPage,
+  );
+
+  moduleAPI.registerRoute(
+    "/dashboard/workflow-batches/:batchId",
+    { hideApplicationShell: true },
+    WorkflowBatchDetailPage,
+  );
+
+  moduleAPI.registerRoute(
+    "/dashboard/workflows/:instanceId",
+    { hideApplicationShell: true },
+    WorkflowPresentationPage,
+  );
+
   return {
     Provider: (props: React.PropsWithChildren) => {
       return (
         <QueryClientProvider client={queryClient}>
-          <HeroUIProvider>{props.children}</HeroUIProvider>
+          <VibeIntlProvider>
+            <HeroUIProvider>{props.children}</HeroUIProvider>
+          </VibeIntlProvider>
         </QueryClientProvider>
       );
     },

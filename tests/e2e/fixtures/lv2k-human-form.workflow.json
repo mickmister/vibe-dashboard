@@ -1,0 +1,85 @@
+{
+  "schemaVersion": 1,
+  "name": "LV2K Human Form Resume",
+  "description": "API-loaded workflow fixture that waits for a Beads-form human attention item and resumes to an agent decision.",
+  "inputs": {
+    "featureRequest": {
+      "type": "markdown",
+      "required": true,
+      "description": "Task to approve and complete."
+    }
+  },
+  "roles": {
+    "dev": {
+      "label": "Dev",
+      "description": "Completes the workflow after human form approval."
+    }
+  },
+  "initialState": "approval",
+  "states": {
+    "approval": {
+      "owner": "dev",
+      "steps": [
+        {
+          "id": "approval_form",
+          "type": "human_form",
+          "title": "Approve LV2K implementation plan",
+          "description": "Review the LV2K plan before the Dev agent continues.",
+          "form": {
+            "providerType": "beads_form",
+            "submitLabel": "Submit LV2K approval",
+            "formSchema": {
+              "fields": {
+                "approved": {
+                  "type": "boolean",
+                  "label": "Approved?",
+                  "required": true
+                },
+                "remarks": {
+                  "type": "textarea",
+                  "label": "Approval remarks",
+                  "required": false
+                }
+              }
+            }
+          }
+        },
+        {
+          "id": "after_approval",
+          "type": "agent_turn",
+          "turnType": "decision",
+          "prompt": {
+            "template": "LV2K_STEP:human_after_approval\n\nHuman approval: {{human.approval_form.approved}}. Remarks: {{human.approval_form.remarks}}. Complete {{inputs.featureRequest}} and return final decision XML."
+          },
+          "response": {
+            "format": "xml",
+            "schema": { "format": "xsd", "source": "state_actions" },
+            "invalidXmlRetry": {
+              "maxAttempts": 1,
+              "prompt": "engine_default_with_validation_errors",
+              "onExhausted": "blocked"
+            },
+            "storeRawXml": true,
+            "rawXmlMaxChars": 20000,
+            "storeParsedFields": true,
+            "unknownFields": "reject_unless_allowed_by_result_contract"
+          }
+        }
+      ],
+      "actions": {
+        "done": {
+          "label": "Done",
+          "targetState": "done",
+          "result": {
+            "fields": {
+              "summary": { "type": "markdown" }
+            },
+            "required": ["summary"],
+            "unknownFields": "reject"
+          }
+        }
+      }
+    },
+    "done": { "terminal": true }
+  }
+}

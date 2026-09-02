@@ -1,0 +1,868 @@
+import type { Kysely } from "kysely";
+import type { DB } from "../../../../store/kysely_types";
+import type {
+  WorkflowPresentationCallTreeItem,
+  WorkflowPresentationModel,
+  WorkflowPresentationOutputItem,
+  WorkflowPresentationTimelineItem,
+} from "../../../../server/workflow-presentation-read-model";
+import type {
+  NormalizedAgentWorkflowModel,
+  WorkflowRuntimeIssue,
+  WorkflowRuntimeSnapshot,
+} from "@vibe-dashboard/workflow-core";
+import type { PersistedWorkflowRuntimeEvent } from "./persistedWorkflowRuntime";
+
+export async function buildPersistedWorkflowPresentationModel(args: {
+  db: Kysely<DB>;
+  runId: string;
+}): Promise<WorkflowPresentationModel | null> {
+  const row = await args.db
+    .selectFrom("WorkflowPersistedRun")
+    .selectAll()
+    .where("runId", "=", args.runId)
+    .executeTakeFirst();
+  if (!row) return null;
+  const model = JSON.parse(row.coreModelJson) as NormalizedAgentWorkflowModel;
+  const snapshot = JSON.parse(row.coreSnapshotJson) as WorkflowRuntimeSnapshot;
+  const events = JSON.parse(row.eventsJson) as PersistedWorkflowRuntimeEvent[];
+  const roleBindings = JSON.parse(row.roleBindingsJson) as Record<
+    string,
+    {
+      sessionId?: string | null;
+      executorType?: string | null;
+      executor?: string | null;
+      model?: string | null;
+    }
+  >;
+  const queued = JSON.parse(row.queuedTurnsJson) as Record<
+    string,
+    {
+      role: string;
+      sessionId: string;
+      executorType?: string | null;
+      model?: string | null;
+    }
+  >;
+  const timeline = buildTimeline({
+    model,
+    snapshot,
+    events,
+    queued,
+    workspaceId: row.workspaceId,
+  });
+  const callTree = buildCallTree(snapshot);
+  const outputs = buildOutputs(row.status, snapshot, events, callTree);
+  return {
+    instanceId: row.runId,
+    workflowId: row.designId,
+    workflowName: model.name,
+    status: row.status === "blocked" ? "failed" : row.status,
+    humanStatus: timeline.some((item) => item.status === "Waiting for you")
+      ? "waiting_for_user"
+      : timeline.some((item) => item.status === "Answered")
+        ? "resolved"
+        : "not_needed",
+    originalTask: originalTask(snapshot.inputs),
+    startedAt: row.createdAt,
+    updatedAt: row.updatedAt,
+    completedAt: row.status === "completed" ? row.updatedAt : null,
+    summary: buildSummary(model, snapshot, row.status),
+    timeline,
+    callTree,
+    outputs,
+    attention: null,
+    beadContext: buildBeadContext(snapshot.inputs),
+    provenance: {
+      label:
+        model.name && row.designVersion
+          ? `${model.name} workflow v${row.designVersion}`
+          : "Workflow automation",
+      workflowName: model.name ?? null,
+      workflowDesignId: row.designId,
+      workflowVersion: row.designVersion,
+      roles: Object.entries(model.roles).map(([roleId, role]) => ({
+        roleId,
+        roleLabel: role.label ?? roleId,
+        sessionId: roleBindings[roleId]?.sessionId ?? null,
+        executorType:
+          roleBindings[roleId]?.executorType ??
+          roleBindings[roleId]?.executor ??
+          role.executorPreference?.executorType ??
+          null,
+        model:
+          roleBindings[roleId]?.model ?? role.executorPreference?.model ?? null,
+      })),
+    },
+  };
+}
+
+function buildTimeline(args: {
+  model: NormalizedAgentWorkflowModel;
+  snapshot: WorkflowRuntimeSnapshot;
+  events: PersistedWorkflowRuntimeEvent[];
+  queued: Record<
+    string,
+    {
+      role: string;
+      sessionId: string;
+      executorType?: string | null;
+      model?: string | null;
+    }
+  >;
+  workspaceId: string;
+}): WorkflowPresentationTimelineItem[] {
+  const timeline: WorkflowPresentationTimelineItem[] = [];
+  for (const entry of args.snapshot.history) {
+    if (entry.kind === "agent_turn_planned") {
+      const complete = args.snapshot.history.find(
+        (candidate) =>
+          candidate.kind === "agent_turn_completed" &&
+          candidate.turnId === entry.turnId,
+      ) as { responseRef: string } | undefined;
+      const roleId =
+        args.queued[entry.turnId]?.role ??
+        roleForState(args.model, entry.state);
+      const queueEvent = args.events.find(
+        (event) =>
+          event.kind === "agent_turn_queued" &&
+          event.data.turnId === entry.turnId,
+      );
+      const promptPreview =
+        typeof queueEvent?.data.promptPreview === "string"
+          ? cleanPromptPreview(queueEvent.data.promptPreview)
+          : null;
+      timeline.push({
+        id: entry.turnId,
+        role: roleLabel(args.model, roleId),
+        title: agentTurnTitle(args.model, entry.state, entry.stepId, complete ? "complete" : "waiting"),
+        kind: "agent_turn",
+        state: labelFromId(entry.state),
+        step: labelFromId(entry.stepId),
+        status: complete ? "Complete" : "Waiting",
+        session: args.queued[entry.turnId]?.sessionId
+          ? {
+              label: sessionLabel(
+                roleLabel(args.model, roleId),
+                args.queued[entry.turnId]?.executorType,
+                args.queued[entry.turnId]?.model,
+              ),
+              workspaceId: args.workspaceId,
+              sessionId: args.queued[entry.turnId]!.sessionId,
+            }
+          : null,
+        initialMessage: promptPreview
+          ? {
+              text: promptPreview,
+              truncated: queueEvent?.data.promptTruncated === true,
+              maxChars: 4096,
+            }
+          : null,
+        finalResponse: complete
+          ? responseTextFor(args.model, args.snapshot, complete.responseRef)
+          : null,
+        responseUnavailable: complete
+          ? null
+          : "This turn is still waiting for a response.",
+        commits: [],
+      });
+    } else if (entry.kind === "state_transitioned") {
+      timeline.push({
+        id: `decision-${entry.at}-${entry.transition.fromState}-${entry.transition.action}`,
+        role: roleLabel(args.model, roleForState(args.model, entry.transition.fromState)),
+        title: decisionStoryTitle(args.model, entry.transition),
+        kind: "decision",
+        state: `${labelFromId(entry.transition.fromState)} → ${labelFromId(entry.transition.toState)}`,
+        step: null,
+        action: labelFromId(entry.transition.action),
+        isLoop: entry.transition.fromState === entry.transition.toState,
+        status:
+          entry.transition.fromState === entry.transition.toState
+            ? "Looped"
+            : "Complete",
+        session: null,
+        initialMessage: null,
+        finalResponse: transitionText(args.model, entry.transition),
+        responseUnavailable: null,
+        commits: [],
+      });
+    } else if (entry.kind === "decision_validation_failed") {
+      timeline.push({
+        id: `retry-${entry.turnId}-${entry.retryAttempt}`,
+        role: "Workflow",
+        title: "Decision retry requested",
+        kind: "retry",
+        state: labelFromId(entry.state),
+        step: labelFromId(entry.stepId),
+        status: "Needs attention",
+        session: null,
+        initialMessage: null,
+        finalResponse: {
+          text: entry.errors
+            .map((issue) => productSafeText(issue.message))
+            .join("\n"),
+          truncated: false,
+          maxChars: null,
+        },
+        responseUnavailable: null,
+        commits: [],
+      });
+    } else if (entry.kind === "workflow_blocked") {
+      timeline.push({
+        id: `blocked-${entry.at}`,
+        role: "Workflow",
+        title: "Workflow needs attention",
+        kind: "blocked",
+        state: null,
+        step: null,
+        status: "Needs attention",
+        session: null,
+        initialMessage: null,
+        finalResponse: {
+          text: productSafeText(entry.reason.message),
+          truncated: false,
+          maxChars: null,
+        },
+        responseUnavailable: null,
+        commits: [],
+      });
+    } else if (entry.kind === "human_form_planned") {
+      const complete = args.snapshot.history.find(
+        (candidate) =>
+          candidate.kind === "human_form_completed" &&
+          candidate.turnId === entry.turnId,
+      ) as { submission: Record<string, unknown> } | undefined;
+      timeline.push({
+        id: entry.turnId,
+        role: "You",
+        title: `Human input requested: ${entry.title}`,
+        kind: "human_form",
+        state: labelFromId(entry.state),
+        step: labelFromId(entry.stepId),
+        status: complete ? "Answered" : "Waiting for you",
+        session: null,
+        initialMessage: { text: entry.title, truncated: false, maxChars: null },
+        finalResponse: complete
+          ? {
+              text: Object.entries(complete.submission)
+                .map(
+                  ([key, value]) =>
+                    `${labelFromId(key)}: ${formatResultValue(value)}`,
+                )
+                .join("\n"),
+              truncated: false,
+              maxChars: null,
+            }
+          : null,
+        responseUnavailable: complete ? null : "Waiting for your answer.",
+        commits: [],
+      });
+    } else if (entry.kind === "command_step_planned") {
+      const complete = args.snapshot.history.find(
+        (candidate) =>
+          candidate.kind === "command_step_completed" &&
+          candidate.turnId === entry.turnId,
+      ) as
+        | { summary: string; artifactRef?: string; result: Record<string, unknown> }
+        | undefined;
+      timeline.push({
+        id: entry.turnId,
+        role: "Workflow",
+        title: labelFromId(entry.command),
+        kind: "command",
+        state: labelFromId(entry.state),
+        step: labelFromId(entry.stepId),
+        status: complete ? "Complete" : "Waiting",
+        session: null,
+        initialMessage: {
+          text: `${labelFromId(entry.provider)} will run ${labelFromId(entry.command)} with ${entry.access} access.`,
+          truncated: false,
+          maxChars: null,
+        },
+        finalResponse: complete
+          ? {
+              text: commandResultText(complete),
+              truncated: false,
+              maxChars: null,
+            }
+          : null,
+        responseUnavailable: complete
+          ? null
+          : "Waiting for the bounded command provider to finish.",
+        commits: [],
+      });
+    } else if (entry.kind === "workflow_call_planned") {
+      const complete = args.snapshot.history.find(
+        (candidate) =>
+          candidate.kind === "workflow_call_completed" &&
+          candidate.turnId === entry.turnId,
+      ) as { statusSummary: string; outputRef?: string } | undefined;
+      timeline.push({
+        id: entry.turnId,
+        role: "Workflow",
+        title: complete ? "Child workflow completed" : "Waiting for child workflow",
+        kind: "workflow_call",
+        state: labelFromId(entry.state),
+        step: labelFromId(entry.stepId),
+        status: complete ? "Complete" : "Waiting",
+        session: null,
+        initialMessage: {
+          text: `Started child workflow${entry.childVersion ? ` v${entry.childVersion}` : ""}.`,
+          truncated: false,
+          maxChars: null,
+        },
+        finalResponse: complete
+          ? {
+              text: [
+                complete.statusSummary,
+                complete.outputRef ? "Child workflow output recorded." : "",
+              ]
+                .filter(Boolean)
+                .join("\n"),
+              truncated: false,
+              maxChars: null,
+            }
+          : null,
+        responseUnavailable: complete
+          ? null
+          : "Waiting for child workflow to finish.",
+        commits: [],
+      });
+    } else if (entry.kind === "github_ci_wait_planned") {
+      const complete = args.snapshot.history.find(
+        (candidate) =>
+          candidate.kind === "github_ci_wait_completed" &&
+          candidate.turnId === entry.turnId,
+      ) as
+        | { status: string; statusSummary: string; detailsUrl?: string }
+        | undefined;
+      const pollError = [...args.events]
+        .reverse()
+        .find(
+          (event) =>
+            event.kind === "github_ci_watch_poll_error" &&
+            event.data.turnId === entry.turnId,
+        );
+      const waitingCopy = pollError
+        ? `Waiting for GitHub CI. Last polling problem: ${productSafeText(String((pollError.data.error as { message?: unknown } | undefined)?.message ?? "GitHub polling is backing off."), 180)}`
+        : "Waiting for GitHub CI to finish.";
+      timeline.push({
+        id: entry.turnId,
+        role: "GitHub CI",
+        title: complete ? "GitHub CI finished" : "Waiting for GitHub CI",
+        kind: "github_ci",
+        state: labelFromId(entry.state),
+        step: labelFromId(entry.stepId),
+        status: complete
+          ? complete.status === "success"
+            ? "Passed"
+            : "Needs attention"
+          : "Waiting",
+        session: null,
+        initialMessage: {
+          text:
+            [
+              entry.repo ? `Repository: ${productSafeText(entry.repo, 120)}` : "",
+              entry.sha ? `Commit: ${productSafeText(entry.sha, 80)}` : "",
+              entry.ciRunId ? `Run: ${productSafeText(entry.ciRunId, 80)}` : "",
+              entry.checkRunId ? `Check: ${productSafeText(entry.checkRunId, 80)}` : "",
+            ]
+              .filter(Boolean)
+              .join("\n") || "Started GitHub CI watch.",
+          truncated: false,
+          maxChars: null,
+        },
+        finalResponse: complete
+          ? {
+              text: [
+                productSafeText(complete.statusSummary),
+                complete.detailsUrl ? `Details: ${productSafeText(complete.detailsUrl, 180)}` : "",
+              ]
+                .filter(Boolean)
+                .join("\n"),
+              truncated: false,
+              maxChars: null,
+            }
+          : null,
+        responseUnavailable: complete ? null : waitingCopy,
+        commits: [],
+      });
+    }
+  }
+  for (const artifact of args.events.filter(
+    (event) =>
+      event.kind === "form_artifact_created" ||
+      event.kind === "form_artifact_failed",
+  )) {
+    timeline.push({
+      id: `artifact-${String(artifact.at)}`,
+      role: "Workflow",
+      title:
+        artifact.kind === "form_artifact_created"
+          ? "Form artifact"
+          : "Form artifact problem",
+      kind: "artifact",
+      status:
+        artifact.kind === "form_artifact_created"
+          ? "Complete"
+          : "Needs attention",
+      session: null,
+      initialMessage: null,
+      finalResponse: {
+        text:
+          artifact.kind === "form_artifact_created"
+            ? "Form artifact created."
+            : `Form artifact problem: ${productSafeText(String(artifact.data.error))}`,
+        truncated: false,
+        maxChars: null,
+      },
+      responseUnavailable: null,
+      commits: [],
+    });
+  }
+  return timeline;
+}
+
+function buildSummary(
+  model: NormalizedAgentWorkflowModel,
+  snapshot: WorkflowRuntimeSnapshot,
+  status: string,
+) {
+  const waiting = snapshot.waitingFor;
+  const state = model.states[snapshot.currentState];
+  const currentStep =
+    state && !state.terminal ? state.steps[snapshot.currentStepIndex] : null;
+  const ownerId = waiting
+    ? roleForState(model, waiting.state)
+    : state && !state.terminal
+      ? state.owner
+      : null;
+  const blocked = snapshot.blockedReason;
+  return {
+    statusLabel: status === "blocked" ? "Needs attention" : statusLabel(status),
+    currentOwner: ownerId ? roleLabel(model, ownerId) : null,
+    currentState: labelFromId(snapshot.currentState),
+    currentStep: waiting
+      ? labelFromId(waiting.stepId)
+      : currentStep
+        ? labelFromId(currentStep.id)
+        : null,
+    waitingReason: blocked
+      ? productSafeText(blocked.message)
+      : waiting
+        ? waitingReason(waiting.kind)
+        : status === "completed"
+          ? null
+          : "Planning the next workflow step.",
+    nextAction: blocked
+      ? nextActionForIssue(blocked)
+      : waiting
+        ? nextActionForWait(waiting.kind)
+        : status === "completed"
+          ? "Workflow is complete."
+          : "The workflow will continue automatically.",
+  };
+}
+
+
+function agentTurnTitle(
+  model: NormalizedAgentWorkflowModel,
+  stateId: string,
+  stepId: string,
+  status: "complete" | "waiting",
+): string {
+  const role = roleLabel(model, roleForState(model, stateId));
+  const step = labelFromId(stepId);
+  const text = `${stateId} ${stepId}`.toLowerCase();
+  if (text.includes("self") && text.includes("review"))
+    return status === "complete"
+      ? `${role} self-reviewed`
+      : `${role} is self-reviewing`;
+  if (text.includes("implement") || text.includes("dev"))
+    return status === "complete"
+      ? `${role} implemented`
+      : `${role} is implementing`;
+  if (text.includes("test"))
+    return status === "complete" ? `${role} tested` : `${role} is testing`;
+  if (text.includes("review"))
+    return status === "complete" ? `${role} reviewed` : `${role} is reviewing`;
+  return status === "complete" ? `${role} responded` : `${role} is working`;
+}
+
+function decisionStoryTitle(
+  model: NormalizedAgentWorkflowModel,
+  transition: WorkflowTransitionSummary & { toState?: string },
+): string {
+  const role = roleLabel(model, roleForState(model, transition.fromState));
+  const targetRoleId = transition.toState
+    ? roleForState(model, transition.toState)
+    : roleForState(model, transition.fromState);
+  const targetRole = roleLabel(model, targetRoleId);
+  const hasHumanNextRole = targetRoleId !== "workflow" && targetRole !== role;
+  const nextRoleSuffix = hasHumanNextRole ? `; ${targetRole} is next` : "";
+  const action = transition.action.toLowerCase();
+  if (action === "ready_for_review")
+    return hasHumanNextRole
+      ? `${role} self-reviewed; ${targetRole} will review`
+      : `${role} self-reviewed`;
+  if (action.includes("changes_requested") || action.includes("request_changes"))
+    return hasHumanNextRole
+      ? `${role} requested changes; ${targetRole} will revise`
+      : `${role} requested changes`;
+  if (action.includes("needs_more_work") || action.includes("continue_editing"))
+    return hasHumanNextRole
+      ? `${role} needs more work; ${targetRole} will revise`
+      : `${role} needs more work before review`;
+  if (action.includes("bug_found") || action.includes("failed"))
+    return hasHumanNextRole
+      ? `${role} found a bug; ${targetRole} will revise`
+      : `${role} found a bug`;
+  if (action.includes("approved") || action === "approve")
+    return hasHumanNextRole
+      ? `${role} approved; ${targetRole} is next`
+      : `${role} approved`;
+  if (action.includes("done") || action.includes("complete"))
+    return `${role} completed${nextRoleSuffix}`;
+  return `${role} decided ${actionLabel(
+    model,
+    transition.fromState,
+    transition.action,
+  )}${nextRoleSuffix}`;
+}
+
+function buildCallTree(
+  snapshot: WorkflowRuntimeSnapshot,
+): WorkflowPresentationCallTreeItem[] {
+  return snapshot.history
+    .filter((entry) => entry.kind === "workflow_call_planned")
+    .map((entry) => {
+      const complete = snapshot.history.find(
+        (candidate) =>
+          candidate.kind === "workflow_call_completed" &&
+          candidate.turnId === entry.turnId,
+      ) as
+        | { childStatus: string; outputRef?: string; statusSummary: string }
+        | undefined;
+      return {
+        turnId: entry.turnId,
+        label: labelFromId(entry.childDesignId),
+        status: complete?.childStatus ?? "running",
+        childRunId: entry.childRunId,
+        childUrl: `/dashboard/workflows/${encodeURIComponent(entry.childRunId)}`,
+        waitingReason: complete
+          ? null
+          : "Parent is waiting for this child workflow to finish.",
+        outputRef: complete?.outputRef ? "recorded" : null,
+      };
+    });
+}
+
+function buildOutputs(
+  status: string,
+  snapshot: WorkflowRuntimeSnapshot,
+  events: PersistedWorkflowRuntimeEvent[],
+  calls: WorkflowPresentationCallTreeItem[],
+): WorkflowPresentationOutputItem[] {
+  const outputs: WorkflowPresentationOutputItem[] = [];
+  if (status === "completed")
+    outputs.push({
+      id: "final-summary",
+      label: "Final summary",
+      value: snapshot.latestTransition
+        ? `Finished after ${labelFromId(snapshot.latestTransition.action)}.`
+        : "Workflow completed.",
+      kind: "summary",
+    });
+  if (snapshot.blockedReason)
+    outputs.push({
+      id: "blocked",
+      label: "Needs attention",
+      value: productSafeText(snapshot.blockedReason.message),
+      kind: "error",
+    });
+  for (const event of events.filter(
+    (entry) =>
+      entry.kind === "form_artifact_created" ||
+      entry.kind === "form_artifact_failed",
+  ))
+    outputs.push({
+      id: `form-${event.at}`,
+      label:
+        event.kind === "form_artifact_created"
+          ? "Form artifact"
+          : "Form artifact problem",
+      value:
+        event.kind === "form_artifact_created"
+          ? "Form artifact created."
+          : productSafeText(String(event.data.error)),
+      kind: event.kind === "form_artifact_created" ? "form_artifact" : "error",
+    });
+  for (const entry of snapshot.history.filter(
+    (candidate) => candidate.kind === "command_step_completed",
+  )) {
+    outputs.push({
+      id: `command-${entry.turnId}`,
+      label: `${labelFromId(entry.command)} result`,
+      value: commandResultText(entry),
+      kind: "summary",
+    });
+  }
+  for (const call of calls.filter((entry) => entry.outputRef))
+    outputs.push({
+      id: `call-${call.turnId}`,
+      label: `${call.label} output`,
+      value: "Child workflow output recorded.",
+      kind: "workflow_call_output",
+    });
+  return outputs;
+}
+
+
+function buildBeadContext(inputs: Record<string, unknown>) {
+  const ids = uniqueStrings([
+    ...stringArray((inputs as Record<string, unknown>).beadIds),
+    ...stringArray((inputs as Record<string, unknown>).beadId),
+    ...stringArray(asRecord(inputs.workflowContext)?.beadIds),
+    ...stringArray(asRecord(inputs.workflowContext)?.beadId),
+  ]);
+  if (!ids.length) return [];
+  const titlesById = new Map<string, string>();
+  const contextBeads = asRecord(inputs.workflowContext)?.beads;
+  if (Array.isArray(contextBeads)) {
+    for (const bead of contextBeads) {
+      const record = asRecord(bead);
+      if (
+        typeof record?.beadId === "string" &&
+        typeof record.title === "string"
+      ) {
+        titlesById.set(record.beadId, productSafeText(record.title, 160));
+      }
+    }
+  }
+  return ids.map((beadId) => ({
+    beadId: productSafeText(beadId, 120),
+    title: titlesById.get(beadId) ?? productSafeText(beadId, 120),
+    status: null,
+  }));
+}
+
+function asRecord(value: unknown): Record<string, unknown> | null {
+  return value && typeof value === "object" && !Array.isArray(value)
+    ? (value as Record<string, unknown>)
+    : null;
+}
+
+function stringArray(value: unknown): string[] {
+  if (Array.isArray(value))
+    return value.filter((item): item is string => typeof item === "string");
+  return typeof value === "string" ? [value] : [];
+}
+
+function uniqueStrings(values: string[]): string[] {
+  return Array.from(
+    new Set(values.map((value) => value.trim()).filter(Boolean)),
+  );
+}
+
+
+function cleanPromptPreview(value: string): string {
+  const withoutGeneratedContract = (
+    (value.split(/Expected XML Schema \(XSD\):/u)[0] ?? "").split(
+      /<xs:schema\b/iu,
+    )[0] ?? ""
+  ).trim();
+  const cleaned = productSafeText(withoutGeneratedContract || value, 1200);
+  if (/Expected XML Schema \(XSD\):|<xs:schema\b/iu.test(value)) {
+    return [cleaned, "Structured response contract included in the agent prompt."]
+      .filter(Boolean)
+      .join("\n\n");
+  }
+  return cleaned;
+}
+
+function productSafeText(value: string, maxChars = 500): string {
+  return value
+    .replace(/<xs:schema\b[\s\S]*?(?:<\/xs:schema>|$)/giu, "structured response contract")
+    .replace(/<decision\b/gi, "decision")
+    .replace(/\braw\s+XML\b/gi, "response contract")
+    .replace(/\braw\s+JSON\b/gi, "response details")
+    .replace(/\brawXml\b/gi, "response details")
+    .replace(/\brawJson\b/gi, "response details")
+    .replace(/\bresponseRef\b/gi, "response")
+    .replace(/\bresponse[-_][A-Za-z0-9_.:-]+\b/gi, "response")
+    .replace(/\bartifactRef\b/gi, "artifact")
+    .replace(/\b(?:workflow-run|beads-form|command):\/\/[^\s]+/gi, "artifact")
+    .replace(/\bwebhook\b/gi, "workflow callback")
+    .replace(/\bqueue[ _-]?item(?:\s+id)?\b/gi, "workflow work")
+    .replace(/\btrigger(?:\s+id)?\b/gi, "workflow event")
+    .replace(/\bdelivery(?:\s+id)?\b/gi, "message delivery")
+    .replace(/\bexecution\s+process\s+id\b/gi, "workflow process")
+    .replace(/\bprovider diagnostics?\b/gi, "provider status")
+    .replace(/\bHMAC\b/gi, "signature")
+    .replace(/\bWorkflowStepState\b/g, "workflow step")
+    .replace(/\brunReady\b/g, "workflow ready")
+    .replace(/\bbd\s+\w+/gi, "workflow tool")
+    .replace(/\bgit\s+\w+/gi, "version control action")
+    .replace(/\bshell\b/gi, "workflow action")
+    .replace(/(?:\/Users|\/tmp|\/private\/var)\/[^\s)]+/g, "local path")
+    .slice(0, maxChars);
+}
+
+function commandResultText(input: {
+  summary: string;
+  artifactRef?: string;
+  result: Record<string, unknown>;
+}): string {
+  const lines = [productSafeText(input.summary)];
+  for (const [key, value] of Object.entries(input.result)) {
+    if (key === "summary") continue;
+    if (value === undefined || value === null || value === "") continue;
+    lines.push(`${labelFromId(key)}: ${productSafeText(String(value))}`);
+  }
+  if (input.artifactRef) lines.push("Artifact recorded.");
+  return lines.join("\n");
+}
+
+function waitingReason(kind: string): string {
+  if (kind === "agent_turn")
+    return "Waiting for the assigned agent to respond.";
+  if (kind === "human_form")
+    return "Waiting for you to submit the requested form.";
+  if (kind === "workflow_call")
+    return "Waiting for a child workflow to finish.";
+  if (kind === "command")
+    return "Waiting for a bounded command provider to finish.";
+  if (kind === "github_ci") return "Waiting for GitHub CI to finish.";
+  return "Waiting to continue.";
+}
+
+function nextActionForWait(kind: string): string {
+  if (kind === "human_form") return "Answer the form to resume the workflow.";
+  if (kind === "workflow_call")
+    return "The parent workflow resumes when the child workflow completes.";
+  if (kind === "command")
+    return "The workflow resumes when the bounded command provider returns a typed result.";
+  if (kind === "github_ci")
+    return "The workflow resumes when GitHub CI finishes.";
+  return "The workflow resumes when the agent turn completes.";
+}
+
+function nextActionForIssue(issue: WorkflowRuntimeIssue): string {
+  if (issue.code === "WORKFLOW_DECISION_RETRY_EXHAUSTED")
+    return "Review the invalid response and choose how to continue.";
+  return "Review the problem and update the workflow or run inputs.";
+}
+
+function responseTextFor(
+  model: NormalizedAgentWorkflowModel,
+  snapshot: WorkflowRuntimeSnapshot,
+  responseRef: string,
+) {
+  const transition = snapshot.history.find(
+    (entry) =>
+      entry.kind === "state_transitioned" &&
+      entry.transition.responseRef === responseRef,
+  ) as { transition: WorkflowTransitionSummary } | undefined;
+  return transition
+    ? transitionText(model, transition.transition)
+    : { text: "Turn completed.", truncated: false, maxChars: null };
+}
+
+type WorkflowTransitionSummary = {
+  fromState: string;
+  action: string;
+  handoffText?: string;
+  parsed?: Record<string, unknown>;
+};
+
+function transitionText(
+  model: NormalizedAgentWorkflowModel,
+  transition: WorkflowTransitionSummary,
+) {
+  const lines: string[] = [];
+  if (transition.handoffText?.trim()) lines.push(transition.handoffText.trim());
+  lines.push(
+    `Action: ${actionLabel(model, transition.fromState, transition.action)}`,
+  );
+  for (const [key, value] of Object.entries(transition.parsed ?? {})) {
+    if (key === "action" || key === "rawXml" || key === "responseRef") continue;
+    lines.push(`${resultFieldLabel(key)}: ${formatResultValue(value)}`);
+  }
+  return { text: lines.join("\n"), truncated: false, maxChars: null };
+}
+
+function roleForState(
+  model: NormalizedAgentWorkflowModel,
+  stateId: string,
+): string {
+  const state = model.states[stateId];
+  return state && !state.terminal ? state.owner : "workflow";
+}
+
+function roleLabel(
+  model: NormalizedAgentWorkflowModel,
+  roleId: string,
+): string {
+  return model.roles[roleId]?.label ?? labelFromId(roleId);
+}
+
+function sessionLabel(
+  role: string,
+  executorType?: string | null,
+  model?: string | null,
+): string {
+  const details = [executorType, model].filter(Boolean);
+  return details.length
+    ? `${role} session · ${details.join(" · ")}`
+    : `${role} session`;
+}
+
+function actionLabel(
+  model: NormalizedAgentWorkflowModel,
+  stateId: string,
+  actionId: string,
+): string {
+  const state = model.states[stateId];
+  return state && !state.terminal
+    ? (state.actions[actionId]?.label ?? labelFromId(actionId))
+    : labelFromId(actionId);
+}
+
+function resultFieldLabel(key: string): string {
+  if (key === "requestedChangesForm") return "Requested changes form";
+  return labelFromId(key);
+}
+
+function formatResultValue(value: unknown): string {
+  if (typeof value === "string") {
+    if (/<\s*beadsForm\b/iu.test(value)) return "Structured form recorded.";
+    return productSafeText(value);
+  }
+  if (typeof value === "number" || typeof value === "boolean")
+    return String(value);
+  if (Array.isArray(value)) return value.map(formatResultValue).join(", ");
+  if (value === null || value === undefined) return "";
+  return JSON.stringify(value);
+}
+
+function labelFromId(id: string): string {
+  return id
+    .replace(/[_-]+/g, " ")
+    .replace(/\b\w/g, (char) => char.toUpperCase());
+}
+
+function originalTask(inputs: Record<string, unknown>): string | null {
+  for (const key of ["featureRequest", "formRequest", "task"]) {
+    if (typeof inputs[key] === "string" && inputs[key].trim())
+      return inputs[key];
+  }
+  return null;
+}
+
+function statusLabel(status: string): string {
+  if (status === "completed") return "Complete";
+  if (status === "running") return "In progress";
+  if (status === "failed") return "Failed";
+  if (status === "cancelled") return "Cancelled";
+  return labelFromId(status);
+}

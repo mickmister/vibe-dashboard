@@ -1,0 +1,61 @@
+{
+  "schemaVersion": 1,
+  "name": "LV2K Invalid XML Blocked",
+  "description": "API-loaded workflow fixture that exhausts invalid XML retry through real VK qa-mode messages.",
+  "inputs": {
+    "featureRequest": {
+      "type": "markdown",
+      "required": true,
+      "description": "Task to complete."
+    }
+  },
+  "roles": {
+    "reviewer": {
+      "label": "Reviewer",
+      "description": "Returns workflow decision XML or triggers retry/blocked handling."
+    }
+  },
+  "initialState": "review",
+  "states": {
+    "review": {
+      "owner": "reviewer",
+      "steps": [
+        {
+          "id": "decide",
+          "type": "agent_turn",
+          "turnType": "decision",
+          "prompt": {
+            "template": "LV2K_STEP:invalid_xml_decide\n\nReview {{inputs.featureRequest}}. Return final decision XML for the available action."
+          },
+          "response": {
+            "format": "xml",
+            "schema": { "format": "xsd", "source": "state_actions" },
+            "invalidXmlRetry": {
+              "maxAttempts": 1,
+              "prompt": "engine_default_with_validation_errors",
+              "onExhausted": "blocked"
+            },
+            "storeRawXml": true,
+            "rawXmlMaxChars": 20000,
+            "storeParsedFields": true,
+            "unknownFields": "reject_unless_allowed_by_result_contract"
+          }
+        }
+      ],
+      "actions": {
+        "approved": {
+          "label": "Approved",
+          "targetState": "done",
+          "result": {
+            "fields": {
+              "summary": { "type": "markdown" }
+            },
+            "required": ["summary"],
+            "unknownFields": "reject"
+          }
+        }
+      }
+    },
+    "done": { "terminal": true }
+  }
+}

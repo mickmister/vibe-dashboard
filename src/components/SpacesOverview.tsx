@@ -7,13 +7,19 @@ import type {
 } from "../types";
 import {
   vkClient,
-  type Workspace,
   type WorkspaceSummary,
   type Repo,
   type RepoWithBranch,
+  type ActivitySnapshot,
 } from "../lib/vk-client";
+import {
+  buildWorkspaceActivityMap,
+  extractWorkspaceIdFromTabGroup,
+  getTabGroupActivity,
+  type CraftActivityIndicator,
+} from "../lib/vkActivityIndicators";
 
-interface DashboardWorkspace {
+export interface DashboardWorkspace {
   id: string;
   name: string;
   branch: string;
@@ -72,11 +78,7 @@ function sortDashboardWorkspaces(workspaces: DashboardWorkspace[]) {
 }
 
 function getTabGroupWorkspaceId(tabGroup: TabGroup): string | null {
-  for (const tab of tabGroup.tabs) {
-    const match = tab.url.match(/\/workspaces\/([^/?#]+)/);
-    if (match?.[1]) return decodeURIComponent(match[1]);
-  }
-  return null;
+  return extractWorkspaceIdFromTabGroup(tabGroup);
 }
 
 function getTabGroupDisplayLabel(
@@ -288,6 +290,7 @@ function WorkspaceRow({
   onOpenInNewTabGroup,
   isStoppingDevServer,
   onStopDevServer,
+  activity,
 }: {
   workspace: DashboardWorkspace;
   tabGroupNav?: {
@@ -299,6 +302,7 @@ function WorkspaceRow({
   onOpenInNewTabGroup?: () => void;
   isStoppingDevServer?: boolean;
   onStopDevServer?: () => void;
+  activity?: CraftActivityIndicator | null;
 }) {
   const activityTime = ws.latest_process_completed_at || ws.updated_at;
   const hasDiffStats =
@@ -349,6 +353,7 @@ function WorkspaceRow({
                 )}
               </>
             )}
+            {activity ? <CraftActivityBadge activity={activity} /> : null}
             {showsDevServerControls && (
               <span className="inline-flex items-center gap-1 rounded-full border border-cyan-500/30 bg-cyan-500/15 px-2 py-0.5 font-medium text-cyan-400">
                 <span className="w-1.5 h-1.5 rounded-full bg-cyan-400 animate-pulse" />
@@ -551,7 +556,7 @@ function RunningDevServersSection({
 }: {
   workspaces: DashboardWorkspace[];
   loading: boolean;
-  onStop: (workspaceId: string) => Promise<void>;
+  onStop?: (workspaceId: string) => void | Promise<void>;
   stoppingIds: Set<string>;
   workspaceTabGroupMap: Map<
     string,
@@ -597,7 +602,13 @@ function RunningDevServersSection({
               key={ws.id}
               workspace={ws}
               isStoppingDevServer={stoppingIds.has(ws.id)}
-              onStopDevServer={() => onStop(ws.id)}
+              onStopDevServer={
+                onStop
+                  ? () => {
+                      void onStop(ws.id);
+                    }
+                  : undefined
+              }
               {...(tabGroupNav ? { tabGroupNav } : {})}
               {...(!tabGroupNav && onRequestOpenWorkspace
                 ? {
@@ -612,6 +623,29 @@ function RunningDevServersSection({
   );
 }
 
+
+function useVKActivityData() {
+  const [snapshot, setSnapshot] = useState<ActivitySnapshot | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  const fetchActivity = useCallback(async () => {
+    try {
+      setSnapshot(await vkClient.getActivitySnapshot());
+      setError(null);
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : String(caught));
+    }
+  }, []);
+
+  useEffect(() => {
+    void fetchActivity();
+    const interval = window.setInterval(() => void fetchActivity(), 5000);
+    return () => window.clearInterval(interval);
+  }, [fetchActivity]);
+
+  return { snapshot, error };
+}
+
 // ── Craft Row ───────────────────────────────────────────────────────────
 
 function TabGroupRow({
@@ -620,12 +654,14 @@ function TabGroupRow({
   onNavigate,
   timeLabel,
   label,
+  activity,
 }: {
   space: { id: string; name: string };
   tg: TabGroup;
   onNavigate: () => void;
   timeLabel?: string | undefined;
   label?: string | undefined;
+  activity?: CraftActivityIndicator | null;
 }) {
   return (
     <button
@@ -644,6 +680,7 @@ function TabGroupRow({
               ` / ${tg.pairs.length} pair${tg.pairs.length !== 1 ? "s" : ""}`}
           </span>
           {timeLabel && <span>{timeLabel}</span>}
+          {activity ? <CraftActivityBadge activity={activity} /> : null}
         </span>
       </div>
       <svg
@@ -660,6 +697,21 @@ function TabGroupRow({
         />
       </svg>
     </button>
+  );
+}
+
+
+function CraftActivityBadge({ activity }: { activity: CraftActivityIndicator }) {
+  const className = activity.level === "active"
+    ? "border-emerald-700 bg-emerald-950/50 text-emerald-200"
+    : activity.level === "queued"
+      ? "border-cyan-700 bg-cyan-950/50 text-cyan-200"
+      : "border-amber-700 bg-amber-950/50 text-amber-200";
+  return (
+    <span className={`inline-flex items-center gap-1 rounded-full border px-2 py-0.5 ${className}`} title={activity.callbackStateAvailable ? activity.label : `${activity.label}; callback registry unavailable`}>
+      <span className={`h-1.5 w-1.5 rounded-full ${activity.level === "active" ? "animate-pulse bg-emerald-300" : activity.level === "queued" ? "bg-cyan-300" : "bg-amber-300"}`} aria-hidden="true" />
+      {activity.label}
+    </span>
   );
 }
 
@@ -691,10 +743,12 @@ function StarredTabGroups({
   workspace,
   onNavigateToTabGroup,
   tabGroupDisplayLabelById,
+  activityByWorkspaceId,
 }: {
   workspace: WorkspaceState;
   onNavigateToTabGroup: (spaceId: string, tabGroupId: string) => void;
   tabGroupDisplayLabelById: Map<string, string>;
+  activityByWorkspaceId: Map<string, CraftActivityIndicator>;
 }) {
   const allItems = useNonSystemTabGroups(workspace);
 
@@ -715,6 +769,7 @@ function StarredTabGroups({
             tg={tg}
             onNavigate={() => onNavigateToTabGroup(space.id, tg.id)}
             label={tabGroupDisplayLabelById.get(tg.id)}
+            activity={getTabGroupActivity(tg, activityByWorkspaceId)}
           />
         ))}
       </div>
@@ -952,10 +1007,12 @@ function RecentlyVisitedTabGroups({
   workspace,
   onNavigateToTabGroup,
   tabGroupDisplayLabelById,
+  activityByWorkspaceId,
 }: {
   workspace: WorkspaceState;
   onNavigateToTabGroup: (spaceId: string, tabGroupId: string) => void;
   tabGroupDisplayLabelById: Map<string, string>;
+  activityByWorkspaceId: Map<string, CraftActivityIndicator>;
 }) {
   const allItems = useNonSystemTabGroups(workspace);
   const [page, setPage] = useState(0);
@@ -996,6 +1053,7 @@ function RecentlyVisitedTabGroups({
                 : undefined
             }
             label={tabGroupDisplayLabelById.get(tg.id)}
+            activity={getTabGroupActivity(tg, activityByWorkspaceId)}
           />
         ))}
       </div>
@@ -1008,10 +1066,12 @@ function RecentlyCreatedTabGroups({
   workspace,
   onNavigateToTabGroup,
   tabGroupDisplayLabelById,
+  activityByWorkspaceId,
 }: {
   workspace: WorkspaceState;
   onNavigateToTabGroup: (spaceId: string, tabGroupId: string) => void;
   tabGroupDisplayLabelById: Map<string, string>;
+  activityByWorkspaceId: Map<string, CraftActivityIndicator>;
 }) {
   const allItems = useNonSystemTabGroups(workspace);
   const [page, setPage] = useState(0);
@@ -1050,6 +1110,7 @@ function RecentlyCreatedTabGroups({
               tg.createdAt ? formatRelativeTime(tg.createdAt) : undefined
             }
             label={tabGroupDisplayLabelById.get(tg.id)}
+            activity={getTabGroupActivity(tg, activityByWorkspaceId)}
           />
         ))}
       </div>
@@ -1064,10 +1125,12 @@ function SpacesSection({
   workspace,
   onNavigateToTabGroup,
   tabGroupDisplayLabelById,
+  activityByWorkspaceId,
 }: {
   workspace: WorkspaceState;
   onNavigateToTabGroup: (spaceId: string, tabGroupId: string) => void;
   tabGroupDisplayLabelById: Map<string, string>;
+  activityByWorkspaceId: Map<string, CraftActivityIndicator>;
 }) {
   const spacesWithTabGroups = workspace.spaces
     .filter((space) => !space.isSystem)
@@ -1115,6 +1178,7 @@ function SpacesSection({
                         {tg.pairs.length} pair{tg.pairs.length !== 1 ? "s" : ""}
                       </span>
                     )}
+                    {getTabGroupActivity(tg, activityByWorkspaceId) ? <CraftActivityBadge activity={getTabGroupActivity(tg, activityByWorkspaceId)!} /> : null}
                   </span>
                 </div>
                 <svg
@@ -1170,6 +1234,7 @@ export function SpacesOverview({
   onOpenVKWorkspace,
 }: SpacesOverviewProps) {
   const { workspaces, repos, loading, error, refetch } = useVKDashboardData();
+  const { snapshot: activitySnapshot, error: activityError } = useVKActivityData();
   const [selectedRepoId, setSelectedRepoId] = useState<string | null>(null);
   const [page, setPage] = useState(0);
   const [spacePickerTarget, setSpacePickerTarget] =
@@ -1215,6 +1280,7 @@ export function SpacesOverview({
     }
     return map;
   }, [workspace.tabGroups, workspaceNameById]);
+  const activityByWorkspaceId = useMemo(() => buildWorkspaceActivityMap(activitySnapshot), [activitySnapshot]);
 
   const handleStopDevServer = useCallback(
     async (workspaceId: string) => {
@@ -1243,8 +1309,154 @@ export function SpacesOverview({
     [refetch, stoppingDevServerIds],
   );
 
+  return (
+    <SpacesOverviewView
+      workspace={workspace}
+      savedSessions={savedSessions}
+      currentSessionId={currentSessionId}
+      onResumeSession={onResumeSession}
+      onRenameSession={onRenameSession}
+      onDeleteSession={onDeleteSession}
+      onStartNewSession={onStartNewSession}
+      onNavigateToTabGroup={onNavigateToTabGroup}
+      workspaces={workspaces}
+      repos={repos}
+      loading={loading}
+      error={error}
+      stoppingDevServerIds={stoppingDevServerIds}
+      onStopDevServer={handleStopDevServer}
+      {...(onOpenVKWorkspace
+        ? {
+            onOpenWorkspaceInSpace: (targetWorkspace, spaceId) =>
+              onOpenVKWorkspace(
+                targetWorkspace.id,
+                targetWorkspace.name,
+                targetWorkspace.container_ref || "",
+                spaceId,
+              ),
+          }
+        : {})}
+    />
+  );
+}
+
+export interface SpacesOverviewViewProps extends SpacesOverviewProps {
+  workspaces: DashboardWorkspace[];
+  repos: Repo[];
+  loading: boolean;
+  error: string | null;
+  stoppingDevServerIds?: Set<string>;
+  onStopDevServer?: (workspaceId: string) => void | Promise<void>;
+  onOpenWorkspaceInSpace?: (
+    workspace: DashboardWorkspace,
+    spaceId: string,
+  ) => void | Promise<void>;
+  initialSelectedRepoId?: string | null;
+  initialSpacePickerTargetId?: string | null;
+  initialOpenCraftActionError?: string | null;
+}
+
+export function SpacesOverviewView({
+  workspace,
+  savedSessions,
+  currentSessionId,
+  onResumeSession,
+  onRenameSession,
+  onDeleteSession,
+  onStartNewSession,
+  onNavigateToTabGroup,
+  workspaces,
+  repos,
+  loading,
+  error,
+  stoppingDevServerIds: externalStoppingDevServerIds,
+  onStopDevServer,
+  onOpenWorkspaceInSpace,
+  initialSelectedRepoId = null,
+  initialSpacePickerTargetId = null,
+  initialOpenCraftActionError = null,
+}: SpacesOverviewViewProps) {
+  const [selectedRepoId, setSelectedRepoId] = useState<string | null>(
+    initialSelectedRepoId,
+  );
+  const [page, setPage] = useState(0);
+  const initialSpacePickerTarget = useMemo(() => {
+    if (!initialSpacePickerTargetId) return null;
+    return (
+      workspaces.find((candidate) => candidate.id === initialSpacePickerTargetId) ??
+      null
+    );
+  }, [initialSpacePickerTargetId, workspaces]);
+  const [spacePickerTarget, setSpacePickerTarget] =
+    useState<DashboardWorkspace | null>(initialSpacePickerTarget);
+  const [pendingOpenCraftRequest, setPendingOpenCraftRequest] =
+    useState<{ workspace: DashboardWorkspace; spaceId: string } | null>(null);
+  const [openCraftRetryRequest, setOpenCraftRetryRequest] =
+    useState<{ workspace: DashboardWorkspace; spaceId: string } | null>(null);
+  const [openCraftActionError, setOpenCraftActionError] = useState<
+    string | null
+  >(initialOpenCraftActionError);
+  const stoppingDevServerIds = externalStoppingDevServerIds ?? new Set<string>();
+  const isOpenCraftPending = pendingOpenCraftRequest != null;
+
+  useEffect(() => {
+    setSpacePickerTarget(initialSpacePickerTarget);
+  }, [initialSpacePickerTarget]);
+
+  useEffect(() => {
+    setOpenCraftActionError(initialOpenCraftActionError);
+  }, [initialOpenCraftActionError]);
+
+  useEffect(() => {
+    setSelectedRepoId(initialSelectedRepoId);
+  }, [initialSelectedRepoId]);
+
+  const runOpenCraftRequest = useCallback(
+    async (request: { workspace: DashboardWorkspace; spaceId: string }) => {
+      if (!onOpenWorkspaceInSpace) {
+        setOpenCraftActionError("Open Craft is unavailable.");
+        return;
+      }
+
+      setPendingOpenCraftRequest(request);
+      setOpenCraftRetryRequest(request);
+      setOpenCraftActionError(null);
+      try {
+        await onOpenWorkspaceInSpace(request.workspace, request.spaceId);
+        setSpacePickerTarget(null);
+        setOpenCraftRetryRequest(null);
+      } catch (err) {
+        setOpenCraftActionError(getDashboardOpenCraftErrorMessage(err));
+      } finally {
+        setPendingOpenCraftRequest(null);
+      }
+    },
+    [onOpenWorkspaceInSpace],
+  );
+
+  const workspaceNameById = useMemo(() => {
+    const map = new Map<string, string>();
+    for (const item of workspaces) {
+      map.set(item.id, item.name || item.branch);
+    }
+    return map;
+  }, [workspaces]);
+  const tabGroupDisplayLabelById = useMemo(() => {
+    const map = new Map<string, string>();
+    for (const tabGroup of workspace.tabGroups) {
+      map.set(tabGroup.id, getTabGroupDisplayLabel(tabGroup, workspaceNameById));
+    }
+    return map;
+  }, [workspace.tabGroups, workspaceNameById]);
+  const { snapshot: activitySnapshot, error: activityError } = useVKActivityData();
+  const activityByWorkspaceId = useMemo(
+    () => buildWorkspaceActivityMap(activitySnapshot),
+    [activitySnapshot],
+  );
+
   const openSpacePickerForWorkspace = (targetWorkspace: DashboardWorkspace) => {
-    openCraftMutation.reset();
+    setOpenCraftActionError(null);
+    setOpenCraftRetryRequest(null);
     setSpacePickerTarget(targetWorkspace);
   };
 
@@ -1337,23 +1549,26 @@ export function SpacesOverview({
           tabGroupDisplayLabelById={tabGroupDisplayLabelById}
         />
 
+        {activityError ? <div className="mb-4 rounded border border-amber-900 bg-amber-950/30 p-2 text-xs text-amber-200">Live VK activity unavailable: {activityError}. Callback visibility remains unavailable until VK exposes a callback registry.</div> : null}
+
         {/* Starred Craft */}
         <StarredTabGroups
           workspace={workspace}
           onNavigateToTabGroup={onNavigateToTabGroup}
           tabGroupDisplayLabelById={tabGroupDisplayLabelById}
+          activityByWorkspaceId={activityByWorkspaceId}
         />
 
         {/* Running Dev Servers */}
         <RunningDevServersSection
           workspaces={workspaces}
           loading={loading}
-          onStop={handleStopDevServer}
+          {...(onStopDevServer ? { onStop: onStopDevServer } : {})}
           stoppingIds={stoppingDevServerIds}
           workspaceTabGroupMap={workspaceTabGroupMap}
           onNavigateToTabGroup={onNavigateToTabGroup}
           onRequestOpenWorkspace={
-            onOpenVKWorkspace ? openSpacePickerForWorkspace : undefined
+            onOpenWorkspaceInSpace ? openSpacePickerForWorkspace : undefined
           }
         />
 
@@ -1362,6 +1577,7 @@ export function SpacesOverview({
           workspace={workspace}
           onNavigateToTabGroup={onNavigateToTabGroup}
           tabGroupDisplayLabelById={tabGroupDisplayLabelById}
+          activityByWorkspaceId={activityByWorkspaceId}
         />
 
         {/* Recently Created Craft */}
@@ -1369,6 +1585,7 @@ export function SpacesOverview({
           workspace={workspace}
           onNavigateToTabGroup={onNavigateToTabGroup}
           tabGroupDisplayLabelById={tabGroupDisplayLabelById}
+          activityByWorkspaceId={activityByWorkspaceId}
         />
 
         {/* VK Workspaces Section */}
@@ -1424,15 +1641,19 @@ export function SpacesOverview({
                     <WorkspaceRow
                       key={ws.id}
                       workspace={ws}
+                      activity={activityByWorkspaceId.get(ws.id) ?? null}
                       isStoppingDevServer={stoppingDevServerIds.has(ws.id)}
                       onStopDevServer={
-                        ws.has_running_dev_server ||
-                        stoppingDevServerIds.has(ws.id)
-                          ? () => handleStopDevServer(ws.id)
+                        onStopDevServer &&
+                        (ws.has_running_dev_server ||
+                          stoppingDevServerIds.has(ws.id))
+                          ? () => {
+                              void onStopDevServer(ws.id);
+                            }
                           : undefined
                       }
                       {...(tabGroupNav ? { tabGroupNav } : {})}
-                      {...(!tabGroupNav && onOpenVKWorkspace
+                      {...(!tabGroupNav && onOpenWorkspaceInSpace
                         ? {
                             onOpenInNewTabGroup: () =>
                               openSpacePickerForWorkspace(ws),
@@ -1459,40 +1680,40 @@ export function SpacesOverview({
               workspace={workspace}
               onNavigateToTabGroup={onNavigateToTabGroup}
               tabGroupDisplayLabelById={tabGroupDisplayLabelById}
+              activityByWorkspaceId={activityByWorkspaceId}
             />
           </>
         )}
       </div>
 
       {/* Space picker modal */}
-      {spacePickerTarget && onOpenVKWorkspace && (
+      {spacePickerTarget && onOpenWorkspaceInSpace && (
         <SpacePickerModal
           workspace={workspace}
           targetWorkspace={spacePickerTarget}
           onSelect={(spaceId) => {
-            openCraftMutation.mutate({
+            void runOpenCraftRequest({
               workspace: spacePickerTarget,
               spaceId,
             });
           }}
           onClose={() => {
-            if (openCraftMutation.isPending) return;
+            if (isOpenCraftPending) return;
             setSpacePickerTarget(null);
-            openCraftMutation.reset();
+            setOpenCraftActionError(null);
+            setOpenCraftRetryRequest(null);
           }}
           pendingSpaceId={
-            openCraftMutation.isPending
-              ? openCraftMutation.variables?.spaceId ?? null
+            pendingOpenCraftRequest?.workspace.id === spacePickerTarget.id
+              ? pendingOpenCraftRequest.spaceId
               : null
           }
-          actionError={
-            openCraftMutation.isError
-              ? getDashboardOpenCraftErrorMessage(openCraftMutation.error)
-              : null
-          }
+          actionError={openCraftActionError}
           onRetry={
-            openCraftMutation.variables
-              ? () => openCraftMutation.mutate(openCraftMutation.variables!)
+            openCraftRetryRequest
+              ? () => {
+                  void runOpenCraftRequest(openCraftRetryRequest);
+                }
               : undefined
           }
         />

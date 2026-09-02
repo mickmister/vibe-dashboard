@@ -1,0 +1,95 @@
+{
+	admin {$CADDY_ADMIN:localhost:2019}
+	auto_https off
+}
+
+:{$CADDY_PORT:3001} {
+
+	handle_path /vk-static/* {
+		reverse_proxy localhost:{$BACKEND_PORT:3007} {
+			header_up Host {upstream_hostport}
+			header_up Upgrade {http.request.header.Upgrade}
+			header_up Connection {http.request.header.Connection}
+			header_up Accept-Encoding identity
+		}
+	}
+
+	# Dashboard API routes are handled by Springboard's dev middleware on the Vite port.
+	# Route them before the SPA fallback so protocol errors surface as JSON.
+	handle /dashboard/api/* {
+		reverse_proxy localhost:{$DASHBOARD_PORT:3005} {
+			header_up Host {upstream_hostport}
+		}
+	}
+
+	@vibe_dashboard_root {
+		path /
+		path /dashboard /dashboard/*
+		not query folder=*
+	}
+
+	@vibe_dashboard_assets {
+		path /.springboard/*
+		path /node_modules/*
+		path /packages/*
+		path /src/*
+		path /@vite/*
+		path /@id/*
+		path /@react-refresh
+		path /@fs/*
+		path /kv/*
+		path /rpc/*
+		path /assets/*
+	}
+
+	handle @vibe_dashboard_root {
+		reverse_proxy localhost:{$DASHBOARD_PORT:3005} {
+			header_up Host {upstream_hostport}
+			header_up Upgrade {http.request.header.Upgrade}
+			header_up Connection {http.request.header.Connection}
+		}
+	}
+
+	handle @vibe_dashboard_assets {
+		reverse_proxy localhost:{$DASHBOARD_PORT:3005} {
+			header_up Host {upstream_hostport}
+			header_up Upgrade {http.request.header.Upgrade}
+			header_up Connection {http.request.header.Connection}
+		}
+	}
+
+	handle /ws {
+		reverse_proxy localhost:{$DASHBOARD_PORT:3005} {
+			header_up Host {upstream_hostport}
+			header_up Upgrade {http.request.header.Upgrade}
+			header_up Connection {http.request.header.Connection}
+		}
+	}
+
+	handle /manifest.json {
+		reverse_proxy localhost:{$DASHBOARD_PORT:3005} {
+			header_up Host {upstream_hostport}
+		}
+	}
+
+	handle_path /vk-api/* {
+		rewrite * /api{uri}
+		reverse_proxy localhost:{$BACKEND_PORT:3007} {
+			header_up Host {http.request.host}
+		}
+	}
+
+	handle /* {
+		reverse_proxy localhost:{$BACKEND_PORT:3007} {
+			header_up Upgrade {http.request.header.Upgrade}
+			header_up Connection {http.request.header.Connection}
+			header_up Accept-Encoding identity
+		}
+	}
+
+	log {
+		output file {$CADDY_ACCESS_LOG:/var/log/caddy/access.log}
+		format console
+		level INFO
+	}
+}

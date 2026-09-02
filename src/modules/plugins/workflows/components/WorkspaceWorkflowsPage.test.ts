@@ -1,0 +1,456 @@
+import React from "react";
+import { renderToStaticMarkup } from "react-dom/server";
+import { describe, expect, it } from "vitest";
+import {
+  LaunchSummary,
+  WorkspaceWorkflowsHomeView,
+  buildLaunchRoleBinding,
+} from "./WorkspaceWorkflowsPage";
+import type { WorkspaceWorkflowsHomeModel } from "../client/workflowsHomeApi";
+
+const forbiddenTerms = [
+  "webhook",
+  "HMAC",
+  "queue item",
+  "trigger",
+  "delivery ID",
+  "execution process ID",
+  "runReady",
+  "raw JSON",
+  "raw XML",
+  "WorkflowStepState",
+];
+
+describe("WorkspaceWorkflowsHomeView", () => {
+  it("renders a clean workspace workflows shell without debug terms", () => {
+    const html = renderToStaticMarkup(
+      React.createElement(WorkspaceWorkflowsHomeView, {
+        home: fixture(),
+        loading: false,
+        error: null,
+        onRefresh: () => {},
+      }),
+    );
+    expect(html).toContain('data-testid="standalone-dashboard-page"');
+    expect(html).toContain("h-screen");
+    expect(html).toContain("overflow-y-auto");
+    expect(html).toContain("Workspace workflow center");
+    expect(html).toContain("Create, run, and monitor workflows for");
+    expect(html).toContain("workspace-a");
+    expect(html).toContain("Workflows");
+    expect(html).toContain("Create workflow");
+    expect(html).toContain("Choose beads");
+    expect(html).toContain("Library");
+    expect(html).toContain('href="/dashboard/workflows/roadmap?workspaceId=workspace-a"');
+    expect(html).toContain('href="/dashboard/workflows/library?workspaceId=workspace-a"');
+    expect(html).toContain(
+      'href="/dashboard/workflows/new?workspaceId=workspace-a"',
+    );
+    expect(html).toContain("Your workflows");
+    expect(html).toContain("Starter templates");
+    expect(html).toContain("Recent Batch runs");
+    expect(html).toContain("Recent runs");
+    expect(html).toContain("Needs attention");
+    expect(html).toContain("Workflow engine");
+    expect(html).toContain("Production workflow recipes are powered by the required orchestration engine.");
+    expect(html).toContain("Setup needed");
+    expect(html).toContain("Start from task unavailable");
+    expect(html).toContain("Generated workflow recipes");
+    expect(html).toContain("Workspace lanes");
+    expect(html).toContain("Feature lane");
+    expect(html).toContain("Ready for isolated workflow work.");
+    expect(html).not.toContain("/Users/");
+    expect(html).toContain("Workflow dashboard summary");
+    expect(html).toContain("Browser notifications");
+    expect(html).toContain("Browser notifications are unavailable in this environment.");
+    expect(html).toContain("Enable");
+    expect(html).toContain("Items waiting on you");
+    expect(html).toContain("Active runs");
+    expect(html).toContain("Running, waiting, or blocked");
+    expect(html).toContain(
+      "Running now. Open the run page to see who has the next step.",
+    );
+    expect(html).toContain("Needs attention before the workflow can continue.");
+    expect(html).toContain(
+      "The workflow resumes after you submit the requested input.",
+    );
+    expect(html).toContain("Dev Review Tester");
+    expect(html).toContain("Run");
+    expect(html).toContain("Batch run");
+    expect(html).toContain("Create copy");
+    expect(html).toContain("Duplicate");
+    expect(html).toContain("Edit");
+    expect(html).toContain('href="/dashboard/workflows/new?workspaceId=workspace-a&amp;sourceMode=duplicate&amp;sourceId=design-drt"');
+    expect(html).toContain('href="/dashboard/workflows/editor/design-drt?workspaceId=workspace-a"');
+    expect(html).toContain("Starter template");
+    expect(html).toContain("Create form from agent");
+    expect(html).toContain("Feature workflow run");
+    expect(html).toContain("Blocked workflow run");
+    expect(html).toContain("1 complete · 1 running · 2 pending · 1 errors");
+    expect(html).toContain("Open batch details");
+    expect(html).toContain('href="/dashboard/workflow-batches/batch-a"');
+    expect(html).toContain("Batch item details");
+    expect(html).toContain("Line 2");
+    expect(html).toContain("Batch item 2 is missing required workflow fields.");
+    expect(html).toContain("featureRequest: This field is required.");
+    expect(html).not.toContain('href="/dashboard/workflows/run-a"');
+    expect(html).toContain('href="/dashboard/workflows/run-blocked"');
+    expect(html).toContain('href="/dashboard/workflows/legacy-attention"');
+    for (const term of forbiddenTerms) expect(html).not.toContain(term);
+  });
+
+  it("renders calm empty states and product error text", () => {
+    const html = renderToStaticMarkup(
+      React.createElement(WorkspaceWorkflowsHomeView, {
+        home: {
+          workspaceId: "workspace-a",
+          lanes: null,
+          userWorkflows: [],
+          starterTemplates: [],
+          recentRuns: [],
+          needsInput: [],
+          recentBatches: [],
+        },
+        loading: false,
+        error: "Workspace is required.",
+        onRefresh: () => {},
+      }),
+    );
+    expect(html).toContain(
+      "No workflows yet. Create a copy from a Starter template or create an empty draft.",
+    );
+    expect(html).toContain("No Starter templates are available right now.");
+    expect(html).toContain("No Batch runs in this workspace yet.");
+    expect(html).toContain("No workflow runs in this workspace yet.");
+    expect(html).toContain("Nothing needs your attention right now.");
+    expect(html).toContain(
+      "No active workflow runs right now. Start a workflow or open a recent run to review history.",
+    );
+    expect(html).toContain("Workspace is required.");
+    for (const term of forbiddenTerms) expect(html).not.toContain(term);
+  });
+
+
+  it("renders global workflows home without workspace-required dead end", () => {
+    const globalHome = {
+      ...fixture(),
+      workspaceId: null,
+      lanes: null,
+      needsInput: [],
+      recentRuns: fixture().recentRuns.map((run, index) => ({
+        ...run,
+        workspaceId: index === 0 ? "workspace-b" : "workspace-a",
+      })),
+    };
+    const routeParams = new URLSearchParams("voyage=v1&workspaceId=workspace-a&filter=active");
+    routeParams.delete("workspaceId");
+    const html = renderToStaticMarkup(
+      React.createElement(WorkspaceWorkflowsHomeView, {
+        home: globalHome,
+        loading: false,
+        error: null,
+        onRefresh: () => {},
+        routeParams,
+      }),
+    );
+    expect(html).toContain("all workspaces");
+    expect(html).not.toContain("Workspace is required");
+    expect(html).toContain("Choose workspace to run");
+    expect(html).toContain("Choose workspace to create lane");
+    expect(html).toContain("Choose workspace for meta-workflows");
+    expect(html).toContain("Choose workspace to copy");
+    expect(html).not.toContain(">Create copy</button>");
+    expect(html).toContain("Workspace workspace-b");
+    expect(html).toContain("Workspace workspace-a");
+    expect(html).not.toContain('href="/dashboard/workflows/meta-runs"');
+    expect(html).toContain('href="/dashboard/workflows/roadmap?voyage=v1&amp;filter=active"');
+    expect(html).toContain('href="/dashboard/workflows/library?voyage=v1&amp;filter=active"');
+    expect(html).not.toContain('/beads/project');
+    for (const term of forbiddenTerms) expect(html).not.toContain(term);
+  });
+
+  it("renders Gas City-backed orchestration status with product-safe setup and recipe states", () => {
+    const html = renderToStaticMarkup(
+      React.createElement(WorkspaceWorkflowsHomeView, {
+        home: fixture(),
+        loading: false,
+        error: null,
+        onRefresh: () => {},
+        gasCityEngine: {
+          health: {
+            status: "healthy",
+            summary: "gc sling reviewer bead --on formula succeeded with provider diagnostics from /tmp/private",
+            version: "1.4.1",
+            warnings: ["raw XML from webhook queue item /Users/me/secret"],
+          },
+          recipes: [
+            {
+              id: "recipe-drt",
+              name: "Dev Review Tester recipe",
+              summary: "Generated from the published workflow design.",
+              sourceWorkflow: "Dev Review Tester",
+              status: "ready",
+            },
+          ],
+          launch: {
+            enabled: false,
+            summary: "Use gc sling later after launch wiring is enabled.",
+          },
+          diagnosticsRef: "gas-city-launch:abc123",
+        },
+      }),
+    );
+
+    expect(html).toContain("Workflow engine");
+    expect(html).toContain("Ready");
+    expect(html).toContain("Pinned release: 1.4.1");
+    expect(html).toContain("Dev Review Tester recipe");
+    expect(html).toContain("Start from task unavailable");
+    expect(html).toContain("Advanced engine details");
+    expect(html).toContain("Diagnostics reference: gas-city-launch:abc123");
+    expect(html).not.toMatch(/gc sling|provider diagnostics|raw XML|webhook|queue item|\/Users|\/tmp|stdout|stderr|bd show|git status/i);
+  });
+
+  it("TEST_CASE_M104_1A renders launch summary, run-scoped instructions context, and session choices", () => {
+    const html = renderToStaticMarkup(
+      React.createElement(LaunchSummary, {
+        workflow: {
+          id: "design-drt",
+          title: "Dev Review Tester",
+          description: null,
+          source: "published_design",
+          status: "ready",
+          version: 2,
+          unavailableReason: null,
+          canRun: true,
+          inputs: [],
+          roles: [],
+          launchSummary: {
+            firstStateId: "dev",
+            firstActorRoleId: "dev",
+            firstActorLabel: "Dev",
+            mayNeedHumanInput: true,
+            mayCallWorkflows: true,
+          },
+        },
+        inputs: [
+          {
+            id: "featureRequest",
+            type: "markdown",
+            required: true,
+            description: null,
+          },
+        ],
+        selectedSessions: [
+          {
+            role: { id: "dev", label: "Dev" },
+            text: "Create or reuse “Dev”",
+            executorSummary: "Claude Code · recommended",
+            warning: null,
+          },
+        ],
+      }),
+    );
+    expect(html).toContain("Launch summary");
+    expect(html).toContain("Dev Review Tester · Published v2");
+    expect(html).toContain("featureRequest");
+    expect(html).toContain("Dev in dev");
+    expect(html).toContain("This workflow may ask you for input.");
+    expect(html).toContain("This workflow may call another workflow.");
+    expect(html).toContain("Create or reuse");
+    expect(html).toContain("Claude Code · recommended");
+  });
+  it("TEST_CASE_SEBL_1D keeps workspace default executor/model unset in launch payloads", () => {
+    expect(
+      buildLaunchRoleBinding({
+        mode: "existing",
+        sessionId: "session-gemini",
+        executorType: "",
+        model: "",
+      }),
+    ).toEqual({ mode: "existing", sessionId: "session-gemini" });
+
+    expect(
+      buildLaunchRoleBinding({
+        mode: "create_or_reuse",
+        name: "Dev",
+        executorType: "CLAUDE_CODE",
+        model: "recommended",
+      }),
+    ).toEqual({
+      mode: "create_or_reuse",
+      name: "Dev",
+      executorType: "CLAUDE_CODE",
+      model: "recommended",
+    });
+  });
+});
+
+function fixture(): WorkspaceWorkflowsHomeModel {
+  return {
+    workspaceId: "workspace-a",
+    lanes: {
+      parentWorkspaceId: "workspace-a",
+      lanes: [
+        {
+          laneId: "lane-a",
+          parentWorkspaceId: "workspace-a",
+          name: "Feature lane",
+          purpose: "Isolated workflow work",
+          label: "Feature lane",
+          breadcrumb: "workspace-a / Feature lane",
+          status: "ready",
+          sourceBranch: "main",
+          workingBranch: "workflow/feature-lane",
+          worktree: { status: "clean", display: "Clean worktree", summary: null },
+          capacity: { write: { status: "available", activeLeaseId: null, ownerId: null, reason: null } },
+          boundRunIds: [],
+          boundBeadIds: [],
+          nextAction: "Ready for isolated workflow work.",
+          createdAt: 1,
+          updatedAt: 2,
+          archivedAt: null,
+        },
+      ],
+      counts: { ready: 1 },
+      activeWriteLanes: 0,
+      nextAction: "One lane is ready for workflow work.",
+    },
+    userWorkflows: [
+      {
+        id: "design-drt",
+        title: "Dev Review Tester",
+        description: "Feature work loop",
+        source: "published_design",
+        status: "ready",
+        version: 1,
+        unavailableReason: null,
+        canRun: true,
+        inputs: [
+          {
+            id: "featureRequest",
+            type: "markdown",
+            required: true,
+            description: null,
+          },
+        ],
+        roles: [{ id: "dev", label: "Dev", description: null }],
+      },
+      {
+        id: "design-draft",
+        title: "Planning Draft",
+        description: "Not published yet",
+        source: "published_design",
+        status: "unavailable",
+        version: null,
+        unavailableReason: "Publish this workflow before running it.",
+        canRun: false,
+        inputs: [],
+        roles: [],
+      },
+    ],
+    starterTemplates: [
+      {
+        id: "built-in/dev-review-tester",
+        title: "Dev / Review / Tester",
+        description: null,
+        source: "template",
+        status: "ready",
+        version: null,
+        unavailableReason: null,
+        canRun: false,
+        inputs: [],
+        roles: [],
+      },
+      {
+        id: "built-in/create-form-from-agent",
+        title: "Create form from agent",
+        description: null,
+        source: "template",
+        status: "ready",
+        version: null,
+        unavailableReason: null,
+        canRun: false,
+        inputs: [],
+        roles: [],
+      },
+    ],
+    recentRuns: [
+      {
+        runId: "run-a",
+        workflowName: "Feature workflow run",
+        workspaceId: "workspace-a",
+        status: "running",
+        startedAt: 1,
+        updatedAt: 2,
+        detailUrl: null,
+      },
+      {
+        runId: "run-blocked",
+        workflowName: "Blocked workflow run",
+        workspaceId: "workspace-a",
+        status: "blocked",
+        startedAt: 2,
+        updatedAt: 3,
+        detailUrl: "/dashboard/workflows/run-blocked",
+      },
+      {
+        runId: "run-complete",
+        workflowName: "Completed workflow run",
+        workspaceId: "workspace-a",
+        status: "completed",
+        startedAt: 1,
+        updatedAt: 4,
+        detailUrl: "/dashboard/workflows/run-complete",
+      },
+    ],
+    recentBatches: [
+      {
+        batchId: "batch-a",
+        workflowName: "Feature workflow run",
+        status: "running",
+        counts: {
+          total: 5,
+          completed: 1,
+          running: 1,
+          pending: 2,
+          failed: 1,
+          blocked: 0,
+          cancelled: 0,
+        },
+        items: [
+          {
+            batchItemId: "batch-a-item-0",
+            itemIndex: 0,
+            status: "completed",
+            runId: "run-0",
+            error: null,
+          },
+          {
+            batchItemId: "batch-a-item-1",
+            itemIndex: 1,
+            status: "failed",
+            runId: null,
+            error: {
+              code: "workflow_launch_validation_failed",
+              message: "Batch item 2 is missing required workflow fields.",
+              fieldErrors: { featureRequest: "This field is required." },
+            },
+          },
+        ],
+        updatedAt: 4,
+        detailUrl: "/dashboard/workflow-batches/batch-a",
+      },
+    ],
+    needsInput: [
+      {
+        attentionItemId: "attention-a",
+        title: "Answer planning questions",
+        description: "Please fill out the form.",
+        workflowName: "Feature workflow run",
+        createdAt: 3,
+        detailUrl: "/dashboard/workflows/legacy-attention",
+      },
+    ],
+  };
+}

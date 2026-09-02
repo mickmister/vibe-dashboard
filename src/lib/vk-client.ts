@@ -48,6 +48,77 @@ export interface RepoWithBranch {
   target_branch: string;
 }
 
+export type Executor =
+  | 'CLAUDE_CODE'
+  | 'CODEX'
+  | 'GEMINI'
+  | 'AMP'
+  | 'CURSOR_AGENT'
+  | 'COPILOT'
+  | 'DROID'
+  | 'OPENCODE'
+  | 'QWEN_CODE';
+
+export interface Session {
+  id: string;
+  workspace_id: string;
+  executor: Executor;
+  name?: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export type ActivitySessionStatus = 'idle' | 'queued' | 'running' | 'callback_waiting';
+
+export interface ActivityExecutionProcess {
+  execution_process_id: string;
+  run_reason: string;
+  status: 'running' | 'completed' | 'failed' | 'killed';
+  started_at: string;
+  updated_at: string;
+}
+
+export interface ActivityQueueSummary {
+  count: number;
+  queued_count: number;
+  leased_count: number;
+  starting_count: number;
+  running_count: number;
+  first_item_id: string | null;
+  updated_at: string | null;
+}
+
+export interface ActivityCallbackSummary {
+  available: boolean;
+  waiting_count: number;
+}
+
+export interface ActivitySession {
+  workspace_id: string;
+  session_id: string;
+  status: ActivitySessionStatus;
+  active_turn_count: number;
+  running_execution_processes: ActivityExecutionProcess[];
+  queue: ActivityQueueSummary;
+  callback: ActivityCallbackSummary;
+  updated_at: string;
+}
+
+export interface ActivityWorkspace {
+  workspace_id: string;
+  active_turn_count: number;
+  running_turn_count: number;
+  running_dev_server_count: number;
+  queued_count: number;
+  sessions: ActivitySession[];
+  updated_at: string;
+}
+
+export interface ActivitySnapshot {
+  generated_at: string;
+  workspaces: ActivityWorkspace[];
+}
+
 // ── API response envelope ───────────────────────────────────────────────────
 
 interface ApiResponse<T> {
@@ -104,6 +175,18 @@ export class VibeKanbanClient {
 
   getWorkspaceRepos(id: string): Promise<RepoWithBranch[]> {
     return this.get(`/workspaces/${id}/repos`);
+  }
+
+  getSessions(workspaceId: string): Promise<Session[]> {
+    return this.get(`/sessions?workspace_id=${encodeURIComponent(workspaceId)}`);
+  }
+
+  createSession(body: { workspace_id: string; executor: Executor; name?: string | null }): Promise<Session> {
+    return this.post('/sessions', body);
+  }
+
+  getActivitySnapshot(): Promise<ActivitySnapshot> {
+    return this.get('/activity');
   }
 
   getWorkspaceBranchStatus(id: string): Promise<unknown> {
