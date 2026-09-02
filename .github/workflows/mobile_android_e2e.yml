@@ -1,4 +1,4 @@
-name: mobile_android_e2e
+name: mobile_e2e
 
 on:
   workflow_dispatch:
