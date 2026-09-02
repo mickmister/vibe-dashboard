@@ -1,0 +1,90 @@
+import { readFile } from 'node:fs/promises';
+import { describe, expect, it } from 'vitest';
+
+describe('BeadsForm pending queue UI source', () => {
+  it('keeps default pending page focused on forms, not diagnostics or manual refresh chrome', async () => {
+    const source = await readFile(new URL('./BeadsFormModule.tsx', import.meta.url), 'utf8');
+
+    expect(source).not.toContain('Use Refresh after agents attach new forms');
+    expect(source).not.toContain('Update strategy');
+    expect(source).not.toContain('Skipped repos');
+    expect(source).not.toContain('Refreshing in the background… cached results remain visible.');
+    expect(source).not.toContain('>Refresh<');
+    expect(source).toContain('Checking for updates…');
+    expect(source).toContain('Loading pending BeadsForms');
+  });
+
+  it('uses a submitted success state with XML handoff copy fallback instead of showing the active form', async () => {
+    const source = await readFile(new URL('./BeadsFormModule.tsx', import.meta.url), 'utf8');
+
+    expect(source).toContain('copySubmittedResultHandoffXml(navigator.clipboard, result.values');
+    expect(source).toContain('pendingSubmittedResultHandoffCopy(result.values');
+    expect(source).toContain('submittedAt: result.submittedAt');
+    expect(source).toContain('submittedBy: result.submittedBy');
+    expect(source).toContain('Copying BeadsForm XML handoff…');
+    expect(source).toContain('BeadsForm XML handoff');
+    expect(source).toContain('Clipboard copy is unavailable. Use the manual XML handoff field below.');
+    expect(source).toContain('loaded?.selectedForm && !submitResult');
+    expect(source).toContain("form && status.status !== 'success'");
+    expect(source).toContain('selectedForm && submitResult');
+    expect(source).not.toContain('Normalized submitted response JSON');
+  });
+
+  it('initializes Markdown textarea previews through the shared selected-form paths', async () => {
+    const source = await readFile(new URL('./BeadsFormModule.tsx', import.meta.url), 'utf8');
+
+    expect(source).toContain('initializeMarkdownTextareaEditors(host);');
+    expect(source).toContain('refreshMarkdownTextareaEditors(host);');
+    expect(source).toContain('initializeMarkdownTextareaEditors(element);');
+    expect(source).toContain('refreshMarkdownTextareaEditors(element);');
+  });
+
+  it('rewrites bead-backed attachment refs before sanitizing selected and aggregate forms', async () => {
+    const source = await readFile(new URL('./BeadsFormModule.tsx', import.meta.url), 'utf8');
+
+    expect(source).toContain('rewriteBeadBackedAttachmentRefs(form.html, item.beadRepoDir ?? item.ref.dir)');
+    expect(source).toContain('rewriteBeadBackedAttachmentRefs(loaded.selected.selectedForm.html, loaded.selected.beadRepoDir)');
+  });
+
+  it('sets aggregate success before awaiting clipboard completion', async () => {
+    const source = await readFile(new URL('./BeadsFormModule.tsx', import.meta.url), 'utf8');
+
+    expect(source).not.toContain('await copySubmittedResultHandoffXml');
+    expect(source).toContain('clipboardStatus: pendingCopy.status');
+    expect(source).toContain('submittedAt: status.submittedAt');
+    expect(source).toContain('submittedBy: status.submittedBy');
+    expect(source).toContain('void copySubmittedResultHandoffXml(navigator.clipboard, result.values, handoffMetadata).then((copyResult) => {');
+  });
+
+  it('prefers direct selected-bead loading when URL has both workspace and dir', async () => {
+    const source = await readFile(new URL('./BeadsFormModule.tsx', import.meta.url), 'utf8');
+
+    expect(source).toContain('const shouldUseDirectSelectedLoad = !!dir && !!beadId;');
+    expect(source).toContain('shouldUseDirectSelectedLoad\n          ? await directResult(actions.loadBeadForms)\n          : await (await actions.loadWorkspaceForms(workspaceInput))');
+    expect(source).toContain('shouldUseDirectSelectedLoad\n            ? await directResult(actions.refreshBeadForms)\n            : await (await actions.refreshWorkspaceForms(workspaceInput))');
+  });
+
+  it('uses a pending queue sentinel to refresh cached inbox results without blocking initial render', async () => {
+    const source = await readFile(new URL('./BeadsFormModule.tsx', import.meta.url), 'utf8');
+
+    expect(source).toContain('pendingQueueSentinel: initialPendingQueueSentinel');
+    expect(source).toContain('markPendingQueueDirtyForRepo(states.pendingQueueSentinel, input.dir)');
+    expect(source).toContain('shouldRefreshPendingQueueForSentinel({');
+    expect(source).toContain('const fresh = await (await actions.refreshPendingForms(input));');
+    expect(source).toContain('if (!pendingRef.current) return;');
+  });
+
+  it('renders pending Forms tab entries as compact semantic inbox rows', async () => {
+    const source = await readFile(new URL('./BeadsFormModule.tsx', import.meta.url), 'utf8');
+
+    expect(source).toContain('aria-label="Pending BeadsForms inbox"');
+    expect(source).toContain('className="beadsform-pending-card-main"');
+    expect(source).toContain('className="beadsform-pending-title"');
+    expect(source).toContain('className="beadsform-pending-meta"');
+    expect(source).toContain('className="beadsform-pending-action"');
+    expect(source).toContain('<dt>Bead</dt>');
+    expect(source).toContain('<dt>Repo</dt>');
+    expect(source).toContain('Inbox clear');
+    expect(source).not.toContain('workspaceId}</p>');
+  });
+});

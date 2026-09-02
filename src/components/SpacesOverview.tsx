@@ -12,6 +12,7 @@ import {
   type Repo,
   type RepoWithBranch,
 } from "../lib/vk-client";
+import { PENDING_BEADS_FORMS_LINK } from "../lib/beadsFormNavigation";
 
 interface DashboardWorkspace {
   id: string;
@@ -1323,6 +1324,28 @@ export function SpacesOverview({
           <h1 className="text-2xl font-bold text-white">Dashboard</h1>
           <p className="text-sm text-zinc-500 mt-1">Workspace activity feed</p>
         </div>
+
+        <a
+          href={PENDING_BEADS_FORMS_LINK.href}
+          className="mb-6 flex items-center justify-between gap-4 rounded-xl border border-primary-500/25 bg-primary-500/10 px-4 py-3 text-left transition-colors hover:border-primary-400/50 hover:bg-primary-500/15 focus:outline-none focus:ring-2 focus:ring-primary-400"
+        >
+          <span className="flex min-w-0 items-center gap-3">
+            <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-primary-500/20 text-lg" aria-hidden="true">
+              📝
+            </span>
+            <span className="min-w-0">
+              <span className="block text-sm font-semibold text-primary-100">
+                {PENDING_BEADS_FORMS_LINK.label}
+              </span>
+              <span className="mt-0.5 block text-sm text-primary-100/70">
+                {PENDING_BEADS_FORMS_LINK.description}
+              </span>
+            </span>
+          </span>
+          <span className="shrink-0 text-sm font-medium text-primary-200" aria-hidden="true">
+            Open →
+          </span>
+        </a>
 
         {/* Voyages */}
         <RecentSessionsSection

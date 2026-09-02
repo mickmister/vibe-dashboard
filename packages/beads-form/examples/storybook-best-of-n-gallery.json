@@ -1,0 +1,57 @@
+{
+  "format": "standard",
+  "id": "storybook_best_of_n_review",
+  "goal": "Choose acceptable Storybook screenshot candidates.",
+  "title": "Storybook best-of-N screenshot review",
+  "description": "Compare generated Storybook screenshots and choose which candidates are acceptable.",
+  "content": [
+    {
+      "type": "media-gallery",
+      "id": "candidate_screenshots",
+      "title": "Candidate screenshots",
+      "description": "Review visual differences across candidates before answering. Put referenced files next to this JSON in the preview folder or under a relative attachments/ directory.",
+      "items": [
+        {
+          "id": "candidate_a",
+          "type": "image",
+          "src": "attachments/storybook-candidate-a.png",
+          "alt": "Storybook candidate A screenshot",
+          "caption": "Candidate A"
+        },
+        {
+          "id": "candidate_b",
+          "type": "image",
+          "src": "attachments/storybook-candidate-b.png",
+          "alt": "Storybook candidate B screenshot",
+          "caption": "Candidate B"
+        },
+        {
+          "id": "candidate_c_recording",
+          "type": "video",
+          "src": "attachments/storybook-candidate-c.webm",
+          "poster": "attachments/storybook-candidate-c.png",
+          "caption": "Candidate C interaction recording"
+        }
+      ]
+    }
+  ],
+  "questions": [
+    {
+      "type": "choices",
+      "id": "acceptable_candidates",
+      "title": "Acceptable candidates",
+      "description": "Select every candidate that is visually acceptable to proceed with. Use the per-choice textareas for exact observations.",
+      "choices": [
+        { "id": "candidate_a", "label": "Candidate A" },
+        { "id": "candidate_b", "label": "Candidate B" },
+        { "id": "candidate_c", "label": "Candidate C" }
+      ]
+    },
+    {
+      "type": "textarea",
+      "id": "visual_review_notes",
+      "title": "Visual review notes",
+      "description": "Call out regressions, missing states, or reasons the selected candidate should win."
+    }
+  ]
+}
