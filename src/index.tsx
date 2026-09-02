@@ -12,8 +12,11 @@ import type { ResolvedWorkspaceComposition } from "./modules/plugins/vibe-dashbo
 import {
   BUILT_IN_AGENT_CODE_PAIR_ID,
   BUILT_IN_AGENT_TAB_ID,
+  BUILT_IN_FORMS_TAB_ID,
   isEphemeralCraftSurfaceTabId,
+  isRuntimeCraftSurfaceTabId,
   migrateWorkspaceBuiltInTabs,
+  sanitizeRuntimeCraftSurfaceSavedSessionRefs,
 } from "./modules/plugins/vibe-dashboard/craft-surfaces";
 import type {
   WorkspaceState,
@@ -24,15 +27,20 @@ import type {
 } from "./types";
 
 // @platform "browser"
+import { installRuntimeInactivityBrowserSignal } from "./lib/runtimeInactivityBrowserSignal";
 import "./modules/plugins";
 import "./modules/MainUIShellModule";
+
+installRuntimeInactivityBrowserSignal();
 // @platform end
 
 // @platform "node"
 import "./modules/WorkflowServerModule";
 // @platform end
 
-const WORKSPACE_CREATE_PATH = "/workspaces/create";
+import "./modules/BeadsFormModule";
+
+const WORKSPACE_CREATE_PATH = "/workspaces";
 const WORKSPACE_CREATE_TAB_TITLE = "Create Workspace";
 const URL_PARSE_BASE = "https://workspace.local";
 const MOBILE_TAB_EMOJIS = [
@@ -50,8 +58,34 @@ const MOBILE_TAB_EMOJIS = [
   "🛰️",
 ];
 
+type ViteImportMeta = ImportMeta & {
+  env?: {
+    VITE_VK_BASE_ORIGIN?: string;
+  };
+};
+
+function getConfiguredVkBaseOrigin(): string | null {
+  const configuredOrigin = (
+    (import.meta as ViteImportMeta).env?.VITE_VK_BASE_ORIGIN ??
+    (typeof process !== "undefined"
+      ? process.env?.VITE_VK_BASE_ORIGIN
+      : undefined)
+  )?.trim();
+  if (!configuredOrigin) return null;
+
+  try {
+    return new URL(configuredOrigin).origin;
+  } catch {
+    return null;
+  }
+}
+
 function buildWorkspaceTabUrl(baseOrigin: string, path: string): string {
-  return baseOrigin ? `${baseOrigin}${path}` : path;
+  const configuredBaseOrigin = getConfiguredVkBaseOrigin();
+  const effectiveBaseOrigin = configuredBaseOrigin ?? baseOrigin;
+  return effectiveBaseOrigin
+    ? `${effectiveBaseOrigin.replace(/\/$/, "")}${path}`
+    : path;
 }
 
 function isWorkspaceTabPath(url: string, expectedPath: string): boolean {
@@ -130,6 +164,9 @@ function getSelectedViewIdsForTabGroup(
 ): string[] {
   const tabGroup = workspace.tabGroups.find((entry) => entry.id === tabGroupId);
   if (!tabGroup) return [];
+  if (tabId && isRuntimeCraftSurfaceTabId(tabId)) {
+    return getDefaultViewIdsForTabGroup(workspace, tabGroupId);
+  }
   if (tabId && tabGroup.tabs.some((tab) => tab.id === tabId)) return [tabId];
   if (tabId && tabGroup.workspace?.workspaceId) return [tabId];
   return getDefaultViewIdsForTabGroup(workspace, tabGroupId);
@@ -194,7 +231,7 @@ function createSavedSessionFromSelection({
     selectedViewIds,
   );
 
-  return {
+  return sanitizeSavedSessionForPersistence(workspace, {
     id,
     slug: buildVoyageSlug(trimmedName, id),
     name: trimmedName,
@@ -208,7 +245,7 @@ function createSavedSessionFromSelection({
       [voyageEntry.id]: activeItemId,
     },
     visitedTabGroupIds: [tabGroup.id],
-  };
+  });
 }
 
 function createSavedSessionFromVoyageEntry({
@@ -247,7 +284,7 @@ function createSavedSessionFromVoyageEntry({
       normalizedEntry.viewIds,
     );
 
-  return {
+  return sanitizeSavedSessionForPersistence(workspace, {
     id,
     slug: buildVoyageSlug(trimmedName, id),
     name: trimmedName,
@@ -266,7 +303,7 @@ function createSavedSessionFromVoyageEntry({
       [normalizedEntry.id]: resolvedActiveItemId,
     },
     visitedTabGroupIds: [normalizedEntry.tabGroupId],
-  };
+  });
 }
 
 function addCreateWorkspaceCraftToWorkspace(
@@ -414,8 +451,9 @@ function normalizeVoyageEntryForWorkspace(
 
   const validViewIds = entry.viewIds.filter(
     (viewId) =>
-      tabGroup.tabs.some((tab) => tab.id === viewId) ||
-      Boolean(tabGroup.workspace?.workspaceId),
+      !isRuntimeCraftSurfaceTabId(viewId) &&
+      (tabGroup.tabs.some((tab) => tab.id === viewId) ||
+        Boolean(tabGroup.workspace?.workspaceId)),
   );
   return {
     ...entry,
@@ -423,6 +461,13 @@ function normalizeVoyageEntryForWorkspace(
       ? validViewIds
       : getDefaultViewIdsForTabGroup(workspace, entry.tabGroupId),
   };
+}
+
+function sanitizeSavedSessionForPersistence(
+  workspace: WorkspaceState,
+  session: SavedWorkspaceSession,
+): SavedWorkspaceSession {
+  return sanitizeRuntimeCraftSurfaceSavedSessionRefs({ workspace, session });
 }
 
 function repairSavedSessionForWorkspace(
@@ -455,7 +500,7 @@ function repairSavedSessionForWorkspace(
     activeItemsByVoyageEntryId[entry.id] = activeItemId;
   });
 
-  return {
+  return sanitizeSavedSessionForPersistence(workspace, {
     ...session,
     activeVoyageEntryId,
     voyageEntries,
@@ -465,7 +510,7 @@ function repairSavedSessionForWorkspace(
     visitedTabGroupIds: Array.from(
       new Set(voyageEntries.map((entry) => entry.tabGroupId)),
     ),
-  };
+  });
 }
 
 function repairSavedSessionsForWorkspace(
@@ -988,6 +1033,27 @@ const createWorkspaceModule = async (moduleAPI: ModuleAPI) => {
       return { firstTabId, tabGroupId: args.tabGroupId };
     },
 
+    openFormsForBead: async (args: {
+      tabGroupId: string;
+      agentTabId: string;
+      beadId: string;
+    }) => {
+      if (args.agentTabId !== BUILT_IN_AGENT_TAB_ID) return undefined;
+      let opened = false;
+      workspaceState.setStateImmer((draft) => {
+        const tabGroup = draft.tabGroups.find((candidate) => candidate.id === args.tabGroupId);
+        if (!tabGroup?.workspace?.workspaceId) return;
+        tabGroup.workspace.formsBeadId = args.beadId;
+        opened = true;
+      });
+      if (!opened) return undefined;
+
+      return {
+        tabGroupId: args.tabGroupId,
+        formsTabId: BUILT_IN_FORMS_TAB_ID,
+      };
+    },
+
     addVKWorkspace: async (args: {
       taskAttemptId?: string;
       workspaceId?: string;
@@ -1140,6 +1206,10 @@ const createWorkspaceModule = async (moduleAPI: ModuleAPI) => {
           new Set([...target.visitedTabGroupIds, selection!.tabGroupId]),
         );
         target.updatedAt = new Date().toISOString();
+        Object.assign(
+          target,
+          sanitizeSavedSessionForPersistence(workspace, target),
+        );
         savedSession = cloneSavedSession(target);
         return createSavedWorkspaceSessionState(sessions);
       });
@@ -1432,7 +1502,11 @@ const createWorkspaceModule = async (moduleAPI: ModuleAPI) => {
           new Set([...target.visitedTabGroupIds, tabGroup.id]),
         );
         target.updatedAt = now;
-        updatedSession = target;
+        Object.assign(
+          target,
+          sanitizeSavedSessionForPersistence(workspace, target),
+        );
+        updatedSession = cloneSavedSession(target);
         return createSavedWorkspaceSessionState(sessions);
       });
 
@@ -1474,7 +1548,11 @@ const createWorkspaceModule = async (moduleAPI: ModuleAPI) => {
           [entry.id]: activeItemId,
         };
         target.updatedAt = new Date().toISOString();
-        updatedSession = target;
+        Object.assign(
+          target,
+          sanitizeSavedSessionForPersistence(workspace, target),
+        );
+        updatedSession = cloneSavedSession(target);
         return createSavedWorkspaceSessionState(sessions);
       });
       return updatedSession;
@@ -1582,11 +1660,14 @@ const createWorkspaceModule = async (moduleAPI: ModuleAPI) => {
       savedSessionsState.setState((current) => {
         const sessions =
           getSavedWorkspaceSessions(current).map(cloneSavedSession);
-        const nextSession = cloneSavedSession({
-          ...args,
-          slug: buildVoyageSlug(name, args.id),
-          name,
-        });
+        const nextSession = sanitizeSavedSessionForPersistence(
+          workspaceState.getState(),
+          cloneSavedSession({
+            ...args,
+            slug: buildVoyageSlug(name, args.id),
+            name,
+          }),
+        );
         const existing = sessions.find((session) => session.id === args.id);
         if (existing) {
           Object.assign(existing, {
@@ -1729,6 +1810,10 @@ const createWorkspaceModule = async (moduleAPI: ModuleAPI) => {
           ...target.activeItemsByVoyageEntryId,
           [movedEntry.id]: activeItemId,
         };
+        Object.assign(
+          target,
+          sanitizeSavedSessionForPersistence(workspace, target),
+        );
 
         moveResult = {
           sourceSession: cloneSavedSession(source),

@@ -2,8 +2,6 @@ name: Publish VK/VD Image to GHCR
 
 on:
   push:
-    branches:
-      - main
   pull_request:
     types:
       - opened
@@ -55,98 +53,25 @@ jobs:
       vd_short_commit: ${{ steps.resolve.outputs.vd_short_commit }}
       publish_latest: ${{ steps.resolve.outputs.publish_latest }}
     steps:
-      - name: Resolve vibe-kanban ref to commit SHA
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Resolve vibe-kanban and vibe-dashboard refs
         id: resolve
         env:
+          DEFAULT_BRANCH: ${{ github.event.repository.default_branch || 'main' }}
           IMAGE_TAG_INPUT: ${{ github.event_name == 'workflow_dispatch' && inputs.image_tag || '' }}
           PR_NUMBER: ${{ github.event_name == 'pull_request' && github.event.pull_request.number || '' }}
-          VD_SHA_INPUT: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || github.sha }}
-          VK_BRANCH_INPUT: ${{ github.event_name == 'workflow_dispatch' && inputs.vk_branch || github.event.client_payload.vk_sha || github.event.client_payload.vk_ref || 'main' }}
+          PR_HEAD_REF: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.ref || '' }}
+          PR_HEAD_SHA: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || '' }}
+          WORKFLOW_VK_REF: ${{ github.event_name == 'workflow_dispatch' && inputs.vk_branch || '' }}
+          REPOSITORY_DISPATCH_VK_REF: ${{ github.event_name == 'repository_dispatch' && (github.event.client_payload.vk_sha || github.event.client_payload.vk_ref) || '' }}
+          REPOSITORY_DISPATCH_VK_SOURCE_REF: ${{ github.event_name == 'repository_dispatch' && github.event.client_payload.vk_source_ref || '' }}
+          REPOSITORY_DISPATCH_VK_SOURCE_REF_NAME: ${{ github.event_name == 'repository_dispatch' && github.event.client_payload.vk_source_ref_name || '' }}
           # Repository dispatch intentionally ignores client_payload.vk_repo_url.
           # Docker release assets are trusted only from the official VK repository.
           VK_REPO_URL_INPUT: ${{ github.event_name == 'workflow_dispatch' && inputs.vk_repo_url || 'https://github.com/mickmister/vibe-kanban.git' }}
-          VK_SOURCE_REF: ${{ github.event_name == 'repository_dispatch' && github.event.client_payload.vk_source_ref || '' }}
-        run: |
-          set -euo pipefail
-
-          vd_short_commit="${VD_SHA_INPUT:0:7}"
-          deploy_image_tag="vd-${VD_SHA_INPUT}"
-
-          if [[ "${GITHUB_EVENT_NAME}" == "pull_request" ]]; then
-            echo "Resolved PR #${PR_NUMBER} deploy image tag to ${deploy_image_tag}"
-          fi
-
-          workdir="$(mktemp -d)"
-          trap 'rm -rf "$workdir" || true' EXIT
-
-          git -C "$workdir" init --quiet
-          git -C "$workdir" remote add origin "$VK_REPO_URL_INPUT"
-          git -C "$workdir" fetch --depth 1 origin "$VK_BRANCH_INPUT"
-
-          vk_commit="$(git -C "$workdir" rev-parse FETCH_HEAD)"
-          vk_short_commit="$(git -C "$workdir" rev-parse --short=7 FETCH_HEAD)"
-          used_asset_fallback=false
-
-          manifest_url="https://github.com/mickmister/vibe-kanban/releases/download/vk-assets-${vk_commit}/manifest.json"
-          if [[ "${GITHUB_EVENT_NAME}" == "push" && "$VK_BRANCH_INPUT" == "main" ]] && ! curl -fsI "$manifest_url" >/dev/null; then
-            echo "::notice::VK release assets for $vk_commit are not available yet; using the latest published vk-assets release for this VD branch image."
-            latest_assets_tag="$(
-              curl -fsSL "https://api.github.com/repos/mickmister/vibe-kanban/releases?per_page=100" \
-                | python3 -c 'import json,sys; releases=[r for r in json.load(sys.stdin) if r.get("tag_name", "").startswith("vk-assets-")]; releases.sort(key=lambda r: r.get("published_at") or r.get("created_at") or "", reverse=True); print(releases[0]["tag_name"] if releases else "")'
-            )"
-
-            if [[ -z "$latest_assets_tag" ]]; then
-              echo "No published vk-assets release found to use as a fallback." >&2
-              exit 1
-            fi
-
-            vk_commit="${latest_assets_tag#vk-assets-}"
-            if [[ ! "$vk_commit" =~ ^[0-9a-f]{40}$ ]]; then
-              echo "Latest vk-assets release tag does not contain a full commit SHA: $latest_assets_tag" >&2
-              exit 1
-            fi
-
-            VK_BRANCH_INPUT="$latest_assets_tag"
-            vk_short_commit="${vk_commit:0:7}"
-            used_asset_fallback=true
-            echo "Using fallback VK assets release $latest_assets_tag"
-          fi
-
-          publish_latest=false
-          deploy_pr_preview=false
-          if [[ "${GITHUB_EVENT_NAME}" == "pull_request" ]]; then
-            deploy_pr_preview=true
-          fi
-
-          if [[ "${GITHUB_EVENT_NAME}" == "push" && "${GITHUB_REF}" == "refs/heads/main" && "$used_asset_fallback" != "true" ]]; then
-            publish_latest=true
-          elif [[ "${GITHUB_EVENT_NAME}" == "repository_dispatch" ]]; then
-            git -C "$workdir" fetch --depth 1 origin main
-            vk_main_commit="$(git -C "$workdir" rev-parse FETCH_HEAD)"
-
-            if [[ "$vk_commit" == "$vk_main_commit" ]]; then
-              publish_latest=true
-            else
-              echo "Dispatched VK commit $vk_commit is not current origin/main ($vk_main_commit); not publishing latest."
-            fi
-          fi
-
-          echo "Resolved $VK_BRANCH_INPUT to $vk_commit"
-          echo "Publish latest: $publish_latest"
-          echo "Deploy PR preview: $deploy_pr_preview"
-
-          {
-            echo "image_tag=$IMAGE_TAG_INPUT"
-            echo "deploy_image_tag=$deploy_image_tag"
-            echo "deploy_pr_preview=$deploy_pr_preview"
-            echo "pr_number=$PR_NUMBER"
-            echo "vk_branch=$VK_BRANCH_INPUT"
-            echo "vk_commit=$vk_commit"
-            echo "vk_short_commit=$vk_short_commit"
-            echo "vk_repo_url=$VK_REPO_URL_INPUT"
-            echo "vd_short_commit=$vd_short_commit"
-            echo "publish_latest=$publish_latest"
-          } >> "$GITHUB_OUTPUT"
+        run: .github/scripts/resolve-vk-vd-ci-refs.sh
 
   check-types:
     name: npm run check-types
@@ -181,6 +106,8 @@ jobs:
       output: image
       push: true
       context: .
+      source-ref: ${{ needs.resolve-vk-ref.outputs.vd_ref }}
+      source-checksum: ${{ needs.resolve-vk-ref.outputs.vd_commit }}
       file: ./Dockerfile.vkvd
       platforms: linux/amd64,linux/arm64
       build-args: |

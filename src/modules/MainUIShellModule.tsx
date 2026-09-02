@@ -12,11 +12,12 @@ import type { NewSessionInitialSelection } from "../sessionState";
 import { resolveWorkspaceContainerRef } from "../lib/vkWorkspaceOpen";
 import {
   buildCanonicalDashboardPath,
+  buildViewParamForTab,
   buildSavedVoyageDashboardPath,
   buildVoyageParam,
   getStoredLastDashboardUrl,
   parseCraftParam,
-  parseViewsParam,
+  resolveViewIdsFromViewParam,
   setStoredLastDashboardUrl,
   shortIdTokenMatches,
 } from "../lib/voyageUrl";
@@ -117,18 +118,15 @@ function resolveQueryCraftSelection(
   );
   if (!tabGroup) return {};
 
-  const viewSuffixes = parseViewsParam(viewParam);
-  const tabIds = tabGroup.tabs.map((tab) => tab.id);
-  const viewIds = viewSuffixes
-    .map(
-      (suffix) =>
-        tabGroup.tabs.find((tab) => shortIdTokenMatches(tab.id, suffix, tabIds))
-          ?.id,
-    )
-    .filter((id): id is string => Boolean(id));
-  const resolvedViewIds = viewIds.length ? viewIds : matchingEntry.viewIds;
+  const viewIds = resolveViewIdsFromViewParam(tabGroup.tabs, viewParam);
+  const hasExplicitViewsParam = Boolean(viewParam?.trim());
+  const resolvedViewIds = viewIds.length
+    ? viewIds
+    : hasExplicitViewsParam
+      ? undefined
+      : matchingEntry.viewIds;
   const itemId =
-    resolvedViewIds.length > 1
+    resolvedViewIds && resolvedViewIds.length > 1
       ? tabGroup.pairs.find(
           (pair) =>
             pair.tabIds.length === resolvedViewIds.length &&
@@ -136,7 +134,7 @@ function resolveQueryCraftSelection(
               (tabId, index) => tabId === resolvedViewIds[index],
             ),
         )?.id || resolvedViewIds[0]
-      : resolvedViewIds[0];
+      : resolvedViewIds?.[0];
 
   return {
     spaceId: workspace.spaces.find((space) =>
@@ -145,7 +143,7 @@ function resolveQueryCraftSelection(
     tabGroupId: tabGroup.id,
     itemId,
     voyageEntryId: matchingEntry.id,
-    viewIds: resolvedViewIds,
+    ...(resolvedViewIds ? { viewIds: resolvedViewIds } : {}),
   };
 }
 
@@ -403,11 +401,24 @@ springboard.registerModule("MainUIShell", {}, async (moduleAPI) => {
         savedVoyages,
       );
 
-      if (queryCraftParam && queryViewsParam && querySelection.voyageEntryId) {
+      if (
+        queryCraftParam &&
+        queryViewsParam &&
+        querySelection.voyageEntryId &&
+        querySelection.viewIds?.length
+      ) {
         const nextPath = buildCanonicalDashboardPath(location.search, {
           slug: currentVoyageSlug,
           craftParam: queryCraftParam,
-          viewTokens: queryViewsParam.split(",").filter(Boolean),
+          viewTokens: querySelection.viewIds
+            .map((viewId) => {
+              const tabGroup = effectiveWorkspace.tabGroups.find(
+                (entry) => entry.id === querySelection.tabGroupId,
+              );
+              const tab = tabGroup?.tabs.find((entry) => entry.id === viewId);
+              return tab ? buildViewParamForTab(tab, tabGroup?.tabs ?? []) : null;
+            })
+            .filter((entry): entry is string => Boolean(entry)),
         });
         if (nextPath !== currentPath) {
           navigate(nextPath, { replace: true });

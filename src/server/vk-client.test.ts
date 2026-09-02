@@ -26,6 +26,24 @@ describe('resolveVibeApiBaseUrl', () => {
 });
 
 describe('VibeKanbanServerClient', () => {
+  it('fetches workspace summaries from the VK summaries endpoint', async () => {
+    const fetchImpl = vi.fn(async (url: string, init?: RequestInit) => {
+      if (url === 'http://vk.local/api/workspaces/summaries' && init?.method === 'POST') {
+        expect(JSON.parse(String(init.body))).toEqual({ archived: false });
+        return jsonResponse({
+          success: true,
+          data: { summaries: [{ workspace_id: 'ws1', latest_process_status: 'running' }] },
+        });
+      }
+      throw new Error(`unexpected request ${url}`);
+    });
+    const client = new VibeKanbanServerClient({ baseUrl: 'http://vk.local/api', fetch: fetchImpl });
+
+    await expect(client.getWorkspaceSummaries()).resolves.toEqual([
+      { workspace_id: 'ws1', latest_process_status: 'running' },
+    ]);
+  });
+
   it('fetches workspaces and workspace repos from VK API envelope', async () => {
     const fetchImpl = vi.fn(async (url: string) => {
       if (url === 'http://vk.local/api/workspaces') {
@@ -97,6 +115,37 @@ describe('VibeKanbanServerClient', () => {
       session_id: 'session-1',
       status: 'running',
     });
+  });
+
+  it('fetches, stops, and checks readiness endpoints used by hotswap seams', async () => {
+    const fetchImpl = vi.fn(async (url: string, init?: RequestInit) => {
+      if (url === 'http://vk.local/api/execution-processes/process-1') {
+        return jsonResponse({
+          success: true,
+          data: { id: 'process-1', session_id: 'session-1', status: 'killed' },
+        });
+      }
+      if (url === 'http://vk.local/api/execution-processes/process-1/stop' && init?.method === 'POST') {
+        expect(JSON.parse(String(init.body))).toEqual({});
+        return jsonResponse({ success: true, data: null });
+      }
+      if (url === 'http://vk.local/api/health') {
+        return jsonResponse({ success: true, data: 'ok' });
+      }
+      if (url === 'http://vk.local/api/info') {
+        return jsonResponse({ success: true, data: { version: 'test' } });
+      }
+      throw new Error(`unexpected request ${url}`);
+    });
+    const client = new VibeKanbanServerClient({ baseUrl: 'http://vk.local/api', fetch: fetchImpl });
+
+    await expect(client.getExecutionProcess('process-1')).resolves.toMatchObject({
+      id: 'process-1',
+      status: 'killed',
+    });
+    await expect(client.stopExecutionProcess('process-1')).resolves.toBeUndefined();
+    await expect(client.checkHealth()).resolves.toBeUndefined();
+    await expect(client.getInfo()).resolves.toEqual({ version: 'test' });
   });
 
   it('throws VkApiError with status and body for failed HTTP responses', async () => {
