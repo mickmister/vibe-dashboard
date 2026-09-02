@@ -1,7 +1,9 @@
 import { Hono } from 'hono';
 import { describe, expect, it, vi } from 'vitest';
 import {
+  RuntimeBrowserActivityStore,
   buildRuntimeInactivityStatus,
+  isAllowedBrowserActivityRequest,
   isLocalOnlyInactivityRequest,
   registerRuntimeInactivityStatusRoutes,
 } from './inactivity-status-routes';
@@ -30,6 +32,12 @@ describe('buildRuntimeInactivityStatus', () => {
     const status = buildRuntimeInactivityStatus({
       now: NOW,
       workspaceSummaries: [summary({ latest_process_completed_at: '2026-09-02T19:44:59.000Z' })],
+      browserActivity: {
+        signalKnown: true,
+        lastActivityAt: '2026-09-02T19:44:59.000Z',
+        lastSignalAt: '2026-09-02T19:44:59.000Z',
+        presenceExpiresAt: null,
+      },
     });
 
     expect(status).toMatchObject({
@@ -45,6 +53,12 @@ describe('buildRuntimeInactivityStatus', () => {
       lastUserActivityType: 'workspace_process_completed',
       lastUserActivitySource: 'vibe_kanban_workspace_summary',
       blockers: [],
+      browserActivity: {
+        signalKnown: true,
+        lastActivityAt: '2026-09-02T19:44:59.000Z',
+        lastSignalAt: '2026-09-02T19:44:59.000Z',
+        presenceExpiresAt: null,
+      },
     });
     expect(status.lastAgentPollAt).toBe('2026-09-02T20:00:00.000Z');
     expect(status.lastSuccessfulAgentPollAt).toBe('2026-09-02T20:00:00.000Z');
@@ -54,6 +68,12 @@ describe('buildRuntimeInactivityStatus', () => {
     const status = buildRuntimeInactivityStatus({
       now: NOW,
       workspaceSummaries: [summary({ latest_process_completed_at: '2026-09-02T19:55:00.000Z' })],
+      browserActivity: {
+        signalKnown: true,
+        lastActivityAt: '2026-09-02T19:55:00.000Z',
+        lastSignalAt: '2026-09-02T19:55:00.000Z',
+        presenceExpiresAt: '2026-09-02T19:56:30.000Z',
+      },
     });
 
     expect(status.isIdle).toBe(false);
@@ -70,6 +90,7 @@ describe('buildRuntimeInactivityStatus', () => {
         has_running_dev_server: true,
         has_unseen_turns: true,
       })],
+      browserActivity: { signalKnown: true, lastActivityAt: '2026-09-02T19:00:00.000Z', lastSignalAt: '2026-09-02T19:00:00.000Z', presenceExpiresAt: null },
     });
 
     expect(status.isIdle).toBe(false);
@@ -91,13 +112,60 @@ describe('buildRuntimeInactivityStatus', () => {
       idleReason: 'recent_user_activity',
       agentStateKnown: false,
       lastSuccessfulAgentPollAt: null,
-      blockers: ['activity_signal_unknown', 'vk_api_unavailable'],
+      blockers: ['activity_signal_unknown', 'browser_activity_unknown', 'vk_api_unavailable'],
     });
     expect(JSON.stringify(unavailable)).not.toContain('secret token nope');
 
     const empty = buildRuntimeInactivityStatus({ now: NOW, workspaceSummaries: [] });
     expect(empty.isIdle).toBe(false);
-    expect(empty.blockers).toEqual(['activity_signal_unknown']);
+    expect(empty.blockers).toEqual(['activity_signal_unknown', 'browser_activity_unknown']);
+  });
+
+
+  it('requires an explicit browser/editor signal before allowing idle', () => {
+    const status = buildRuntimeInactivityStatus({
+      now: NOW,
+      workspaceSummaries: [summary({ latest_process_completed_at: '2026-09-02T19:00:00.000Z' })],
+    });
+
+    expect(status.isIdle).toBe(false);
+    expect(status.blockers).toContain('browser_activity_unknown');
+  });
+
+  it('uses browser/editor activity as a direct human-presence signal', () => {
+    const status = buildRuntimeInactivityStatus({
+      now: NOW,
+      workspaceSummaries: [summary({ latest_process_completed_at: '2026-09-02T19:00:00.000Z' })],
+      browserActivity: {
+        signalKnown: true,
+        lastActivityAt: '2026-09-02T19:59:30.000Z',
+        lastSignalAt: '2026-09-02T19:59:30.000Z',
+        presenceExpiresAt: '2026-09-02T20:01:00.000Z',
+      },
+    });
+
+    expect(status.isIdle).toBe(false);
+    expect(status.lastUserActivityAt).toBe('2026-09-02T19:59:30.000Z');
+    expect(status.lastUserActivityType).toBe('browser_editor_activity');
+    expect(status.lastUserActivitySource).toBe('browser_activity_beacon');
+    expect(status.blockers).toContain('browser_editor_present');
+  });
+
+  it('allows idle only after explicit browser/editor activity has aged past the timeout', () => {
+    const status = buildRuntimeInactivityStatus({
+      now: NOW,
+      workspaceSummaries: [summary({ latest_process_completed_at: '2026-09-02T19:00:00.000Z' })],
+      browserActivity: {
+        signalKnown: true,
+        lastActivityAt: '2026-09-02T19:44:00.000Z',
+        lastSignalAt: '2026-09-02T19:44:00.000Z',
+        presenceExpiresAt: null,
+      },
+    });
+
+    expect(status.isIdle).toBe(true);
+    expect(status.idleReason).toBe('idle_timeout_elapsed');
+    expect(status.blockers).toEqual([]);
   });
 
   it('does not echo workspace names, repo URLs, prompts, or unbounded timestamps', () => {
@@ -108,6 +176,7 @@ describe('buildRuntimeInactivityStatus', () => {
         latest_process_completed_at: '2026-09-02T19:00:00.000Z?token=raw-secret-value-that-is-too-long',
         pr_url: 'https://github.com/customer/private-repo/pull/1?token=secret',
       })],
+      browserActivity: { signalKnown: false, lastActivityAt: null, lastSignalAt: null, presenceExpiresAt: null },
     });
 
     const encoded = JSON.stringify(status);
@@ -125,9 +194,12 @@ describe('registerRuntimeInactivityStatusRoutes', () => {
     const getWorkspaceSummaries = vi.fn(async () => [
       summary({ latest_process_completed_at: '2026-09-02T19:44:00.000Z' }),
     ]);
+    const browserActivityStore = new RuntimeBrowserActivityStore();
+    browserActivityStore.recordActivity({ eventType: 'heartbeat', observedAt: new Date('2026-09-02T19:44:00.000Z') });
     registerRuntimeInactivityStatusRoutes(app, {
       vkClient: { getWorkspaceSummaries },
       now: () => NOW,
+      browserActivityStore,
     });
 
     const local = await app.request('http://127.0.0.1/internal/inactivity/status', {
@@ -146,6 +218,50 @@ describe('registerRuntimeInactivityStatusRoutes', () => {
     });
     expect(forwarded.status).toBe(404);
   });
+
+  it('records browser activity with origin guards and without returning raw payload data', async () => {
+    const app = new Hono();
+    const browserActivityStore = new RuntimeBrowserActivityStore();
+    registerRuntimeInactivityStatusRoutes(app, {
+      vkClient: { getWorkspaceSummaries: vi.fn(async () => [summary({ latest_process_completed_at: '2026-09-02T19:00:00.000Z' })]) },
+      now: () => NOW,
+      browserActivityStore,
+    });
+
+    const rejected = await app.request('https://runtime.example.com/internal/inactivity/browser-activity', {
+      method: 'POST',
+      headers: {
+        host: 'runtime.example.com',
+        origin: 'https://evil.example.com',
+        'sec-fetch-site': 'cross-site',
+        'content-type': 'application/json',
+      },
+      body: JSON.stringify({ eventType: 'heartbeat', href: 'https://runtime.example.com/?token=secret' }),
+    });
+    expect(rejected.status).toBe(404);
+
+    const accepted = await app.request('https://runtime.example.com/internal/inactivity/browser-activity', {
+      method: 'POST',
+      headers: {
+        host: 'runtime.example.com',
+        origin: 'https://runtime.example.com',
+        'sec-fetch-site': 'same-origin',
+        'content-type': 'application/json',
+      },
+      body: JSON.stringify({ eventType: 'heartbeat', href: 'https://runtime.example.com/?token=secret' }),
+    });
+    expect(accepted.status).toBe(202);
+    await expect(accepted.json()).resolves.toEqual({ ok: true, signalKnown: true });
+
+    const status = buildRuntimeInactivityStatus({
+      now: NOW,
+      workspaceSummaries: [summary({ latest_process_completed_at: '2026-09-02T19:00:00.000Z' })],
+      browserActivity: browserActivityStore.snapshot(NOW),
+    });
+    expect(status.blockers).toContain('browser_editor_present');
+    expect(JSON.stringify(status)).not.toContain('secret');
+  });
+
 });
 
 describe('isLocalOnlyInactivityRequest', () => {
@@ -158,6 +274,20 @@ describe('isLocalOnlyInactivityRequest', () => {
     }))).toBe(true);
     expect(isLocalOnlyInactivityRequest(new Request('https://runtime.example.com/internal/inactivity/status', {
       headers: { host: 'runtime.example.com' },
+    }))).toBe(false);
+  });
+});
+
+
+describe('isAllowedBrowserActivityRequest', () => {
+  it('allows same-origin browser beacons and rejects cross-site beacons', () => {
+    expect(isAllowedBrowserActivityRequest(new Request('https://runtime.example.com/internal/inactivity/browser-activity', {
+      method: 'POST',
+      headers: { host: 'runtime.example.com', origin: 'https://runtime.example.com', 'sec-fetch-site': 'same-origin' },
+    }))).toBe(true);
+    expect(isAllowedBrowserActivityRequest(new Request('https://runtime.example.com/internal/inactivity/browser-activity', {
+      method: 'POST',
+      headers: { host: 'runtime.example.com', origin: 'https://evil.example.com', 'sec-fetch-site': 'cross-site' },
     }))).toBe(false);
   });
 });

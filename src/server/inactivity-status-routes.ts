@@ -2,8 +2,8 @@ import type { Hono } from 'hono';
 import { VibeKanbanServerClient, type WorkspaceSummary } from './vk-client';
 
 export type RuntimeInactivityIdleReason = 'agent_running' | 'recent_user_activity' | 'idle_timeout_elapsed';
-export type RuntimeInactivityActivityType = 'workspace_process_completed' | 'workspace_updated' | null;
-export type RuntimeInactivityActivitySource = 'vibe_kanban_workspace_summary' | null;
+export type RuntimeInactivityActivityType = 'workspace_process_completed' | 'browser_editor_activity' | null;
+export type RuntimeInactivityActivitySource = 'vibe_kanban_workspace_summary' | 'browser_activity_beacon' | null;
 export type RuntimeInactivityBlocker =
   | 'activity_signal_unknown'
   | 'vk_api_unavailable'
@@ -11,7 +11,16 @@ export type RuntimeInactivityBlocker =
   | 'execution_running'
   | 'pending_approval'
   | 'dev_server_running'
-  | 'unseen_agent_turns';
+  | 'unseen_agent_turns'
+  | 'browser_activity_unknown'
+  | 'browser_editor_present';
+
+export interface RuntimeBrowserActivityState {
+  signalKnown: boolean;
+  lastActivityAt: string | null;
+  lastSignalAt: string | null;
+  presenceExpiresAt: string | null;
+}
 
 export interface RuntimeInactivityStatus {
   schemaVersion: 'runtime-inactivity-status.v1';
@@ -28,6 +37,7 @@ export interface RuntimeInactivityStatus {
   lastAgentPollAt: string | null;
   lastSuccessfulAgentPollAt: string | null;
   blockers: RuntimeInactivityBlocker[];
+  browserActivity: RuntimeBrowserActivityState;
 }
 
 export interface RuntimeInactivityStatusOptions {
@@ -37,6 +47,7 @@ export interface RuntimeInactivityStatusOptions {
   agentPollIntervalMs?: number;
   workspaceSummaries?: WorkspaceSummary[];
   workspaceSummaryError?: unknown;
+  browserActivity?: RuntimeBrowserActivityState;
 }
 
 export interface RegisterRuntimeInactivityStatusRoutesOptions {
@@ -45,16 +56,69 @@ export interface RegisterRuntimeInactivityStatusRoutesOptions {
   idleTimeoutMs?: number;
   activityDebounceMs?: number;
   agentPollIntervalMs?: number;
+  browserActivityStore?: RuntimeBrowserActivityStore;
 }
 
 const DEFAULT_IDLE_TIMEOUT_MS = 15 * 60 * 1000;
 const DEFAULT_ACTIVITY_DEBOUNCE_MS = 5 * 1000;
 const DEFAULT_AGENT_POLL_INTERVAL_MS = 15 * 1000;
+const DEFAULT_BROWSER_PRESENCE_TTL_MS = 90 * 1000;
+const BROWSER_ACTIVITY_EVENTS = new Set(['load', 'visible', 'focus', 'interaction', 'heartbeat']);
+
+export class RuntimeBrowserActivityStore {
+  private signalKnown = false;
+  private lastActivityAt: string | null = null;
+  private lastSignalAt: string | null = null;
+
+  recordActivity(input: { eventType: unknown; observedAt: Date }): RuntimeBrowserActivityState {
+    this.signalKnown = true;
+    this.lastSignalAt = input.observedAt.toISOString();
+    if (BROWSER_ACTIVITY_EVENTS.has(String(input.eventType))) {
+      this.lastActivityAt = input.observedAt.toISOString();
+    }
+    return this.snapshot(input.observedAt);
+  }
+
+  snapshot(now: Date): RuntimeBrowserActivityState {
+    const presenceExpiresAt = this.lastActivityAt
+      ? new Date(Date.parse(this.lastActivityAt) + DEFAULT_BROWSER_PRESENCE_TTL_MS).toISOString()
+      : null;
+    return {
+      signalKnown: this.signalKnown,
+      lastActivityAt: this.lastActivityAt,
+      lastSignalAt: this.lastSignalAt,
+      presenceExpiresAt: presenceExpiresAt && Date.parse(presenceExpiresAt) >= now.getTime() ? presenceExpiresAt : null,
+    };
+  }
+}
+
+const defaultBrowserActivityStore = new RuntimeBrowserActivityStore();
 
 export function registerRuntimeInactivityStatusRoutes(
   hono: Hono,
   options: RegisterRuntimeInactivityStatusRoutesOptions = {},
 ): void {
+  const browserActivityStore = options.browserActivityStore ?? defaultBrowserActivityStore;
+
+  hono.post('/internal/inactivity/browser-activity', async (c) => {
+    if (!isAllowedBrowserActivityRequest(c.req.raw)) {
+      return c.json({ error: 'not found' }, 404);
+    }
+
+    let payload: unknown;
+    try {
+      payload = await c.req.json();
+    } catch {
+      payload = {};
+    }
+    const body = isRecord(payload) ? payload : {};
+    const snapshot = browserActivityStore.recordActivity({
+      eventType: body.eventType,
+      observedAt: options.now?.() ?? new Date(),
+    });
+    return c.json({ ok: true, signalKnown: snapshot.signalKnown }, 202);
+  });
+
   hono.get('/internal/inactivity/status', async (c) => {
     if (!isLocalOnlyInactivityRequest(c.req.raw)) {
       return c.json({ error: 'not found' }, 404);
@@ -76,6 +140,7 @@ export function registerRuntimeInactivityStatusRoutes(
       agentPollIntervalMs: options.agentPollIntervalMs,
       workspaceSummaries,
       workspaceSummaryError,
+      browserActivity: browserActivityStore.snapshot(options.now?.() ?? new Date()),
     }));
   });
 }
@@ -92,6 +157,8 @@ export function buildRuntimeInactivityStatus(options: RuntimeInactivityStatusOpt
   let latestActivityAt: string | null = null;
   let latestActivityMs = Number.NEGATIVE_INFINITY;
   let latestActivityType: RuntimeInactivityActivityType = null;
+  let latestActivitySource: RuntimeInactivityActivitySource = null;
+  const browserActivity = normalizeBrowserActivityState(options.browserActivity, now);
 
   if (options.workspaceSummaryError || !summaries) {
     blockers.add('vk_api_unavailable');
@@ -117,12 +184,31 @@ export function buildRuntimeInactivityStatus(options: RuntimeInactivityStatusOpt
           latestActivityMs = completedMs;
           latestActivityAt = completedAt;
           latestActivityType = 'workspace_process_completed';
+          latestActivitySource = 'vibe_kanban_workspace_summary';
         }
       }
     }
 
     if (!latestActivityAt && blockers.size === 0) {
       blockers.add('activity_signal_unknown');
+    }
+  }
+
+  if (!browserActivity.signalKnown) {
+    blockers.add('browser_activity_unknown');
+  } else {
+    const browserActivityAt = normalizeIsoTimestamp(browserActivity.lastActivityAt);
+    if (browserActivityAt) {
+      const browserActivityMs = Date.parse(browserActivityAt);
+      if (Number.isFinite(browserActivityMs) && browserActivityMs > latestActivityMs) {
+        latestActivityMs = browserActivityMs;
+        latestActivityAt = browserActivityAt;
+        latestActivityType = 'browser_editor_activity';
+        latestActivitySource = 'browser_activity_beacon';
+      }
+    }
+    if (browserActivity.presenceExpiresAt) {
+      blockers.add('browser_editor_present');
     }
   }
 
@@ -145,14 +231,33 @@ export function buildRuntimeInactivityStatus(options: RuntimeInactivityStatusOpt
     activityDebounceMs,
     lastUserActivityAt: latestActivityAt,
     lastUserActivityType: latestActivityAt ? latestActivityType : null,
-    lastUserActivitySource: latestActivityAt ? 'vibe_kanban_workspace_summary' : null,
+    lastUserActivitySource: latestActivityAt ? latestActivitySource : null,
     hasRunningAgent,
     agentStateKnown,
     agentPollIntervalMs,
     lastAgentPollAt: pollAt,
     lastSuccessfulAgentPollAt: summaries ? pollAt : null,
     blockers: [...blockers].sort(),
+    browserActivity,
   };
+}
+
+export function isAllowedBrowserActivityRequest(request: Request): boolean {
+  const secFetchSite = request.headers.get('sec-fetch-site');
+  if (secFetchSite && !['same-origin', 'none'].includes(secFetchSite.toLowerCase())) return false;
+
+  const origin = request.headers.get('origin');
+  if (origin) {
+    try {
+      const originHost = new URL(origin).host.toLowerCase();
+      const host = request.headers.get('host')?.toLowerCase();
+      if (host && originHost !== host) return false;
+    } catch {
+      return false;
+    }
+  }
+
+  return true;
 }
 
 export function isLocalOnlyInactivityRequest(request: Request): boolean {
@@ -168,6 +273,25 @@ export function isLocalOnlyInactivityRequest(request: Request): boolean {
   if (realIp && !isLoopbackAddress(realIp.trim())) return false;
 
   return true;
+}
+
+function normalizeBrowserActivityState(value: RuntimeBrowserActivityState | undefined, now: Date): RuntimeBrowserActivityState {
+  if (!value?.signalKnown) {
+    return { signalKnown: false, lastActivityAt: null, lastSignalAt: null, presenceExpiresAt: null };
+  }
+  const lastActivityAt = normalizeIsoTimestamp(value.lastActivityAt);
+  const lastSignalAt = normalizeIsoTimestamp(value.lastSignalAt);
+  const presenceExpiresAt = normalizeIsoTimestamp(value.presenceExpiresAt);
+  return {
+    signalKnown: true,
+    lastActivityAt,
+    lastSignalAt,
+    presenceExpiresAt: presenceExpiresAt && Date.parse(presenceExpiresAt) >= now.getTime() ? presenceExpiresAt : null,
+  };
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value);
 }
 
 function normalizePositiveInteger(value: number | undefined, fallback: number): number {

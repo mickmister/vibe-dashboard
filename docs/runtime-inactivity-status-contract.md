@@ -25,14 +25,20 @@ inactivity reporter:
   "idleTimeoutMs": 900000,
   "activityDebounceMs": 5000,
   "lastUserActivityAt": "2026-09-02T19:55:00.000Z",
-  "lastUserActivityType": "workspace_process_completed",
-  "lastUserActivitySource": "vibe_kanban_workspace_summary",
+  "lastUserActivityType": "browser_editor_activity",
+  "lastUserActivitySource": "browser_activity_beacon",
   "hasRunningAgent": false,
   "agentStateKnown": true,
   "agentPollIntervalMs": 15000,
   "lastAgentPollAt": "2026-09-02T20:00:00.000Z",
   "lastSuccessfulAgentPollAt": "2026-09-02T20:00:00.000Z",
-  "blockers": []
+  "blockers": ["browser_editor_present"],
+  "browserActivity": {
+    "signalKnown": true,
+    "lastActivityAt": "2026-09-02T19:55:00.000Z",
+    "lastSignalAt": "2026-09-02T19:55:00.000Z",
+    "presenceExpiresAt": "2026-09-02T19:56:30.000Z"
+  }
 }
 ```
 
@@ -43,16 +49,28 @@ stop/destroy, not on this report.
 
 ## Signal semantics
 
-The endpoint uses Vibe Kanban workspace summaries as the first local signal
-source:
+The endpoint combines an explicit browser/editor activity beacon with Vibe
+Kanban workspace summaries:
 
-1. **Strong blockers** prevent an idle decision: running execution/agent,
+1. **Browser/editor activity** is reported by the app shell via
+   `POST /internal/inactivity/browser-activity`. The payload is an allowlisted
+   event category (`load`, `visible`, `focus`, `interaction`, `heartbeat`,
+   `hide`, `pagehide`), an ISO timestamp, and a coarse visibility state only.
+   URLs, paths, commands, prompts, file names, repo names, cookies, and tokens
+   are never sent.
+2. **Recent browser/editor presence** prevents an idle decision while the latest
+   active beacon is inside the short presence TTL. Once the tab/editor stops
+   heartbeating, the last activity timestamp can age past the 15-minute policy
+   threshold and become eligible evidence.
+3. **Strong VK blockers** prevent an idle decision: running execution/agent,
    pending tool approval, running dev server, or unseen agent turns.
-2. **Workspace activity** uses the latest completed workspace process timestamp
-   as a safe activity timestamp.
-3. **Unknown state fails safe**: if VK summaries are unavailable, empty, or lack a
-   trusted activity timestamp, the endpoint returns `isIdle=false` with
-   `activity_signal_unknown` and, where applicable, `vk_api_unavailable`.
+4. **Workspace activity** uses the latest completed workspace process timestamp
+   as a safe secondary activity timestamp.
+5. **Unknown explicit presence fails safe**: if the browser/editor beacon has
+   never been observed since process start, the endpoint returns `isIdle=false`
+   with `browser_activity_unknown`. If VK summaries are unavailable, empty, or
+   lack a trusted activity timestamp, it also returns `activity_signal_unknown`
+   and, where applicable, `vk_api_unavailable`.
 
 The endpoint does not emit workspace names, repo names/URLs, prompts, commands,
 file paths, environment variables, cookies, tokens, secrets, customer files, or
@@ -60,7 +78,7 @@ raw logs.
 
 ## Follow-ups
 
-Browser/editor presence and terminal/file/process-level activity should be added
-as explicit bounded signal sources before unattended full automatic teardown is
-enabled. Until those signals are proven, pilot suspend remains operator-approved
-and MTS auto-suspend remains default-off.
+Terminal/file/process-level activity can be added later as additional bounded
+signal sources. Until this explicit browser/editor signal is baked into a live
+runtime image and validated with the MTS reporter/suspend loop, pilot suspend
+remains operator-approved and MTS auto-suspend remains default-off.

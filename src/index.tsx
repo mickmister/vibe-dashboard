@@ -27,8 +27,11 @@ import type {
 } from "./types";
 
 // @platform "browser"
+import { installRuntimeInactivityBrowserSignal } from "./lib/runtimeInactivityBrowserSignal";
 import "./modules/plugins";
 import "./modules/MainUIShellModule";
+
+installRuntimeInactivityBrowserSignal();
 // @platform end
 
 // @platform "node"

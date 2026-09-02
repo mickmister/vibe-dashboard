@@ -8,7 +8,9 @@ describe('runtime inactivity status contract docs', () => {
     expect(doc).toContain('/internal/inactivity/status');
     expect(doc).toContain('local-only');
     expect(doc).toContain('15-minute pilot target');
-    expect(doc).toContain('Unknown state fails safe');
+    expect(doc).toContain('Unknown explicit presence fails safe');
+    expect(doc).toContain('POST /internal/inactivity/browser-activity');
+    expect(doc).toContain('browser_editor_activity');
     expect(doc).toContain('Automatic suspend remains');
     expect(doc).toContain('does not emit workspace names, repo names/URLs, prompts, commands');
   });
