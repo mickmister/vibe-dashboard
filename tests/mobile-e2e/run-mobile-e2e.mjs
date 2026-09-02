@@ -6,6 +6,7 @@ import { remote } from 'webdriverio';
 const APPIUM_PORT = Number(process.env.APPIUM_PORT || 4723);
 const APPIUM_HOST = process.env.APPIUM_HOST || '127.0.0.1';
 const MOBILE_E2E_PLATFORM = normalizePlatform(process.env.MOBILE_E2E_PLATFORM || 'android');
+const MOBILE_E2E_TEST_MODE = normalizeTestMode(process.env.MOBILE_E2E_TEST_MODE || 'webview');
 const REPO_ROOT = path.resolve(import.meta.dirname, '../..');
 const ARTIFACTS_DIR = path.resolve(
   REPO_ROOT,
@@ -25,7 +26,7 @@ if (!fs.existsSync(MOBILE_APP_PATH)) {
   throw new Error(`App does not exist: ${MOBILE_APP_PATH}`);
 }
 
-console.log(`Using ${MOBILE_E2E_PLATFORM} app: ${MOBILE_APP_PATH}`);
+console.log(`Using ${MOBILE_E2E_PLATFORM} app for ${MOBILE_E2E_TEST_MODE} E2E: ${MOBILE_APP_PATH}`);
 
 const appium = startAppium(MOBILE_E2E_PLATFORM);
 let driver;
@@ -41,22 +42,13 @@ try {
     capabilities: createCapabilities(MOBILE_E2E_PLATFORM, MOBILE_APP_PATH),
   });
 
-  const webviewContext = await waitForWebViewContext(driver);
-  console.log(`Switching to ${webviewContext}`);
-  await driver.switchContext(webviewContext);
-
-  const mainPage = await driver.$('[data-testid="vkvw-main-page"]');
-  await mainPage.waitForDisplayed({ timeout: 120000 });
-
-  const heading = await driver.$('[data-testid="vkvw-dashboard-heading"]');
-  await heading.waitForDisplayed({ timeout: 30000 });
-  const headingText = await heading.getText();
-
-  if (!/Dashboard/i.test(headingText)) {
-    throw new Error(`Expected Dashboard heading, got: ${headingText}`);
+  if (MOBILE_E2E_TEST_MODE === 'native') {
+    await assertNativeChatView(driver);
+  } else {
+    await assertWebViewDashboard(driver);
   }
 
-  console.log(`${displayPlatform(MOBILE_E2E_PLATFORM)} mobile WebView rendered the main Dashboard page.`);
+  console.log(`${displayPlatform(MOBILE_E2E_PLATFORM)} mobile ${MOBILE_E2E_TEST_MODE} E2E passed.`);
 } catch (error) {
   console.error(error);
   if (driver) {
@@ -81,8 +73,49 @@ function normalizePlatform(platform) {
   return normalized;
 }
 
+function normalizeTestMode(testMode) {
+  const normalized = testMode.toLowerCase();
+  if (normalized !== 'webview' && normalized !== 'native') {
+    throw new Error(`Unsupported MOBILE_E2E_TEST_MODE: ${testMode}`);
+  }
+  return normalized;
+}
+
 function displayPlatform(platform) {
   return platform === 'ios' ? 'iOS' : 'Android';
+}
+
+async function assertWebViewDashboard(driver) {
+  const webviewContext = await waitForWebViewContext(driver);
+  console.log(`Switching to ${webviewContext}`);
+  await driver.switchContext(webviewContext);
+
+  const mainPage = await driver.$('[data-testid="vkvw-main-page"]');
+  await mainPage.waitForDisplayed({ timeout: 120000 });
+
+  const heading = await driver.$('[data-testid="vkvw-dashboard-heading"]');
+  await heading.waitForDisplayed({ timeout: 30000 });
+  const headingText = await heading.getText();
+
+  if (!/Dashboard/i.test(headingText)) {
+    throw new Error(`Expected Dashboard heading, got: ${headingText}`);
+  }
+}
+
+async function assertNativeChatView(driver) {
+  const screen = await driver.$('~Native chat screen');
+  await screen.waitForDisplayed({ timeout: 120000 });
+
+  const welcome = await driver.$('~Native chat welcome');
+  await welcome.waitForDisplayed({ timeout: 30000 });
+  const welcomeText = await welcome.getText();
+
+  if (!/How can I help you today\?/i.test(welcomeText)) {
+    throw new Error(`Expected native welcome text, got: ${welcomeText}`);
+  }
+
+  const composer = await driver.$('~Message input');
+  await composer.waitForDisplayed({ timeout: 30000 });
 }
 
 function createCapabilities(platform, appPath) {

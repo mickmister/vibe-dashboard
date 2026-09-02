@@ -51,6 +51,7 @@ function SendButton() {
 
   return (
     <ComposerPrimitive.Send
+      testID="native-chat-send-button"
       accessibilityLabel="Send message"
       onPressIn={() => canSend && haptics.success()}
       style={[
@@ -143,6 +144,8 @@ export function Composer() {
         )}
 
         <ComposerPrimitive.Input
+          testID="native-chat-composer-input"
+          accessibilityLabel="Message input"
           style={[styles.input, { color: colors.foreground }]}
           placeholder="Message…"
           placeholderTextColor={colors.mutedForeground}

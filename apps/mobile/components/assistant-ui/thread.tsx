@@ -44,8 +44,12 @@ function SuggestionChip({ prompt }: { prompt: string }) {
 function EmptyState() {
   const { colors } = useTheme();
   return (
-    <View style={styles.empty}>
-      <Text style={[styles.welcome, { color: colors.foreground }]}>
+    <View style={styles.empty} testID="native-chat-empty-state" accessibilityLabel="Native chat empty state">
+      <Text
+        style={[styles.welcome, { color: colors.foreground }]}
+        testID="native-chat-welcome"
+        accessibilityLabel="Native chat welcome"
+      >
         How can I help you today?
       </Text>
       <View style={styles.chips}>
@@ -81,7 +85,11 @@ export function Thread() {
   const { colors } = useTheme();
 
   return (
-    <View style={[styles.container, { backgroundColor: colors.background }]}>
+    <View
+      style={[styles.container, { backgroundColor: colors.background }]}
+      testID="native-chat-screen"
+      accessibilityLabel="Native chat screen"
+    >
       <KeyboardAvoidingView
         style={styles.flex}
         behavior={Platform.OS === "ios" ? "padding" : undefined}

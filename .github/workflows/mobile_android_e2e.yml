@@ -15,19 +15,19 @@ on:
 
 jobs:
   mobile-e2e:
-    name: ${{ matrix.platform }} mobile E2E
+    name: ${{ matrix.platform }} ${{ matrix.test_mode }} mobile E2E
     runs-on: ${{ matrix.runner }}
     timeout-minutes: 90
     strategy:
       fail-fast: false
       matrix:
-        include: ${{ fromJSON(inputs.platform == 'android' && '[{"platform":"android","runner":"ubuntu-latest","eas_platform":"android","eas_profile":"mobile-e2e","site_url":"http://10.0.2.2:1337","artifact_glob":"*.apk","appium_driver":"uiautomator2"}]' || inputs.platform == 'ios' && '[{"platform":"ios","runner":"macos-15","eas_platform":"ios","eas_profile":"mobile-e2e-ios-simulator","site_url":"http://127.0.0.1:1337","artifact_glob":"*.app","appium_driver":"xcuitest"}]' || '[{"platform":"android","runner":"ubuntu-latest","eas_platform":"android","eas_profile":"mobile-e2e","site_url":"http://10.0.2.2:1337","artifact_glob":"*.apk","appium_driver":"uiautomator2"},{"platform":"ios","runner":"macos-15","eas_platform":"ios","eas_profile":"mobile-e2e-ios-simulator","site_url":"http://127.0.0.1:1337","artifact_glob":"*.app","appium_driver":"xcuitest"}]') }}
+        include: ${{ fromJSON(inputs.platform == 'android' && '[{"platform":"android","test_mode":"webview","runner":"ubuntu-latest","eas_platform":"android","eas_profile":"mobile-e2e","site_url":"http://10.0.2.2:1337","appium_driver":"uiautomator2","use_webview_shell":"true"},{"platform":"android","test_mode":"native","runner":"ubuntu-latest","eas_platform":"android","eas_profile":"mobile-e2e-native","site_url":"http://10.0.2.2:1337","appium_driver":"uiautomator2","use_webview_shell":"false"}]' || inputs.platform == 'ios' && '[{"platform":"ios","test_mode":"webview","runner":"macos-15","eas_platform":"ios","eas_profile":"mobile-e2e-ios-simulator","site_url":"http://127.0.0.1:1337","appium_driver":"xcuitest","use_webview_shell":"true"},{"platform":"ios","test_mode":"native","runner":"macos-15","eas_platform":"ios","eas_profile":"mobile-e2e-ios-simulator-native","site_url":"http://127.0.0.1:1337","appium_driver":"xcuitest","use_webview_shell":"false"}]' || '[{"platform":"android","test_mode":"webview","runner":"ubuntu-latest","eas_platform":"android","eas_profile":"mobile-e2e","site_url":"http://10.0.2.2:1337","appium_driver":"uiautomator2","use_webview_shell":"true"},{"platform":"android","test_mode":"native","runner":"ubuntu-latest","eas_platform":"android","eas_profile":"mobile-e2e-native","site_url":"http://10.0.2.2:1337","appium_driver":"uiautomator2","use_webview_shell":"false"},{"platform":"ios","test_mode":"webview","runner":"macos-15","eas_platform":"ios","eas_profile":"mobile-e2e-ios-simulator","site_url":"http://127.0.0.1:1337","appium_driver":"xcuitest","use_webview_shell":"true"},{"platform":"ios","test_mode":"native","runner":"macos-15","eas_platform":"ios","eas_profile":"mobile-e2e-ios-simulator-native","site_url":"http://127.0.0.1:1337","appium_driver":"xcuitest","use_webview_shell":"false"}]') }}
     env:
       MOBILE_E2E_SITE_URL: ${{ matrix.site_url }}
       HOST_SITE_URL: http://127.0.0.1:1337
       PORT: '1337'
       SERVER_PORT: '1337'
-      ARTIFACTS_DIR: artifacts/mobile-e2e/${{ matrix.platform }}
+      ARTIFACTS_DIR: artifacts/mobile-e2e/${{ matrix.platform }}-${{ matrix.test_mode }}
     steps:
       - name: Checkout repo
         uses: actions/checkout@v4
@@ -84,13 +84,13 @@ jobs:
         env:
           EXPO_TOKEN: ${{ secrets.EXPO_TOKEN }}
           EXPO_GITHUB_ACTIONS_RUN: 'true'
-          EAS_LOCAL_BUILD_ARTIFACTS_DIR: ${{ github.workspace }}/artifacts/mobile-e2e/${{ matrix.platform }}
+          EAS_LOCAL_BUILD_ARTIFACTS_DIR: ${{ github.workspace }}/artifacts/mobile-e2e/${{ matrix.platform }}-${{ matrix.test_mode }}
           APP_PROFILE: mobile-e2e
           EXPO_APP_PROFILE: mobile-e2e
           PUBLIC_SITE_URL: ${{ env.MOBILE_E2E_SITE_URL }}
           EXPO_PUBLIC_SITE_URL: ${{ env.MOBILE_E2E_SITE_URL }}
           EXPO_LOAD_WEBVIEW_FROM_SITE_URL: 'true'
-          EXPO_USE_WEBVIEW_SHELL: 'true'
+          EXPO_USE_WEBVIEW_SHELL: ${{ matrix.use_webview_shell }}
 
       - name: Locate mobile app artifact
         id: app
@@ -123,6 +123,7 @@ jobs:
           echo "app_path=$app_path" >> "$GITHUB_OUTPUT"
           echo "MOBILE_APP_PATH=$GITHUB_WORKSPACE/$app_path" >> "$GITHUB_ENV"
           echo "MOBILE_E2E_PLATFORM=${{ matrix.platform }}" >> "$GITHUB_ENV"
+          echo "MOBILE_E2E_TEST_MODE=${{ matrix.test_mode }}" >> "$GITHUB_ENV"
           echo "Found app artifact: $app_path"
 
       - name: Install mobile E2E dependencies
@@ -224,6 +225,6 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: mobile-${{ matrix.platform }}-e2e-artifacts
+          name: mobile-${{ matrix.platform }}-${{ matrix.test_mode }}-e2e-artifacts
           path: ${{ env.ARTIFACTS_DIR }}
           retention-days: 5
