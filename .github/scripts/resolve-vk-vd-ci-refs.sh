@@ -25,6 +25,7 @@ repository_dispatch_vd_branch="${REPOSITORY_DISPATCH_VD_BRANCH:-}"
 release_tag="${RELEASE_TAG:-}"
 release_url="${RELEASE_URL:-}"
 vk_workflow_run_url="${VK_WORKFLOW_RUN_URL:-}"
+vk_asset_fallback_policy="${VK_ASSET_FALLBACK_POLICY:-fallback-default-branch-only}"
 
 die() {
   echo "::error::$*" >&2
@@ -37,6 +38,10 @@ notice() {
 
 is_full_sha() {
   [[ "${1:-}" =~ ^[0-9a-fA-F]{40}$ ]]
+}
+
+is_stable_release_tag_ref() {
+  [[ "${1:-}" =~ ^refs/tags/v[0-9]+\.[0-9]+\.[0-9]+$ ]]
 }
 
 head_ref() {
@@ -67,7 +72,7 @@ resolve_remote_ref_to_sha() {
     rm -rf "$tmpdir"
     return 1
   }
-  git -C "$tmpdir" rev-parse FETCH_HEAD
+  git -C "$tmpdir" rev-parse 'FETCH_HEAD^{commit}'
   rm -rf "$tmpdir"
 }
 
@@ -124,10 +129,26 @@ resolve_vd() {
     push)
       [[ -n "$event_ref_name" ]] || die "GITHUB_REF_NAME is required for push events"
       [[ -n "$event_sha" ]] || die "GITHUB_SHA is required for push events"
-      vd_branch="$event_ref_name"
-      vd_ref="${event_ref:-$(head_ref "$vd_branch")}"
-      vd_commit="$event_sha"
-      vd_resolution_source="push_ref"
+      if [[ "$event_ref" == refs/tags/* ]]; then
+        # Main release path: pushing a tag at current VD main publishes latest
+        # and deploys the resolved VK/VD image. Keep this intentionally narrow
+        # so arbitrary branch tags cannot become production releases.
+        vd_branch="$default_branch"
+        vd_ref="$event_ref"
+        vd_commit="$(resolve_remote_ref_to_sha "$vd_repo_url" "$vd_ref")" \
+          || die "Unable to resolve VD release tag: ${vd_ref}"
+        local vd_default_commit
+        vd_default_commit="$(remote_head_sha "$vd_repo_url" "$default_branch")"
+        [[ -n "$vd_default_commit" ]] || die "Could not resolve VD ${default_branch}"
+        [[ "$vd_commit" == "$vd_default_commit" ]] \
+          || die "Release tag ${vd_ref} points to ${vd_commit}, but ${default_branch} is ${vd_default_commit}. Move the tag to current ${default_branch} before publishing latest."
+        vd_resolution_source="tag_on_default_branch"
+      else
+        vd_branch="$event_ref_name"
+        vd_ref="${event_ref:-$(head_ref "$vd_branch")}"
+        vd_commit="$event_sha"
+        vd_resolution_source="push_ref"
+      fi
       ;;
     workflow_dispatch)
       if [[ -n "$event_ref_name" ]]; then
@@ -156,6 +177,9 @@ resolve_vk() {
 
   case "$event_name" in
     pull_request)
+      # Primary coordinated image path for VD-only or paired VK/VD work:
+      # VD PRs resolve a same-named VK branch when it exists, then wait for
+      # that exact VK commit's vk-assets-<sha> release before publishing.
       local candidate_branch="$vd_branch"
       if [[ -n "$(remote_head_sha "$vk_repo_url" "$candidate_branch")" ]]; then
         vk_branch="$candidate_branch"
@@ -166,14 +190,24 @@ resolve_vk() {
       fi
       ;;
     workflow_dispatch)
+      # Manual escape hatch: callers provide an exact VK branch/tag/SHA and the
+      # workflow waits for that exact asset. Do not silently substitute fallback
+      # assets for explicit operator intent.
       vk_branch="${workflow_vk_ref:-main}"
       vk_resolution_source="workflow_dispatch_input"
       ;;
     repository_dispatch)
+      # Follow-up rebuild path from VK release-assets-ready. VK is already
+      # settled by the dispatched SHA; VD resolves a same-named branch when
+      # present, otherwise the default VD branch, then still validates the exact
+      # dispatched VK assets before publishing.
       vk_branch="${repository_dispatch_vk_ref:-main}"
       vk_resolution_source="repository_dispatch_payload"
       ;;
     push)
+      # Primary coordinated image path for pushed VD branches. Prefer a
+      # same-named VK branch and wait for its exact assets so a paired branch
+      # push cannot publish with stale fallback VK assets while VK is building.
       local candidate_branch="$vd_branch"
       if [[ -n "$(remote_head_sha "$vk_repo_url" "$candidate_branch")" ]]; then
         vk_branch="$candidate_branch"
@@ -235,11 +269,15 @@ resolve_asset_fallback_if_needed() {
     return 0
   fi
 
-  if [[ "$event_name" != "push" || "$vk_branch" != "$default_branch" || -z "$vk_commit" ]]; then
+  if [[ -z "$vk_commit" ]]; then
     return 0
   fi
 
   if vk_assets_exist "$vk_commit"; then
+    return 0
+  fi
+
+  if [[ "$vk_resolution_source" != "fallback_default_branch" && "$vk_asset_fallback_policy" != "allow-matching-branch-fallback" ]]; then
     return 0
   fi
 
@@ -272,7 +310,12 @@ resolve_publish_latest() {
   vk_main_commit="$(remote_head_sha "$vk_repo_url" "$default_branch")"
   [[ -n "$vk_main_commit" ]] || die "Could not resolve VK ${default_branch}"
 
-  if [[ "$vd_branch" == "$default_branch" && "$vk_commit" == "$vk_main_commit" && "$used_asset_fallback" != "true" ]]; then
+  if [[ "$event_name" == "push" ]] &&
+    [[ "$vd_resolution_source" == "tag_on_default_branch" ]] &&
+    [[ "$vd_branch" == "$default_branch" ]] &&
+    [[ "$vk_commit" == "$vk_main_commit" ]] &&
+    [[ "$used_asset_fallback" != "true" ]] &&
+    is_stable_release_tag_ref "$event_ref"; then
     publish_latest=true
   fi
 }
