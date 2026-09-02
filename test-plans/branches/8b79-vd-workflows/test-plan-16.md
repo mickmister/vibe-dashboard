@@ -4,7 +4,7 @@ Branch: `vk/8b79-vd-workflows`
 
 Primary planning topic: full VD + VK + Gas City + Beads workflow orchestration acceptance
 
-Status: test-plan/design only; no product code or test implementation in this slice
+Status: GCW-14A implements the first Docker/CI harness smoke slice; full orchestration and real lane-dependent cases remain deferred until fixture/provider and lane implementation slices land
 
 ## Purpose
 
@@ -307,15 +307,16 @@ npm run test:e2e:vk-workflows-docker
 ## Implementation ladder
 
 1. **Plan/current slice**: this document only.
-2. **Harness fixture slice**: add deterministic test-only Beads/GC fixture APIs or
+2. **GCW-14A harness/runtime smoke slice**: add Docker Playwright spec and CI plumbing that verifies pinned Gas City, Beads, and gc-session-vibe runtime availability without claiming full orchestration. Real sub-workspace lanes are not implemented and must not be asserted here.
+3. **Harness fixture slice**: add deterministic test-only Beads/GC fixture APIs or
    temporary Beads repo setup without product-surface raw command leakage.
-3. **UI launch E2E slice**: VD UI config/start -> GC provider -> VK first message
+4. **UI launch E2E slice**: VD UI config/start -> GC provider -> VK first message
    -> fabricated interaction -> next VK message -> VD run page.
-4. **CLI launch E2E slice**: `vibe-agent workflow run` -> GC provider -> callback
+5. **CLI launch E2E slice**: `vibe-agent workflow run` -> GC provider -> callback
    delivery/activity/read-model.
-5. **Failure/recovery slice**: abrupt-turn detection/recovery, provider failure,
+6. **Failure/recovery slice**: abrupt-turn detection/recovery, provider failure,
    duplicate launch/interaction idempotency.
-6. **Stronger real-Beads slice**: replace or supplement typed fake fixture with a
+7. **Stronger real-Beads slice**: replace or supplement typed fake fixture with a
    real temporary Beads repository if the provider implementation supports it.
 
 ## Tester PASS rules

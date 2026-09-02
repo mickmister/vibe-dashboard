@@ -164,3 +164,59 @@ jobs:
             vibe-kanban-vscode-web/.vk-mocked-sandbox/current
             Vktest/dev_assets/sessions
           if-no-files-found: ignore
+
+  gas-city-workflow-docker-e2e:
+    name: Gas City workflow Docker E2E
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+
+    steps:
+      - name: Resolve matching VK branch
+        id: resolve-vk-ref
+        shell: bash
+        run: |
+          set -euo pipefail
+          candidate="${GITHUB_HEAD_REF:-${GITHUB_REF_NAME}}"
+          vk_repo_url="https://github.com/${VK_REPOSITORY}.git"
+
+          if git ls-remote --exit-code --heads "$vk_repo_url" "$candidate" >/dev/null; then
+            vk_ref="$candidate"
+            reason="matched branch"
+          else
+            vk_ref="main"
+            reason="fallback"
+          fi
+
+          echo "ref=$vk_ref" >> "$GITHUB_OUTPUT"
+          echo "Resolved VK ref: $vk_ref ($reason for candidate: $candidate)"
+
+      - name: Checkout VD
+        uses: actions/checkout@v4
+        with:
+          path: vibe-kanban-vscode-web
+
+      - name: Checkout VK
+        uses: actions/checkout@v4
+        with:
+          repository: ${{ env.VK_REPOSITORY }}
+          ref: ${{ steps.resolve-vk-ref.outputs.ref }}
+          path: vibe-kanban
+
+      - name: Setup Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Run Gas City workflow Docker E2E harness smoke
+        working-directory: vibe-kanban-vscode-web
+        env:
+          WORKFLOW_E2E_PLAYWRIGHT_ARGS: tests/e2e/features/8b79-vd-workflows/gas-city-workflow-orchestration.spec.ts
+          WORKFLOW_E2E_LOG_DIR: ${{ github.workspace }}/workflow-gas-city-e2e-artifacts
+          VK_REPO_DIR: ${{ github.workspace }}/vibe-kanban
+        run: npm run test:e2e:vk-workflows-docker
+
+      - name: Upload Gas City workflow Docker E2E artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: gas-city-workflow-docker-e2e-artifacts
+          path: workflow-gas-city-e2e-artifacts
+          if-no-files-found: ignore
