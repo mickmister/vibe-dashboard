@@ -23,6 +23,32 @@ export interface WorkspaceWorkflowsHomeModel {
   needsInput: WorkspaceWorkflowAttentionSummary[];
   recentBatches: WorkspaceWorkflowBatchSummary[];
   lanes: ParentLaneOverviewModel | null;
+  gasCityEngine?: WorkspaceGasCityWorkflowEngineModel | null;
+}
+
+export interface WorkspaceGasCityWorkflowEngineModel {
+  health: {
+    status: "healthy" | "unconfigured" | "unavailable";
+    summary: string;
+    version?: string | null;
+    checkedAt?: number | null;
+    warnings?: string[];
+  };
+  recipes?: Array<{
+    id: string;
+    name: string;
+    summary?: string | null;
+    sourceWorkflow?: string | null;
+    status: "ready" | "preview" | "unavailable";
+  }>;
+  launch?: {
+    enabled: boolean;
+    sourceBeadId?: string | null;
+    target?: string | null;
+    recipeId?: string | null;
+    summary: string;
+  } | null;
+  diagnosticsRef?: string | null;
 }
 
 export interface WorkspaceWorkflowBatchSummary {

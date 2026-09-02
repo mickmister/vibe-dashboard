@@ -54,6 +54,7 @@ import {
 import { BUILT_IN_WORKFLOW_TEMPLATES } from "../modules/plugins/workflows/templates/builtInWorkflowTemplates";
 import { buildPersistedWorkflowPresentationModel } from "../modules/plugins/workflows/server/persistedWorkflowPresentationReadModel";
 import { buildLiveWorkflowRoadmapModel, type WorkflowRoadmapLiveProvider } from "../modules/plugins/workflows/server/workflowRoadmapReadModel";
+import { buildGasCityE2eEngineHomeModel, shouldRegisterGasCityE2eFixtureRoutes } from "./gas-city-e2e-fixture-routes";
 import {
   BeadMetaWorkflowError,
   BeadMetaWorkflowRuntime,
@@ -334,7 +335,14 @@ export function registerWorkflowRoutes(
       workspaceId,
       laneStore: options.workspaceLaneStore,
     });
-    return c.json({ home });
+    return c.json({
+      home: {
+        ...home,
+        gasCityEngine: shouldRegisterGasCityE2eFixtureRoutes()
+          ? buildGasCityE2eEngineHomeModel(workspaceId)
+          : home.gasCityEngine ?? null,
+      },
+    });
   });
 
   hono.get("/dashboard/api/workflows/meta-beads", async (c) => {

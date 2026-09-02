@@ -211,6 +211,41 @@ describe("WorkspaceWorkflowsHomeView", () => {
     expect(html).not.toMatch(/gc sling|provider diagnostics|raw XML|webhook|queue item|\/Users|\/tmp|stdout|stderr|bd show|git status/i);
   });
 
+  it("renders task-backed workflow start affordance when the engine read model is ready", () => {
+    const html = renderToStaticMarkup(
+      React.createElement(WorkspaceWorkflowsHomeView, {
+        home: {
+          ...fixture(),
+          gasCityEngine: {
+            health: {
+              status: "healthy",
+              summary: "Workflow orchestration is available for task-backed work.",
+              version: "1.4.1",
+              warnings: [],
+            },
+            recipes: [{ id: "dev-review-test", name: "Dev Review Test recipe", summary: "Generated workflow recipe", sourceWorkflow: "Dev Review Test", status: "ready" }],
+            launch: {
+              enabled: true,
+              sourceBeadId: "bead-a",
+              target: "worker",
+              recipeId: "dev-review-test",
+              summary: "Ready to start task-backed workflow work for Feature task.",
+            },
+            diagnosticsRef: "gas-city-e2e-fixture",
+          },
+        },
+        loading: false,
+        error: null,
+        onRefresh: () => {},
+      }),
+    );
+
+    expect(html).toContain("Start task-backed workflow");
+    expect(html).toContain("Ready to start task-backed workflow work for Feature task.");
+    expect(html).toContain("Dev Review Test recipe");
+    expect(html).not.toMatch(/gc sling|bd show|git status|stdout|stderr|provider diagnostics|webhook|queue item|\/Users|\/tmp/i);
+  });
+
   it("TEST_CASE_M104_1A renders launch summary, run-scoped instructions context, and session choices", () => {
     const html = renderToStaticMarkup(
       React.createElement(LaunchSummary, {

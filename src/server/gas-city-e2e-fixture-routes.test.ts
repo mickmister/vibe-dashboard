@@ -55,6 +55,52 @@ describe("registerGasCityE2eFixtureRoutes", () => {
     await expect(conflict.json()).resolves.toMatchObject({ ok: false, result: { status: "conflict" } });
   });
 
+
+  it("launches a ready source bead through the Gas City provider seam", async () => {
+    const app = new Hono();
+    const fixture = new GasCityE2eFixtureStore({
+      workspaceId: "workspace-a",
+      beads: [{ id: "bead-a", title: "Ready task", status: "ready", readiness: "ready", workspaceId: "workspace-a", dependencyBeadIds: [], convoyIds: [] }],
+    }, { now: () => 123 });
+    registerGasCityE2eFixtureRoutes(app, { enabled: true, fixture });
+
+    const response = await app.request("/dashboard/api/workflows/gas-city-e2e-fixture/launch", {
+      method: "POST",
+      body: JSON.stringify({ workspaceId: "workspace-a", sourceBeadId: "bead-a", target: "worker", formula: "dev-review-test", idempotencyKey: "launch-1" }),
+      headers: { "content-type": "application/json" },
+    });
+
+    expect(response.status).toBe(201);
+    const body = await response.json();
+    expect(body).toMatchObject({
+      ok: true,
+      launch: { status: "accepted", workflowRef: { workspaceId: "workspace-a", sourceBeadId: "bead-a", formula: "dev-review-test" } },
+      workflow: { status: "running" },
+    });
+    expect(JSON.stringify(body)).not.toMatch(forbidden);
+
+    const snapshot = fixture.snapshot();
+    expect(snapshot.beads[0]?.workflow).toMatchObject({ workflowId: expect.any(String), status: "running" });
+  });
+
+  it("blocks launching a source bead that is not ready", async () => {
+    const app = new Hono();
+    const fixture = new GasCityE2eFixtureStore({
+      workspaceId: "workspace-a",
+      beads: [{ id: "bead-a", title: "Draft task", status: "open", readiness: "not_ready", workspaceId: "workspace-a", dependencyBeadIds: [], convoyIds: [] }],
+    }, { now: () => 123 });
+    registerGasCityE2eFixtureRoutes(app, { enabled: true, fixture });
+
+    const response = await app.request("/dashboard/api/workflows/gas-city-e2e-fixture/launch", {
+      method: "POST",
+      body: JSON.stringify({ workspaceId: "workspace-a", sourceBeadId: "bead-a", target: "worker", formula: "dev-review-test", idempotencyKey: "launch-1" }),
+      headers: { "content-type": "application/json" },
+    });
+
+    expect(response.status).toBe(400);
+    await expect(response.json()).resolves.toMatchObject({ ok: false, error: "source_bead_not_ready" });
+  });
+
   it("scrubs hostile fixture text from route payloads", async () => {
     const app = new Hono();
     const fixture = new GasCityE2eFixtureStore({ workspaceId: "workspace-a" }, { now: () => 123 });

@@ -10,6 +10,7 @@ import {
   createWorkspaceLane,
   fetchWorkflowLaunchOptions,
   fetchWorkspaceWorkflowsHome,
+  launchGasCitySourceWorkflow,
   launchWorkspaceWorkflow,
   useWorkflowTemplate,
   WorkflowApiError,
@@ -453,7 +454,7 @@ export function WorkspaceWorkflowsHomeView({
         description="Secondary workflow tools for roadmap planning, isolated lanes, and diagnostics."
       >
         <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_minmax(0,1fr)]">
-          <GasCityWorkflowEnginePanel engine={gasCityEngine ?? defaultGasCityEngineUiModel(home?.workspaceId ?? null)} routeParams={routeParams} />
+          <GasCityWorkflowEnginePanel engine={gasCityEngine ?? home?.gasCityEngine ?? defaultGasCityEngineUiModel(home?.workspaceId ?? null)} workspaceId={home?.workspaceId ?? null} routeParams={routeParams} onStarted={(updated) => onHomeUpdated?.(updated)} />
           <div className="rounded-lg border border-zinc-800 bg-zinc-950 p-4">
             <h3 className="font-semibold text-zinc-100">Run over beads / roadmap</h3>
             <p className="mt-2 text-sm text-zinc-400">Use the roadmap to choose beads, then start a meta-workflow from the supported workspace route.</p>
@@ -569,11 +570,18 @@ function defaultGasCityEngineUiModel(workspaceId: string | null): GasCityWorkflo
 
 function GasCityWorkflowEnginePanel({
   engine,
+  workspaceId,
   routeParams,
+  onStarted,
 }: {
   engine: GasCityWorkflowEngineUiModel;
+  workspaceId?: string | null;
   routeParams?: URLSearchParams;
+  onStarted?: (home: WorkspaceWorkflowsHomeModel) => void;
 }): React.ReactElement {
+  const [launching, setLaunching] = useState(false);
+  const [launchResult, setLaunchResult] = useState<{ status: string; summary: string; nextAction?: string | null } | null>(null);
+  const [launchError, setLaunchError] = useState<string | null>(null);
   const safeEngine = sanitizeGasCityEngineUiModel(engine);
   const healthTone = safeEngine.health.status === "healthy"
     ? "border-emerald-800 bg-emerald-950/20 text-emerald-100"
@@ -628,8 +636,32 @@ function GasCityWorkflowEnginePanel({
       </div>
       <div className="mt-4 flex flex-wrap items-center gap-2">
         {safeEngine.launch?.enabled ? (
-          <button type="button" className="rounded-md border border-cyan-700 px-3 py-2 text-sm text-cyan-100 hover:bg-cyan-950/40">
-            Start from task
+          <button
+            type="button"
+            className="rounded-md border border-cyan-700 px-3 py-2 text-sm text-cyan-100 hover:bg-cyan-950/40 disabled:cursor-not-allowed disabled:opacity-50"
+            disabled={launching}
+            onClick={async () => {
+              if (!safeEngine.launch?.sourceBeadId || !safeEngine.launch.target || !safeEngine.launch.recipeId) return;
+              setLaunching(true);
+              setLaunchError(null);
+              try {
+                const result = await launchGasCitySourceWorkflow({
+                  workspaceId: workspaceId ?? "",
+                  sourceBeadId: safeEngine.launch.sourceBeadId,
+                  target: safeEngine.launch.target,
+                  formula: safeEngine.launch.recipeId,
+                  idempotencyKey: `workspace-ui-${safeEngine.launch.sourceBeadId}-${safeEngine.launch.recipeId}`,
+                });
+                setLaunchResult({ status: result.launch.status, summary: result.launch.summary, nextAction: result.workflow?.nextAction ?? null });
+                if (result.home) onStarted?.(result.home);
+              } catch (caught) {
+                setLaunchError(scrubWorkflowEngineText(caught instanceof Error ? caught.message : String(caught), "Workflow launch is not available yet."));
+              } finally {
+                setLaunching(false);
+              }
+            }}
+          >
+            {launching ? "Starting…" : "Start task-backed workflow"}
           </button>
         ) : (
           <span className="rounded-md border border-zinc-800 px-3 py-2 text-sm text-zinc-500">
@@ -638,6 +670,16 @@ function GasCityWorkflowEnginePanel({
         )}
         <span className="text-xs text-zinc-500">{safeEngine.launch?.summary ?? "Connect the workflow engine before starting task-backed work."}</span>
       </div>
+      {launchResult ? (
+        <div className="mt-3 rounded-md border border-emerald-800 bg-emerald-950/20 p-3" role="status" aria-label="Task-backed workflow progress">
+          <div className="text-sm font-medium text-emerald-100">Task-backed workflow is running</div>
+          <div className="mt-1 text-sm text-emerald-50">{launchResult.summary}</div>
+          {launchResult.nextAction ? <div className="mt-1 text-xs text-emerald-100">{launchResult.nextAction}</div> : null}
+        </div>
+      ) : null}
+      {launchError ? (
+        <div className="mt-3 rounded-md border border-red-900 bg-red-950/20 p-3 text-sm text-red-100" role="alert">{launchError}</div>
+      ) : null}
       <details className="mt-4 rounded-md border border-zinc-800 bg-zinc-900/50 p-3 text-xs text-zinc-400">
         <summary className="cursor-pointer font-medium text-zinc-200">Advanced engine details</summary>
         <div className="mt-2 space-y-1">

@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { batchLaunchWorkspaceWorkflow, fetchWorkflowBatchDetail, fetchWorkflowLaunchOptions, fetchWorkspaceWorkflowsHome, launchWorkspaceWorkflow, useWorkflowTemplate } from './workflowsHomeApi';
+import { batchLaunchWorkspaceWorkflow, fetchWorkflowBatchDetail, fetchWorkflowLaunchOptions, fetchWorkspaceWorkflowsHome, launchGasCitySourceWorkflow, launchWorkspaceWorkflow, useWorkflowTemplate } from './workflowsHomeApi';
 
 describe('workflows home API client', () => {
   afterEach(() => vi.restoreAllMocks());
@@ -28,6 +28,21 @@ describe('workflows home API client', () => {
     expect(JSON.parse(String((fetchMock.mock.calls[1]?.[1] as RequestInit).body))).toMatchObject({ additionalInstructions: 'Keep it clean.' });
   });
 
+
+  it('posts Gas City task-backed workflow launch requests through the fixture seam', async () => {
+    const fetchMock = vi.spyOn(globalThis, 'fetch').mockResolvedValue(new Response(JSON.stringify({
+      launch: {
+        status: 'accepted',
+        summary: 'Workflow launch accepted.',
+        workflowRef: { providerId: 'gas_city', workspaceId: 'workspace-a', sourceBeadId: 'bead-a', target: 'worker', formula: 'dev-review-test' },
+      },
+      workflow: { status: 'running', nextAction: 'Workflow work is running.' },
+    }), { status: 201 }));
+
+    await expect(launchGasCitySourceWorkflow({ workspaceId: 'workspace-a', sourceBeadId: 'bead-a', target: 'worker', formula: 'dev-review-test', idempotencyKey: 'launch-a' })).resolves.toMatchObject({ launch: { status: 'accepted' }, workflow: { status: 'running' } });
+    expect(fetchMock).toHaveBeenCalledWith('/dashboard/api/workflows/gas-city-e2e-fixture/launch', expect.objectContaining({ method: 'POST' }));
+    expect(JSON.parse(String((fetchMock.mock.calls[0]?.[1] as RequestInit).body))).toMatchObject({ workspaceId: 'workspace-a', sourceBeadId: 'bead-a', target: 'worker', formula: 'dev-review-test', idempotencyKey: 'launch-a' });
+  });
 
   it('posts workflow batch launch requests', async () => {
     const fetchMock = vi.spyOn(globalThis, 'fetch').mockResolvedValue(new Response(JSON.stringify({ batch: { batchId: 'batch-a', workflowName: 'Workflow', status: 'running', counts: { total: 2, pending: 1, running: 1, completed: 0, blocked: 0, failed: 0, cancelled: 0 }, items: [{ itemIndex: 1, status: 'failed', runId: null, error: { code: 'workflow_launch_validation_failed', message: 'Missing field', fieldErrors: { featureRequest: 'This field is required.' } } }], updatedAt: 1, detailUrl: null } }), { status: 201 }));

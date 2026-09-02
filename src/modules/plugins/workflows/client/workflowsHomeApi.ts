@@ -6,6 +6,32 @@ export interface WorkspaceWorkflowsHomeModel {
   needsInput: WorkspaceWorkflowAttentionSummary[];
   recentBatches: WorkspaceWorkflowBatchSummary[];
   lanes: WorkspaceLaneOverviewModel | null;
+  gasCityEngine?: WorkspaceGasCityWorkflowEngineModel | null;
+}
+
+export interface WorkspaceGasCityWorkflowEngineModel {
+  health: {
+    status: "healthy" | "unconfigured" | "unavailable";
+    summary: string;
+    version?: string | null;
+    checkedAt?: number | null;
+    warnings?: string[];
+  };
+  recipes?: Array<{
+    id: string;
+    name: string;
+    summary?: string | null;
+    sourceWorkflow?: string | null;
+    status: "ready" | "preview" | "unavailable";
+  }>;
+  launch?: {
+    enabled: boolean;
+    sourceBeadId?: string | null;
+    target?: string | null;
+    recipeId?: string | null;
+    summary: string;
+  } | null;
+  diagnosticsRef?: string | null;
 }
 
 export interface WorkspaceLaneOverviewModel {
@@ -276,6 +302,54 @@ export interface LaunchWorkspaceWorkflowResponse {
 export interface BatchLaunchWorkspaceWorkflowResponse {
   batch: WorkspaceWorkflowBatchSummary;
   home?: WorkspaceWorkflowsHomeModel;
+}
+
+export interface LaunchGasCitySourceWorkflowRequest {
+  workspaceId: string;
+  sourceBeadId: string;
+  target: string;
+  formula: string;
+  idempotencyKey?: string | null;
+}
+
+export interface LaunchGasCitySourceWorkflowResponse {
+  launch: {
+    status: string;
+    summary: string;
+    diagnosticsRef?: string | null;
+    workflowRef: {
+      providerId: "gas_city";
+      workspaceId: string;
+      sourceBeadId: string;
+      target: string;
+      formula: string;
+      rootBeadId?: string | null;
+      workflowId?: string | null;
+    };
+  };
+  workflow: {
+    status: string;
+    currentOwner?: string | null;
+    currentStage?: string | null;
+    nextAction?: string | null;
+  } | null;
+  home?: WorkspaceWorkflowsHomeModel;
+}
+
+export async function launchGasCitySourceWorkflow(
+  request: LaunchGasCitySourceWorkflowRequest,
+): Promise<LaunchGasCitySourceWorkflowResponse> {
+  const response = await fetch("/dashboard/api/workflows/gas-city-e2e-fixture/launch", {
+    method: "POST",
+    headers: { Accept: "application/json", "Content-Type": "application/json" },
+    body: JSON.stringify(request),
+  });
+  const payload = (await response.json().catch(() => ({}))) as LaunchGasCitySourceWorkflowResponse & {
+    error?: string;
+    message?: string;
+  };
+  if (response.ok && payload.launch) return payload;
+  throw new WorkflowApiError(payload.message || payload.error || `Failed to start task-backed workflow: ${response.status}`);
 }
 
 

@@ -165,10 +165,62 @@ test.describe('GCW-14A/14B Gas City Docker orchestration harness and fixture lay
   });
 
 
-  test.fixme(
-    'TEST_CASE_GC_FULL_E2E_1A full VD UI config/start through Gas City provider is deferred until GCW-14B+ fixture/launch wiring exists',
-    async () => {},
-  );
+  test('TEST_CASE_GC_FULL_E2E_1A configures and starts a Gas City-backed workflow from the VD UI', async ({ page, request }, testInfo) => {
+    await expectDashboardHealth(request);
+    const workspace = await firstWorkspace(request);
+    const beadId = 'gcw14c-ui-start-bead';
+    const fixtureBase = new URL('/dashboard/api/workflows/gas-city-e2e-fixture', sandboxUrl).toString();
+
+    const resetResponse = await request.post(`${fixtureBase}/reset`, {
+      data: {
+        workspaceId: workspace.id,
+        providerAvailable: true,
+        beads: [{
+          id: beadId,
+          title: 'GCW-14C UI start task',
+          status: 'ready',
+          readiness: 'ready',
+          workspaceId: workspace.id,
+          dependencyBeadIds: [],
+          convoyIds: [],
+          workflow: null,
+          metadata: { formula: 'dev-review-test' },
+        }],
+      },
+    });
+    expect(resetResponse.ok(), await resetResponse.text()).toBe(true);
+
+    await page.goto(`/dashboard/workflows?workspaceId=${encodeURIComponent(workspace.id)}`);
+    await expect(page.getByRole('heading', { name: 'Workflows', exact: true })).toBeVisible();
+    const enginePanel = page.getByLabel('Workflow engine status');
+    await expect(enginePanel).toBeVisible();
+    await expect(enginePanel).toContainText('Workflow orchestration is available for task-backed work.');
+    await expect(enginePanel).toContainText('Dev Review Test recipe');
+    await expect(enginePanel).toContainText('Ready to start task-backed workflow work for GCW-14C UI start task.');
+    await expect(enginePanel.getByRole('button', { name: 'Start task-backed workflow' })).toBeEnabled();
+
+    await enginePanel.getByRole('button', { name: 'Start task-backed workflow' }).click();
+    const progress = page.getByLabel('Task-backed workflow progress');
+    await expect(progress).toBeVisible();
+    await expect(progress).toContainText('Task-backed workflow is running');
+    await expect(progress).toContainText(/accepted|already running/i);
+    await expect(progress).not.toContainText(productForbidden);
+
+    const snapshotResponse = await request.get(fixtureBase, { headers: { Accept: 'application/json' } });
+    expect(snapshotResponse.ok(), await snapshotResponse.text()).toBe(true);
+    const snapshot = await snapshotResponse.json() as FixtureSnapshotResponse;
+    await testInfo.attach('gcw14c-ui-start-fixture-snapshot.json', { body: JSON.stringify(snapshot, null, 2), contentType: 'application/json' });
+    const sourceBead = snapshot.state.beads.find((bead) => bead.id === beadId) as { workflow?: { status?: string; workflowId?: string; rootBeadId?: string; formula?: string; target?: string } } | undefined;
+    expect(sourceBead?.workflow).toMatchObject({ status: 'running', formula: 'dev-review-test', target: 'worker' });
+    expect(sourceBead?.workflow?.workflowId).toBeTruthy();
+    expect(JSON.stringify(snapshot)).not.toMatch(productForbidden);
+    expect(JSON.stringify(snapshot)).not.toMatch(/lane ready|sub-workspace ready|worktree ready/i);
+
+    const visibleText = await enginePanel.innerText();
+    await testInfo.attach('gcw14c-engine-panel-after-launch.txt', { body: visibleText, contentType: 'text/plain' });
+    expect(visibleText).not.toMatch(productForbidden);
+    expect(visibleText).not.toMatch(/lane ready|sub-workspace ready|worktree ready/i);
+  });
 
   test.fixme(
     'TEST_CASE_GC_FULL_E2E_1B VK routed first agent message is deferred until GC-backed launch is wired to gc-session-vibe',
