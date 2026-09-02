@@ -376,14 +376,18 @@ async function waitForWebViewContext(driver) {
 
   while (Date.now() - start < timeoutMs) {
     lastContexts = await driver.getContexts();
-    const webviewContext = lastContexts.find((context) => String(context).startsWith('WEBVIEW'));
+    const webviewContext = lastContexts.find((context) => contextId(context).startsWith('WEBVIEW'));
     if (webviewContext) {
-      return webviewContext;
+      return contextId(webviewContext);
     }
     await delay(2000);
   }
 
   throw new Error(`Timed out waiting for WEBVIEW context. Last contexts: ${JSON.stringify(lastContexts)}`);
+}
+
+function contextId(context) {
+  return typeof context === 'string' ? context : String(context?.id || '');
 }
 
 async function saveScreenshot(driver, filePath) {
