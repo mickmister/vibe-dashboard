@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import {
   createEffectiveWorkspaceWithCraftSurfaces,
   filterEphemeralCraftSurfaceActiveItems,
@@ -225,6 +225,47 @@ describe("dynamic Craft surfaces", () => {
     ]);
   });
 
+  it("uses VITE_VK_BASE_ORIGIN for built-in workspace tabs when configured", () => {
+    vi.stubEnv("VITE_VK_BASE_ORIGIN", "http://localhost:4100");
+    try {
+      const effective = createEffectiveWorkspaceWithCraftSurfaces({
+        workspace: {
+          ...workspace,
+          tabGroups: [
+            {
+              id: "craft_workspace",
+              label: "Workspace Craft",
+              workspace: {
+                workspaceId: "workspace_1",
+                workspaceDir: "/home/vkuser/repos/app",
+              },
+              tabs: [],
+              pairs: [],
+              order: 0,
+            },
+          ],
+        },
+        craftSurfaces: [],
+        origin: "http://localhost:4101",
+      });
+
+      expect(
+        effective.tabGroups[0]!.tabs.map((tab) => [tab.id, tab.title, tab.url]),
+      ).toEqual([
+        ["agent", "Agent", "http://localhost:4100/workspaces/workspace_1"],
+        [
+          "code",
+          "Code",
+          "http://localhost:4100/?folder=%2Fhome%2Fvkuser%2Frepos%2Fapp",
+        ],
+        ["beads", "Beads", "http://beads-web.localhost:4101"],
+        ["forms", "Forms", "http://localhost:4101/dashboard/forms?workspace=workspace_1"],
+      ]);
+    } finally {
+      vi.unstubAllEnvs();
+    }
+  });
+
   it("routes beads-web to the proxy root instead of nesting under localhost or mysite.com subdomains", () => {
     const urls = [
       "http://sub.localhost:3001",
@@ -329,7 +370,7 @@ describe("dynamic Craft surfaces", () => {
               {
                 id: "tab_create_workspace",
                 title: "Create Workspace",
-                url: "https://vd.example.test/workspaces/create",
+                url: "https://vd.example.test/workspaces",
               },
             ],
             pairs: [],
@@ -345,7 +386,7 @@ describe("dynamic Craft surfaces", () => {
       {
         id: "tab_create_workspace",
         title: "Create Workspace",
-        url: "https://vd.example.test/workspaces/create",
+        url: "https://vd.example.test/workspaces",
       },
     ]);
   });

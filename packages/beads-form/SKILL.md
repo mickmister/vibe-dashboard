@@ -85,8 +85,8 @@ const metadataPatch = buildBeadsFormMetadata([form]);
 ## Conventions
 
 - Every question needs a `title` and a context-rich `description`.
-- Choice questions default to checkboxes so humans can select more than one answer.
-- Per-choice textareas and per-question textareas are included by default.
+- Choice questions are always rendered as checkboxes so humans can select more than one answer. Do not add single-select/radio configuration; single-select semantics need a separate future DSL addition.
+- Per-choice textareas and per-question textareas are always included. Do not add note-inclusion flags.
 - Standard forms include two submit actions by default: one that sets `allow_code_file_changes` to `true`, and one that sets it to `false`. If the normalized response has this field as `false`, do not edit code or files.
 - Use `content: [buildMediaGallery(...)]` for local screenshot/video review blocks. Prefer folder-relative refs like `attachments/candidate-a.png` or attachment-style refs like `attachment://candidate-b.webm`.
 - Use stable lowercase ids with letters, numbers, `_`, or `-`; start ids with a letter.
@@ -183,9 +183,9 @@ Bead-backed storage is the primary workflow for real agent/user handoff. Folder 
    npm run beads-form -- attach --bead <bead-id> --json '{"format":"standard",...}'
    ```
 
-   `npm run beads-form -- ...` remains supported, but agent shells in the VD runtime should have the stable `beads-form` command on `PATH` next to `vibe-agent`.
+   `npm run beads-form -- ...` remains supported, but VD Docker/dev runtimes install a stable `beads-form` command on `PATH` next to `vibe-agent`/`vk`. The global wrapper points at the seeded VD checkout with an absolute script path and preserves the caller's current working directory, so default `--dir` behavior still works from arbitrary bead repo directories.
 
-   Use `--dir <repo>` when not running from the bead repo, `--origin <origin>` to print full URLs, `--workspace <workspace-id>` when `VK_WORKSPACE_ID` is unavailable, and `--session <session-id>` when `VK_SESSION_ID` is unavailable. `beads-form attach` stamps non-empty workspace/session values into bead metadata as `VK_WORKSPACE_ID` and `VK_SESSION_ID` so Forms can resolve workspace/session context even if the `bd` wrapper is bypassed. Explicit `--origin` has highest precedence. To avoid repeatedly passing it, set `BEADS_FORM_ORIGIN`/`VD_BEADS_FORM_ORIGIN`, or seed `${XDG_CONFIG_HOME:-~/.config}/vibe-dashboard/beads-form.json` with:
+   Use `--dir <repo>` when not running from the bead repo, `--origin <origin>` to print full URLs, `--workspace <workspace-id>` when `VK_WORKSPACE_ID` is unavailable, and `--session <session-id>` when `VK_SESSION_ID` is unavailable. `beads-form attach` stamps non-empty workspace/session values into bead metadata as `VK_WORKSPACE_ID` and `VK_SESSION_ID` so Forms can resolve workspace/session context even if the `bd` wrapper is bypassed. It also maintains `metadata.beadFormsSummary` with `hasForms`, `hasPendingAnswer`, `pendingResponseCount`, `formIds`, and `pendingFormIds` so workspace and pending queue pages can find form-bearing beads without bulk-loading every bead. Explicit `--origin` has highest precedence. To avoid repeatedly passing it, set `BEADS_FORM_ORIGIN`/`VD_BEADS_FORM_ORIGIN`, or seed `${XDG_CONFIG_HOME:-~/.config}/vibe-dashboard/beads-form.json` with:
 
    ```json
    { "origin": "https://your-vd-origin.example" }
@@ -213,7 +213,7 @@ Bead-backed storage remains preferred for real workflow state and durable respon
 
 ## Pending form queue
 
-Open `/dashboard/forms` without query parameters to view the pending Bead-backed form queue. The queue scans a bounded set of first-level repos under `~/repos` using read-only `bd` commands, lists forms with no responses, and provides direct fill-out links. Use the Refresh button after attaching forms or after a human submits. See `packages/beads-form/PENDING_QUEUE.md` for realtime/update tradeoffs and safety limits.
+Open `/dashboard/forms` without query parameters to view the pending Bead-backed form queue. The queue scans a bounded set of first-level repos under `~/repos` using read-only `bd` commands, prefers the `beadFormsSummary` pending-answer index, falls back to legacy `beadForms` metadata when needed, lists forms with no responses, and provides direct fill-out links. Use the Refresh button after attaching forms or after a human submits. See `packages/beads-form/PENDING_QUEUE.md` for realtime/update tradeoffs and safety limits.
 
 ## Escape hatch
 

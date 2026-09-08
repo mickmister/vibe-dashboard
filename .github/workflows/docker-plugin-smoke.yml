@@ -16,8 +16,6 @@ on:
       - "src/modules/plugins/vibe-dashboard/**"
       - "plugins/**"
   push:
-    branches:
-      - main
     paths:
       - ".github/workflows/docker-plugin-smoke.yml"
       - "Caddyfile"

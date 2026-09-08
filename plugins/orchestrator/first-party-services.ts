@@ -133,7 +133,7 @@ files = /etc/supervisor/conf.d/vd-generated/*.conf`;
 
 const CODE_SERVER_SUPERVISOR = `; code-server
 [program:code-server]
-command=sh -c 'if [ -n "\${CODE_PASSWORD}" ] && [ "\${CODE_PASSWORD}" != "__unset__" ]; then export PASSWORD="\${CODE_PASSWORD}"; unset HASHED_PASSWORD; exec code-server --auth password --bind-addr 0.0.0.0:%(ENV_CODE_PORT)s --idle-timeout-seconds=3600; else unset PASSWORD HASHED_PASSWORD; exec code-server --auth none --bind-addr 0.0.0.0:%(ENV_CODE_PORT)s --idle-timeout-seconds=3600; fi'
+command=sh -c 'if [ -n "\${CODE_PASSWORD}" ] && [ "\${CODE_PASSWORD}" != "__unset__" ]; then export PASSWORD="\${CODE_PASSWORD}"; unset HASHED_PASSWORD; exec code-server --auth password --bind-addr 0.0.0.0:%(ENV_CODE_PORT)s --idle-timeout-seconds=3600; else unset PASSWORD HASHED_PASSWORD; exec code-server --auth none --bind-addr 0.0.0.0:%(ENV_CODE_PORT)s --idle-timeout-seconds=3600 --disable-workspace-trust --disable-telemetry; fi'
 autostart=true
 autorestart=true
 stopasgroup=true

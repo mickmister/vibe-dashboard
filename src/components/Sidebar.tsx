@@ -31,6 +31,7 @@ interface SidebarProps {
   savedSessions: SavedWorkspaceSession[];
   currentSessionId: string;
   onRequestClose?: () => void;
+  onOpenPluginAdmin: () => void;
   onSelectTabGroup: (tabGroupId: string) => void;
   onSelectTab: (tabGroupId: string, tabId: string) => void;
   onSelectPair: (tabGroupId: string, pairId: string) => void;
@@ -82,6 +83,7 @@ export function Sidebar({
   savedSessions,
   currentSessionId,
   onRequestClose,
+  onOpenPluginAdmin,
   onSelectTabGroup,
   onSelectTab,
   onSelectPair,
@@ -621,6 +623,14 @@ export function Sidebar({
               }}
             >
               Open Craft
+            </Button>
+            <Button
+              size="sm"
+              variant="flat"
+              className="w-full"
+              onPress={onOpenPluginAdmin}
+            >
+              Plugins
             </Button>
             <div className="grid grid-cols-3 gap-1.5">
               <Button
