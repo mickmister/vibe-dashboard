@@ -1,0 +1,59 @@
+{
+  "$schema": "https://raw.githubusercontent.com/fallow-rs/fallow/main/schema.json",
+  "entry": [
+    "src/index.tsx",
+    "vite.config.ts",
+    "vitest.server.config.ts",
+    "playwright.config.ts",
+    "src/**/*.test.{ts,tsx}",
+    "src/**/*.stories.{ts,tsx}",
+    "tests/e2e/**/*.spec.ts",
+    "tests/e2e/**/*.mjs",
+    "db/scripts/**/*.cjs",
+    "scripts/**/*.mjs",
+    "scripts/**/*.test.ts",
+    "scripts/storybook/**/*.ts",
+    "scripts/vibe-agent/cli/vk.ts",
+    "scripts/vibe-agent/cli/vk-config.ts",
+    "scripts/vibe-agent/cli/vk-service.ts",
+    "scripts/vibe-agent/legacy-cli/vibe-agent.ts",
+    "scripts/vibe-agent/vite.config.ts",
+    "plugins/orchestrator/**/*.test.ts",
+    "plugins/orchestrator/plugin-instance-config-cli.ts",
+    "plugins/orchestrator/plugin-service-orchestrator-cli.ts",
+    "plugins/orchestrator/vite.config.ts",
+    "plugins/scripts/**/*.mjs"
+  ],
+  "workspaces": {
+    "patterns": [
+      ".",
+      "packages/*"
+    ]
+  },
+  "ignoreDependencies": [
+    "@hono/node-server",
+    "crossws",
+    "immer",
+    "rxjs"
+  ],
+  "duplicates": {
+    "minOccurrences": 2,
+    "ignore": [
+      "**/*.test.{ts,tsx}",
+      "**/*.stories.{ts,tsx}",
+      "tests/e2e/**",
+      "src/store/db/imported_migrations/**"
+    ]
+  },
+  "health": {
+    "ignore": [
+      "**/*.test.{ts,tsx}",
+      "**/*.stories.{ts,tsx}",
+      "tests/e2e/**",
+      "src/store/db/imported_migrations/**"
+    ]
+  },
+  "audit": {
+    "gate": "new-only"
+  }
+}

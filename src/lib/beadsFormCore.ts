@@ -32,6 +32,17 @@ export type BeadsFormDefinition = {
   content?: StandardBeadsForm['content'];
 };
 
+<<<<<<< HEAD
+=======
+export type BeadsFormsSummary = {
+  hasForms: boolean;
+  hasPendingAnswer: boolean;
+  pendingResponseCount: number;
+  formIds: string[];
+  pendingFormIds: string[];
+};
+
+>>>>>>> origin/vk/05a2-vd-weekly-dev-br
 export type BeadLike = {
   id: string;
   title?: string;
@@ -48,6 +59,10 @@ export type LoadedBeadsForm = {
 
 const FORM_META_KEY = 'beadForms';
 const LEGACY_FORM_META_KEY = 'beadsWeb';
+<<<<<<< HEAD
+=======
+const FORM_SUMMARY_META_KEY = 'beadFormsSummary';
+>>>>>>> origin/vk/05a2-vd-weekly-dev-br
 
 function isObject(value: unknown): value is JsonObject {
   return !!value && typeof value === 'object' && !Array.isArray(value);
@@ -127,6 +142,29 @@ export function appendBeadsFormResponse(
 
   if (!Array.isArray(form.responses)) form.responses = [];
   (form.responses as unknown[]).push(response);
+<<<<<<< HEAD
+=======
+  return withBeadsFormsSummary(next);
+}
+
+export function buildBeadsFormsSummary(forms: readonly BeadsFormDefinition[]): BeadsFormsSummary {
+  const formIds = forms.map((form) => form.id);
+  const pendingFormIds = forms
+    .filter((form) => (form.responses?.length ?? 0) === 0)
+    .map((form) => form.id);
+  return {
+    hasForms: formIds.length > 0,
+    hasPendingAnswer: pendingFormIds.length > 0,
+    pendingResponseCount: pendingFormIds.length,
+    formIds,
+    pendingFormIds,
+  };
+}
+
+export function withBeadsFormsSummary(metadata: unknown): JsonObject {
+  const next: JsonObject = isObject(metadata) ? structuredClone(metadata) as JsonObject : {};
+  next[FORM_SUMMARY_META_KEY] = buildBeadsFormsSummary(getBeadsForms(next));
+>>>>>>> origin/vk/05a2-vd-weekly-dev-br
   return next;
 }
 

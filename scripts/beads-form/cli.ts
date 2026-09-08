@@ -40,6 +40,17 @@ export type BeadsFormDefinition = {
   content?: StandardBeadsForm['content'];
 };
 
+<<<<<<< HEAD
+=======
+export type BeadsFormsSummary = {
+  hasForms: boolean;
+  hasPendingAnswer: boolean;
+  pendingResponseCount: number;
+  formIds: string[];
+  pendingFormIds: string[];
+};
+
+>>>>>>> origin/vk/05a2-vd-weekly-dev-br
 export type BeadLike = {
   id: string;
   title?: string;
@@ -430,11 +441,32 @@ export function attachFormsToMetadata(
     if (existingIds.has(form.id)) throw new Error(`Form id already exists on bead: ${form.id}`);
   }
   next.beadForms = { ...beadForms, forms: [...existingForms, ...forms] };
+<<<<<<< HEAD
+=======
+  next.beadFormsSummary = buildBeadsFormsSummary(getFormsFromMetadata(next));
+>>>>>>> origin/vk/05a2-vd-weekly-dev-br
   stampStringMetadata(next, 'VK_WORKSPACE_ID', options.workspaceId);
   stampStringMetadata(next, 'VK_SESSION_ID', options.sessionId);
   return next;
 }
 
+<<<<<<< HEAD
+=======
+export function buildBeadsFormsSummary(forms: readonly BeadsFormDefinition[]): BeadsFormsSummary {
+  const formIds = forms.map((form) => form.id);
+  const pendingFormIds = forms
+    .filter((form) => (form.responses?.length ?? 0) === 0)
+    .map((form) => form.id);
+  return {
+    hasForms: formIds.length > 0,
+    hasPendingAnswer: pendingFormIds.length > 0,
+    pendingResponseCount: pendingFormIds.length,
+    formIds,
+    pendingFormIds,
+  };
+}
+
+>>>>>>> origin/vk/05a2-vd-weekly-dev-br
 function stampStringMetadata(metadata: JsonObject, key: string, value: string | undefined): void {
   const trimmed = value?.trim();
   if (trimmed) metadata[key] = trimmed;

@@ -17,14 +17,14 @@ import {
 import { resolveWorkspaceContainerRef } from '../../lib/vkWorkspaceOpen';
 import type { WorkspaceState } from '../../types';
 
-interface WorkspaceOption extends Workspace {
+export interface WorkspaceOption extends Workspace {
   repos: RepoWithBranch[];
 }
 
 let cachedWorkspaceOptions: WorkspaceOption[] | null = null;
 let cachedWorkspaceOptionsPromise: Promise<WorkspaceOption[]> | null = null;
 
-interface AddVKWorkspaceModalProps {
+export interface AddVKWorkspaceModalProps {
   isOpen: boolean;
   onClose: () => void;
   onComplete?: () => void;
@@ -50,6 +50,41 @@ interface AddVKWorkspaceModalProps {
   pendingWorkspaceId?: string | null;
   isActionPending?: boolean;
   actionError?: string | null;
+<<<<<<< HEAD
+=======
+}
+
+export interface AddVKWorkspaceModalViewProps {
+  isOpen: boolean;
+  onClose: () => void;
+  onComplete?: () => void;
+  workspaceOptions: WorkspaceOption[];
+  loading?: boolean;
+  refreshing?: boolean;
+  error?: string | null;
+  workspaceState?: WorkspaceState;
+  allowCustomPath?: boolean;
+  pendingWorkspaceId?: string | null;
+  isActionPending?: boolean;
+  actionError?: string | null;
+  onAddWorkspace: (workspace: WorkspaceOption) => void | Promise<void>;
+  onAddWorkspaceToSpace?: (
+    workspace: WorkspaceOption,
+    spaceId: string,
+  ) => void | Promise<void>;
+  onNavigateToWorkspace?: (
+    spaceId: string,
+    tabGroupId: string,
+    workspace?: { id: string; name: string },
+  ) => void | Promise<void>;
+  onAddWithPath?: (workspacePath: string, name: string) => void | Promise<void>;
+  initialSearchQuery?: string;
+  initialSelectedRepo?: string;
+  initialShowPathInput?: boolean;
+  initialCustomPath?: string;
+  initialCustomName?: string;
+  initialSpacePickerTargetId?: string | null;
+>>>>>>> origin/vk/05a2-vd-weekly-dev-br
 }
 
 export function AddVKWorkspaceModal({
@@ -66,13 +101,13 @@ export function AddVKWorkspaceModal({
   isActionPending = Boolean(pendingWorkspaceId),
   actionError = null,
 }: AddVKWorkspaceModalProps) {
-  const [taskAttempts, setTaskAttempts] = useState<WorkspaceOption[]>(
+  const [workspaceOptions, setWorkspaceOptions] = useState<WorkspaceOption[]>(
     () => cachedWorkspaceOptions ?? []
   );
-  const [filteredAttempts, setFilteredAttempts] = useState<WorkspaceOption[]>([]);
   const [loading, setLoading] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState<string | null>(null);
+<<<<<<< HEAD
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedRepo, setSelectedRepo] = useState('all');
   const [showPathInput, setShowPathInput] = useState(false);
@@ -91,18 +126,13 @@ export function AddVKWorkspaceModal({
     if (!workspaceState) return [];
     return workspaceState.spaces;
   }, [workspaceState]);
+=======
+>>>>>>> origin/vk/05a2-vd-weekly-dev-br
 
   useEffect(() => {
     if (isOpen) {
       void fetchTaskAttempts();
     } else {
-      // Reset state when modal closes
-      setSearchQuery('');
-      setSelectedRepo('all');
-      setShowPathInput(false);
-      setCustomPath('');
-      setCustomName('');
-      setSpacePickerTarget(null);
       setLoading(false);
       setRefreshing(false);
       setError(null);
@@ -110,43 +140,12 @@ export function AddVKWorkspaceModal({
     }
   }, [isOpen]);
 
-  useEffect(() => {
-    const query = searchQuery.trim().toLowerCase();
-    const repoFilter = selectedRepo.trim();
-
-    const filtered = taskAttempts.filter((ta) => {
-        const openLocation = workspaceTabGroupMap.get(ta.id);
-        const matchesQuery = !query ||
-          ta.name?.toLowerCase().includes(query) ||
-          ta.branch?.toLowerCase().includes(query) ||
-          ta.agent_working_dir?.toLowerCase().includes(query) ||
-          openLocation?.spaceName.toLowerCase().includes(query) ||
-          openLocation?.tabGroupLabel.toLowerCase().includes(query);
-
-        const repoNames = getRepoNames(ta);
-        const matchesRepo = repoFilter === 'all' || repoNames.includes(repoFilter);
-
-        return matchesQuery && matchesRepo;
-      });
-
-    filtered.sort((a, b) => compareWorkspaceOptions(a, b, workspaceTabGroupMap));
-    setFilteredAttempts(filtered);
-  }, [searchQuery, selectedRepo, taskAttempts, workspaceTabGroupMap]);
-
-  const repoOptions = useMemo(() => {
-    const repos = new Set<string>();
-    taskAttempts.forEach((ta) => {
-      getRepoNames(ta).forEach((repoName) => repos.add(repoName));
-    });
-    return Array.from(repos).sort((a, b) => a.localeCompare(b));
-  }, [taskAttempts]);
-
   const fetchTaskAttempts = async () => {
     const cachedResults = cachedWorkspaceOptions;
     const hasCachedResults = cachedResults != null;
 
     if (hasCachedResults) {
-      setTaskAttempts(cachedResults);
+      setWorkspaceOptions(cachedResults);
       setLoading(false);
       setRefreshing(true);
     } else {
@@ -159,7 +158,7 @@ export function AddVKWorkspaceModal({
 
     try {
       const workspaces = await fetchWorkspaceOptions();
-      setTaskAttempts(workspaces);
+      setWorkspaceOptions(workspaces);
     } catch (err) {
       if (!hasCachedResults) {
         setError(err instanceof Error ? err.message : 'Failed to load workspaces');
@@ -174,6 +173,7 @@ export function AddVKWorkspaceModal({
     return resolveWorkspaceContainerRef(workspace.id, workspace.container_ref);
   };
 
+<<<<<<< HEAD
   const handleWorkspaceSelect = async (workspace: WorkspaceOption) => {
     if (isActionPending) return;
 
@@ -236,6 +236,215 @@ export function AddVKWorkspaceModal({
     }
   };
 
+=======
+  const handleAddWorkspace = async (workspace: WorkspaceOption) => {
+    const containerRef = await resolveContainerRef(workspace);
+    await onAdd(workspace.id, workspace.name || 'Untitled Workspace', containerRef);
+  };
+
+  const handleAddWorkspaceToSpace = async (
+    workspace: WorkspaceOption,
+    spaceId: string,
+  ) => {
+    const containerRef = await resolveContainerRef(workspace);
+
+    if (onAddToSpace) {
+      await onAddToSpace(
+        workspace.id,
+        workspace.name || 'Untitled Workspace',
+        containerRef,
+        spaceId
+      );
+    } else {
+      await onAdd(
+        workspace.id,
+        workspace.name || 'Untitled Workspace',
+        containerRef
+      );
+    }
+  };
+
+  const handleAddWithPath = async (workspacePath: string, name: string) => {
+    if (onAddWithPath) {
+      await onAddWithPath(workspacePath, name);
+    } else {
+      await onAdd('', name, workspacePath);
+    }
+  };
+
+  return (
+    <AddVKWorkspaceModalView
+      isOpen={isOpen}
+      onClose={onClose}
+      onComplete={onComplete}
+      workspaceOptions={workspaceOptions}
+      loading={loading}
+      refreshing={refreshing}
+      error={error}
+      workspaceState={workspaceState}
+      allowCustomPath={allowCustomPath}
+      pendingWorkspaceId={pendingWorkspaceId}
+      isActionPending={isActionPending}
+      actionError={actionError}
+      onAddWorkspace={handleAddWorkspace}
+      onAddWorkspaceToSpace={onAddToSpace ? handleAddWorkspaceToSpace : undefined}
+      onNavigateToWorkspace={onNavigateToTabGroup}
+      onAddWithPath={handleAddWithPath}
+    />
+  );
+}
+
+export function AddVKWorkspaceModalView({
+  isOpen,
+  onClose,
+  onComplete,
+  workspaceOptions,
+  loading = false,
+  refreshing = false,
+  error = null,
+  workspaceState,
+  allowCustomPath = true,
+  pendingWorkspaceId = null,
+  isActionPending = Boolean(pendingWorkspaceId),
+  actionError = null,
+  onAddWorkspace,
+  onAddWorkspaceToSpace,
+  onNavigateToWorkspace,
+  onAddWithPath,
+  initialSearchQuery = '',
+  initialSelectedRepo = 'all',
+  initialShowPathInput = false,
+  initialCustomPath = '',
+  initialCustomName = '',
+  initialSpacePickerTargetId = null,
+}: AddVKWorkspaceModalViewProps) {
+  const [searchQuery, setSearchQuery] = useState(initialSearchQuery);
+  const [selectedRepo, setSelectedRepo] = useState(initialSelectedRepo);
+  const [showPathInput, setShowPathInput] = useState(initialShowPathInput);
+  const [customPath, setCustomPath] = useState(initialCustomPath);
+  const [customName, setCustomName] = useState(initialCustomName);
+  const [spacePickerTarget, setSpacePickerTarget] =
+    useState<WorkspaceOption | null>(() =>
+      workspaceOptions.find((workspace) => workspace.id === initialSpacePickerTargetId) ?? null
+    );
+  const [localActionError, setLocalActionError] = useState<string | null>(null);
+
+  const workspaceTabGroupMap = useMemo(
+    () => buildWorkspaceTabGroupMap(workspaceState),
+    [workspaceState]
+  );
+
+  const availableSpaces = useMemo(() => {
+    if (!workspaceState) return [];
+    return workspaceState.spaces;
+  }, [workspaceState]);
+
+  const repoOptions = useMemo(() => {
+    const repos = new Set<string>();
+    workspaceOptions.forEach((workspace) => {
+      getRepoNames(workspace).forEach((repoName) => repos.add(repoName));
+    });
+    return Array.from(repos).sort((a, b) => a.localeCompare(b));
+  }, [workspaceOptions]);
+
+  const filteredAttempts = useMemo(() => {
+    const query = searchQuery.trim().toLowerCase();
+    const repoFilter = selectedRepo.trim();
+
+    return workspaceOptions
+      .filter((workspace) => {
+        const openLocation = workspaceTabGroupMap.get(workspace.id);
+        const matchesQuery = !query ||
+          workspace.name?.toLowerCase().includes(query) ||
+          workspace.branch?.toLowerCase().includes(query) ||
+          workspace.agent_working_dir?.toLowerCase().includes(query) ||
+          openLocation?.spaceName.toLowerCase().includes(query) ||
+          openLocation?.tabGroupLabel.toLowerCase().includes(query);
+
+        const repoNames = getRepoNames(workspace);
+        const matchesRepo = repoFilter === 'all' || repoNames.includes(repoFilter);
+
+        return matchesQuery && matchesRepo;
+      })
+      .sort((a, b) => compareWorkspaceOptions(a, b, workspaceTabGroupMap));
+  }, [searchQuery, selectedRepo, workspaceOptions, workspaceTabGroupMap]);
+
+  useEffect(() => {
+    if (!isOpen) {
+      setSearchQuery(initialSearchQuery);
+      setSelectedRepo(initialSelectedRepo);
+      setShowPathInput(initialShowPathInput);
+      setCustomPath(initialCustomPath);
+      setCustomName(initialCustomName);
+      setSpacePickerTarget(
+        workspaceOptions.find((workspace) => workspace.id === initialSpacePickerTargetId) ?? null
+      );
+      setLocalActionError(null);
+    }
+  }, [
+    isOpen,
+    initialCustomName,
+    initialCustomPath,
+    initialSearchQuery,
+    initialSelectedRepo,
+    initialShowPathInput,
+    initialSpacePickerTargetId,
+    workspaceOptions,
+  ]);
+
+  const completeAndClose = () => {
+    onComplete?.();
+    onClose();
+  };
+
+  const handleWorkspaceSelect = async (workspace: WorkspaceOption) => {
+    if (isActionPending) return;
+
+    setLocalActionError(null);
+
+    try {
+      const openLocation = workspaceTabGroupMap.get(workspace.id);
+      if (openLocation && onNavigateToWorkspace) {
+        await onNavigateToWorkspace(openLocation.spaceId, openLocation.tabGroupId, {
+          id: workspace.id,
+          name: workspace.name || 'Untitled Workspace',
+        });
+        completeAndClose();
+        return;
+      }
+
+      if (onAddWorkspaceToSpace) {
+        setSpacePickerTarget(workspace);
+        return;
+      }
+
+      await onAddWorkspace(workspace);
+      completeAndClose();
+    } catch (err) {
+      setLocalActionError(getActionErrorMessage(err));
+    }
+  };
+
+  const handleSelectSpace = async (spaceId: string) => {
+    if (isActionPending) return;
+    if (!spacePickerTarget) return;
+
+    setLocalActionError(null);
+
+    try {
+      if (onAddWorkspaceToSpace) {
+        await onAddWorkspaceToSpace(spacePickerTarget, spaceId);
+      } else {
+        await onAddWorkspace(spacePickerTarget);
+      }
+
+      completeAndClose();
+    } catch (err) {
+      setLocalActionError(getActionErrorMessage(err));
+    }
+  };
+
+>>>>>>> origin/vk/05a2-vd-weekly-dev-br
   const handleAddWithPath = async () => {
     if (isActionPending) return;
     if (!customPath.trim()) return;
@@ -245,6 +454,7 @@ export function AddVKWorkspaceModal({
     setLocalActionError(null);
 
     try {
+<<<<<<< HEAD
       // If onAddWithPath is provided, use it
       if (onAddWithPath) {
         await onAddWithPath(customPath.trim(), name);
@@ -257,6 +467,18 @@ export function AddVKWorkspaceModal({
     } catch (err) {
       setLocalActionError(getActionErrorMessage(err));
     }
+=======
+      await onAddWithPath?.(customPath.trim(), name);
+      completeAndClose();
+    } catch (err) {
+      setLocalActionError(getActionErrorMessage(err));
+    }
+  };
+
+  const handleClose = () => {
+    if (isActionPending) return;
+    onClose();
+>>>>>>> origin/vk/05a2-vd-weekly-dev-br
   };
 
   const surfacedActionError = actionError || localActionError;
@@ -264,7 +486,11 @@ export function AddVKWorkspaceModal({
   return (
     <Modal
       isOpen={isOpen}
+<<<<<<< HEAD
       onClose={onClose}
+=======
+      onClose={handleClose}
+>>>>>>> origin/vk/05a2-vd-weekly-dev-br
       size="2xl"
       backdrop="blur"
       isDismissable={!isActionPending}
@@ -482,7 +708,7 @@ export function AddVKWorkspaceModal({
                               Open in {workspaceTabGroupMap.get(ta.id)?.spaceName} /{' '}
                               {workspaceTabGroupMap.get(ta.id)?.tabGroupLabel}
                             </p>
-                          ) : onAddToSpace ? (
+                          ) : onAddWorkspaceToSpace ? (
                             <p className="text-xs text-neutral-500 mt-1">
                               Choose a space for this craft
                             </p>
@@ -517,7 +743,11 @@ export function AddVKWorkspaceModal({
           <Button
             color="default"
             variant="light"
+<<<<<<< HEAD
             onPress={onClose}
+=======
+            onPress={handleClose}
+>>>>>>> origin/vk/05a2-vd-weekly-dev-br
             isDisabled={isActionPending}
             className="text-neutral-300"
           >

@@ -30,12 +30,23 @@ import "./modules/MainUIShellModule";
 // @platform end
 
 // @platform "node"
+<<<<<<< HEAD
 import "./modules/WorkflowServerModule";
+=======
+import "./modules/ObservabilityServerModule";
+import "./modules/WorkflowServerModule";
+import "./modules/plugins/kanban/jira/serverModule";
+import "./modules/plugins/kanban/linear/serverModule";
+>>>>>>> origin/vk/05a2-vd-weekly-dev-br
 // @platform end
 
 import "./modules/BeadsFormModule";
 
+<<<<<<< HEAD
 const WORKSPACE_CREATE_PATH = "/workspaces/create";
+=======
+const WORKSPACE_CREATE_PATH = "/workspaces";
+>>>>>>> origin/vk/05a2-vd-weekly-dev-br
 const WORKSPACE_CREATE_TAB_TITLE = "Create Workspace";
 const URL_PARSE_BASE = "https://workspace.local";
 const MOBILE_TAB_EMOJIS = [
@@ -53,8 +64,37 @@ const MOBILE_TAB_EMOJIS = [
   "🛰️",
 ];
 
+<<<<<<< HEAD
+=======
+type ViteImportMeta = ImportMeta & {
+  env?: {
+    VITE_VK_BASE_ORIGIN?: string;
+  };
+};
+
+function getConfiguredVkBaseOrigin(): string | null {
+  const configuredOrigin = (
+    (import.meta as ViteImportMeta).env?.VITE_VK_BASE_ORIGIN ??
+    (typeof process !== "undefined"
+      ? process.env?.VITE_VK_BASE_ORIGIN
+      : undefined)
+  )?.trim();
+  if (!configuredOrigin) return null;
+
+  try {
+    return new URL(configuredOrigin).origin;
+  } catch {
+    return null;
+  }
+}
+
+>>>>>>> origin/vk/05a2-vd-weekly-dev-br
 function buildWorkspaceTabUrl(baseOrigin: string, path: string): string {
-  return baseOrigin ? `${baseOrigin}${path}` : path;
+  const configuredBaseOrigin = getConfiguredVkBaseOrigin();
+  const effectiveBaseOrigin = configuredBaseOrigin ?? baseOrigin;
+  return effectiveBaseOrigin
+    ? `${effectiveBaseOrigin.replace(/\/$/, "")}${path}`
+    : path;
 }
 
 function isWorkspaceTabPath(url: string, expectedPath: string): boolean {

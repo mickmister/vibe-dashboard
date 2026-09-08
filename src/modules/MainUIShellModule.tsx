@@ -20,6 +20,14 @@ import {
   setStoredLastDashboardUrl,
   shortIdTokenMatches,
 } from "../lib/voyageUrl";
+<<<<<<< HEAD
+=======
+import {
+  ExternalKanbanDashboardRoute,
+  hasExternalViewQueryParam,
+} from "./plugins/kanban/ExternalKanbanRoute";
+import { DashboardWorkspaceRoute } from "../components/DashboardWorkspaceRoute";
+>>>>>>> origin/vk/05a2-vd-weekly-dev-br
 import { resolveDashboardVoyage } from "../lib/voyageSession";
 import { getSavedWorkspaceSessions } from "../lib/savedVoyageState";
 import { getRenderedPairViewIds } from "../lib/renderedWorkspaceSelection";
@@ -31,6 +39,10 @@ import {
 import { usePluginRegistry } from "./plugins/vibe-dashboard/registry";
 import type { ResolvedWorkspaceComposition } from "./plugins/vibe-dashboard/workspace-composition";
 import { createEffectiveWorkspaceWithCraftSurfaces } from "./plugins/vibe-dashboard/craft-surfaces";
+<<<<<<< HEAD
+=======
+import { VibeIntlProvider } from "../i18n";
+>>>>>>> origin/vk/05a2-vd-weekly-dev-br
 
 // Ensure dark class is on the document root so portaled elements (modals, popovers)
 // inherit dark mode styles
@@ -150,6 +162,17 @@ function resolveQueryCraftSelection(
 }
 
 springboard.registerModule("MainUIShell", {}, async (moduleAPI) => {
+<<<<<<< HEAD
+=======
+  const DashboardRoute = () => {
+    const location = useLocation();
+    if (hasExternalViewQueryParam(location.search)) {
+      return <ExternalKanbanDashboardRoute search={location.search} />;
+    }
+    return <WorkspaceRoute />;
+  };
+
+>>>>>>> origin/vk/05a2-vd-weekly-dev-br
   // Shared route component with canonical voyage query-param support
   const WorkspaceRoute = () => {
     const workspaceModule = useModule("workspace");
@@ -1199,14 +1222,28 @@ springboard.registerModule("MainUIShell", {}, async (moduleAPI) => {
 
   // Root is the canonical dashboard route so PWA installs/bookmarks start from
   // a stable app-home path while query params carry Voyage navigation state.
+<<<<<<< HEAD
   moduleAPI.registerRoute("/", { hideApplicationShell: true }, WorkspaceRoute);
+=======
+  moduleAPI.registerRoute("/", { hideApplicationShell: true }, DashboardRoute);
+>>>>>>> origin/vk/05a2-vd-weekly-dev-br
 
   // Compatibility dashboard route. It renders the same app and canonical URL
   // sync redirects Voyage links back to root with the query params intact.
   moduleAPI.registerRoute(
     "/dashboard",
     { hideApplicationShell: true },
+<<<<<<< HEAD
     WorkspaceRoute,
+=======
+    DashboardRoute,
+  );
+
+  moduleAPI.registerRoute(
+    "/dashboard/workspaces/:workspaceId",
+    { hideApplicationShell: true },
+    DashboardWorkspaceRoute,
+>>>>>>> origin/vk/05a2-vd-weekly-dev-br
   );
 
   moduleAPI.registerRoute(
@@ -1219,7 +1256,13 @@ springboard.registerModule("MainUIShell", {}, async (moduleAPI) => {
     Provider: (props: React.PropsWithChildren) => {
       return (
         <QueryClientProvider client={queryClient}>
+<<<<<<< HEAD
           <HeroUIProvider>{props.children}</HeroUIProvider>
+=======
+          <VibeIntlProvider>
+            <HeroUIProvider>{props.children}</HeroUIProvider>
+          </VibeIntlProvider>
+>>>>>>> origin/vk/05a2-vd-weekly-dev-br
         </QueryClientProvider>
       );
     },

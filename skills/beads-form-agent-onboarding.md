@@ -1,3 +1,4 @@
+<<<<<<< HEAD
 # BeadsForm agent onboarding (branch `vk/8299-beads-web-show-m`)
 
 Use BeadsForm when you need structured answers from a human before proceeding. Prefer bead-backed forms for real workflow; use folder preview only for quick local prototyping.
@@ -42,6 +43,13 @@ tmux new-session -d -s beadsform-shared-preview-55123 \
 ```
 
 ## 2. Draft standard form JSON inline
+=======
+# BeadsForm agent onboarding
+
+Use BeadsForm when you need structured answers from a human before proceeding. Prefer bead-backed forms for real workflow.
+
+## 1. Draft standard form JSON inline
+>>>>>>> origin/vk/05a2-vd-weekly-dev-br
 
 Write standard BeadsForm JSON. Prefer the standard DSL, not raw HTML. The default bead-backed workflow is **inline JSON via stdin** so agents do not need to create a temporary `form.json` file first. Use a file only when the form is large enough that audit/debuggability matters.
 
@@ -90,15 +98,25 @@ Example JSON shape:
 
 Guidelines:
 - Every question should have a clear title and description.
+<<<<<<< HEAD
 - Choices may include `is_recommended_reason` when the agent recommends an option. Do not use `recommended: true`; recommendations should always include the reason text.
 - Use `allowCodeFileChanges`; if the answer returns `allow_code_file_changes=false`, do not edit files—make another form or continue discussion.
 - Keep `additional_notes` as the master notes field.
 
 ## 3. Attach the form to a bead with inline JSON
+=======
+- Choice questions are always multi-select checkboxes in the current public DSL; do not add radio/single-select options.
+- Choices may include `is_recommended_reason` when the agent recommends an option.
+- Use `allowCodeFileChanges`; if the answer returns `allow_code_file_changes=false`, do not edit files—make another form or continue discussion.
+- Keep `additional_notes` as the master notes field.
+
+## 2. Attach the form to a bead with inline JSON
+>>>>>>> origin/vk/05a2-vd-weekly-dev-br
 
 Create or choose a bead in the repo where the work belongs, then attach the form with `--stdin`:
 
 ```bash
+<<<<<<< HEAD
 cd /var/tmp/vibe-kanban/worktrees/8299-beads-web-show-m/beads-web
 bd create "Decide implementation questions" --type task --priority 2
 
@@ -107,6 +125,16 @@ beads-form attach \
   --bead <bead-id> \
   --dir /var/tmp/vibe-kanban/worktrees/8299-beads-web-show-m/beads-web \
   --origin https://port-55123.jamtools.dev \
+=======
+MY_BEADS_DIR=$PWD/vibe-kanban-vscode-web # just an example
+cd $MY_BEADS_DIR
+bd create "Decide implementation questions" --type task --priority 2
+
+beads-form attach \
+  --bead <bead-id> \
+  --dir $MY_BEADS_DIR \
+  --origin https://jamtools.dev \
+>>>>>>> origin/vk/05a2-vd-weekly-dev-br
   --stdin <<'JSON'
 {
   "format": "standard",
@@ -132,6 +160,7 @@ JSON
 
 For very small forms, `--json '<raw-json>'` also works. For large forms, `--file form.json` is still supported and can be easier to review/debug.
 
+<<<<<<< HEAD
 `beads-form attach` stamps non-empty `VK_WORKSPACE_ID` and `VK_SESSION_ID` values from the environment into bead metadata. If either environment variable is unavailable, pass `--workspace <workspace-id>` and/or `--session <session-id>` explicitly. This is defense in depth; the `bd` wrapper may also stamp the same metadata, but the form attach command should not rely on wrapper PATH ordering.
 
 If `beads-form` is not on PATH yet, use the same inline flow through npm:
@@ -149,6 +178,15 @@ https://port-55123.jamtools.dev/dashboard/forms?dir=<encoded-repo-dir>&bead=<bea
 ```
 
 ## 4. Share the URL with the human
+=======
+`beads-form attach` stamps non-empty `VK_WORKSPACE_ID` and `VK_SESSION_ID` values from the environment into bead metadata. Attach also maintains `metadata.beadFormsSummary` (`hasForms`, `hasPendingAnswer`, `pendingResponseCount`, `formIds`, `pendingFormIds`) so Forms can discover pending work efficiently without bulk `bd show` over every bead.
+
+In the VD Docker/dev runtime, `beads-form` should be available on `PATH` globally and should work from any bead repo directory.
+
+The command prints URLs. Provide the remote one to the user, and use explicit markdown link syntax when doing so.
+
+## 3. Share the URL with the human
+>>>>>>> origin/vk/05a2-vd-weekly-dev-br
 
 Send the direct form URL and ask them to submit. After submission:
 
@@ -157,16 +195,23 @@ Send the direct form URL and ask them to submit. After submission:
 - When messaging another agent about the response, include:
   - the raw DSL JSON,
   - the raw normalized answers JSON,
+<<<<<<< HEAD
   - `Please use /home/vkuser/repos/project-manager/bin/vibe-agent full_summary to catch up.`
 
 Do **not** tell agents to use `full_summary --all` unless there is a specific reason.
 
 ## 5. Inspect attached forms/responses
+=======
+  - `Please use 'vibe-agent full_summary' to catch up.`
+
+## 4. Inspect attached forms/responses
+>>>>>>> origin/vk/05a2-vd-weekly-dev-br
 
 ```bash
 beads-form show --bead <bead-id> --dir <repo-dir>
 ```
 
+<<<<<<< HEAD
 Or with npm:
 
 ```bash
@@ -191,3 +236,6 @@ https://port-55123.jamtools.dev/dashboard/forms/preview?folder=%2Ftmp%2Fbeads-fo
 ```
 
 Folder preview is for prototyping. Bead-backed attach is the real workflow.
+=======
+`show` outputs JSON by default. Use `--include-html` only when needed.
+>>>>>>> origin/vk/05a2-vd-weekly-dev-br

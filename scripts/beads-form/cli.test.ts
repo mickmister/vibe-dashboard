@@ -4,6 +4,10 @@ import { join } from 'node:path';
 import { describe, expect, it, vi } from 'vitest';
 import {
   attachBeadsForms,
+<<<<<<< HEAD
+=======
+  buildBeadsFormsSummary,
+>>>>>>> origin/vk/05a2-vd-weekly-dev-br
   attachFormsToMetadata,
   buildFillOutUrl,
   buildFillOutUrls,
@@ -164,9 +168,36 @@ describe('beads-form CLI helpers', () => {
     expect(metadata.untouched).toBe(true);
     expect(metadata.VK_WORKSPACE_ID).toBe('workspace-1');
     expect(metadata.VK_SESSION_ID).toBe('session-1');
+<<<<<<< HEAD
     expect((metadata.beadForms as { forms: Array<{ id: string }> }).forms.map((candidate) => candidate.id)).toEqual(['review']);
   });
 
+=======
+    expect(metadata.beadFormsSummary).toEqual({
+      hasForms: true,
+      hasPendingAnswer: true,
+      pendingResponseCount: 1,
+      formIds: ['review'],
+      pendingFormIds: ['review'],
+    });
+    expect((metadata.beadForms as { forms: Array<{ id: string }> }).forms.map((candidate) => candidate.id)).toEqual(['review']);
+  });
+
+  it('builds pending-answer metadata summaries for attach indexing', () => {
+    const form = parseFormsJsonForAttach(JSON.stringify(standardForm))[0]!;
+    expect(buildBeadsFormsSummary([
+      form,
+      { ...form, id: 'answered', responses: [{ submittedBy: 'user', submittedAt: 'now', values: {} }] },
+    ])).toEqual({
+      hasForms: true,
+      hasPendingAnswer: true,
+      pendingResponseCount: 1,
+      formIds: ['review', 'answered'],
+      pendingFormIds: ['review'],
+    });
+  });
+
+>>>>>>> origin/vk/05a2-vd-weekly-dev-br
   it('does not overwrite existing workspace or session metadata with empty values', () => {
     const form = parseFormsJsonForAttach(JSON.stringify({ ...standardForm, id: 'followup' }))[0]!;
     const metadata = attachFormsToMetadata({

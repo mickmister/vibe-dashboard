@@ -1,8 +1,25 @@
 import React, { useState, useEffect, useRef, useMemo } from "react";
 import { useMutation } from "@tanstack/react-query";
+<<<<<<< HEAD
 import { IconChevronUp, IconMenu2, IconUfo } from "@tabler/icons-react";
 import { Sidebar } from "./Sidebar";
 import { WorkspaceContentView } from "./WorkspaceContentView";
+=======
+import { useNavigate } from "react-router";
+import { Sidebar } from "./Sidebar";
+import { WorkspaceContentView } from "./WorkspaceContentView";
+import {
+  DuplicateCraftPromptDialog,
+  ExpandedCraftStrip,
+  MobileCraftMenu,
+  MobileCraftStrip,
+  NewVoyagePromptDialog,
+  PendingOpenCraftContent,
+  VoyageActionsMenu,
+  VoyageBarView,
+  VoyageSwitcherDialog,
+} from "./WorkspaceShellScenes";
+>>>>>>> origin/vk/05a2-vd-weekly-dev-br
 import { hasKnownIframeMessageSource } from "./IframePanel";
 import { hasSameBaseOrigin } from "../lib/originTrust";
 import { AddTabModal } from "./AddTabModal";
@@ -345,6 +362,7 @@ export function WorkspaceShell({
   savedSessions,
   currentSessionId,
 }: WorkspaceShellProps) {
+  const navigate = useNavigate();
   const [addTabModalOpen, setAddTabModalOpen] = useState(false);
   const [workspaceSearchOpen, setWorkspaceSearchOpen] = useState(false);
   const [workspaceSearchMode, setWorkspaceSearchMode] = useState<
@@ -911,13 +929,24 @@ export function WorkspaceShell({
   };
 
   const handleOpenCreateWorkspaceTab = async () => {
-    const result = await actions.ensureCreateWorkspaceTab();
+    const originSessionId = currentSessionId;
+    setVoyagePlusMenuOpen(false);
+    setWorkspaceSearchOpen(false);
+    setVoyageSwitcherOpen(false);
+    closeNewVoyagePrompt();
+
+    const result = await actions.createCreateWorkspaceCraft({
+      label: "Create Workspace",
+    });
     if (!result) return;
 
-    sessionActions.selectSessionTab(
-      result.spaceId,
-      result.tabGroupId,
-      result.tabId,
+    await addOrSelectCraftInCurrentVoyage(
+      {
+        spaceId: result.spaceId,
+        tabGroupId: result.tabGroupId,
+        tabId: result.tabId,
+      },
+      originSessionId,
     );
   };
 
@@ -2163,6 +2192,13 @@ export function WorkspaceShell({
           savedSessions={savedSessions}
           currentSessionId={currentSessionId}
           onRequestClose={() => setIsSidebarOpen(false)}
+<<<<<<< HEAD
+=======
+          onOpenPluginAdmin={() => {
+            setIsSidebarOpen(false);
+            navigate("/dashboard/admin/plugins");
+          }}
+>>>>>>> origin/vk/05a2-vd-weekly-dev-br
           onSelectTabGroup={(tabGroupId) => {
             const space = effectiveWorkspace.spaces.find((entry) =>
               entry.tabGroupIds.includes(tabGroupId),
@@ -2246,6 +2282,7 @@ export function WorkspaceShell({
 
       <div className="flex-1 flex flex-col min-h-0 min-w-0 relative">
         {isDesktopVoyageBarHidden && (
+<<<<<<< HEAD
           <div
             className="hidden md:block absolute inset-x-0 top-0 z-[80] h-3 cursor-n-resize"
             onMouseEnter={startVoyageBarRevealTimer}
@@ -2563,6 +2600,135 @@ export function WorkspaceShell({
             </div>
           </div>
         </div>
+=======
+          <div
+            className="hidden md:block absolute inset-x-0 top-0 z-[80] h-3 cursor-n-resize"
+            onMouseEnter={startVoyageBarRevealTimer}
+            onMouseLeave={clearVoyageBarRevealTimer}
+            title="Hover to show voyage bar"
+            aria-hidden="true"
+          />
+        )}
+        {!isDesktopVoyageBarHidden && (
+          <VoyageBarView
+            items={mobileSessionTabGroups}
+            activeVoyageEntryId={session.activeVoyageEntryId}
+            isPendingOpenCraftActive={isPendingOpenCraftActive}
+            voyagePlusMenuOpen={voyagePlusMenuOpen}
+            pendingOpenCraftTab={pendingOpenCraftTab}
+            onOpenSidebar={() => setIsSidebarOpen(true)}
+            onToggleVoyageActions={toggleVoyagePlusMenu}
+            onHide={() => setIsDesktopVoyageBarHidden(true)}
+            onSelectItem={({ entry, space, tabGroup }) => {
+              handleToggleSessionTabGroup(entry.id, space.id, tabGroup.id);
+            }}
+            onContextMenuItem={(event, { entry, space, tabGroup }) => {
+              event.preventDefault();
+              event.stopPropagation();
+              setDesktopTabMenuTarget({
+                voyageEntryId: entry.id,
+                spaceId: space.id,
+                tabGroupId: tabGroup.id,
+                position: { x: event.clientX, y: event.clientY },
+              });
+            }}
+            onDragStartItem={handleSessionTabGroupDragStart}
+            onDragOver={handleDragOver}
+            onDropItem={handleSessionTabGroupDrop}
+            onRetryPendingOpenCraft={retryPendingOpenCraft}
+            onClosePendingOpenCraft={closePendingOpenCraftTab}
+            getEmoji={getMobileTabGroupEmoji}
+          />
+        )}
+        {!isDesktopVoyageBarHidden &&
+          !isPendingOpenCraftActive &&
+          expandedSessionTabGroup && (
+            <ExpandedCraftStrip
+              items={expandedSessionItems}
+              onSelect={(item) =>
+                handleSelectExpandedSessionItem(
+                  expandedSessionTabGroup.space.id,
+                  expandedSessionTabGroup.tabGroup.id,
+                  item,
+                )
+              }
+            />
+          )}
+
+        {pendingOpenCraftTab ? (
+          <PendingOpenCraftContent
+            tab={pendingOpenCraftTab}
+            onRetry={retryPendingOpenCraft}
+            onClose={closePendingOpenCraftTab}
+          />
+        ) : (
+          <WorkspaceContentView
+            activeTabGroups={activeTabGroups}
+            activeTabGroupId={session.activeTabGroupId}
+            actions={actions}
+            sessionActions={effectiveSessionActions}
+            disableSplitViews={!isDesktop}
+            onDragStart={handleDragStart}
+            onDragOver={handleDragOver}
+            onDrop={handleDrop}
+            workspace={effectiveWorkspace}
+            showAddressBar={showAddressBar}
+            savedSessions={savedSessions}
+            currentSessionId={currentSessionId}
+            onResumeSession={switchToVoyage}
+            onRenameSession={sessionActions.renameSession}
+            onDeleteSession={sessionActions.deleteSession}
+            onStartNewSession={() => {
+              openNewVoyagePrompt();
+            }}
+            onNavigateToTabGroup={handleNavigateToWorkspaceTabGroup}
+            onOpenVKWorkspace={handleWorkspaceSearchAddToSpace}
+          />
+        )}
+        {!isPendingOpenCraftActive && expandedSessionTabGroup && (
+          <ExpandedCraftStrip
+            items={expandedSessionItems}
+            mobile
+            onSelect={(item) =>
+              handleSelectExpandedSessionItem(
+                expandedSessionTabGroup.space.id,
+                expandedSessionTabGroup.tabGroup.id,
+                item,
+              )
+            }
+          />
+        )}
+
+        <MobileCraftStrip
+          items={mobileSessionTabGroups}
+          activeVoyageEntryId={session.activeVoyageEntryId}
+          activeTabGroupLabel={activeTabGroup?.label}
+          isPendingOpenCraftActive={isPendingOpenCraftActive}
+          voyagePlusMenuOpen={voyagePlusMenuOpen}
+          pendingOpenCraftTab={pendingOpenCraftTab}
+          onOpenSidebar={() => setIsSidebarOpen(true)}
+          onToggleVoyageActions={toggleVoyagePlusMenu}
+          onSelectItem={({ entry, space, tabGroup }) => {
+            if (suppressMobileTabClickRef.current) {
+              suppressMobileTabClickRef.current = false;
+              return;
+            }
+            handleToggleSessionTabGroup(entry.id, space.id, tabGroup.id);
+          }}
+          onOpenItemMenu={({ entry, space, tabGroup }) => {
+            openMobileTabMenu(entry.id, space.id, tabGroup);
+          }}
+          onPointerDownItem={(event, { entry, space, tabGroup }) =>
+            handleMobileTabPointerDown(event, entry.id, space.id, tabGroup)
+          }
+          onPointerMove={handleMobileTabPointerMove}
+          onClearLongPress={clearLongPress}
+          onRetryPendingOpenCraft={retryPendingOpenCraft}
+          onClosePendingOpenCraft={closePendingOpenCraftTab}
+          getLabel={getMobileTabGroupLabel}
+          getEmoji={getMobileTabGroupEmoji}
+        />
+>>>>>>> origin/vk/05a2-vd-weekly-dev-br
       </div>
 
       {addTabModalOpen && (
@@ -2589,6 +2755,76 @@ export function WorkspaceShell({
               : null
           }
           onResetAction={() => openCraftMutation.reset()}
+<<<<<<< HEAD
+=======
+        />
+      )}
+
+      {voyageSwitcherOpen && (
+        <VoyageSwitcherDialog
+          sessions={sortedVoyageSwitcherSessions}
+          currentSessionId={currentSessionId}
+          renamingSessionId={voyageSwitcherRenameSessionId}
+          renameDraft={voyageSwitcherRenameDraft}
+          onRenameDraftChange={setVoyageSwitcherRenameDraft}
+          onSelect={handleVoyageSwitcherSelect}
+          onGoHome={handleVoyageSwitcherOpenHome}
+          onStartRename={startVoyageSwitcherRename}
+          onCancelRename={cancelVoyageSwitcherRename}
+          onSubmitRename={submitVoyageSwitcherRename}
+          onNewVoyage={openNewVoyagePrompt}
+          onCancel={() => {
+            setVoyageSwitcherOpen(false);
+            cancelVoyageSwitcherRename();
+          }}
+          onBackdropClick={handleVoyageSwitcherBackdropClick}
+          getVoyageDisplayName={getVoyageDisplayName}
+          isRenameInvalid={(draft) =>
+            !draft.trim() || isReservedVoyageName(draft)
+          }
+        />
+      )}
+
+      {voyagePlusMenuOpen && (
+        <button
+          className="fixed inset-0 z-[91] cursor-default bg-transparent"
+          aria-label="Close voyage menu"
+          onClick={() => setVoyagePlusMenuOpen(false)}
+        />
+      )}
+
+      {voyagePlusMenuOpen && (
+        <VoyageActionsMenu
+          ref={voyagePlusMenuRef}
+          position={voyagePlusMenuPosition}
+          onNewCraft={() => {
+            setVoyagePlusMenuOpen(false);
+            void handleOpenCreateWorkspaceTab();
+          }}
+          onOpenCraft={() => {
+            setVoyagePlusMenuOpen(false);
+            setPendingOpenCraftSessionId(null);
+            setWorkspaceSearchMode("session-add");
+            setWorkspaceSearchOpen(true);
+          }}
+          onSwitchVoyage={handleOpenVoyageSwitcher}
+        />
+      )}
+
+      {newVoyagePromptOpen && (
+        <NewVoyagePromptDialog
+          name={newVoyageName}
+          isNameInvalid={isNewVoyageNameInvalid}
+          onNameChange={setNewVoyageName}
+          onCancel={closeNewVoyagePrompt}
+          onCreateNewCraft={() => {
+            void handleCreateNamedVoyage("new-task");
+          }}
+          onOpenExistingCraft={() => {
+            void handleCreateNamedVoyage("open-craft");
+          }}
+          onBackdropClick={handleNewVoyagePromptBackdropClick}
+>>>>>>> origin/vk/05a2-vd-weekly-dev-br
         />
       )}
 
@@ -2905,6 +3141,7 @@ export function WorkspaceShell({
           >
             <div className="text-base font-semibold text-neutral-100">
               Move to Voyage
+<<<<<<< HEAD
             </div>
             <p className="mt-2 text-sm text-neutral-400">
               Choose the voyage that should receive this craft.
@@ -3133,8 +3370,14 @@ export function WorkspaceShell({
                 Long press opens this menu. Tap still switches craft. Closing
                 here closes the whole craft.
               </div>
+=======
+>>>>>>> origin/vk/05a2-vd-weekly-dev-br
             </div>
+            <p className="mt-2 text-sm text-neutral-400">
+              Choose the voyage that should receive this craft.
+            </p>
 
+<<<<<<< HEAD
             <div className="space-y-3">
               <label className="block">
                 <span className="text-xs text-neutral-400">Mobile name</span>
@@ -3175,24 +3418,125 @@ export function WorkspaceShell({
                       {emoji}
                     </button>
                   ))}
+=======
+            <div className="mt-4 min-h-0 flex-1 space-y-2 overflow-y-auto pr-1">
+              {moveVoyageTargets.length > 0 ? (
+                moveVoyageTargets.map((savedSession) => (
+                  <button
+                    key={savedSession.id}
+                    className="block w-full rounded-md border border-neutral-700 bg-neutral-800 px-3 py-2 text-left text-sm text-neutral-200 transition-colors hover:bg-neutral-700"
+                    onClick={() => {
+                      void handleMoveVoyageEntryToSession(savedSession.id);
+                    }}
+                  >
+                    <span className="font-medium">
+                      {getVoyageDisplayName(savedSession)}
+                    </span>
+                    <span className="mt-1 block text-xs text-neutral-500">
+                      Updated{" "}
+                      {new Date(savedSession.updatedAt).toLocaleString()}
+                    </span>
+                  </button>
+                ))
+              ) : (
+                <div className="rounded-md border border-neutral-800 bg-neutral-950/40 px-3 py-4 text-sm text-neutral-400">
+                  <div>No other saved voyages yet.</div>
+                  <button
+                    className="mt-3 rounded-md border border-blue-400/70 bg-blue-500/20 px-3 py-2 text-sm text-neutral-50 transition-colors hover:bg-blue-500/30"
+                    onClick={() => {
+                      void handleMoveVoyageEntryToNewSession();
+                    }}
+                  >
+                    Create New Voyage
+                  </button>
+>>>>>>> origin/vk/05a2-vd-weekly-dev-br
                 </div>
-              </label>
+              )}
             </div>
 
-            <div className="grid grid-cols-2 gap-2">
+            <div className="mt-5 flex justify-end">
               <button
-                className="rounded-md border border-neutral-700 bg-neutral-800 px-3 py-2 text-sm text-neutral-200"
-                onClick={() => setMobileTabMenuTarget(null)}
+                className="rounded-md border border-neutral-700 bg-neutral-900 px-3 py-2 text-sm text-neutral-300 transition-colors hover:bg-neutral-800"
+                onClick={() => setMoveVoyageEntryPrompt(null)}
               >
                 Cancel
               </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {duplicateCraftPrompt &&
+        (() => {
+          const tabGroup = effectiveWorkspace.tabGroups.find(
+            (candidate) => candidate.id === duplicateCraftPrompt.tabGroupId,
+          );
+          const craftLabel = tabGroup?.label || "This craft";
+
+          return (
+            <DuplicateCraftPromptDialog
+              craftLabel={craftLabel}
+              currentEntries={duplicateCraftPrompt.currentEntries}
+              activeVoyageEntryId={session.activeVoyageEntryId}
+              otherVoyages={duplicateCraftPrompt.otherVoyages}
+              onSwitchCurrent={switchToExistingCraftInCurrentVoyage}
+              onSwitchOtherVoyage={switchToCraftInOtherVoyage}
+              onOpenInNewVoyage={openCraftInNewVoyage}
+              onCancel={closeDuplicateCraftPrompt}
+            />
+          );
+        })()}
+
+      {desktopTabMenuTarget && (
+        <button
+          className="hidden md:block fixed inset-0 z-[89] cursor-default bg-transparent"
+          aria-label="Close craft menu"
+          onClick={() => setDesktopTabMenuTarget(null)}
+        />
+      )}
+
+      {desktopTabMenuTarget &&
+        (() => {
+          const space = effectiveWorkspace.spaces.find(
+            (candidate) => candidate.id === desktopTabMenuTarget.spaceId,
+          );
+          const tabGroup = effectiveWorkspace.tabGroups.find(
+            (candidate) => candidate.id === desktopTabMenuTarget.tabGroupId,
+          );
+
+          return (
+            <div
+              className="hidden md:block fixed z-[90] min-w-[220px] rounded-md border border-neutral-700 bg-neutral-900 py-1 shadow-2xl"
+              style={{
+                left: desktopTabMenuTarget.position.x,
+                top: desktopTabMenuTarget.position.y,
+              }}
+              onPointerDown={(event) => event.stopPropagation()}
+            >
               <button
+<<<<<<< HEAD
                 className="rounded-md border border-blue-400/70 bg-blue-500/20 px-3 py-2 text-sm text-neutral-50"
                 onClick={handleSaveMobileTabDisplay}
+=======
+                className="block w-full px-4 py-2 text-left text-sm text-neutral-200 transition-colors hover:bg-neutral-800 disabled:cursor-not-allowed disabled:text-neutral-500 disabled:hover:bg-transparent"
+                disabled={!canMoveVoyageEntryToAnotherVoyage}
+                title={
+                  canMoveVoyageEntryToAnotherVoyage
+                    ? "Move this craft to another Voyage"
+                    : "Cannot move the only craft in a Voyage"
+                }
+                onClick={() => {
+                  handleOpenMoveVoyageEntryPrompt(
+                    desktopTabMenuTarget.voyageEntryId,
+                    desktopTabMenuTarget.tabGroupId,
+                  );
+                }}
+>>>>>>> origin/vk/05a2-vd-weekly-dev-br
               >
-                Save
+                Move to Voyage
               </button>
               <button
+<<<<<<< HEAD
                 className="rounded-md border border-amber-500/40 bg-amber-500/15 px-3 py-2 text-sm text-amber-300 disabled:cursor-not-allowed disabled:border-neutral-700 disabled:bg-neutral-800 disabled:text-neutral-500"
                 disabled={!canMoveVoyageEntryToAnotherVoyage}
                 title={
@@ -3214,11 +3558,18 @@ export function WorkspaceShell({
                 onClick={() => {
                   handleRemoveVoyageEntryFromSession(
                     mobileTabMenuTarget.voyageEntryId,
+=======
+                className="block w-full px-4 py-2 text-left text-sm text-neutral-200 transition-colors hover:bg-neutral-800"
+                onClick={() => {
+                  handleRemoveVoyageEntryFromSession(
+                    desktopTabMenuTarget.voyageEntryId,
+>>>>>>> origin/vk/05a2-vd-weekly-dev-br
                   );
                 }}
               >
                 Remove From Voyage
               </button>
+<<<<<<< HEAD
             </div>
             <button
               className="w-full rounded-md border border-red-500/40 bg-red-500/15 px-3 py-2 text-sm text-red-300"
@@ -3240,6 +3591,74 @@ export function WorkspaceShell({
             </button>
           </div>
         </div>
+=======
+              <div className="my-1 border-t border-neutral-700" />
+              <button
+                className="block w-full px-4 py-2 text-left text-sm text-red-300 transition-colors hover:bg-neutral-800"
+                onClick={() => {
+                  setDesktopTabMenuTarget(null);
+                  if (
+                    confirm(
+                      space?.tabGroupIds.length === 1
+                        ? `Close "${tabGroup?.label || "this craft"}" everywhere? Because it's the last craft in this space, a replacement craft will be created automatically.`
+                        : `Close "${tabGroup?.label || "this craft"}" everywhere? This deletes the craft, not just from the current voyage.`,
+                    )
+                  ) {
+                    void handleCloseTabGroup(
+                      desktopTabMenuTarget.spaceId,
+                      desktopTabMenuTarget.tabGroupId,
+                    );
+                  }
+                }}
+              >
+                Close Craft Everywhere
+              </button>
+            </div>
+          );
+        })()}
+
+      {mobileTabMenuTarget && mobileTabMenuTabGroup && (
+        <MobileCraftMenu
+          tabGroup={mobileTabMenuTabGroup}
+          draftLabel={mobileTabDraftLabel}
+          draftEmoji={mobileTabDraftEmoji}
+          emojiChoices={MOBILE_TAB_EMOJI_CHOICES}
+          canMoveToAnotherVoyage={canMoveVoyageEntryToAnotherVoyage}
+          closeWarning={
+            mobileTabMenuSpace?.tabGroupIds.length === 1
+              ? `Close "${mobileTabMenuTabGroup.label}" everywhere? Because it's the last craft in this space, a replacement craft will be created automatically.`
+              : `Close "${mobileTabMenuTabGroup.label}" everywhere? This deletes the craft, not just from the current voyage.`
+          }
+          onDraftLabelChange={setMobileTabDraftLabel}
+          onDraftEmojiChange={(value) => setMobileTabDraftEmoji(getFirstGrapheme(value))}
+          onChooseEmoji={setMobileTabDraftEmoji}
+          onCancel={() => setMobileTabMenuTarget(null)}
+          onSave={handleSaveMobileTabDisplay}
+          onMoveToVoyage={() => {
+            handleOpenMoveVoyageEntryPrompt(
+              mobileTabMenuTarget.voyageEntryId,
+              mobileTabMenuTarget.tabGroupId,
+            );
+          }}
+          onRemoveFromVoyage={() => {
+            handleRemoveVoyageEntryFromSession(mobileTabMenuTarget.voyageEntryId);
+          }}
+          onCloseCraft={() => {
+            const { spaceId, tabGroupId } = mobileTabMenuTarget;
+            setMobileTabMenuTarget(null);
+            if (
+              confirm(
+                mobileTabMenuSpace?.tabGroupIds.length === 1
+                  ? `Close "${mobileTabMenuTabGroup.label}" everywhere? Because it's the last craft in this space, a replacement craft will be created automatically.`
+                  : `Close "${mobileTabMenuTabGroup.label}" everywhere? This deletes the craft, not just from the current voyage.`,
+              )
+            ) {
+              void handleCloseTabGroup(spaceId, tabGroupId);
+            }
+          }}
+          onCloseOverlay={() => setMobileTabMenuTarget(null)}
+        />
+>>>>>>> origin/vk/05a2-vd-weekly-dev-br
       )}
     </div>
   );
@@ -3257,6 +3676,7 @@ function isEditableTarget(target: EventTarget | null): boolean {
   );
 }
 
+<<<<<<< HEAD
 function PendingOpenCraftVoyageTab({
   tab,
   compact,
@@ -3394,6 +3814,8 @@ function PendingOpenCraftContent({
   );
 }
 
+=======
+>>>>>>> origin/vk/05a2-vd-weekly-dev-br
 function getOpenCraftOperationId(
   currentSessionId: string,
   request: OpenCraftMutationInput,

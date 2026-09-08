@@ -31,6 +31,14 @@ const URL_PARSE_BASE = "https://workspace.local";
 const BEADS_WEB_DEFAULT_PORT = "3109";
 
 type BuiltInWorkspaceMetadata = NonNullable<TabGroup["workspace"]>;
+<<<<<<< HEAD
+=======
+type ViteImportMeta = ImportMeta & {
+  env?: {
+    VITE_VK_BASE_ORIGIN?: string;
+  };
+};
+>>>>>>> origin/vk/05a2-vd-weekly-dev-br
 
 export interface CreateEffectiveWorkspaceWithCraftSurfacesInput {
   workspace: WorkspaceState;
@@ -185,30 +193,53 @@ export function getBuiltInWorkspaceMetadata(
 function getBuiltInWorkspaceTabs(tabGroup: TabGroup, origin: string): Tab[] {
   const metadata = getBuiltInWorkspaceMetadata(tabGroup);
   if (!metadata) return [];
+<<<<<<< HEAD
   const baseOrigin = getBuiltInWorkspaceBaseOrigin(origin);
+=======
+  const workspaceBaseOrigin = getBuiltInWorkspaceBaseOrigin(origin, {
+    allowConfiguredVkBaseOrigin: true,
+  });
+  const dashboardBaseOrigin = getBuiltInWorkspaceBaseOrigin(origin);
+>>>>>>> origin/vk/05a2-vd-weekly-dev-br
   return [
     {
       id: BUILT_IN_AGENT_TAB_ID,
       title: "Agent",
+<<<<<<< HEAD
       url: buildWorkspaceTabUrl(baseOrigin, metadata.workspaceId),
+=======
+      url: buildWorkspaceTabUrl(workspaceBaseOrigin, metadata.workspaceId),
+>>>>>>> origin/vk/05a2-vd-weekly-dev-br
       pinned: true,
     },
     {
       id: BUILT_IN_CODE_TAB_ID,
       title: "Code",
+<<<<<<< HEAD
       url: buildWorkspaceFolderUrl(baseOrigin, metadata.workspaceDir),
+=======
+      url: buildWorkspaceFolderUrl(workspaceBaseOrigin, metadata.workspaceDir),
+>>>>>>> origin/vk/05a2-vd-weekly-dev-br
       pinned: true,
     },
     {
       id: BUILT_IN_BEADS_TAB_ID,
       title: "Beads",
+<<<<<<< HEAD
       url: buildBeadsWebUrl(baseOrigin),
+=======
+      url: buildBeadsWebUrl(dashboardBaseOrigin),
+>>>>>>> origin/vk/05a2-vd-weekly-dev-br
       pinned: true,
     },
     {
       id: BUILT_IN_FORMS_TAB_ID,
       title: "Forms",
+<<<<<<< HEAD
       url: buildFormsUrl(baseOrigin, metadata.workspaceId, metadata.formsBeadId),
+=======
+      url: buildFormsUrl(dashboardBaseOrigin, metadata.workspaceId, metadata.formsBeadId),
+>>>>>>> origin/vk/05a2-vd-weekly-dev-br
       pinned: true,
     },
   ];
@@ -415,7 +446,19 @@ function isGeneratedWorkspaceTab(
   );
 }
 
+<<<<<<< HEAD
 function getBuiltInWorkspaceBaseOrigin(origin: string): string {
+=======
+function getBuiltInWorkspaceBaseOrigin(
+  origin: string,
+  options: { allowConfiguredVkBaseOrigin?: boolean } = {},
+): string {
+  if (options.allowConfiguredVkBaseOrigin) {
+    const configuredVkBaseOrigin = getConfiguredVkBaseOrigin();
+    if (configuredVkBaseOrigin) return configuredVkBaseOrigin;
+  }
+
+>>>>>>> origin/vk/05a2-vd-weekly-dev-br
   try {
     const url = new URL(origin);
     const portPrefixMatch = url.hostname.match(/^port-\d+\.(.+)$/);
@@ -427,6 +470,25 @@ function getBuiltInWorkspaceBaseOrigin(origin: string): string {
   }
 }
 
+<<<<<<< HEAD
+=======
+function getConfiguredVkBaseOrigin(): string | null {
+  const configuredOrigin = (
+    (import.meta as ViteImportMeta).env?.VITE_VK_BASE_ORIGIN ??
+    (typeof process !== "undefined"
+      ? process.env?.VITE_VK_BASE_ORIGIN
+      : undefined)
+  )?.trim();
+  if (!configuredOrigin) return null;
+
+  try {
+    return new URL(configuredOrigin).origin;
+  } catch {
+    return null;
+  }
+}
+
+>>>>>>> origin/vk/05a2-vd-weekly-dev-br
 function buildWorkspaceTabUrl(baseOrigin: string, workspaceId: string): string {
   return `${baseOrigin}/workspaces/${workspaceId}`;
 }
