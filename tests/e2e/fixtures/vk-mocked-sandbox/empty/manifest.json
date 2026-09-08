@@ -1,5 +1,0 @@
-{
-  "variant": "empty",
-  "description": "Empty VK mocked sandbox state. Reset removes VD/VK sqlite state and the canonical seeded repo.",
-  "generatedBy": "npm run e2e:vk-mocked-sandbox:snapshot -- --variant empty"
-}

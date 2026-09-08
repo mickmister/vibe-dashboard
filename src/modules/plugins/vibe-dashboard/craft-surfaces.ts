@@ -31,11 +31,6 @@ const URL_PARSE_BASE = "https://workspace.local";
 const BEADS_WEB_DEFAULT_PORT = "3109";
 
 type BuiltInWorkspaceMetadata = NonNullable<TabGroup["workspace"]>;
-type ViteImportMeta = ImportMeta & {
-  env?: {
-    VITE_VK_BASE_ORIGIN?: string;
-  };
-};
 
 export interface CreateEffectiveWorkspaceWithCraftSurfacesInput {
   workspace: WorkspaceState;
@@ -190,33 +185,30 @@ export function getBuiltInWorkspaceMetadata(
 function getBuiltInWorkspaceTabs(tabGroup: TabGroup, origin: string): Tab[] {
   const metadata = getBuiltInWorkspaceMetadata(tabGroup);
   if (!metadata) return [];
-  const workspaceBaseOrigin = getBuiltInWorkspaceBaseOrigin(origin, {
-    allowConfiguredVkBaseOrigin: true,
-  });
-  const dashboardBaseOrigin = getBuiltInWorkspaceBaseOrigin(origin);
+  const baseOrigin = getBuiltInWorkspaceBaseOrigin(origin);
   return [
     {
       id: BUILT_IN_AGENT_TAB_ID,
       title: "Agent",
-      url: buildWorkspaceTabUrl(workspaceBaseOrigin, metadata.workspaceId),
+      url: buildWorkspaceTabUrl(baseOrigin, metadata.workspaceId),
       pinned: true,
     },
     {
       id: BUILT_IN_CODE_TAB_ID,
       title: "Code",
-      url: buildWorkspaceFolderUrl(workspaceBaseOrigin, metadata.workspaceDir),
+      url: buildWorkspaceFolderUrl(baseOrigin, metadata.workspaceDir),
       pinned: true,
     },
     {
       id: BUILT_IN_BEADS_TAB_ID,
       title: "Beads",
-      url: buildBeadsWebUrl(dashboardBaseOrigin),
+      url: buildBeadsWebUrl(baseOrigin),
       pinned: true,
     },
     {
       id: BUILT_IN_FORMS_TAB_ID,
       title: "Forms",
-      url: buildFormsUrl(dashboardBaseOrigin, metadata.workspaceId, metadata.formsBeadId),
+      url: buildFormsUrl(baseOrigin, metadata.workspaceId, metadata.formsBeadId),
       pinned: true,
     },
   ];
@@ -423,15 +415,7 @@ function isGeneratedWorkspaceTab(
   );
 }
 
-function getBuiltInWorkspaceBaseOrigin(
-  origin: string,
-  options: { allowConfiguredVkBaseOrigin?: boolean } = {},
-): string {
-  if (options.allowConfiguredVkBaseOrigin) {
-    const configuredVkBaseOrigin = getConfiguredVkBaseOrigin();
-    if (configuredVkBaseOrigin) return configuredVkBaseOrigin;
-  }
-
+function getBuiltInWorkspaceBaseOrigin(origin: string): string {
   try {
     const url = new URL(origin);
     const portPrefixMatch = url.hostname.match(/^port-\d+\.(.+)$/);
@@ -440,22 +424,6 @@ function getBuiltInWorkspaceBaseOrigin(
     return url.origin;
   } catch {
     return origin;
-  }
-}
-
-function getConfiguredVkBaseOrigin(): string | null {
-  const configuredOrigin = (
-    (import.meta as ViteImportMeta).env?.VITE_VK_BASE_ORIGIN ??
-    (typeof process !== "undefined"
-      ? process.env?.VITE_VK_BASE_ORIGIN
-      : undefined)
-  )?.trim();
-  if (!configuredOrigin) return null;
-
-  try {
-    return new URL(configuredOrigin).origin;
-  } catch {
-    return null;
   }
 }
 

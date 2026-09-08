@@ -87,7 +87,7 @@ describe('voyageUrl', () => {
   it('preserves unknown dashboard query params while replacing voyage-owned params', () => {
     expect(
       buildCanonicalDashboardPath(
-        '?referrer_url=https%3A%2F%2Fgithub.com%2Fowner%2Frepo%2Fpull%2F1&session=legacy&voyage=old&craft=old&views=old',
+        '?from_gh_url=https%3A%2F%2Fgithub.com%2Fowner%2Frepo%2Fpull%2F1&session=legacy&voyage=old&craft=old&views=old',
         {
           slug: 'focused-session_1',
           craftParam: 'craft-1-2',
@@ -95,18 +95,18 @@ describe('voyageUrl', () => {
         },
       ),
     ).toBe(
-      '/?referrer_url=https%3A%2F%2Fgithub.com%2Fowner%2Frepo%2Fpull%2F1&voyage=focused-session_1&craft=craft-1-2&views=agent-1%2Ccode-2',
+      '/?from_gh_url=https%3A%2F%2Fgithub.com%2Fowner%2Frepo%2Fpull%2F1&voyage=focused-session_1&craft=craft-1-2&views=agent-1%2Ccode-2',
     );
   });
 
   it('preserves unknown dashboard query params when clearing voyage params', () => {
     expect(
       buildCanonicalDashboardPath(
-        '?referrer_url=https%3A%2F%2Fgithub.com%2Fowner%2Frepo%2Fissues%2F2&voyage=old&craft=old&views=old',
+        '?from_gh_url=https%3A%2F%2Fgithub.com%2Fowner%2Frepo%2Fissues%2F2&voyage=old&craft=old&views=old',
         undefined,
       ),
     ).toBe(
-      '/?referrer_url=https%3A%2F%2Fgithub.com%2Fowner%2Frepo%2Fissues%2F2',
+      '/?from_gh_url=https%3A%2F%2Fgithub.com%2Fowner%2Frepo%2Fissues%2F2',
     );
   });
 
@@ -149,7 +149,7 @@ describe('voyageUrl', () => {
 
     expect(
       buildSavedVoyageDashboardPath({
-        currentSearch: '?referrer_url=https%3A%2F%2Fgithub.com%2Fowner%2Frepo%2Fpull%2F1&voyage=old&craft=old&views=old',
+        currentSearch: '?from_gh_url=https%3A%2F%2Fgithub.com%2Fowner%2Frepo%2Fpull%2F1&voyage=old&craft=old&views=old',
         workspace,
         session,
         savedSessions: [session],
@@ -157,7 +157,7 @@ describe('voyageUrl', () => {
         tabId: 'tab_code_2',
       }),
     ).toBe(
-      '/?referrer_url=https%3A%2F%2Fgithub.com%2Fowner%2Frepo%2Fpull%2F1&voyage=focused-abc&craft=workspace-42-42&views=code-2',
+      '/?from_gh_url=https%3A%2F%2Fgithub.com%2Fowner%2Frepo%2Fpull%2F1&voyage=focused-abc&craft=workspace-42-42&views=code-2',
     );
   });
 
@@ -174,7 +174,7 @@ describe('voyageUrl', () => {
     };
 
     setStoredLastDashboardUrl(
-      '/dashboard?referrer_url=https%3A%2F%2Fgithub.com%2Fowner%2Frepo%2Fpull%2F1&voyage=focused-session_abc&craft=workspace-42-42&views=agent-1',
+      '/dashboard?from_gh_url=https%3A%2F%2Fgithub.com%2Fowner%2Frepo%2Fpull%2F1&voyage=focused-session_abc&craft=workspace-42-42&views=agent-1',
       storage,
     );
     expect(getStoredLastDashboardUrl(storage)).toBe(

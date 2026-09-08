@@ -1,6 +1,5 @@
 import { buildVoyageSlug } from "./lib/voyageUrl";
 import {
-<<<<<<< HEAD
   createSavedWorkspaceSessionState,
   getSavedWorkspaceSessions,
   isSavedWorkspaceSessionStateMigrated,
@@ -17,35 +16,6 @@ import {
   isEphemeralCraftSurfaceTabId,
   migrateWorkspaceBuiltInTabs,
 } from "./modules/plugins/vibe-dashboard/craft-surfaces";
-=======
-  createNewBrowserSessionId,
-  getOrCreateBrowserSessionId,
-  getStoredBrowserSessionId,
-  setBrowserSessionId,
-  useSessionWorkspaceNav,
-} from './sessionState';
-import { resolveWorkspaceContainerRef } from './lib/vkWorkspaceOpen';
-import {
-  buildCraftParam,
-  buildViewParam,
-  buildVoyageSlug,
-  getVoyageSlug,
-  parseCraftParam,
-  parseViewsParam,
-} from './lib/voyageUrl';
-import { resolvePreferredVoyageSessionId } from './lib/voyageSession';
-
-// Ensure dark class is on the document root so portaled elements (modals, popovers)
-// inherit dark mode styles
-document.documentElement.classList.add('dark');
-springboard.registerSplashScreen(AppLoadingScreen);
-
-// @platform end
-
-import springboard from 'springboard';
-import { createDefaultWorkspace, getDefaultSpace } from './types';
-import { buildWorkspaceFolderUrl } from './lib/vkWorkspaceUrl';
->>>>>>> 42a45213 (fix platform helper boundary)
 import type {
   WorkspaceState,
   SavedWorkspaceSession,
@@ -60,15 +30,12 @@ import "./modules/MainUIShellModule";
 // @platform end
 
 // @platform "node"
-import "./modules/ObservabilityServerModule";
 import "./modules/WorkflowServerModule";
-import "./modules/plugins/kanban/jira/serverModule";
-import "./modules/plugins/kanban/linear/serverModule";
 // @platform end
 
 import "./modules/BeadsFormModule";
 
-const WORKSPACE_CREATE_PATH = "/workspaces";
+const WORKSPACE_CREATE_PATH = "/workspaces/create";
 const WORKSPACE_CREATE_TAB_TITLE = "Create Workspace";
 const URL_PARSE_BASE = "https://workspace.local";
 const MOBILE_TAB_EMOJIS = [
@@ -86,34 +53,8 @@ const MOBILE_TAB_EMOJIS = [
   "🛰️",
 ];
 
-type ViteImportMeta = ImportMeta & {
-  env?: {
-    VITE_VK_BASE_ORIGIN?: string;
-  };
-};
-
-function getConfiguredVkBaseOrigin(): string | null {
-  const configuredOrigin = (
-    (import.meta as ViteImportMeta).env?.VITE_VK_BASE_ORIGIN ??
-    (typeof process !== "undefined"
-      ? process.env?.VITE_VK_BASE_ORIGIN
-      : undefined)
-  )?.trim();
-  if (!configuredOrigin) return null;
-
-  try {
-    return new URL(configuredOrigin).origin;
-  } catch {
-    return null;
-  }
-}
-
 function buildWorkspaceTabUrl(baseOrigin: string, path: string): string {
-  const configuredBaseOrigin = getConfiguredVkBaseOrigin();
-  const effectiveBaseOrigin = configuredBaseOrigin ?? baseOrigin;
-  return effectiveBaseOrigin
-    ? `${effectiveBaseOrigin.replace(/\/$/, "")}${path}`
-    : path;
+  return baseOrigin ? `${baseOrigin}${path}` : path;
 }
 
 function isWorkspaceTabPath(url: string, expectedPath: string): boolean {

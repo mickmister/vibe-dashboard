@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useMemo, useCallback } from "react";
+import { useMutation } from "@tanstack/react-query";
 import type {
   WorkspaceState,
   TabGroup,
@@ -6,12 +7,13 @@ import type {
 } from "../types";
 import {
   vkClient,
+  type Workspace,
   type WorkspaceSummary,
   type Repo,
   type RepoWithBranch,
 } from "../lib/vk-client";
 
-export interface DashboardWorkspace {
+interface DashboardWorkspace {
   id: string;
   name: string;
   branch: string;
@@ -549,7 +551,7 @@ function RunningDevServersSection({
 }: {
   workspaces: DashboardWorkspace[];
   loading: boolean;
-  onStop?: (workspaceId: string) => void | Promise<void>;
+  onStop: (workspaceId: string) => Promise<void>;
   stoppingIds: Set<string>;
   workspaceTabGroupMap: Map<
     string,
@@ -595,13 +597,7 @@ function RunningDevServersSection({
               key={ws.id}
               workspace={ws}
               isStoppingDevServer={stoppingIds.has(ws.id)}
-              onStopDevServer={
-                onStop
-                  ? () => {
-                      void onStop(ws.id);
-                    }
-                  : undefined
-              }
+              onStopDevServer={() => onStop(ws.id)}
               {...(tabGroupNav ? { tabGroupNav } : {})}
               {...(!tabGroupNav && onRequestOpenWorkspace
                 ? {
@@ -1174,9 +1170,51 @@ export function SpacesOverview({
   onOpenVKWorkspace,
 }: SpacesOverviewProps) {
   const { workspaces, repos, loading, error, refetch } = useVKDashboardData();
+  const [selectedRepoId, setSelectedRepoId] = useState<string | null>(null);
+  const [page, setPage] = useState(0);
+  const [spacePickerTarget, setSpacePickerTarget] =
+    useState<DashboardWorkspace | null>(null);
+  const openCraftMutation = useMutation<
+    void,
+    Error,
+    {
+      workspace: DashboardWorkspace;
+      spaceId: string;
+    }
+  >({
+    mutationFn: async ({ workspace: targetWorkspace, spaceId }) => {
+      if (!onOpenVKWorkspace) {
+        throw new Error("Open Craft is unavailable.");
+      }
+
+      await onOpenVKWorkspace(
+        targetWorkspace.id,
+        targetWorkspace.name,
+        targetWorkspace.container_ref || "",
+        spaceId,
+      );
+    },
+    onSuccess: () => {
+      setSpacePickerTarget(null);
+    },
+  });
   const [stoppingDevServerIds, setStoppingDevServerIds] = useState<Set<string>>(
     new Set(),
   );
+  const workspaceNameById = useMemo(() => {
+    const map = new Map<string, string>();
+    for (const item of workspaces) {
+      map.set(item.id, item.name || item.branch);
+    }
+    return map;
+  }, [workspaces]);
+  const tabGroupDisplayLabelById = useMemo(() => {
+    const map = new Map<string, string>();
+    for (const tabGroup of workspace.tabGroups) {
+      map.set(tabGroup.id, getTabGroupDisplayLabel(tabGroup, workspaceNameById));
+    }
+    return map;
+  }, [workspace.tabGroups, workspaceNameById]);
 
   const handleStopDevServer = useCallback(
     async (workspaceId: string) => {
@@ -1205,149 +1243,8 @@ export function SpacesOverview({
     [refetch, stoppingDevServerIds],
   );
 
-  return (
-    <SpacesOverviewView
-      workspace={workspace}
-      savedSessions={savedSessions}
-      currentSessionId={currentSessionId}
-      onResumeSession={onResumeSession}
-      onRenameSession={onRenameSession}
-      onDeleteSession={onDeleteSession}
-      onStartNewSession={onStartNewSession}
-      onNavigateToTabGroup={onNavigateToTabGroup}
-      workspaces={workspaces}
-      repos={repos}
-      loading={loading}
-      error={error}
-      stoppingDevServerIds={stoppingDevServerIds}
-      onStopDevServer={handleStopDevServer}
-      {...(onOpenVKWorkspace
-        ? {
-            onOpenWorkspaceInSpace: (targetWorkspace, spaceId) =>
-              onOpenVKWorkspace(
-                targetWorkspace.id,
-                targetWorkspace.name,
-                targetWorkspace.container_ref || "",
-                spaceId,
-              ),
-          }
-        : {})}
-    />
-  );
-}
-
-export interface SpacesOverviewViewProps extends SpacesOverviewProps {
-  workspaces: DashboardWorkspace[];
-  repos: Repo[];
-  loading: boolean;
-  error: string | null;
-  stoppingDevServerIds?: Set<string>;
-  onStopDevServer?: (workspaceId: string) => void | Promise<void>;
-  onOpenWorkspaceInSpace?: (
-    workspace: DashboardWorkspace,
-    spaceId: string,
-  ) => void | Promise<void>;
-  initialSelectedRepoId?: string | null;
-  initialSpacePickerTargetId?: string | null;
-  initialOpenCraftActionError?: string | null;
-}
-
-export function SpacesOverviewView({
-  workspace,
-  savedSessions,
-  currentSessionId,
-  onResumeSession,
-  onRenameSession,
-  onDeleteSession,
-  onStartNewSession,
-  onNavigateToTabGroup,
-  workspaces,
-  repos,
-  loading,
-  error,
-  stoppingDevServerIds: externalStoppingDevServerIds,
-  onStopDevServer,
-  onOpenWorkspaceInSpace,
-  initialSelectedRepoId = null,
-  initialSpacePickerTargetId = null,
-  initialOpenCraftActionError = null,
-}: SpacesOverviewViewProps) {
-  const [selectedRepoId, setSelectedRepoId] = useState<string | null>(
-    initialSelectedRepoId,
-  );
-  const [page, setPage] = useState(0);
-  const initialSpacePickerTarget = useMemo(() => {
-    if (!initialSpacePickerTargetId) return null;
-    return (
-      workspaces.find((candidate) => candidate.id === initialSpacePickerTargetId) ??
-      null
-    );
-  }, [initialSpacePickerTargetId, workspaces]);
-  const [spacePickerTarget, setSpacePickerTarget] =
-    useState<DashboardWorkspace | null>(initialSpacePickerTarget);
-  const [pendingOpenCraftRequest, setPendingOpenCraftRequest] =
-    useState<{ workspace: DashboardWorkspace; spaceId: string } | null>(null);
-  const [openCraftRetryRequest, setOpenCraftRetryRequest] =
-    useState<{ workspace: DashboardWorkspace; spaceId: string } | null>(null);
-  const [openCraftActionError, setOpenCraftActionError] = useState<
-    string | null
-  >(initialOpenCraftActionError);
-  const stoppingDevServerIds = externalStoppingDevServerIds ?? new Set<string>();
-  const isOpenCraftPending = pendingOpenCraftRequest != null;
-
-  useEffect(() => {
-    setSpacePickerTarget(initialSpacePickerTarget);
-  }, [initialSpacePickerTarget]);
-
-  useEffect(() => {
-    setOpenCraftActionError(initialOpenCraftActionError);
-  }, [initialOpenCraftActionError]);
-
-  useEffect(() => {
-    setSelectedRepoId(initialSelectedRepoId);
-  }, [initialSelectedRepoId]);
-
-  const runOpenCraftRequest = useCallback(
-    async (request: { workspace: DashboardWorkspace; spaceId: string }) => {
-      if (!onOpenWorkspaceInSpace) {
-        setOpenCraftActionError("Open Craft is unavailable.");
-        return;
-      }
-
-      setPendingOpenCraftRequest(request);
-      setOpenCraftRetryRequest(request);
-      setOpenCraftActionError(null);
-      try {
-        await onOpenWorkspaceInSpace(request.workspace, request.spaceId);
-        setSpacePickerTarget(null);
-        setOpenCraftRetryRequest(null);
-      } catch (err) {
-        setOpenCraftActionError(getDashboardOpenCraftErrorMessage(err));
-      } finally {
-        setPendingOpenCraftRequest(null);
-      }
-    },
-    [onOpenWorkspaceInSpace],
-  );
-
-  const workspaceNameById = useMemo(() => {
-    const map = new Map<string, string>();
-    for (const item of workspaces) {
-      map.set(item.id, item.name || item.branch);
-    }
-    return map;
-  }, [workspaces]);
-  const tabGroupDisplayLabelById = useMemo(() => {
-    const map = new Map<string, string>();
-    for (const tabGroup of workspace.tabGroups) {
-      map.set(tabGroup.id, getTabGroupDisplayLabel(tabGroup, workspaceNameById));
-    }
-    return map;
-  }, [workspace.tabGroups, workspaceNameById]);
-
   const openSpacePickerForWorkspace = (targetWorkspace: DashboardWorkspace) => {
-    setOpenCraftActionError(null);
-    setOpenCraftRetryRequest(null);
+    openCraftMutation.reset();
     setSpacePickerTarget(targetWorkspace);
   };
 
@@ -1451,12 +1348,12 @@ export function SpacesOverviewView({
         <RunningDevServersSection
           workspaces={workspaces}
           loading={loading}
-          {...(onStopDevServer ? { onStop: onStopDevServer } : {})}
+          onStop={handleStopDevServer}
           stoppingIds={stoppingDevServerIds}
           workspaceTabGroupMap={workspaceTabGroupMap}
           onNavigateToTabGroup={onNavigateToTabGroup}
           onRequestOpenWorkspace={
-            onOpenWorkspaceInSpace ? openSpacePickerForWorkspace : undefined
+            onOpenVKWorkspace ? openSpacePickerForWorkspace : undefined
           }
         />
 
@@ -1529,16 +1426,13 @@ export function SpacesOverviewView({
                       workspace={ws}
                       isStoppingDevServer={stoppingDevServerIds.has(ws.id)}
                       onStopDevServer={
-                        onStopDevServer &&
-                        (ws.has_running_dev_server ||
-                          stoppingDevServerIds.has(ws.id))
-                          ? () => {
-                              void onStopDevServer(ws.id);
-                            }
+                        ws.has_running_dev_server ||
+                        stoppingDevServerIds.has(ws.id)
+                          ? () => handleStopDevServer(ws.id)
                           : undefined
                       }
                       {...(tabGroupNav ? { tabGroupNav } : {})}
-                      {...(!tabGroupNav && onOpenWorkspaceInSpace
+                      {...(!tabGroupNav && onOpenVKWorkspace
                         ? {
                             onOpenInNewTabGroup: () =>
                               openSpacePickerForWorkspace(ws),
@@ -1571,33 +1465,34 @@ export function SpacesOverviewView({
       </div>
 
       {/* Space picker modal */}
-      {spacePickerTarget && onOpenWorkspaceInSpace && (
+      {spacePickerTarget && onOpenVKWorkspace && (
         <SpacePickerModal
           workspace={workspace}
           targetWorkspace={spacePickerTarget}
           onSelect={(spaceId) => {
-            void runOpenCraftRequest({
+            openCraftMutation.mutate({
               workspace: spacePickerTarget,
               spaceId,
             });
           }}
           onClose={() => {
-            if (isOpenCraftPending) return;
+            if (openCraftMutation.isPending) return;
             setSpacePickerTarget(null);
-            setOpenCraftActionError(null);
-            setOpenCraftRetryRequest(null);
+            openCraftMutation.reset();
           }}
           pendingSpaceId={
-            pendingOpenCraftRequest?.workspace.id === spacePickerTarget.id
-              ? pendingOpenCraftRequest.spaceId
+            openCraftMutation.isPending
+              ? openCraftMutation.variables?.spaceId ?? null
               : null
           }
-          actionError={openCraftActionError}
+          actionError={
+            openCraftMutation.isError
+              ? getDashboardOpenCraftErrorMessage(openCraftMutation.error)
+              : null
+          }
           onRetry={
-            openCraftRetryRequest
-              ? () => {
-                  void runOpenCraftRequest(openCraftRetryRequest);
-                }
+            openCraftMutation.variables
+              ? () => openCraftMutation.mutate(openCraftMutation.variables!)
               : undefined
           }
         />
