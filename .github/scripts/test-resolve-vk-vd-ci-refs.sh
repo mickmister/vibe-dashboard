@@ -58,10 +58,7 @@ run_resolver() {
     VD_REPO_URL="$vd_bare" \
     VK_REPO_URL_INPUT="$vk_bare" \
     SKIP_ASSET_FALLBACK=true \
-<<<<<<< HEAD
-=======
     SKIP_ASSET_WAIT=true \
->>>>>>> origin/vk/05a2-vd-weekly-dev-br
     GITHUB_OUTPUT="$output_file" \
     "$@" \
     "$resolver" >/dev/null
@@ -69,8 +66,6 @@ run_resolver() {
   printf '%s\n' "$output_file"
 }
 
-<<<<<<< HEAD
-=======
 run_resolver_with_asset_probe() {
   local output_file="$tmpdir/output-$RANDOM.env"
   : > "$output_file"
@@ -113,7 +108,6 @@ assert_fails() {
   fi
 }
 
->>>>>>> origin/vk/05a2-vd-weekly-dev-br
 assert_equals() {
   local expected="$1"
   local actual="$2"
@@ -130,8 +124,6 @@ vd_work="$(make_repo vd)"
 vk_work="$(make_repo vk)"
 vd_bare="$tmpdir/vd.git"
 vk_bare="$tmpdir/vk.git"
-<<<<<<< HEAD
-=======
 fakebin="$tmpdir/fakebin"
 curl_log="$tmpdir/curl.log"
 mkdir -p "$fakebin"
@@ -158,19 +150,15 @@ fi
 exit 22
 SH
 chmod +x "$fakebin/curl" "$fakebin/sleep"
->>>>>>> origin/vk/05a2-vd-weekly-dev-br
 
 add_branch_commit "$vd_work" "feature/sync" "vd-feature.txt" "vd feature"
 add_branch_commit "$vk_work" "feature/sync" "vk-feature.txt" "vk feature"
 add_branch_commit "$vd_work" "feature/vd-only" "vd-only.txt" "vd only"
-<<<<<<< HEAD
-=======
 git -C "$vd_work" tag v-main-release main
 git -C "$vd_work" tag v-feature-release feature/vd-only
 git -C "$vd_work" tag v1.2.3 main
 git -C "$vd_work" tag v1.2.3-rc.1 main
 git -C "$vd_work" push --quiet origin v-main-release v-feature-release v1.2.3 v1.2.3-rc.1
->>>>>>> origin/vk/05a2-vd-weekly-dev-br
 
 vd_feature_sha="$(git -C "$vd_work" rev-parse feature/sync)"
 vd_only_sha="$(git -C "$vd_work" rev-parse feature/vd-only)"
@@ -178,8 +166,6 @@ vd_main_sha="$(git -C "$vd_work" rev-parse main)"
 vk_feature_sha="$(git -C "$vk_work" rev-parse feature/sync)"
 vk_main_sha="$(git -C "$vk_work" rev-parse main)"
 
-<<<<<<< HEAD
-=======
 
 output="$(run_resolver \
   GITHUB_EVENT_NAME=pull_request \
@@ -217,7 +203,6 @@ assert_equals "main" "$(read_output "$output" vk_branch)" "pull request falls ba
 assert_equals "$vk_main_sha" "$(read_output "$output" vk_commit)" "pull request fallback resolves VK main commit"
 assert_equals "vk-${vk_main_sha:0:7}-vd-${vd_only_sha:0:7}" "$(read_output "$output" deploy_image_tag)" "pull request fallback still uses coordinated deploy tag"
 
->>>>>>> origin/vk/05a2-vd-weekly-dev-br
 output="$(run_resolver \
   GITHUB_EVENT_NAME=push \
   GITHUB_REF=refs/heads/feature/sync \
@@ -227,8 +212,6 @@ assert_equals "feature/sync" "$(read_output "$output" vk_branch)" "push selects 
 assert_equals "$vk_feature_sha" "$(read_output "$output" vk_commit)" "push resolves same-named VK commit"
 assert_equals "$vd_feature_sha" "$(read_output "$output" vd_commit)" "push keeps VD event commit"
 
-<<<<<<< HEAD
-=======
 output="$(run_resolver_with_asset_probe \
   GITHUB_EVENT_NAME=push \
   GITHUB_REF=refs/heads/feature/sync \
@@ -262,7 +245,6 @@ output="$(run_resolver_with_asset_probe \
 assert_equals "latest_assets_fallback" "$(read_output "$output" vk_resolution_source)" "explicit policy allows matching branch asset fallback"
 assert_equals "$vk_main_sha" "$(read_output "$output" vk_commit)" "explicit matching branch fallback uses latest asset SHA"
 
->>>>>>> origin/vk/05a2-vd-weekly-dev-br
 output="$(run_resolver \
   GITHUB_EVENT_NAME=push \
   GITHUB_REF=refs/heads/feature/vd-only \
@@ -271,8 +253,6 @@ output="$(run_resolver \
 assert_equals "main" "$(read_output "$output" vk_branch)" "push falls back to VK main when matching branch is absent"
 assert_equals "$vk_main_sha" "$(read_output "$output" vk_commit)" "push fallback resolves VK main commit"
 
-<<<<<<< HEAD
-=======
 output="$(run_resolver_with_asset_probe \
   GITHUB_EVENT_NAME=push \
   GITHUB_REF=refs/heads/main \
@@ -355,7 +335,6 @@ output="$(run_resolver_with_asset_probe \
 assert_equals "$vk_main_sha" "$(read_output "$output" vk_commit)" "workflow_dispatch waits for exact VK SHA"
 assert_equals "false" "$(read_output "$output" publish_latest)" "workflow_dispatch does not publish latest"
 
->>>>>>> origin/vk/05a2-vd-weekly-dev-br
 output="$(run_resolver \
   GITHUB_EVENT_NAME=repository_dispatch \
   REPOSITORY_DISPATCH_VK_REF="$vk_feature_sha" \
@@ -363,10 +342,6 @@ output="$(run_resolver \
   REPOSITORY_DISPATCH_VK_SOURCE_REF_NAME=feature/sync)"
 assert_equals "feature/sync" "$(read_output "$output" vd_branch)" "dispatch selects same-named VD branch"
 assert_equals "$vd_feature_sha" "$(read_output "$output" vd_commit)" "dispatch resolves same-named VD commit"
-<<<<<<< HEAD
-assert_equals "$vk_feature_sha" "$(read_output "$output" vk_commit)" "dispatch preserves VK asset SHA"
-
-=======
 assert_equals "matching_vk_source_branch" "$(read_output "$output" vd_resolution_source)" "dispatch records same-named VD branch resolution source"
 assert_equals "$vk_feature_sha" "$(read_output "$output" vk_commit)" "dispatch preserves VK asset SHA"
 
@@ -397,7 +372,6 @@ output="$(run_resolver \
 assert_equals "feature/sync" "$(read_output "$output" vd_branch)" "dispatch selects same-named VD branch from source ref name"
 assert_equals "$vd_feature_sha" "$(read_output "$output" vd_commit)" "dispatch resolves same-named VD commit from source ref name"
 
->>>>>>> origin/vk/05a2-vd-weekly-dev-br
 output="$(run_resolver \
   GITHUB_EVENT_NAME=repository_dispatch \
   REPOSITORY_DISPATCH_VK_REF="$vk_feature_sha" \
@@ -405,10 +379,7 @@ output="$(run_resolver \
   REPOSITORY_DISPATCH_VK_SOURCE_REF_NAME=feature/vk-only)"
 assert_equals "main" "$(read_output "$output" vd_branch)" "dispatch falls back to VD main when matching branch is absent"
 assert_equals "$vd_main_sha" "$(read_output "$output" vd_commit)" "dispatch fallback resolves VD main commit"
-<<<<<<< HEAD
-=======
 assert_equals "fallback_default_branch" "$(read_output "$output" vd_resolution_source)" "dispatch records VD fallback resolution source"
->>>>>>> origin/vk/05a2-vd-weekly-dev-br
 
 output="$(run_resolver \
   GITHUB_EVENT_NAME=repository_dispatch \

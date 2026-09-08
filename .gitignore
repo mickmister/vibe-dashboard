@@ -16,8 +16,6 @@ test-results
 playwright-report
 blob-report
 .e2e
-<<<<<<< HEAD
-=======
 
 data/*.sqlite
 data/*.sqlite-*
@@ -27,4 +25,3 @@ src/storybook-fixtures/external-jira/*.generated.json
 
 .vk-mocked-sandbox
 .playwright-cli
->>>>>>> origin/vk/05a2-vd-weekly-dev-br

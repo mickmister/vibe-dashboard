@@ -87,11 +87,7 @@ describe('voyageUrl', () => {
   it('preserves unknown dashboard query params while replacing voyage-owned params', () => {
     expect(
       buildCanonicalDashboardPath(
-<<<<<<< HEAD
-        '?from_gh_url=https%3A%2F%2Fgithub.com%2Fowner%2Frepo%2Fpull%2F1&session=legacy&voyage=old&craft=old&views=old',
-=======
         '?referrer_url=https%3A%2F%2Fgithub.com%2Fowner%2Frepo%2Fpull%2F1&session=legacy&voyage=old&craft=old&views=old',
->>>>>>> origin/vk/05a2-vd-weekly-dev-br
         {
           slug: 'focused-session_1',
           craftParam: 'craft-1-2',
@@ -99,30 +95,18 @@ describe('voyageUrl', () => {
         },
       ),
     ).toBe(
-<<<<<<< HEAD
-      '/?from_gh_url=https%3A%2F%2Fgithub.com%2Fowner%2Frepo%2Fpull%2F1&voyage=focused-session_1&craft=craft-1-2&views=agent-1%2Ccode-2',
-=======
       '/?referrer_url=https%3A%2F%2Fgithub.com%2Fowner%2Frepo%2Fpull%2F1&voyage=focused-session_1&craft=craft-1-2&views=agent-1%2Ccode-2',
->>>>>>> origin/vk/05a2-vd-weekly-dev-br
     );
   });
 
   it('preserves unknown dashboard query params when clearing voyage params', () => {
     expect(
       buildCanonicalDashboardPath(
-<<<<<<< HEAD
-        '?from_gh_url=https%3A%2F%2Fgithub.com%2Fowner%2Frepo%2Fissues%2F2&voyage=old&craft=old&views=old',
-        undefined,
-      ),
-    ).toBe(
-      '/?from_gh_url=https%3A%2F%2Fgithub.com%2Fowner%2Frepo%2Fissues%2F2',
-=======
         '?referrer_url=https%3A%2F%2Fgithub.com%2Fowner%2Frepo%2Fissues%2F2&voyage=old&craft=old&views=old',
         undefined,
       ),
     ).toBe(
       '/?referrer_url=https%3A%2F%2Fgithub.com%2Fowner%2Frepo%2Fissues%2F2',
->>>>>>> origin/vk/05a2-vd-weekly-dev-br
     );
   });
 
@@ -165,11 +149,7 @@ describe('voyageUrl', () => {
 
     expect(
       buildSavedVoyageDashboardPath({
-<<<<<<< HEAD
-        currentSearch: '?from_gh_url=https%3A%2F%2Fgithub.com%2Fowner%2Frepo%2Fpull%2F1&voyage=old&craft=old&views=old',
-=======
         currentSearch: '?referrer_url=https%3A%2F%2Fgithub.com%2Fowner%2Frepo%2Fpull%2F1&voyage=old&craft=old&views=old',
->>>>>>> origin/vk/05a2-vd-weekly-dev-br
         workspace,
         session,
         savedSessions: [session],
@@ -177,11 +157,7 @@ describe('voyageUrl', () => {
         tabId: 'tab_code_2',
       }),
     ).toBe(
-<<<<<<< HEAD
-      '/?from_gh_url=https%3A%2F%2Fgithub.com%2Fowner%2Frepo%2Fpull%2F1&voyage=focused-abc&craft=workspace-42-42&views=code-2',
-=======
       '/?referrer_url=https%3A%2F%2Fgithub.com%2Fowner%2Frepo%2Fpull%2F1&voyage=focused-abc&craft=workspace-42-42&views=code-2',
->>>>>>> origin/vk/05a2-vd-weekly-dev-br
     );
   });
 
@@ -198,11 +174,7 @@ describe('voyageUrl', () => {
     };
 
     setStoredLastDashboardUrl(
-<<<<<<< HEAD
-      '/dashboard?from_gh_url=https%3A%2F%2Fgithub.com%2Fowner%2Frepo%2Fpull%2F1&voyage=focused-session_abc&craft=workspace-42-42&views=agent-1',
-=======
       '/dashboard?referrer_url=https%3A%2F%2Fgithub.com%2Fowner%2Frepo%2Fpull%2F1&voyage=focused-session_abc&craft=workspace-42-42&views=agent-1',
->>>>>>> origin/vk/05a2-vd-weekly-dev-br
       storage,
     );
     expect(getStoredLastDashboardUrl(storage)).toBe(

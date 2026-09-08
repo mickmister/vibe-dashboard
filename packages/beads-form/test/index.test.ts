@@ -49,8 +49,6 @@ describe('@vibe-dashboard/beads-form', () => {
     ]);
   });
 
-<<<<<<< HEAD
-=======
   it('treats stale note and multiple-choice flags as always enabled for compatibility', () => {
     const compiled = compileBeadsForm(defineBeadsForm({
       id: 'legacy_flags',
@@ -94,7 +92,6 @@ describe('@vibe-dashboard/beads-form', () => {
     ]);
   });
 
->>>>>>> origin/vk/05a2-vd-weekly-dev-br
   it('allows hiding or customizing the code/file-change submit actions', () => {
     const hidden = compileBeadsForm(defineBeadsForm({
       id: 'hidden_permission',
@@ -191,8 +188,6 @@ describe('@vibe-dashboard/beads-form', () => {
     ]);
 
     const form = metadata.beadForms.forms[0]!;
-<<<<<<< HEAD
-=======
     expect(metadata.beadFormsSummary).toEqual({
       hasForms: true,
       hasPendingAnswer: true,
@@ -200,7 +195,6 @@ describe('@vibe-dashboard/beads-form', () => {
       formIds: ['safe_form'],
       pendingFormIds: ['safe_form'],
     });
->>>>>>> origin/vk/05a2-vd-weekly-dev-br
     expect(form.html).toContain('&lt;script&gt;bad&lt;/script&gt;');
     expect(form.controls.map((control) => control.name)).toEqual([
       ALLOW_CODE_FILE_CHANGES_FIELD,

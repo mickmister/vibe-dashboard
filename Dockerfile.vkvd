@@ -5,14 +5,9 @@ ARG VK_BRANCH=main
 ARG VK_COMMIT=
 ARG VK_RUNTIME_SOURCE=github
 ARG CODEX_RELEASE_REPO=mickmister/codex
-<<<<<<< HEAD
 ARG CODEX_RELEASE_TAG=codex-cli-assets-a2333a42e400103462824cff484d891e50c00cdb
 ARG CODEX_RELEASE_ASSET=
-=======
-ARG CODEX_RELEASE_TAG=codex-cli-assets-dc198b6aa9597a0b82a7488d2d2777933ad01329
-ARG CODEX_RELEASE_ASSET=
 ARG BEADS_VERSION=v1.2.2
->>>>>>> origin/vk/05a2-vd-weekly-dev-br
 
 FROM alpine:3.19 AS vk-runtime-downloader
 
@@ -122,21 +117,14 @@ RUN --mount=type=cache,id=vkvw-pnpm-store,target=/pnpm/store \
 
 COPY . .
 
-<<<<<<< HEAD
-RUN npm rebuild better-sqlite3 && npm run build && npm run build:plugin-orchestrator
-=======
 RUN pnpm rebuild better-sqlite3 && npm run build && npm run build:plugin-orchestrator
->>>>>>> origin/vk/05a2-vd-weekly-dev-br
 
 FROM node:22-bookworm
 
 ARG CODEX_RELEASE_REPO
 ARG CODEX_RELEASE_TAG
 ARG CODEX_RELEASE_ASSET
-<<<<<<< HEAD
-=======
 ARG BEADS_VERSION
->>>>>>> origin/vk/05a2-vd-weekly-dev-br
 
 # Harden APT against flaky proxy/cache behavior (helps prevent Hash Sum mismatch on macOS VM networking).
 RUN set -eux; \
@@ -334,11 +322,7 @@ RUN set -eux; \
     npm config set fetch-retries 5; \
     npm config set fetch-retry-mintimeout 20000; \
     npm config set fetch-retry-maxtimeout 120000; \
-<<<<<<< HEAD
-    npm_packages="@anthropic-ai/claude-code pnpm opencode-ai gitnexus agent-browser"; \
-=======
     npm_packages="@anthropic-ai/claude-code pnpm opencode-ai gitnexus"; \
->>>>>>> origin/vk/05a2-vd-weekly-dev-br
     install_codex_npm=1; \
     if [ -n "${CODEX_RELEASE_TAG}" ]; then \
       install_codex_npm=0; \
@@ -441,10 +425,7 @@ RUN chmod +x /usr/local/bin/backup-vibe-kanban-db.sh
 COPY . /opt/vibe-kanban-vscode-web-seed
 COPY --from=dashboard-builder /app/dist/plugins-orchestrator /opt/vibe-kanban-vscode-web-seed/dist/plugins-orchestrator
 COPY --from=dashboard-builder /app/dist/vibe-agent /opt/vibe-kanban-vscode-web-seed/dist/vibe-agent
-<<<<<<< HEAD
-=======
 COPY --from=dashboard-builder /app/packages/beads-form/dist /opt/vibe-kanban-vscode-web-seed/packages/beads-form/dist
->>>>>>> origin/vk/05a2-vd-weekly-dev-br
 RUN chown -R vkuser:vkadmin /opt/vibe-kanban-vscode-web-seed && \
     chmod -R g+rwX /opt/vibe-kanban-vscode-web-seed && \
     find /opt/vibe-kanban-vscode-web-seed -type d -exec chmod g+s {} +
@@ -457,11 +438,7 @@ RUN command -v vibe-agent && \
     command -v beads-form && \
     vibe-agent --help >/dev/null && \
     vk --help >/dev/null && \
-<<<<<<< HEAD
-    beads-form --help >/dev/null
-=======
     (cd /tmp && beads-form --help >/dev/null)
->>>>>>> origin/vk/05a2-vd-weekly-dev-br
 
 # Copy packaged vibe-dashboard runtime artifacts to their final runtime path with
 # final ownership set at build time. Startup must not recursively chown this tree:

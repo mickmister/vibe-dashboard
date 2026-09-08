@@ -3,9 +3,6 @@
 // Manages workspaces, sessions, and read-only inspection commands
 
 import { fileURLToPath } from 'url';
-<<<<<<< HEAD
-import { VKService, type PullRequestDetail, type WorkspaceRepoInput } from './vk-service.js';
-=======
 import {
   VKService,
   type PreviewSlot,
@@ -15,7 +12,6 @@ import {
   type RunConfigStartResponse,
   type WorkspaceRepoInput,
 } from './vk-service.js';
->>>>>>> origin/vk/05a2-vd-weekly-dev-br
 import { config, type Executor } from './vk-config.js';
 
 const service = new VKService();
@@ -111,8 +107,6 @@ async function main() {
         await commandDevServer(positional, flags);
         break;
 
-<<<<<<< HEAD
-=======
       case 'preview-url':
       case 'preview-urls':
       case 'preview-server':
@@ -120,7 +114,6 @@ async function main() {
         await commandPreviewUrl(positional, flags);
         break;
 
->>>>>>> origin/vk/05a2-vd-weekly-dev-br
       case 'sessions':
         await commandSessions(positional[0]);
         break;
@@ -280,8 +273,6 @@ function printProcess(proc: any) {
   if (action.script) console.log(`Script:      ${action.script}`);
 }
 
-<<<<<<< HEAD
-=======
 function printRunConfig(runConfig: RunConfig) {
   console.log(`Run Config:  ${runConfig.id}`);
   console.log(`Repo:        ${runConfig.repo_id}`);
@@ -310,7 +301,6 @@ function printRunConfigStart(response: RunConfigStartResponse) {
   console.log(`Link:     ${response.preview_process_link.id}`);
 }
 
->>>>>>> origin/vk/05a2-vd-weekly-dev-br
 
 async function commandWorkspace(positional: string[], flags: FlagMap) {
   const subcommand = positional[0];
@@ -684,8 +674,6 @@ async function commandDevServer(positional: string[], flags: FlagMap) {
   }
 }
 
-<<<<<<< HEAD
-=======
 function requireWorkspaceId(value: string | undefined, usage: string): string {
   if (!value) {
     console.error(usage);
@@ -911,7 +899,6 @@ async function commandPreviewUrl(positional: string[], flags: FlagMap) {
   }
 }
 
->>>>>>> origin/vk/05a2-vd-weekly-dev-br
 async function commandSessions(workspaceId: string) {
   if (!workspaceId) {
     console.error('Usage: vk sessions <workspace-id>');
@@ -1141,11 +1128,8 @@ function printHelp() {
   console.log('  repo <repo-id> [--json]                    Show repository details');
   console.log('  workspace-repos <workspace-id> [--json]    List repos attached to workspace');
   console.log('  dev-script get <repo-id> [--json]          Show repo dev server script');
-<<<<<<< HEAD
-=======
   console.log('  preview-url list <workspace-id> [--json]   List Preview URL run configs and slots');
   console.log('  preview-url url <workspace-id> <slot-id> --customer <slug>  Print canonical preview URL');
->>>>>>> origin/vk/05a2-vd-weekly-dev-br
   console.log('  sessions <workspace-id>                    List sessions for workspace');
   console.log('  status <workspace-id>...                   Get workspace status summary');
   console.log('  processes <session-id>                     List execution processes');
@@ -1159,15 +1143,12 @@ function printHelp() {
   console.log('  dev-server list <workspace-id> [--json]    List running workspace dev servers');
   console.log('  dev-server logs <process-id> [--json]      Fetch raw dev server logs');
   console.log('  dev-server stop <process-id>               Stop a dev server process');
-<<<<<<< HEAD
-=======
   console.log('  preview-url upsert-run-config <workspace-id> --repo <repo> --slug <slug> --name <name> --command "script"');
   console.log('  preview-url upsert-slot <workspace-id> --repo <repo> --run-config <id> --slot <slug> --title <title>');
   console.log('  preview-url start-run-config <workspace-id> <run-config-id> [--json]');
   console.log('  preview-url start-slot <workspace-id> <preview-slot-id> [--json]');
   console.log('  preview-url logs <process-id> [--json]     Fetch raw preview process logs');
   console.log('  preview-url stop <process-id>              Stop a preview process');
->>>>>>> origin/vk/05a2-vd-weekly-dev-br
   console.log('  create-session <workspace-id> <executor>   Create new session');
   console.log('  create-workspace --message "prompt" --repo <repo[:branch]>   Create and start workspace');
   console.log('  workspace create-from-pr --repo <repo> --remote <remote> --pr <n>  Create workspace from PR');

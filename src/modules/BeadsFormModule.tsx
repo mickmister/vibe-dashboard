@@ -29,10 +29,7 @@ import {
   writePreviewSubmission,
 } from '../lib/beadsFormPreviewState';
 import { rewriteFolderPreviewMediaRefs } from '../lib/beadsFormPreviewMedia';
-<<<<<<< HEAD
-=======
 import { normalizeBeadsFormQueryId } from '../lib/beadsFormUrl';
->>>>>>> origin/vk/05a2-vd-weekly-dev-br
 import { initializeSingleQuestionMode } from '../lib/beadsFormSingleQuestion';
 import { initializeCompactMoreInfo, refreshCompactMoreInfoState } from '../lib/beadsFormMoreInfo';
 
@@ -208,11 +205,7 @@ function BeadsFormPreviewRoute({ actions }: { actions: {
 } }) {
   const [params] = useSearchParams();
   const folder = params.get('folder') ?? '';
-<<<<<<< HEAD
-  const formId = params.get('form') ?? undefined;
-=======
   const formId = normalizeBeadsFormQueryId(params.get('form'));
->>>>>>> origin/vk/05a2-vd-weekly-dev-br
   const [loaded, setLoaded] = useState<LoadPreviewFormsResult | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
@@ -509,11 +502,7 @@ function BeadsFormRoute({ actions }: { actions: {
   const dir = params.get('dir') ?? '';
   const parentDir = params.get('parentDir') ?? '';
   const beadId = params.get('bead') ?? '';
-<<<<<<< HEAD
-  const formId = params.get('form') ?? undefined;
-=======
   const formId = normalizeBeadsFormQueryId(params.get('form'));
->>>>>>> origin/vk/05a2-vd-weekly-dev-br
   const includeOtherWorkspaces = params.get('scope') === 'all';
   const returnTo = params.get('returnTo') ?? '';
   const [loaded, setLoaded] = useState<LoadWorkspaceFormsResult | null>(null);
@@ -865,10 +854,7 @@ springboard.registerModule(
           agentWorkingDir: workspace.agent_working_dir,
           repos,
           includeOtherWorkspaces: input.includeOtherWorkspaces ?? false,
-<<<<<<< HEAD
-=======
           ...(input.beadId ? { beadId: input.beadId } : {}),
->>>>>>> origin/vk/05a2-vd-weekly-dev-br
         });
         const selectedRepo = input.beadId
           ? workspaceBeads.repos.find((repo) => repo.beads.some((bead) => bead.id === input.beadId))

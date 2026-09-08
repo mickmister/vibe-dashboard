@@ -1,8 +1,4 @@
-<<<<<<< HEAD
-import { describe, expect, it } from "vitest";
-=======
 import { describe, expect, it, vi } from "vitest";
->>>>>>> origin/vk/05a2-vd-weekly-dev-br
 import {
   createEffectiveWorkspaceWithCraftSurfaces,
   filterEphemeralCraftSurfaceActiveItems,
@@ -229,8 +225,6 @@ describe("dynamic Craft surfaces", () => {
     ]);
   });
 
-<<<<<<< HEAD
-=======
   it("uses VITE_VK_BASE_ORIGIN for built-in workspace tabs when configured", () => {
     vi.stubEnv("VITE_VK_BASE_ORIGIN", "http://localhost:4100");
     try {
@@ -272,7 +266,6 @@ describe("dynamic Craft surfaces", () => {
     }
   });
 
->>>>>>> origin/vk/05a2-vd-weekly-dev-br
   it("routes beads-web to the proxy root instead of nesting under localhost or mysite.com subdomains", () => {
     const urls = [
       "http://sub.localhost:3001",
@@ -377,11 +370,7 @@ describe("dynamic Craft surfaces", () => {
               {
                 id: "tab_create_workspace",
                 title: "Create Workspace",
-<<<<<<< HEAD
-                url: "https://vd.example.test/workspaces/create",
-=======
                 url: "https://vd.example.test/workspaces",
->>>>>>> origin/vk/05a2-vd-weekly-dev-br
               },
             ],
             pairs: [],
@@ -397,11 +386,7 @@ describe("dynamic Craft surfaces", () => {
       {
         id: "tab_create_workspace",
         title: "Create Workspace",
-<<<<<<< HEAD
-        url: "https://vd.example.test/workspaces/create",
-=======
         url: "https://vd.example.test/workspaces",
->>>>>>> origin/vk/05a2-vd-weekly-dev-br
       },
     ]);
   });

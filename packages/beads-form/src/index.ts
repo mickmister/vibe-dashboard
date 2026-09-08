@@ -41,22 +41,11 @@ export type QuestionBase = {
   /** Required by convention so humans know what decision/context the question captures. */
   description: string;
   required?: boolean;
-<<<<<<< HEAD
-  includeQuestionNotes?: boolean;
-=======
->>>>>>> origin/vk/05a2-vd-weekly-dev-br
 };
 
 export type ChoicesQuestion = QuestionBase & {
   type: 'choices';
   choices: ChoiceQuestionChoice[];
-<<<<<<< HEAD
-  /** Defaults to true so users can express nuance. False renders radio buttons. */
-  allowMultiple?: boolean;
-  /** Defaults to true. Adds one textarea under every choice. */
-  includePerChoiceNotes?: boolean;
-=======
->>>>>>> origin/vk/05a2-vd-weekly-dev-br
 };
 
 export type TextQuestion = QuestionBase & {
@@ -117,8 +106,6 @@ export type BeadsFormMetadata = {
   beadForms: {
     forms: CompiledBeadsForm[];
   };
-<<<<<<< HEAD
-=======
   beadFormsSummary: BeadsFormsSummary;
 };
 
@@ -128,7 +115,6 @@ export type BeadsFormsSummary = {
   pendingResponseCount: number;
   formIds: string[];
   pendingFormIds: string[];
->>>>>>> origin/vk/05a2-vd-weekly-dev-br
 };
 
 const DEFAULT_TEXTAREA_ROWS = 5;
@@ -247,12 +233,6 @@ export function compileBeadsForm(form: StandardBeadsForm): CompiledBeadsForm {
 }
 
 export function buildBeadsFormMetadata(forms: StandardBeadsForm[]): BeadsFormMetadata {
-<<<<<<< HEAD
-  return {
-    beadForms: {
-      forms: forms.map(compileBeadsForm),
-    },
-=======
   const compiledForms = forms.map(compileBeadsForm);
   return {
     beadForms: {
@@ -270,7 +250,6 @@ export function buildBeadsFormsSummary(forms: readonly Pick<CompiledBeadsForm, '
     pendingResponseCount: formIds.length,
     formIds,
     pendingFormIds: formIds,
->>>>>>> origin/vk/05a2-vd-weekly-dev-br
   };
 }
 
@@ -339,13 +318,6 @@ function compileQuestion(question: BeadsFormQuestion, controls: BeadsFormControl
 
 function compileChoicesQuestion(question: ChoicesQuestion, controls: BeadsFormControl[]): string {
   if (question.choices.length === 0) throw new Error(`choices question ${question.id} must have at least one choice`);
-<<<<<<< HEAD
-  const allowMultiple = question.allowMultiple ?? true;
-  const includePerChoiceNotes = question.includePerChoiceNotes ?? true;
-  const includeQuestionNotes = question.includeQuestionNotes ?? true;
-  const inputType = allowMultiple ? 'checkbox' : 'radio';
-=======
->>>>>>> origin/vk/05a2-vd-weekly-dev-br
 
   const choiceHtml = question.choices.map((choice) => {
     assertIdentifier(choice.id, `choice.id for ${question.id}`);
@@ -353,15 +325,9 @@ function compileChoicesQuestion(question: ChoicesQuestion, controls: BeadsFormCo
     controls.push({
       id: inputId,
       name: question.id,
-<<<<<<< HEAD
-      type: inputType,
-      required: question.required,
-      multiple: allowMultiple,
-=======
       type: 'checkbox',
       required: question.required,
       multiple: true,
->>>>>>> origin/vk/05a2-vd-weekly-dev-br
     });
 
     const choiceDescription = choice.description
@@ -374,21 +340,6 @@ function compileChoicesQuestion(question: ChoicesQuestion, controls: BeadsFormCo
     const recommendation = recommendationReason
       ? `<p class="beads-form-recommended-reason"><span class="beads-form-recommended-reason-label">Why recommended:</span> ${renderInlineMarkdown(recommendationReason)}</p>`
       : '';
-<<<<<<< HEAD
-    const choiceNotes = includePerChoiceNotes
-      ? compileNotesTextarea({
-        id: choiceNotesName(question.id, choice.id),
-        name: choiceNotesName(question.id, choice.id),
-        ariaLabel: `More info for ${choice.label}`,
-        rows: DEFAULT_CHOICE_NOTES_ROWS,
-        controls,
-      })
-      : '';
-
-    return [
-      '<div class="beads-form-choice">',
-      `<label for="${attr(inputId)}"><input id="${attr(inputId)}" name="${attr(question.id)}" type="${inputType}" value="${attr(choice.id)}"${question.required && !allowMultiple ? ' required' : ''}> ${escapeHtml(choice.label)}${recommended ? ` ${recommended}` : ''}</label>`,
-=======
     const choiceNotes = compileNotesTextarea({
       id: choiceNotesName(question.id, choice.id),
       name: choiceNotesName(question.id, choice.id),
@@ -400,7 +351,6 @@ function compileChoicesQuestion(question: ChoicesQuestion, controls: BeadsFormCo
     return [
       '<div class="beads-form-choice">',
       `<label for="${attr(inputId)}"><input id="${attr(inputId)}" name="${attr(question.id)}" type="checkbox" value="${attr(choice.id)}"> ${escapeHtml(choice.label)}${recommended ? ` ${recommended}` : ''}</label>`,
->>>>>>> origin/vk/05a2-vd-weekly-dev-br
       choiceDescription,
       recommendation,
       choiceNotes,
@@ -408,17 +358,6 @@ function compileChoicesQuestion(question: ChoicesQuestion, controls: BeadsFormCo
     ].join('');
   }).join('');
 
-<<<<<<< HEAD
-  const questionNotes = includeQuestionNotes
-    ? compileNotesTextarea({
-      id: notesName(question.id),
-      name: notesName(question.id),
-      ariaLabel: `More info for ${question.title}`,
-      rows: DEFAULT_TEXTAREA_ROWS,
-      controls,
-    })
-    : '';
-=======
   const questionNotes = compileNotesTextarea({
     id: notesName(question.id),
     name: notesName(question.id),
@@ -426,7 +365,6 @@ function compileChoicesQuestion(question: ChoicesQuestion, controls: BeadsFormCo
     rows: DEFAULT_TEXTAREA_ROWS,
     controls,
   });
->>>>>>> origin/vk/05a2-vd-weekly-dev-br
 
   return [
     '<fieldset>',
@@ -439,26 +377,11 @@ function compileChoicesQuestion(question: ChoicesQuestion, controls: BeadsFormCo
 }
 
 function compileTextQuestion(question: TextQuestion, controls: BeadsFormControl[]): string {
-<<<<<<< HEAD
-  const includeQuestionNotes = question.includeQuestionNotes ?? true;
-=======
->>>>>>> origin/vk/05a2-vd-weekly-dev-br
   const controlId = question.id;
   controls.push({ id: controlId, name: question.id, type: toControlType(question), required: question.required });
   const input = question.type === 'textarea'
     ? `<textarea id="${attr(controlId)}" name="${attr(question.id)}" rows="${DEFAULT_TEXTAREA_ROWS}"${question.required ? ' required' : ''}${question.placeholder ? ` placeholder="${attr(question.placeholder)}"` : ''}></textarea>`
     : `<input id="${attr(controlId)}" name="${attr(question.id)}" type="text"${question.required ? ' required' : ''}${question.placeholder ? ` placeholder="${attr(question.placeholder)}"` : ''}>`;
-<<<<<<< HEAD
-  const questionNotes = includeQuestionNotes
-    ? compileNotesTextarea({
-      id: notesName(question.id),
-      name: notesName(question.id),
-      ariaLabel: `More info for ${question.title}`,
-      rows: DEFAULT_TEXTAREA_ROWS,
-      controls,
-    })
-    : '';
-=======
   const questionNotes = compileNotesTextarea({
     id: notesName(question.id),
     name: notesName(question.id),
@@ -466,7 +389,6 @@ function compileTextQuestion(question: TextQuestion, controls: BeadsFormControl[
     rows: DEFAULT_TEXTAREA_ROWS,
     controls,
   });
->>>>>>> origin/vk/05a2-vd-weekly-dev-br
 
   return [
     '<fieldset>',

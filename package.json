@@ -13,24 +13,17 @@
     "prepare:vk-mocked-sandbox": "node --experimental-strip-types scripts/vk-mocked-sandbox.ts prepare",
     "prepare:vk-mocked-sandbox:ci-release": "VK_MOCKED_VK_BACKEND=ci-release node --experimental-strip-types scripts/vk-mocked-sandbox.ts prepare",
     "start": "node dist/node/node-entry.mjs",
-<<<<<<< HEAD
-    "build": "npm run build:web && npm run build:node && npm run build:vibe-agent-cli",
-=======
     "build": "npm run build:beads-form && npm run build:web && npm run build:node && npm run build:vibe-agent-cli",
->>>>>>> origin/vk/05a2-vd-weekly-dev-br
     "build:plugin-orchestrator": "vite build --config plugins/orchestrator/vite.config.ts",
     "build:vibe-agent-cli": "vite build --config scripts/vibe-agent/vite.config.ts",
     "build:web": "SPRINGBOARD_PLATFORM=web vite build",
     "build:node": "SPRINGBOARD_PLATFORM=node vite build --outDir dist/node",
     "check-types": "tsc --noEmit && npm run check-types:vibe-agent",
     "check-types:vibe-agent": "tsc -p scripts/vibe-agent/tsconfig.json",
-<<<<<<< HEAD
-=======
     "i18n:compile": "formatjs compile locales/en-US.json --out-file src/i18n/compiled/en-US.json",
     "i18n:extract": "formatjs extract \"src/**/*.{ts,tsx}\" \"packages/**/*.{ts,tsx}\" \"plugins/**/*.{ts,tsx}\" \"scripts/**/*.{ts,tsx}\" \"tests/**/*.{ts,tsx}\" --ignore \"**/*.d.ts\" --ignore \"**/node_modules/**\" --ignore \"dist/**\" --ignore \"storybook-static/**\" --out-file locales/en-US.json --id-interpolation-pattern \"[sha512:contenthash:base64:6]\" --extract-source-location",
     "i18n:verify": "npm run i18n:extract && npm run i18n:compile && npm run lint:i18n",
     "lint:i18n": "eslint . --max-warnings=0",
->>>>>>> origin/vk/05a2-vd-weekly-dev-br
     "test": "vitest run --config vitest.server.config.ts",
     "storybook": "npm run build-storybook && npm run serve-storybook",
     "storybook:dev": "storybook dev -p $PORT",
@@ -51,11 +44,6 @@
     "plugin-instance:apply-enable:beads-web": "node --experimental-strip-types plugins/orchestrator/plugin-instance-config-cli.ts apply-enable --approved true --config-repo-dir /var/lib/vd/instance-config --plugin-id vd.beads-web",
     "test:server": "vitest run --config vitest.server.config.ts",
     "test:e2e": "playwright test",
-<<<<<<< HEAD
-    "test:e2e:install": "playwright install chromium",
-    "hotswap": "npm run build && ./scripts/hotswap-dashboard-dist.sh deploy",
-    "plugin-services:refresh:beads-web:requires-tag": "node --experimental-strip-types plugins/orchestrator/plugin-service-orchestrator-cli.ts refresh-github-release --plugin-id vd.beads-web --catalog plugins/builtin.plugins.json --catalog plugins/fixtures/beads-web.plugins.json --plugin plugins/fixtures/beads-web.plugin.json",
-=======
     "test:e2e:vk-mocked-sandbox": "playwright test --config playwright.vk-mocked-sandbox.config.ts",
     "test:e2e:install": "playwright install chromium",
     "playwright:cli": "PLAYWRIGHT_MCP_SANDBOX=false playwright-cli",
@@ -68,7 +56,6 @@
     "integrations:env:load": "pnpm --filter @vibe-dashboard/integrations-env varlock:load",
     "dev:integrations": "pnpm --filter @vibe-dashboard/integrations-env dev:vd",
     "storybook:jira-fixture": "node --experimental-strip-types src/modules/plugins/kanban/jira/scripts/generate-external-jira-fixture.ts",
->>>>>>> origin/vk/05a2-vd-weekly-dev-br
     "beads-form:preview": "node --experimental-strip-types scripts/beads-form/preview.ts",
     "dev:beads-form-preview": "node --experimental-strip-types scripts/beads-form/preview.ts",
     "beads-form": "node --experimental-strip-types scripts/beads-form/cli.ts",
@@ -77,21 +64,13 @@
     "vk:batch-build": "bash scripts/vk-batch-stage-validate-build.sh",
     "vk:batch-hotswap": "bash scripts/vk-batch-stage-hotswap-apply.sh",
     "vk:batch-hotswap-gh": "bash scripts/vk-batch-stage-gh-artifact.sh",
-<<<<<<< HEAD
-    "vk:batch-rollback": "bash scripts/vk-batch-stage-rollback.sh"
-=======
     "vk:batch-rollback": "bash scripts/vk-batch-stage-rollback.sh",
     "build:beads-form": "pnpm --filter @vibe-dashboard/beads-form build",
     "coolify:qa": "node scripts/coolify-qa.mjs"
->>>>>>> origin/vk/05a2-vd-weekly-dev-br
   },
   "dependencies": {
     "@heroui/react": "^2.8.9",
     "@hono/node-server": "^1.19.9",
-<<<<<<< HEAD
-    "@tabler/icons-react": "^3.44.0",
-    "@tailwindcss/vite": "^4.1.18",
-=======
     "@opentelemetry/api": "^1.9.1",
     "@opentelemetry/exporter-trace-otlp-http": "^0.221.0",
     "@opentelemetry/sdk-node": "^0.221.0",
@@ -99,7 +78,6 @@
     "@tabler/icons-react": "^3.44.0",
     "@tailwindcss/vite": "^4.1.18",
     "@tanstack/react-query": "^5.101.0",
->>>>>>> origin/vk/05a2-vd-weekly-dev-br
     "@vibe-dashboard/workflow-core": "workspace:*",
     "@vitejs/plugin-react": "^5.1.4",
     "better-auth": "^1.6.23",
@@ -116,14 +94,8 @@
     "react-resizable-panels": "^4.6.5",
     "react-router": "^7.13.0",
     "rxjs": "^7.8.2",
-<<<<<<< HEAD
-    "springboard": "0.0.1-dev-jamapp-12",
-    "tailwindcss": "^4.1.18",
-    "@tanstack/react-query": "^5.101.0",
-=======
     "springboard": "0.0.1-dev-jamapp-16",
     "tailwindcss": "^4.1.18",
->>>>>>> origin/vk/05a2-vd-weekly-dev-br
     "@vibe-dashboard/beads-form": "workspace:*"
   },
   "devDependencies": {

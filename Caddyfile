@@ -1,9 +1,5 @@
 {
-<<<<<<< HEAD
-	admin localhost:2019
-=======
 	admin {$CADDY_ADMIN:localhost:2019}
->>>>>>> origin/vk/05a2-vd-weekly-dev-br
 	auto_https off
 }
 
@@ -65,9 +61,6 @@
 	# Plugin-owned host routes. Caddy starts with this import present; runtime
 	# plugin apply updates this file later and reloads Caddy. This file must
 	# remain the only Caddy file edited for plugin exposure.
-<<<<<<< HEAD
-	import /etc/caddy/plugins.caddy
-=======
 	import {$CADDY_PLUGINS_CADDY:/etc/caddy/plugins.caddy}
 
 	# VK built frontend assets for the same-origin mocked sandbox. The sandbox
@@ -82,7 +75,6 @@
 			header_up Accept-Encoding identity
 		}
 	}
->>>>>>> origin/vk/05a2-vd-weekly-dev-br
 
 	# Vibe Dashboard app
 	@vibe_dashboard_root {

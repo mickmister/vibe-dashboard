@@ -30,23 +30,15 @@ import "./modules/MainUIShellModule";
 // @platform end
 
 // @platform "node"
-<<<<<<< HEAD
-import "./modules/WorkflowServerModule";
-=======
 import "./modules/ObservabilityServerModule";
 import "./modules/WorkflowServerModule";
 import "./modules/plugins/kanban/jira/serverModule";
 import "./modules/plugins/kanban/linear/serverModule";
->>>>>>> origin/vk/05a2-vd-weekly-dev-br
 // @platform end
 
 import "./modules/BeadsFormModule";
 
-<<<<<<< HEAD
-const WORKSPACE_CREATE_PATH = "/workspaces/create";
-=======
 const WORKSPACE_CREATE_PATH = "/workspaces";
->>>>>>> origin/vk/05a2-vd-weekly-dev-br
 const WORKSPACE_CREATE_TAB_TITLE = "Create Workspace";
 const URL_PARSE_BASE = "https://workspace.local";
 const MOBILE_TAB_EMOJIS = [
@@ -64,8 +56,6 @@ const MOBILE_TAB_EMOJIS = [
   "🛰️",
 ];
 
-<<<<<<< HEAD
-=======
 type ViteImportMeta = ImportMeta & {
   env?: {
     VITE_VK_BASE_ORIGIN?: string;
@@ -88,7 +78,6 @@ function getConfiguredVkBaseOrigin(): string | null {
   }
 }
 
->>>>>>> origin/vk/05a2-vd-weekly-dev-br
 function buildWorkspaceTabUrl(baseOrigin: string, path: string): string {
   const configuredBaseOrigin = getConfiguredVkBaseOrigin();
   const effectiveBaseOrigin = configuredBaseOrigin ?? baseOrigin;

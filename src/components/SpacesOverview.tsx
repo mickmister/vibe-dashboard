@@ -1,5 +1,4 @@
 import React, { useState, useEffect, useMemo, useCallback } from "react";
-import { useMutation } from "@tanstack/react-query";
 import type {
   WorkspaceState,
   TabGroup,
@@ -1175,57 +1174,9 @@ export function SpacesOverview({
   onOpenVKWorkspace,
 }: SpacesOverviewProps) {
   const { workspaces, repos, loading, error, refetch } = useVKDashboardData();
-<<<<<<< HEAD
-  const [selectedRepoId, setSelectedRepoId] = useState<string | null>(null);
-  const [page, setPage] = useState(0);
-  const [spacePickerTarget, setSpacePickerTarget] =
-    useState<DashboardWorkspace | null>(null);
-  const openCraftMutation = useMutation<
-    void,
-    Error,
-    {
-      workspace: DashboardWorkspace;
-      spaceId: string;
-    }
-  >({
-    mutationFn: async ({ workspace: targetWorkspace, spaceId }) => {
-      if (!onOpenVKWorkspace) {
-        throw new Error("Open Craft is unavailable.");
-      }
-
-      await onOpenVKWorkspace(
-        targetWorkspace.id,
-        targetWorkspace.name,
-        targetWorkspace.container_ref || "",
-        spaceId,
-      );
-    },
-    onSuccess: () => {
-      setSpacePickerTarget(null);
-    },
-  });
   const [stoppingDevServerIds, setStoppingDevServerIds] = useState<Set<string>>(
     new Set(),
   );
-  const workspaceNameById = useMemo(() => {
-    const map = new Map<string, string>();
-    for (const item of workspaces) {
-      map.set(item.id, item.name || item.branch);
-    }
-    return map;
-  }, [workspaces]);
-  const tabGroupDisplayLabelById = useMemo(() => {
-    const map = new Map<string, string>();
-    for (const tabGroup of workspace.tabGroups) {
-      map.set(tabGroup.id, getTabGroupDisplayLabel(tabGroup, workspaceNameById));
-    }
-    return map;
-  }, [workspace.tabGroups, workspaceNameById]);
-=======
-  const [stoppingDevServerIds, setStoppingDevServerIds] = useState<Set<string>>(
-    new Set(),
-  );
->>>>>>> origin/vk/05a2-vd-weekly-dev-br
 
   const handleStopDevServer = useCallback(
     async (workspaceId: string) => {
@@ -1254,10 +1205,6 @@ export function SpacesOverview({
     [refetch, stoppingDevServerIds],
   );
 
-<<<<<<< HEAD
-  const openSpacePickerForWorkspace = (targetWorkspace: DashboardWorkspace) => {
-    openCraftMutation.reset();
-=======
   return (
     <SpacesOverviewView
       workspace={workspace}
@@ -1401,7 +1348,6 @@ export function SpacesOverviewView({
   const openSpacePickerForWorkspace = (targetWorkspace: DashboardWorkspace) => {
     setOpenCraftActionError(null);
     setOpenCraftRetryRequest(null);
->>>>>>> origin/vk/05a2-vd-weekly-dev-br
     setSpacePickerTarget(targetWorkspace);
   };
 
@@ -1510,11 +1456,7 @@ export function SpacesOverviewView({
           workspaceTabGroupMap={workspaceTabGroupMap}
           onNavigateToTabGroup={onNavigateToTabGroup}
           onRequestOpenWorkspace={
-<<<<<<< HEAD
-            onOpenVKWorkspace ? openSpacePickerForWorkspace : undefined
-=======
             onOpenWorkspaceInSpace ? openSpacePickerForWorkspace : undefined
->>>>>>> origin/vk/05a2-vd-weekly-dev-br
           }
         />
 
@@ -1634,35 +1576,12 @@ export function SpacesOverviewView({
           workspace={workspace}
           targetWorkspace={spacePickerTarget}
           onSelect={(spaceId) => {
-<<<<<<< HEAD
-            openCraftMutation.mutate({
-=======
             void runOpenCraftRequest({
->>>>>>> origin/vk/05a2-vd-weekly-dev-br
               workspace: spacePickerTarget,
               spaceId,
             });
           }}
           onClose={() => {
-<<<<<<< HEAD
-            if (openCraftMutation.isPending) return;
-            setSpacePickerTarget(null);
-            openCraftMutation.reset();
-          }}
-          pendingSpaceId={
-            openCraftMutation.isPending
-              ? openCraftMutation.variables?.spaceId ?? null
-              : null
-          }
-          actionError={
-            openCraftMutation.isError
-              ? getDashboardOpenCraftErrorMessage(openCraftMutation.error)
-              : null
-          }
-          onRetry={
-            openCraftMutation.variables
-              ? () => openCraftMutation.mutate(openCraftMutation.variables!)
-=======
             if (isOpenCraftPending) return;
             setSpacePickerTarget(null);
             setOpenCraftActionError(null);
@@ -1679,7 +1598,6 @@ export function SpacesOverviewView({
               ? () => {
                   void runOpenCraftRequest(openCraftRetryRequest);
                 }
->>>>>>> origin/vk/05a2-vd-weekly-dev-br
               : undefined
           }
         />

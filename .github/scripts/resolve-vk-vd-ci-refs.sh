@@ -21,10 +21,7 @@ workflow_vk_ref="${WORKFLOW_VK_REF:-}"
 repository_dispatch_vk_ref="${REPOSITORY_DISPATCH_VK_REF:-}"
 repository_dispatch_vk_source_ref="${REPOSITORY_DISPATCH_VK_SOURCE_REF:-}"
 repository_dispatch_vk_source_ref_name="${REPOSITORY_DISPATCH_VK_SOURCE_REF_NAME:-}"
-<<<<<<< HEAD
-=======
 vk_asset_fallback_policy="${VK_ASSET_FALLBACK_POLICY:-fallback-default-branch-only}"
->>>>>>> origin/vk/05a2-vd-weekly-dev-br
 
 die() {
   echo "::error::$*" >&2
@@ -39,13 +36,10 @@ is_full_sha() {
   [[ "${1:-}" =~ ^[0-9a-fA-F]{40}$ ]]
 }
 
-<<<<<<< HEAD
-=======
 is_stable_release_tag_ref() {
   [[ "${1:-}" =~ ^refs/tags/v[0-9]+\.[0-9]+\.[0-9]+$ ]]
 }
 
->>>>>>> origin/vk/05a2-vd-weekly-dev-br
 head_ref() {
   local branch="$1"
   printf 'refs/heads/%s' "$branch"
@@ -74,11 +68,7 @@ resolve_remote_ref_to_sha() {
     rm -rf "$tmpdir"
     return 1
   }
-<<<<<<< HEAD
-  git -C "$tmpdir" rev-parse FETCH_HEAD
-=======
   git -C "$tmpdir" rev-parse 'FETCH_HEAD^{commit}'
->>>>>>> origin/vk/05a2-vd-weekly-dev-br
   rm -rf "$tmpdir"
 }
 
@@ -124,12 +114,6 @@ resolve_vd() {
     push)
       [[ -n "$event_ref_name" ]] || die "GITHUB_REF_NAME is required for push events"
       [[ -n "$event_sha" ]] || die "GITHUB_SHA is required for push events"
-<<<<<<< HEAD
-      vd_branch="$event_ref_name"
-      vd_ref="${event_ref:-$(head_ref "$vd_branch")}"
-      vd_commit="$event_sha"
-      vd_resolution_source="push_ref"
-=======
       if [[ "$event_ref" == refs/tags/* ]]; then
         # Main release path: pushing a tag at current VD main publishes latest
         # and deploys the resolved VK/VD image. Keep this intentionally narrow
@@ -150,7 +134,6 @@ resolve_vd() {
         vd_commit="$event_sha"
         vd_resolution_source="push_ref"
       fi
->>>>>>> origin/vk/05a2-vd-weekly-dev-br
       ;;
     workflow_dispatch)
       if [[ -n "$event_ref_name" ]]; then
@@ -179,13 +162,6 @@ resolve_vk() {
 
   case "$event_name" in
     pull_request)
-<<<<<<< HEAD
-      # PR label events only verify an already-published image; the push workflow
-      # produces branch images with resolved VK runtime assets.
-      return 0
-      ;;
-    workflow_dispatch)
-=======
       # Primary coordinated image path for VD-only or paired VK/VD work:
       # VD PRs resolve a same-named VK branch when it exists, then wait for
       # that exact VK commit's vk-assets-<sha> release before publishing.
@@ -202,28 +178,21 @@ resolve_vk() {
       # Manual escape hatch: callers provide an exact VK branch/tag/SHA and the
       # workflow waits for that exact asset. Do not silently substitute fallback
       # assets for explicit operator intent.
->>>>>>> origin/vk/05a2-vd-weekly-dev-br
       vk_branch="${workflow_vk_ref:-main}"
       vk_resolution_source="workflow_dispatch_input"
       ;;
     repository_dispatch)
-<<<<<<< HEAD
-=======
       # Follow-up rebuild path from VK release-assets-ready. VK is already
       # settled by the dispatched SHA; VD resolves a same-named branch when
       # present, otherwise the default VD branch, then still validates the exact
       # dispatched VK assets before publishing.
->>>>>>> origin/vk/05a2-vd-weekly-dev-br
       vk_branch="${repository_dispatch_vk_ref:-main}"
       vk_resolution_source="repository_dispatch_payload"
       ;;
     push)
-<<<<<<< HEAD
-=======
       # Primary coordinated image path for pushed VD branches. Prefer a
       # same-named VK branch and wait for its exact assets so a paired branch
       # push cannot publish with stale fallback VK assets while VK is building.
->>>>>>> origin/vk/05a2-vd-weekly-dev-br
       local candidate_branch="$vd_branch"
       if [[ -n "$(remote_head_sha "$vk_repo_url" "$candidate_branch")" ]]; then
         vk_branch="$candidate_branch"
@@ -243,8 +212,6 @@ resolve_vk() {
   vk_short_commit="${vk_commit:0:7}"
 }
 
-<<<<<<< HEAD
-=======
 vk_assets_release_url() {
   local vk_sha="$1"
   printf 'https://github.com/mickmister/vibe-kanban/releases/download/vk-assets-%s/manifest.json' "$vk_sha"
@@ -280,7 +247,6 @@ wait_for_vk_assets() {
   die "VK release assets for $vk_commit are not available after waiting. Expected release vk-assets-${vk_commit}. Re-run after VK CI publishes assets, or inspect VK CI for this commit."
 }
 
->>>>>>> origin/vk/05a2-vd-weekly-dev-br
 resolve_asset_fallback_if_needed() {
   used_asset_fallback=false
 
@@ -288,14 +254,6 @@ resolve_asset_fallback_if_needed() {
     return 0
   fi
 
-<<<<<<< HEAD
-  if [[ "$event_name" != "push" || "$vk_branch" != "$default_branch" || -z "$vk_commit" ]]; then
-    return 0
-  fi
-
-  local manifest_url="https://github.com/mickmister/vibe-kanban/releases/download/vk-assets-${vk_commit}/manifest.json"
-  if curl -fsI "$manifest_url" >/dev/null; then
-=======
   if [[ -z "$vk_commit" ]]; then
     return 0
   fi
@@ -305,7 +263,6 @@ resolve_asset_fallback_if_needed() {
   fi
 
   if [[ "$vk_resolution_source" != "fallback_default_branch" && "$vk_asset_fallback_policy" != "allow-matching-branch-fallback" ]]; then
->>>>>>> origin/vk/05a2-vd-weekly-dev-br
     return 0
   fi
 
@@ -338,16 +295,12 @@ resolve_publish_latest() {
   vk_main_commit="$(remote_head_sha "$vk_repo_url" "$default_branch")"
   [[ -n "$vk_main_commit" ]] || die "Could not resolve VK ${default_branch}"
 
-<<<<<<< HEAD
-  if [[ "$vd_branch" == "$default_branch" && "$vk_commit" == "$vk_main_commit" && "$used_asset_fallback" != "true" ]]; then
-=======
   if [[ "$event_name" == "push" ]] &&
     [[ "$vd_resolution_source" == "tag_on_default_branch" ]] &&
     [[ "$vd_branch" == "$default_branch" ]] &&
     [[ "$vk_commit" == "$vk_main_commit" ]] &&
     [[ "$used_asset_fallback" != "true" ]] &&
     is_stable_release_tag_ref "$event_ref"; then
->>>>>>> origin/vk/05a2-vd-weekly-dev-br
     publish_latest=true
   fi
 }
@@ -360,12 +313,9 @@ write_outputs() {
 
   local vd_short_commit="${vd_commit:0:7}"
   local deploy_image_tag="vd-${vd_commit}"
-<<<<<<< HEAD
-=======
   if [[ -n "$vk_short_commit" ]]; then
     deploy_image_tag="vk-${vk_short_commit}-vd-${vd_short_commit}"
   fi
->>>>>>> origin/vk/05a2-vd-weekly-dev-br
   local output_file="${GITHUB_OUTPUT:-/dev/stdout}"
 
   {
@@ -390,10 +340,7 @@ write_outputs() {
 resolve_vd
 resolve_vk
 resolve_asset_fallback_if_needed
-<<<<<<< HEAD
-=======
 wait_for_vk_assets
->>>>>>> origin/vk/05a2-vd-weekly-dev-br
 resolve_publish_latest
 
 echo "Resolved VD ${vd_ref} (${vd_resolution_source}) to ${vd_commit}"

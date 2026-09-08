@@ -27,8 +27,6 @@ export const config = {
     repoRemotes: (repoId: string) => `${BASE_URL}/api/repos/${repoId}/remotes`,
     taskAttemptRepos: (workspaceId: string) => `${BASE_URL}/api/workspaces/${workspaceId}/repos`,
     startDevServer: (workspaceId: string) => `${BASE_URL}/api/workspaces/${workspaceId}/execution/dev-server/start`,
-<<<<<<< HEAD
-=======
     runConfigs: (workspaceId: string) => `${BASE_URL}/api/workspaces/${workspaceId}/execution/run-configs`,
     runConfig: (workspaceId: string, runConfigId: string) => `${BASE_URL}/api/workspaces/${workspaceId}/execution/run-configs/${runConfigId}`,
     startRunConfig: (workspaceId: string, runConfigId: string) => `${BASE_URL}/api/workspaces/${workspaceId}/execution/run-configs/${runConfigId}/start`,
@@ -36,7 +34,6 @@ export const config = {
     previewSlot: (workspaceId: string, previewSlotId: string) => `${BASE_URL}/api/workspaces/${workspaceId}/execution/preview-slots/${previewSlotId}`,
     startPreviewSlot: (workspaceId: string, previewSlotId: string) => `${BASE_URL}/api/workspaces/${workspaceId}/execution/preview-slots/${previewSlotId}/start`,
     previewSlotUrl: (workspaceId: string, previewSlotId: string, query: string) => `${BASE_URL}/api/workspaces/${workspaceId}/execution/preview-slots/${previewSlotId}/url${query ? `?${query}` : ''}`,
->>>>>>> origin/vk/05a2-vd-weekly-dev-br
     executionProcess: (processId: string) => `${BASE_URL}/api/execution-processes/${processId}`,
     stopExecutionProcess: (processId: string) => `${BASE_URL}/api/execution-processes/${processId}/stop`,
     taskAttemptSummary: `${BASE_URL}/api/task-attempts/summary`,

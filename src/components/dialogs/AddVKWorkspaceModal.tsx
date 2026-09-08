@@ -50,8 +50,6 @@ export interface AddVKWorkspaceModalProps {
   pendingWorkspaceId?: string | null;
   isActionPending?: boolean;
   actionError?: string | null;
-<<<<<<< HEAD
-=======
 }
 
 export interface AddVKWorkspaceModalViewProps {
@@ -84,7 +82,6 @@ export interface AddVKWorkspaceModalViewProps {
   initialCustomPath?: string;
   initialCustomName?: string;
   initialSpacePickerTargetId?: string | null;
->>>>>>> origin/vk/05a2-vd-weekly-dev-br
 }
 
 export function AddVKWorkspaceModal({
@@ -107,27 +104,6 @@ export function AddVKWorkspaceModal({
   const [loading, setLoading] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState<string | null>(null);
-<<<<<<< HEAD
-  const [searchQuery, setSearchQuery] = useState('');
-  const [selectedRepo, setSelectedRepo] = useState('all');
-  const [showPathInput, setShowPathInput] = useState(false);
-  const [customPath, setCustomPath] = useState('');
-  const [customName, setCustomName] = useState('');
-  const [spacePickerTarget, setSpacePickerTarget] =
-    useState<WorkspaceOption | null>(null);
-  const [localActionError, setLocalActionError] = useState<string | null>(null);
-
-  const workspaceTabGroupMap = useMemo(
-    () => buildWorkspaceTabGroupMap(workspaceState),
-    [workspaceState]
-  );
-
-  const availableSpaces = useMemo(() => {
-    if (!workspaceState) return [];
-    return workspaceState.spaces;
-  }, [workspaceState]);
-=======
->>>>>>> origin/vk/05a2-vd-weekly-dev-br
 
   useEffect(() => {
     if (isOpen) {
@@ -136,7 +112,6 @@ export function AddVKWorkspaceModal({
       setLoading(false);
       setRefreshing(false);
       setError(null);
-      setLocalActionError(null);
     }
   }, [isOpen]);
 
@@ -154,7 +129,6 @@ export function AddVKWorkspaceModal({
     }
 
     setError(null);
-    setLocalActionError(null);
 
     try {
       const workspaces = await fetchWorkspaceOptions();
@@ -173,70 +147,6 @@ export function AddVKWorkspaceModal({
     return resolveWorkspaceContainerRef(workspace.id, workspace.container_ref);
   };
 
-<<<<<<< HEAD
-  const handleWorkspaceSelect = async (workspace: WorkspaceOption) => {
-    if (isActionPending) return;
-
-    setLocalActionError(null);
-
-    try {
-      const openLocation = workspaceTabGroupMap.get(workspace.id);
-      if (openLocation && onNavigateToTabGroup) {
-        await onNavigateToTabGroup(openLocation.spaceId, openLocation.tabGroupId, {
-          id: workspace.id,
-          name: workspace.name || 'Untitled Workspace',
-        });
-        onComplete?.();
-        onClose();
-        return;
-      }
-
-      if (onAddToSpace) {
-        setSpacePickerTarget(workspace);
-        return;
-      }
-
-      const containerRef = await resolveContainerRef(workspace);
-      await onAdd(workspace.id, workspace.name || 'Untitled Workspace', containerRef);
-      onComplete?.();
-      onClose();
-    } catch (err) {
-      setLocalActionError(getActionErrorMessage(err));
-    }
-  };
-
-  const handleSelectSpace = async (spaceId: string) => {
-    if (isActionPending) return;
-    if (!spacePickerTarget) return;
-
-    setLocalActionError(null);
-
-    try {
-      const containerRef = await resolveContainerRef(spacePickerTarget);
-
-      if (onAddToSpace) {
-        await onAddToSpace(
-          spacePickerTarget.id,
-          spacePickerTarget.name || 'Untitled Workspace',
-          containerRef,
-          spaceId
-        );
-      } else {
-        await onAdd(
-          spacePickerTarget.id,
-          spacePickerTarget.name || 'Untitled Workspace',
-          containerRef
-        );
-      }
-
-      onComplete?.();
-      onClose();
-    } catch (err) {
-      setLocalActionError(getActionErrorMessage(err));
-    }
-  };
-
-=======
   const handleAddWorkspace = async (workspace: WorkspaceOption) => {
     const containerRef = await resolveContainerRef(workspace);
     await onAdd(workspace.id, workspace.name || 'Untitled Workspace', containerRef);
@@ -444,7 +354,6 @@ export function AddVKWorkspaceModalView({
     }
   };
 
->>>>>>> origin/vk/05a2-vd-weekly-dev-br
   const handleAddWithPath = async () => {
     if (isActionPending) return;
     if (!customPath.trim()) return;
@@ -454,20 +363,6 @@ export function AddVKWorkspaceModalView({
     setLocalActionError(null);
 
     try {
-<<<<<<< HEAD
-      // If onAddWithPath is provided, use it
-      if (onAddWithPath) {
-        await onAddWithPath(customPath.trim(), name);
-      } else {
-        // Fallback: treat path as containerRef and create empty taskAttemptId
-        await onAdd('', name, customPath.trim());
-      }
-      onComplete?.();
-      onClose();
-    } catch (err) {
-      setLocalActionError(getActionErrorMessage(err));
-    }
-=======
       await onAddWithPath?.(customPath.trim(), name);
       completeAndClose();
     } catch (err) {
@@ -478,7 +373,6 @@ export function AddVKWorkspaceModalView({
   const handleClose = () => {
     if (isActionPending) return;
     onClose();
->>>>>>> origin/vk/05a2-vd-weekly-dev-br
   };
 
   const surfacedActionError = actionError || localActionError;
@@ -486,11 +380,7 @@ export function AddVKWorkspaceModalView({
   return (
     <Modal
       isOpen={isOpen}
-<<<<<<< HEAD
-      onClose={onClose}
-=======
       onClose={handleClose}
->>>>>>> origin/vk/05a2-vd-weekly-dev-br
       size="2xl"
       backdrop="blur"
       isDismissable={!isActionPending}
@@ -743,11 +633,7 @@ export function AddVKWorkspaceModalView({
           <Button
             color="default"
             variant="light"
-<<<<<<< HEAD
-            onPress={onClose}
-=======
             onPress={handleClose}
->>>>>>> origin/vk/05a2-vd-weekly-dev-br
             isDisabled={isActionPending}
             className="text-neutral-300"
           >

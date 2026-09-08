@@ -218,14 +218,11 @@ export function buildNoAssistantResponseLogMessage(processId: string): string {
 const TERMINAL_PROCESS_STATUSES = new Set(['completed', 'failed', 'killed']);
 const CALLBACK_IDLE_POLL_INTERVAL_MS = 2_000;
 const REQUEST_REVIEW_QUIET_WINDOW_MS = 10_000;
-<<<<<<< HEAD
-=======
 const FULL_SUMMARY_DEFAULT_LIMIT_TURNS = 100;
 const FULL_SUMMARY_DEFAULT_LIMIT_SESSIONS = 25;
 const FULL_SUMMARY_DEFAULT_CONVERSATION_TIMEOUT_MS = 30_000;
 const FULL_SUMMARY_SESSION_FETCH_CONCURRENCY = 8;
 const FULL_SUMMARY_CONVERSATION_FETCH_CONCURRENCY = 6;
->>>>>>> origin/vk/05a2-vd-weekly-dev-br
 
 export interface SessionTurnProcess {
   id?: string;
@@ -333,10 +330,7 @@ export interface ParsedFullSummaryArgs {
   includeRunning: boolean;
   limitTurns: number;
   limitSessions: number;
-<<<<<<< HEAD
-=======
   conversationTimeoutMs: number;
->>>>>>> origin/vk/05a2-vd-weekly-dev-br
 }
 
 export interface ToolCallSummary {
@@ -483,14 +477,9 @@ export function parseFullSummaryArgs(args: string[]): ParsedFullSummaryArgs {
     noAdvance: false,
     jsonOutput: false,
     includeRunning: false,
-<<<<<<< HEAD
-    limitTurns: 200,
-    limitSessions: 50,
-=======
     limitTurns: FULL_SUMMARY_DEFAULT_LIMIT_TURNS,
     limitSessions: FULL_SUMMARY_DEFAULT_LIMIT_SESSIONS,
     conversationTimeoutMs: FULL_SUMMARY_DEFAULT_CONVERSATION_TIMEOUT_MS,
->>>>>>> origin/vk/05a2-vd-weekly-dev-br
   };
 
   for (let i = 0; i < args.length; i++) {
@@ -542,8 +531,6 @@ export function parseFullSummaryArgs(args: string[]): ParsedFullSummaryArgs {
       parsed.limitSessions = parsePositiveInteger(arg.slice('--limit-sessions='.length), '--limit-sessions');
       continue;
     }
-<<<<<<< HEAD
-=======
     if (arg === '--conversation-timeout') {
       parsed.conversationTimeoutMs = parseTimeoutMs(requireFlagValue(args, i, arg));
       i++;
@@ -562,7 +549,6 @@ export function parseFullSummaryArgs(args: string[]): ParsedFullSummaryArgs {
       parsed.conversationTimeoutMs = parseTimeoutMs(arg.slice('--conversation-timeout-ms='.length), 'ms');
       continue;
     }
->>>>>>> origin/vk/05a2-vd-weekly-dev-br
 
     throw new Error(`Unknown full_summary option: ${arg}`);
   }
@@ -571,8 +557,6 @@ export function parseFullSummaryArgs(args: string[]): ParsedFullSummaryArgs {
   return parsed;
 }
 
-<<<<<<< HEAD
-=======
 function formatTraceError(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
 }
@@ -600,7 +584,6 @@ export async function mapWithConcurrency<T, R>(
   return results;
 }
 
->>>>>>> origin/vk/05a2-vd-weekly-dev-br
 function entryType(entry: ConversationEntry | undefined): string | undefined {
   return entry?.content?.entry_type?.type;
 }
@@ -1773,17 +1756,12 @@ interface FullSummaryTurn {
   agentPreResponse: string | null;
   toolCalls: ToolCallSummary;
   agentResponse: string | null;
-<<<<<<< HEAD
-=======
   conversationFetchError: string | null;
->>>>>>> origin/vk/05a2-vd-weekly-dev-br
   gitCommits: CommitSummary[];
   gitCommitSummaryNote: string | null;
   gitRepositoryPath: string | null;
 }
 
-<<<<<<< HEAD
-=======
 export function getAdvanceableFullSummaryProcessIds(
   turns: readonly { process: { id: string }; conversationFetchError: string | null }[],
 ): string[] {
@@ -1792,7 +1770,6 @@ export function getAdvanceableFullSummaryProcessIds(
     .map(turn => turn.process.id);
 }
 
->>>>>>> origin/vk/05a2-vd-weekly-dev-br
 interface FullSummaryTextResult {
   workspace_id: string;
   workspace_name: string | null;
@@ -1881,12 +1858,9 @@ export function formatFullSummaryText(result: FullSummaryTextResult): string {
       web_searches: turn.toolCalls.webSearches,
       other: turn.toolCalls.other,
     })} />`);
-<<<<<<< HEAD
-=======
     if (turn.conversationFetchError) {
       lines.push(xmlTextElement('      ', 'conversation_fetch_error', truncateText(turn.conversationFetchError, 2000), ''));
     }
->>>>>>> origin/vk/05a2-vd-weekly-dev-br
     lines.push(xmlTextElement('      ', 'agent_response', truncateText(turn.agentResponse, 6000), '(none)'));
     lines.push(`      <git_commit_summary${xmlAttrs({ repository_path: turn.gitRepositoryPath })}>`);
     if (turn.gitCommitSummaryNote) {
@@ -1931,11 +1905,7 @@ async function fullSummary(args: string[]): Promise<void> {
     parsed = parseFullSummaryArgs(args);
   } catch (err) {
     console.error(`Error: ${(err as Error).message}`);
-<<<<<<< HEAD
-    console.error('Usage: vibe-agent full_summary [--session <id>] [--all] [--no-advance] [--include-running] [--limit-turns <n>] [--limit-sessions <n>] [--json]');
-=======
     console.error('Usage: vibe-agent full_summary [--session <id>] [--all] [--no-advance] [--include-running] [--limit-turns <n>] [--limit-sessions <n>] [--conversation-timeout <duration>] [--json]');
->>>>>>> origin/vk/05a2-vd-weekly-dev-br
     process.exit(1);
   }
 
@@ -1953,15 +1923,9 @@ async function fullSummary(args: string[]): Promise<void> {
     const readerState = state.readers[readerId] ?? { seenProcessIds: [], lastQueriedAt: new Date(0).toISOString() };
     const seenProcessIds = new Set(parsed.all ? [] : readerState.seenProcessIds);
     const excludedSessionIds = new Set(state.excludedSessionIds ?? []);
-<<<<<<< HEAD
-
-    const sessionFile = readSessionFile(workspaceId);
-    let sessions = await client.getSessions(workspaceId);
-=======
     const sessionFile = readSessionFile(workspaceId);
     let sessions = await client.getSessions(workspaceId);
 
->>>>>>> origin/vk/05a2-vd-weekly-dev-br
     sessions = sessions.filter(s => s.id !== currentSessionId && !excludedSessionIds.has(s.id));
     if (parsed.sessionIds.length > 0) {
       const wanted = new Set(parsed.sessionIds);
@@ -1973,34 +1937,11 @@ async function fullSummary(args: string[]): Promise<void> {
     const sessionLimitHit = sessions.length > parsed.limitSessions;
     sessions = sessions.slice(0, parsed.limitSessions);
 
-<<<<<<< HEAD
-    const turns: FullSummaryTurn[] = [];
-    let messageLimitHit = false;
-    for (let sessionIndex = 0; sessionIndex < sessions.length; sessionIndex++) {
-      const session = sessions[sessionIndex];
-=======
     const sessionProcessBatches = await mapWithConcurrency(sessions, FULL_SUMMARY_SESSION_FETCH_CONCURRENCY, async (session) => {
->>>>>>> origin/vk/05a2-vd-weekly-dev-br
       const processes = (await client.getSessionProcesses(session.id))
         .filter(process => parsed.includeRunning || isTerminalProcess(process))
         .filter(process => !seenProcessIds.has(process.id))
         .sort((a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime());
-<<<<<<< HEAD
-
-      if (turns.length + processes.length > parsed.limitTurns) {
-        messageLimitHit = true;
-      }
-
-      for (const process of processes) {
-        if (turns.length >= parsed.limitTurns) break;
-        const entries = await client.fetchConversation(process.id, 10_000);
-        const conversation = summarizeTurnConversation(entries);
-        const gitRepositoryPath = resolveProcessWorkingDirectory(process, workspaceId, globalThis.process.cwd());
-        const gitNote = gitRepositoryPath
-          ? null
-          : 'Skipped: process working directory could not be resolved to a local git repository without using deprecated workspace APIs.';
-        turns.push({
-=======
       return { session, processes };
     });
 
@@ -2048,7 +1989,6 @@ async function fullSummary(args: string[]): Promise<void> {
           ? null
           : 'Skipped: process working directory could not be resolved to a local git repository without using deprecated workspace APIs.';
         return {
->>>>>>> origin/vk/05a2-vd-weekly-dev-br
           session: {
             id: session.id,
             executor: session.executor,
@@ -2067,20 +2007,6 @@ async function fullSummary(args: string[]): Promise<void> {
           agentPreResponse: conversation.agentPreResponse,
           toolCalls: conversation.toolCalls,
           agentResponse: conversation.agentResponse,
-<<<<<<< HEAD
-          gitCommits: gitRepositoryPath ? getCommitSummariesForTurn(process, conversation.agentResponse, conversation.toolCalls, gitRepositoryPath) : [],
-          gitCommitSummaryNote: gitNote,
-          gitRepositoryPath,
-        });
-      }
-      if (turns.length >= parsed.limitTurns) {
-        if (sessionIndex < sessions.length - 1) {
-          messageLimitHit = true;
-        }
-        break;
-      }
-    }
-=======
           conversationFetchError,
           gitCommits: gitRepositoryPath ? getCommitSummariesForTurn(process, conversation.agentResponse, conversation.toolCalls, gitRepositoryPath) : [],
           gitCommitSummaryNote: gitNote,
@@ -2088,7 +2014,6 @@ async function fullSummary(args: string[]): Promise<void> {
         };
       },
     );
->>>>>>> origin/vk/05a2-vd-weekly-dev-br
 
     const limited = sessionLimitHit || messageLimitHit;
     const result = {
@@ -2103,10 +2028,7 @@ async function fullSummary(args: string[]): Promise<void> {
         include_running: parsed.includeRunning,
         limit_turns: parsed.limitTurns,
         limit_sessions: parsed.limitSessions,
-<<<<<<< HEAD
-=======
         conversation_timeout_ms: parsed.conversationTimeoutMs,
->>>>>>> origin/vk/05a2-vd-weekly-dev-br
       },
       guardrails: {
         total_matching_sessions: totalMatchingSessions,
@@ -2114,11 +2036,7 @@ async function fullSummary(args: string[]): Promise<void> {
         turns_returned: turns.length,
         limited,
         message: limited
-<<<<<<< HEAD
-          ? 'Output was limited by guardrails. Re-run with --session <id>, --limit-messages <n> (alias: --limit-turns), --limit-sessions <n>, or --all intentionally.'
-=======
           ? 'Output was limited by guardrails. Re-run with --session <id>, --limit-messages <n> (alias: --limit-turns), --limit-sessions <n>, --conversation-timeout <duration>, or --all intentionally.'
->>>>>>> origin/vk/05a2-vd-weekly-dev-br
           : null,
       },
       turns,
@@ -2126,13 +2044,8 @@ async function fullSummary(args: string[]): Promise<void> {
 
     if (!parsed.noAdvance && !parsed.all) {
       const nextSeen = new Set(readerState.seenProcessIds);
-<<<<<<< HEAD
-      for (const turn of turns) {
-        nextSeen.add(turn.process.id);
-=======
       for (const processId of getAdvanceableFullSummaryProcessIds(turns)) {
         nextSeen.add(processId);
->>>>>>> origin/vk/05a2-vd-weekly-dev-br
       }
       state.readers[readerId] = {
         seenProcessIds: Array.from(nextSeen).slice(-5000),
@@ -2286,11 +2199,6 @@ Commands:
     --all                      Ignore this caller's pager state for this run
     --no-advance               Do not update this caller's pager state
     --include-running          Include non-terminal turns too
-<<<<<<< HEAD
-    --limit-messages <n>       Max turns/messages to print (default: 200)
-    --limit-turns <n>          Alias for --limit-messages
-    --limit-sessions <n>       Max sessions to scan (default: 50)
-=======
     --limit-messages <n>       Max turns/messages to print (default: ${FULL_SUMMARY_DEFAULT_LIMIT_TURNS})
     --limit-turns <n>          Alias for --limit-messages
     --limit-sessions <n>       Max sessions to scan (default: ${FULL_SUMMARY_DEFAULT_LIMIT_SESSIONS})
@@ -2298,7 +2206,6 @@ Commands:
                                Timeout per conversation fetch (default: 30s)
     --conversation-timeout-ms <ms>
                                Timeout per conversation fetch in milliseconds
->>>>>>> origin/vk/05a2-vd-weekly-dev-br
     --json                     Output as JSON
 
   callback "command to run"    Run a shell command in the background and

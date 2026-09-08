@@ -2,23 +2,14 @@ name: CI
 
 on:
   push:
-<<<<<<< HEAD
-    branches:
-      - main
-  pull_request:
-=======
->>>>>>> origin/vk/05a2-vd-weekly-dev-br
 
 permissions:
   contents: read
 
-<<<<<<< HEAD
-=======
 concurrency:
   group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
   cancel-in-progress: true
 
->>>>>>> origin/vk/05a2-vd-weekly-dev-br
 env:
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
 
@@ -69,8 +60,6 @@ jobs:
       - name: Run app server unit tests
         run: npm run test:server
 
-<<<<<<< HEAD
-=======
   external-kanban-db-check:
     name: external Kanban DB drift and smoke
     runs-on: ubuntu-latest
@@ -94,7 +83,6 @@ jobs:
       - name: Verify external Kanban DB generated files and migrations
         run: npm run db:check:external-integrations
 
->>>>>>> origin/vk/05a2-vd-weekly-dev-br
   test-workflow-core:
     name: workflow-core tests
     runs-on: ubuntu-latest
@@ -162,11 +150,7 @@ jobs:
         run: pnpm install --frozen-lockfile
 
       - name: Install Playwright browsers
-<<<<<<< HEAD
-        run: npx playwright install --with-deps chromium
-=======
         run: pnpm exec playwright install --with-deps chromium
->>>>>>> origin/vk/05a2-vd-weekly-dev-br
 
       - name: Run e2e tests
         run: npm run test:e2e
@@ -330,10 +314,7 @@ jobs:
     needs:
       - check-types
       - app-server-tests
-<<<<<<< HEAD
-=======
       - external-kanban-db-check
->>>>>>> origin/vk/05a2-vd-weekly-dev-br
       - test-workflow-core
       - test-e2e
       - build-app

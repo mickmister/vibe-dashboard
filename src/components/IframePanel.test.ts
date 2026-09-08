@@ -1,17 +1,11 @@
 import { afterEach, describe, expect, it } from 'vitest';
-<<<<<<< HEAD
-=======
 import React from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
->>>>>>> origin/vk/05a2-vd-weekly-dev-br
 import {
   IFRAME_PORT_PREFIX_REVEAL_DELAY_MS,
   IFRAME_REVEAL_DELAY_MS,
   IFRAME_VISUAL_READY_TIMEOUT_MS,
-<<<<<<< HEAD
-=======
   IframePanel,
->>>>>>> origin/vk/05a2-vd-weekly-dev-br
   __iframePanelTestUtils,
   getIframeRevealDelayMs,
   getIframeRevealStyle,
@@ -149,8 +143,6 @@ describe('iframe reveal behavior', () => {
     });
   });
 
-<<<<<<< HEAD
-=======
   it('routes PreviewServer craft tabs to an in-process React surface', () => {
     const target = __iframePanelTestUtils.getTabRenderTargetForTest(
       {
@@ -233,7 +225,6 @@ describe('iframe reveal behavior', () => {
     expect(markup).toContain('width:calc(50.000000% - 2.000px)');
   });
 
->>>>>>> origin/vk/05a2-vd-weekly-dev-br
   it('clears first-activation tracking when an iframe is removed', () => {
     __iframePanelTestUtils.addRetainedIframeForTest('craft_workspace:agent');
     __iframePanelTestUtils.setActivatedIframeKeys(['craft_workspace:agent', 'craft_workspace:code']);

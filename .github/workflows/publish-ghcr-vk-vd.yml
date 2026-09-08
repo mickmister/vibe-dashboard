@@ -2,17 +2,6 @@ name: Publish VK/VD Image to GHCR
 
 on:
   push:
-<<<<<<< HEAD
-    branches:
-      - main
-  pull_request:
-    types:
-      - opened
-      - synchronize
-      - reopened
-      - labeled
-=======
->>>>>>> origin/vk/05a2-vd-weekly-dev-br
   repository_dispatch:
     types:
       - vk-release-assets-ready
@@ -69,95 +58,6 @@ jobs:
           DEFAULT_BRANCH: ${{ github.event.repository.default_branch || 'main' }}
           IMAGE_TAG_INPUT: ${{ github.event_name == 'workflow_dispatch' && inputs.image_tag || '' }}
           PR_NUMBER: ${{ github.event_name == 'pull_request' && github.event.pull_request.number || '' }}
-<<<<<<< HEAD
-          VD_SHA_INPUT: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || github.sha }}
-          VK_BRANCH_INPUT: ${{ github.event_name == 'workflow_dispatch' && inputs.vk_branch || github.event.client_payload.vk_sha || github.event.client_payload.vk_ref || 'main' }}
-          # Repository dispatch intentionally ignores client_payload.vk_repo_url.
-          # Docker release assets are trusted only from the official VK repository.
-          VK_REPO_URL_INPUT: ${{ github.event_name == 'workflow_dispatch' && inputs.vk_repo_url || 'https://github.com/mickmister/vibe-kanban.git' }}
-          VK_SOURCE_REF: ${{ github.event_name == 'repository_dispatch' && github.event.client_payload.vk_source_ref || '' }}
-        run: |
-          set -euo pipefail
-
-          vd_short_commit="${VD_SHA_INPUT:0:7}"
-          deploy_image_tag="vd-${VD_SHA_INPUT}"
-
-          if [[ "${GITHUB_EVENT_NAME}" == "pull_request" ]]; then
-            echo "Resolved PR #${PR_NUMBER} deploy image tag to ${deploy_image_tag}"
-          fi
-
-          workdir="$(mktemp -d)"
-          trap 'rm -rf "$workdir" || true' EXIT
-
-          git -C "$workdir" init --quiet
-          git -C "$workdir" remote add origin "$VK_REPO_URL_INPUT"
-          git -C "$workdir" fetch --depth 1 origin "$VK_BRANCH_INPUT"
-
-          vk_commit="$(git -C "$workdir" rev-parse FETCH_HEAD)"
-          vk_short_commit="$(git -C "$workdir" rev-parse --short=7 FETCH_HEAD)"
-          used_asset_fallback=false
-
-          manifest_url="https://github.com/mickmister/vibe-kanban/releases/download/vk-assets-${vk_commit}/manifest.json"
-          if [[ "${GITHUB_EVENT_NAME}" == "push" && "$VK_BRANCH_INPUT" == "main" ]] && ! curl -fsI "$manifest_url" >/dev/null; then
-            echo "::notice::VK release assets for $vk_commit are not available yet; using the latest published vk-assets release for this VD branch image."
-            latest_assets_tag="$(
-              curl -fsSL "https://api.github.com/repos/mickmister/vibe-kanban/releases?per_page=100" \
-                | python3 -c 'import json,sys; releases=[r for r in json.load(sys.stdin) if r.get("tag_name", "").startswith("vk-assets-")]; releases.sort(key=lambda r: r.get("published_at") or r.get("created_at") or "", reverse=True); print(releases[0]["tag_name"] if releases else "")'
-            )"
-
-            if [[ -z "$latest_assets_tag" ]]; then
-              echo "No published vk-assets release found to use as a fallback." >&2
-              exit 1
-            fi
-
-            vk_commit="${latest_assets_tag#vk-assets-}"
-            if [[ ! "$vk_commit" =~ ^[0-9a-f]{40}$ ]]; then
-              echo "Latest vk-assets release tag does not contain a full commit SHA: $latest_assets_tag" >&2
-              exit 1
-            fi
-
-            VK_BRANCH_INPUT="$latest_assets_tag"
-            vk_short_commit="${vk_commit:0:7}"
-            used_asset_fallback=true
-            echo "Using fallback VK assets release $latest_assets_tag"
-          fi
-
-          publish_latest=false
-          deploy_pr_preview=false
-          if [[ "${GITHUB_EVENT_NAME}" == "pull_request" ]]; then
-            deploy_pr_preview=true
-          fi
-
-          if [[ "${GITHUB_EVENT_NAME}" == "push" && "${GITHUB_REF}" == "refs/heads/main" && "$used_asset_fallback" != "true" ]]; then
-            publish_latest=true
-          elif [[ "${GITHUB_EVENT_NAME}" == "repository_dispatch" ]]; then
-            git -C "$workdir" fetch --depth 1 origin main
-            vk_main_commit="$(git -C "$workdir" rev-parse FETCH_HEAD)"
-
-            if [[ "$vk_commit" == "$vk_main_commit" ]]; then
-              publish_latest=true
-            else
-              echo "Dispatched VK commit $vk_commit is not current origin/main ($vk_main_commit); not publishing latest."
-            fi
-          fi
-
-          echo "Resolved $VK_BRANCH_INPUT to $vk_commit"
-          echo "Publish latest: $publish_latest"
-          echo "Deploy PR preview: $deploy_pr_preview"
-
-          {
-            echo "image_tag=$IMAGE_TAG_INPUT"
-            echo "deploy_image_tag=$deploy_image_tag"
-            echo "deploy_pr_preview=$deploy_pr_preview"
-            echo "pr_number=$PR_NUMBER"
-            echo "vk_branch=$VK_BRANCH_INPUT"
-            echo "vk_commit=$vk_commit"
-            echo "vk_short_commit=$vk_short_commit"
-            echo "vk_repo_url=$VK_REPO_URL_INPUT"
-            echo "vd_short_commit=$vd_short_commit"
-            echo "publish_latest=$publish_latest"
-          } >> "$GITHUB_OUTPUT"
-=======
           PR_HEAD_REF: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.ref || '' }}
           PR_HEAD_SHA: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || '' }}
           WORKFLOW_VK_REF: ${{ github.event_name == 'workflow_dispatch' && inputs.vk_branch || '' }}
@@ -168,7 +68,6 @@ jobs:
           # Docker release assets are trusted only from the official VK repository.
           VK_REPO_URL_INPUT: ${{ github.event_name == 'workflow_dispatch' && inputs.vk_repo_url || 'https://github.com/mickmister/vibe-kanban.git' }}
         run: .github/scripts/resolve-vk-vd-ci-refs.sh
->>>>>>> origin/vk/05a2-vd-weekly-dev-br
 
   check-types:
     name: npm run check-types
@@ -245,10 +144,7 @@ jobs:
           EVENT_PR_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
           EVENT_PR_NUMBER: ${{ needs.resolve-vk-ref.outputs.pr_number }}
           GITHUB_TOKEN: ${{ github.token }}
-<<<<<<< HEAD
-=======
           PUBLISH_LATEST: ${{ needs.resolve-vk-ref.outputs.publish_latest }}
->>>>>>> origin/vk/05a2-vd-weekly-dev-br
         run: |
           set -euo pipefail
 
@@ -259,16 +155,11 @@ jobs:
 
           pr_number=""
           built_pr_head_sha=""
-<<<<<<< HEAD
-=======
           deploy_release_tag=false
->>>>>>> origin/vk/05a2-vd-weekly-dev-br
 
           if [[ "${GITHUB_EVENT_NAME}" == "pull_request" ]]; then
             pr_number="$EVENT_PR_NUMBER"
             built_pr_head_sha="$EVENT_PR_HEAD_SHA"
-<<<<<<< HEAD
-=======
           elif [[ "${GITHUB_EVENT_NAME}" == "push" && "${GITHUB_REF:-}" == refs/tags/* ]]; then
             if [[ "$PUBLISH_LATEST" != "true" ]]; then
               echo "::notice::Tag push ${GITHUB_REF} is not a stable main release tag; skipping Coolify deployment."
@@ -277,7 +168,6 @@ jobs:
 
             deploy_release_tag=true
             echo "::notice::Deploying main release tag ${GITHUB_REF} using image ${DEPLOY_IMAGE_TAG}."
->>>>>>> origin/vk/05a2-vd-weekly-dev-br
           elif [[ "${GITHUB_EVENT_NAME}" == "push" ]]; then
             associated_prs_json="$(
               curl \
@@ -306,71 +196,16 @@ jobs:
             exit 0
           fi
 
-<<<<<<< HEAD
-          if [[ -z "$pr_number" ]]; then
-=======
           if [[ "$deploy_release_tag" != "true" && -z "$pr_number" ]]; then
->>>>>>> origin/vk/05a2-vd-weekly-dev-br
             echo "::error::PR number was not resolved."
             exit 1
           fi
 
-<<<<<<< HEAD
-          if [[ -z "$built_pr_head_sha" ]]; then
-=======
           if [[ "$deploy_release_tag" != "true" && -z "$built_pr_head_sha" ]]; then
->>>>>>> origin/vk/05a2-vd-weekly-dev-br
             echo "::error::PR head SHA was not resolved."
             exit 1
           fi
 
-<<<<<<< HEAD
-          current_pr_json="$(
-            curl \
-              --fail-with-body \
-              --show-error \
-              --silent \
-              --retry 5 \
-              --retry-delay 5 \
-              --retry-all-errors \
-              "https://api.github.com/repos/${GITHUB_REPOSITORY}/pulls/${pr_number}" \
-              --header "Authorization: Bearer $GITHUB_TOKEN" \
-              --header "Accept: application/vnd.github+json" \
-              --header "X-GitHub-Api-Version: 2022-11-28"
-          )"
-
-          current_pr_head_sha="$(python3 -c 'import json, sys; print(json.load(sys.stdin)["head"]["sha"])' <<< "$current_pr_json")"
-
-          if [[ "$current_pr_head_sha" != "$built_pr_head_sha" ]]; then
-            if [[ "${GITHUB_EVENT_NAME}" == "pull_request" ]]; then
-              echo "::error::PR #${pr_number} is not at the labeled head anymore. Labeled ${built_pr_head_sha}, but current PR head is ${current_pr_head_sha}. Re-add coolify-deploy to deploy the latest PR head."
-              exit 1
-            fi
-
-            echo "::notice::PR #${pr_number} moved after this image was published. Published ${built_pr_head_sha}, but current PR head is ${current_pr_head_sha}; skipping stale Coolify deployment."
-            exit 0
-          fi
-
-          issue_json="$(
-            curl \
-              --fail-with-body \
-              --show-error \
-              --silent \
-              --retry 5 \
-              --retry-delay 5 \
-              --retry-all-errors \
-              "https://api.github.com/repos/${GITHUB_REPOSITORY}/issues/${pr_number}" \
-              --header "Authorization: Bearer $GITHUB_TOKEN" \
-              --header "Accept: application/vnd.github+json" \
-              --header "X-GitHub-Api-Version: 2022-11-28"
-          )"
-
-          has_deploy_label="$(python3 -c 'import json, sys; issue=json.load(sys.stdin); print("true" if any(label.get("name") == "coolify-deploy" for label in issue.get("labels", [])) else "false")' <<< "$issue_json")"
-
-          if [[ "$has_deploy_label" != "true" ]]; then
-            echo "::notice::PR #${pr_number} no longer has the coolify-deploy label; skipping Coolify deployment."
-            exit 0
-=======
           if [[ "$deploy_release_tag" != "true" ]]; then
             current_pr_json="$(
               curl \
@@ -418,7 +253,6 @@ jobs:
               echo "::notice::PR #${pr_number} no longer has the coolify-deploy label; skipping Coolify deployment."
               exit 0
             fi
->>>>>>> origin/vk/05a2-vd-weekly-dev-br
           fi
 
           image_ref="ghcr.io/${GITHUB_REPOSITORY_OWNER,,}/vk-vd:${DEPLOY_IMAGE_TAG}"
@@ -541,24 +375,6 @@ jobs:
             --header "CF-Access-Client-Id: $CF_ACCESS_CLIENT_ID" \
             --header "CF-Access-Client-Secret: $CF_ACCESS_CLIENT_SECRET"
 
-<<<<<<< HEAD
-          echo "Coolify main deployment webhook notified for PR #${pr_number} using image tag ${DEPLOY_IMAGE_TAG}."
-
-          curl \
-            --fail-with-body \
-            --show-error \
-            --silent \
-            --retry 5 \
-            --retry-delay 5 \
-            --retry-all-errors \
-            --request DELETE \
-            "https://api.github.com/repos/${GITHUB_REPOSITORY}/issues/${pr_number}/labels/coolify-deploy" \
-            --header "Authorization: Bearer $GITHUB_TOKEN" \
-            --header "Accept: application/vnd.github+json" \
-            --header "X-GitHub-Api-Version: 2022-11-28"
-
-          echo "Removed coolify-deploy label from PR #${pr_number}."
-=======
           if [[ "$deploy_release_tag" == "true" ]]; then
             echo "Coolify main deployment webhook notified for release tag ${GITHUB_REF} using image tag ${DEPLOY_IMAGE_TAG}."
           else
@@ -579,4 +395,3 @@ jobs:
 
             echo "Removed coolify-deploy label from PR #${pr_number}."
           fi
->>>>>>> origin/vk/05a2-vd-weekly-dev-br

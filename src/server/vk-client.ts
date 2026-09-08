@@ -308,8 +308,6 @@ export class VibeKanbanServerClient {
     return this.post('/sessions', body);
   }
 
-<<<<<<< HEAD
-=======
   getInfo(): Promise<UserSystemInfo> {
     return this.get('/info');
   }
@@ -334,7 +332,6 @@ export class VibeKanbanServerClient {
     return this.post('/workspaces/start', body);
   }
 
->>>>>>> origin/vk/05a2-vd-weekly-dev-br
   getExecutionProcess(processId: string): Promise<ExecutionProcess> {
     return this.get(`/execution-processes/${encodeURIComponent(processId)}`);
   }
@@ -347,10 +344,6 @@ export class VibeKanbanServerClient {
     await this.get('/health');
   }
 
-<<<<<<< HEAD
-  async getInfo(): Promise<unknown> {
-    return this.get('/info');
-=======
   resolvePreview(request: PreviewResolveRequest): Promise<PreviewResolveResponse> {
     return this.post('/preview/resolve', request);
   }
@@ -391,7 +384,6 @@ export class VibeKanbanServerClient {
     return this.get(
       `/workspaces/${encodeURIComponent(workspaceId)}/execution/preview-slots/${encodeURIComponent(previewSlotId)}/url?${params}`,
     );
->>>>>>> origin/vk/05a2-vd-weekly-dev-br
   }
 
   async sendFollowUp(

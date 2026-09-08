@@ -3,10 +3,7 @@ import { describe, expect, it } from 'vitest';
 import {
   appendBeadsFormResponse,
   ALLOW_CODE_FILE_CHANGES_FIELD,
-<<<<<<< HEAD
-=======
   buildBeadsFormsSummary,
->>>>>>> origin/vk/05a2-vd-weekly-dev-br
   buildAgentResultMessage,
   buildPrettySummary,
   getBeadsForms,
@@ -70,8 +67,6 @@ describe('BeadsForm core', () => {
 
     expect(next.untouched).toBe(true);
     expect((next.beadForms as any).forms[0].responses).toHaveLength(1);
-<<<<<<< HEAD
-=======
     expect(next.beadFormsSummary).toEqual({
       hasForms: true,
       hasPendingAnswer: false,
@@ -92,7 +87,6 @@ describe('BeadsForm core', () => {
       formIds: ['pending', 'answered'],
       pendingFormIds: ['pending'],
     });
->>>>>>> origin/vk/05a2-vd-weekly-dev-br
   });
 
   it('normalizes repeated form entries as arrays', () => {

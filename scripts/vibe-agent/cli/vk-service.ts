@@ -206,8 +206,6 @@ export interface RawLogEntry {
   content: string;
 }
 
-<<<<<<< HEAD
-=======
 export type RunConfigKind = 'long_running' | 'one_shot' | 'test';
 
 export interface RunConfig {
@@ -293,7 +291,6 @@ export interface PreviewSlotUrlResponse extends PreviewSlotUrlParts {
   url: string;
 }
 
->>>>>>> origin/vk/05a2-vd-weekly-dev-br
 export interface ConversationEntry {
   content?: {
     entry_type?: {
@@ -576,8 +573,6 @@ export class VKService {
       .sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
   }
 
-<<<<<<< HEAD
-=======
   // Preview URL run configs
   async getRunConfigs(workspaceId: string): Promise<WorkspaceRunConfigsResponse> {
     const response = await fetch(config.endpoints.runConfigs(workspaceId));
@@ -627,7 +622,6 @@ export class VKService {
     return this.parseApiResponse<PreviewSlotUrlResponse>(response, 'fetch preview slot URL');
   }
 
->>>>>>> origin/vk/05a2-vd-weekly-dev-br
   async fetchRawLogs(processId: string, timeoutMs = 2000): Promise<RawLogEntry[]> {
     return new Promise((resolve, reject) => {
       const ws = new WebSocket(config.wsEndpoints.rawExecutionLogs(processId));
