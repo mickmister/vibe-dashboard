@@ -37,6 +37,8 @@ services:
       CODE_PASSWORD: ${CODE_PASSWORD:-__unset__}
       SUDO_PASSWORD: ${SUDO_PASSWORD}
       ENABLE_VIBE_KANBAN: ${ENABLE_VIBE_KANBAN:-true}
+      VK_CODEX_BINARY: ${VK_CODEX_BINARY:-/usr/local/bin/codex}
+      CODEX_SQLITE_LOGS: ${CODEX_SQLITE_LOGS:-off}
 
       # ENABLE_BOSUN: ${ENABLE_BOSUN:-false}
 
