@@ -5,7 +5,7 @@ ARG VK_BRANCH=main
 ARG VK_COMMIT=
 ARG VK_RUNTIME_SOURCE=github
 ARG CODEX_RELEASE_REPO=mickmister/codex
-ARG CODEX_RELEASE_TAG=codex-cli-assets-dc198b6aa9597a0b82a7488d2d2777933ad01329
+ARG CODEX_RELEASE_TAG=codex-cli-assets-dda8e1e80d0978293146c8c9117198d85e096367
 ARG CODEX_RELEASE_ASSET=
 ARG BEADS_VERSION=v1.2.2
 ARG DOLT_VERSION=2.3.1
@@ -93,6 +93,7 @@ RUN set -eux; \
     printf '%s  %s\n' "${asset_sha}" "${asset_file}" | sha256sum -c -; \
     tar -xzf "${asset_file}" -C /codex-release-bin; \
     test -x /codex-release-bin/codex; \
+    test -x /codex-release-bin/codex-code-mode-host; \
     /codex-release-bin/codex --version
 
 FROM node:22-bookworm AS dashboard-builder
@@ -182,6 +183,8 @@ RUN set -eux; \
     rm "go1.25.7.linux-${go_arch}.tar.gz"
 ENV PATH="/usr/local/go/bin:${PATH}"
 ENV VK_ALLOWED_ORIGINS=""
+ENV VK_CODEX_BINARY="/usr/local/bin/codex"
+ENV CODEX_SQLITE_LOGS="off"
 
 # Install Rust and Cargo
 ENV CARGO_HOME=/usr/local/cargo
@@ -345,7 +348,7 @@ RUN set -eux; \
       sleep $((attempt * 10)); \
     done
 
-COPY --from=codex-release-downloader /codex-release-bin/codex /tmp/codex-release/codex
+COPY --from=codex-release-downloader /codex-release-bin/ /tmp/codex-release/
 
 # By default, install the configured Codex GitHub release asset. Clear
 # CODEX_RELEASE_TAG to use official npm @openai/codex from the global npm
@@ -353,7 +356,9 @@ COPY --from=codex-release-downloader /codex-release-bin/codex /tmp/codex-release
 RUN set -eux; \
     if [ -n "${CODEX_RELEASE_TAG}" ]; then \
       test -x /tmp/codex-release/codex; \
+      test -x /tmp/codex-release/codex-code-mode-host; \
       install -m 0755 /tmp/codex-release/codex /usr/local/bin/codex; \
+      install -m 0755 /tmp/codex-release/codex-code-mode-host /usr/local/bin/codex-code-mode-host; \
       codex --version; \
       rm -rf /tmp/codex-release; \
       exit 0; \
