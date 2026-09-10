@@ -63,6 +63,14 @@ on:
         description: "Context to build from in the Git working tree"
         required: false
         default: .
+      source-ref:
+        type: string
+        description: "Git ref to use for the Docker Git context. Defaults to the workflow ref when unset."
+        required: false
+      source-checksum:
+        type: string
+        description: "Resolved commit SHA for source-ref. When set, the Docker Git context is pinned to this commit."
+        required: false
       file:
         type: string
         description: "Path to the Dockerfile"
@@ -226,7 +234,7 @@ jobs:
             const { Sigstore } = require('@docker/actions-toolkit/lib/sigstore/sigstore');
 
             const sigstore = new Sigstore();
-            
+
             for (const image of core.getMultilineInput('images')) {
               await core.group(`Verifying ${image}`, async () => {
                 try {
@@ -262,11 +270,11 @@ jobs:
           script: |
             const { GitHub } = require('@docker/actions-toolkit/lib/github/github');
             const { Util } = require('@docker/actions-toolkit/lib/util');
-            
+
             const inpMatrixSizeLimit = parseInt(core.getInput('matrix-size-limit'), 10);
             const inpActionsIdTokenSet = core.getBooleanInput('actions-id-token-set');
             const inpMetaImages = core.getMultilineInput('meta-images');
-            
+
             const inpRunner = core.getMultilineInput('runner');
             const inpDistribute = core.getBooleanInput('distribute');
             const inpArtifactUpload = core.getBooleanInput('artifact-upload');
@@ -274,7 +282,7 @@ jobs:
             const inpOutput = core.getInput('output');
             const inpPush = core.getBooleanInput('push');
             const inpSign = core.getInput('sign');
-            
+
             const parseRunnerConfig = value => {
               const lines = value.map(line => line.trim()).filter(line => line.length > 0);
               if (lines.length === 0) {
@@ -342,14 +350,14 @@ jobs:
                 rules
               };
             };
-            
+
             const matchesPlatformPrefix = (pattern, platform) => {
               const patternParts = pattern.split('/');
               const platformParts = platform.split('/');
               return patternParts.length <= platformParts.length &&
                 patternParts.every((part, index) => part === platformParts[index]);
             };
-            
+
             const resolveRunner = (runnerConfig, platform) => {
               if (!platform) {
                 return runnerConfig.defaultRunner;
@@ -366,7 +374,7 @@ jobs:
               }
               return match ? match.runner : runnerConfig.defaultRunner;
             };
-            
+
             let runnerConfig;
             try {
               runnerConfig = parseRunnerConfig(inpRunner);
@@ -377,12 +385,12 @@ jobs:
             await core.group(`Set runner config`, async () => {
               core.info(JSON.stringify(runnerConfig, null, 2));
             });
-            
+
             const sign =
               inpSign === 'auto'
               ? (inpOutput === 'image' && inpPush) || (inpOutput === 'local' && inpArtifactUpload)
               : inpSign === 'true';
-            
+
             if (inpOutput === 'local' && inpPush) {
               core.warning(`push is ignored when output is local`);
             } else if (inpOutput === 'image' && inpArtifactUpload) {
@@ -392,12 +400,12 @@ jobs:
               core.setFailed(`signing attestation manifests requires push to be enabled`);
               return;
             }
-            
+
             if (inpDistribute && inpPlatforms.length > inpMatrixSizeLimit) {
               core.setFailed(`Platforms to build exceed matrix size limit of ${inpMatrixSizeLimit}`);
               return;
             }
-            
+
             const privateRepo = GitHub.context.payload.repository?.private ?? false;
             await core.group(`Set privateRepo output`, async () => {
               core.info(`privateRepo: ${privateRepo}`);
@@ -409,7 +417,7 @@ jobs:
               core.info(JSON.stringify(metaImages, null, 2));
               core.setOutput('metaImages', metaImages.join('\n'));
             });
-            
+
             await core.group(`Set includes output`, async () => {
               let includes = [];
               if (!inpDistribute || inpPlatforms.length === 0) {
@@ -575,7 +583,7 @@ jobs:
           INPUT_GHA-CACHE-SIGN-SCRIPT: |
             #!/bin/sh
             set -e
-            
+
             # Create temporary files
             tmp_dir=$(mktemp -d)
             out_file="$tmp_dir/bundle"
@@ -583,14 +591,14 @@ jobs:
             signing_config="$tmp_dir/signing-config.json"
             trap 'rm -rf "$tmp_dir"' EXIT
             cat > "$in_file"
-            
+
             no_default_rekor=
             if [ "${{ needs.prepare.outputs.privateRepo }}" = "true" ]; then
               no_default_rekor="--no-default-rekor=true"
             fi
 
             set -x
-            
+
             # Create signing config
             COSIGN_EXPERIMENTAL=1 cosign signing-config create \
               --with-default-services=true \
@@ -605,7 +613,7 @@ jobs:
               --signing-config "$signing_config" \
               --bundle "$out_file" \
               "$in_file"
-            
+
             # Output bundle to stdout
             cat "$out_file"
         with:
@@ -613,11 +621,11 @@ jobs:
             const fs = require('fs');
             const os = require('os');
             const path = require('path');
-            
+
             const { Buildx } = require('@docker/actions-toolkit/lib/buildx/buildx');
             const { Cosign } = require('@docker/actions-toolkit/lib/cosign/cosign');
             const { Install } = require('@docker/actions-toolkit/lib/cosign/install');
-            
+
             const inpCosignVersion = core.getInput('cosign-version');
             const inpBuilderName = core.getInput('builder-name');
             const inpGHACacheSignScript = core.getInput('gha-cache-sign-script');
@@ -633,20 +641,20 @@ jobs:
 
             const cosign = new Cosign();
             await cosign.printVersion();
-            
+
             const containerName = `${Buildx.containerNamePrefix}${inpBuilderName}0`;
-            
+
             const ghaCacheSignScriptPath = path.join(os.tmpdir(), `ghacache-sign-script.sh`);
             core.info(`Writing GitHub Actions cache sign script to ${ghaCacheSignScriptPath}`);
             await fs.writeFileSync(ghaCacheSignScriptPath, inpGHACacheSignScript, {mode: 0o700});
-            
+
             core.info(`Copying GitHub Actions cache sign script to BuildKit container ${containerName}`);
             await exec.exec('docker', [
               'cp',
               ghaCacheSignScriptPath,
               `${containerName}:/usr/bin/ghacache-sign-script.sh`
             ]);
-            
+
             core.info(`Copying cosign binary to BuildKit container ${containerName}`);
             await exec.exec('docker', [
               'cp',
@@ -669,6 +677,8 @@ jobs:
           INPUT_CACHE-MODE: ${{ inputs.cache-mode }}
           INPUT_LABELS: ${{ inputs.labels }}
           INPUT_CONTEXT: ${{ inputs.context }}
+          INPUT_SOURCE-REF: ${{ inputs.source-ref }}
+          INPUT_SOURCE-CHECKSUM: ${{ inputs.source-checksum }}
           INPUT_OUTPUT: ${{ inputs.output }}
           INPUT_PLATFORMS: ${{ inputs.platforms }}
           INPUT_PUSH: ${{ inputs.push }}
@@ -686,15 +696,15 @@ jobs:
             const { Build } = require('@docker/actions-toolkit/lib/buildx/build');
             const { GitHub } = require('@docker/actions-toolkit/lib/github/github');
             const { Util } = require('@docker/actions-toolkit/lib/util');
-            
+
             const inpPlatform = core.getInput('platform');
             const platformPairSuffix = inpPlatform ? `-${inpPlatform.replace(/\//g, '-')}` : '';
             core.setOutput('platform-pair-suffix', platformPairSuffix);
-            
+
             const inpSbomImage = core.getInput('sbom-image');
             const inpLocalExportDir = core.getInput('local-export-dir');
             const inpDistribute = core.getBooleanInput('distribute');
-            
+
             const inpAnnotations = core.getInput('annotations');
             const inpBuildArgs = core.getInput('build-args');
             const inpCache = core.getBooleanInput('cache');
@@ -706,8 +716,10 @@ jobs:
             const inpPlatforms = core.getInput('platforms');
             const inpPush = core.getBooleanInput('push');
             const inpSbom = core.getBooleanInput('sbom');
+            const inpSourceRef = core.getInput('source-ref');
+            const inpSourceChecksum = core.getInput('source-checksum');
             const inpTarget = core.getInput('target');
-            
+
             const inpMetaImages = core.getMultilineInput('meta-images');
             const inpMetaVersion = core.getInput('meta-version');
             const inpMetaTags = core.getMultilineInput('meta-tags');
@@ -715,7 +727,7 @@ jobs:
             const inpMetaAnnotations = core.getMultilineInput('meta-annotations');
             const inpSetMetaLabels = core.getBooleanInput('set-meta-labels');
             const inpMetaLabels = core.getMultilineInput('meta-labels');
-            
+
             const meta = {
               version: inpMetaVersion,
               tags: inpMetaTags
@@ -724,9 +736,14 @@ jobs:
             const renderTemplate = value => Util.compileHandlebars(value, {noEscape: true}, {meta});
             const toMultilineInput = value => value.split(/\r?\n/).map(line => line.trim()).filter(Boolean);
 
-            const buildContext = await new Build().gitContext({subdir: inpContext, format: 'fragment'});
+            const buildContext = await new Build().gitContext({
+              ref: inpSourceRef || undefined,
+              checksum: inpSourceChecksum || undefined,
+              subdir: inpContext,
+              format: 'fragment'
+            });
             core.setOutput('context', buildContext);
-            
+
             switch (inpOutput) {
               case 'image':
                 if (inpMetaImages.length == 0) {
@@ -742,20 +759,20 @@ jobs:
                 core.setFailed(`Invalid output: ${inpOutput}`);
                 return;
             }
-            
+
             if (inpPlatform) {
               core.setOutput('platform', inpPlatform);
             } else if (!inpDistribute && inpPlatforms) {
               core.setOutput('platform', inpPlatforms);
             }
-            
+
             core.setOutput('sbom', inpSbom ? `generator=${inpSbomImage}` : 'false');
-            
+
             if (inpCache) {
               core.setOutput('cache-from', `type=gha,scope=${inpCacheScope || inpTarget || 'buildkit'}${platformPairSuffix}`);
               core.setOutput('cache-to', `type=gha,ignore-error=true,scope=${inpCacheScope || inpTarget || 'buildkit'}${platformPairSuffix},mode=${inpCacheMode}`);
             }
-            
+
             let annotations;
             let labels;
             let buildArgs;
@@ -772,13 +789,13 @@ jobs:
               annotations.push(...inpMetaAnnotations);
             }
             core.setOutput('annotations', annotations.join('\n'));
-            
+
             if (inpSetMetaLabels && inpMetaLabels.length > 0) {
               labels.push(...inpMetaLabels);
             }
             core.setOutput('labels', labels.join('\n'));
             core.setOutput('build-args', buildArgs);
-            
+
             if (GitHub.context.payload.repository?.private ?? false) {
               // if this is a private repository, we set min provenance mode
               core.setOutput('provenance', Build.resolveProvenanceAttrs(`mode=min,version=v1`));
@@ -834,22 +851,22 @@ jobs:
         with:
           script: |
             const { Sigstore } = require('@docker/actions-toolkit/lib/sigstore/sigstore');
-            
+
             const inpImageNames = core.getMultilineInput('image-names');
             const inpImageDigest = core.getInput('image-digest');
-            
+
             const sigstore = new Sigstore();
             const signResults = await sigstore.signAttestationManifests({
               imageNames: inpImageNames,
               imageDigest: inpImageDigest,
               retryOnManifestUnknown: true
             });
-            
+
             const verifyResults = await sigstore.verifySignedManifests(signResults, {
               certificateIdentityRegexp: `^https://github.com/docker/github-builder/.github/workflows/build.yml.*$`,
               retryOnManifestUnknown: true
             });
-            
+
             await core.group(`Verify commands`, async () => {
               const verifyCommands = [];
               for (const [attestationRef, verifyResult] of Object.entries(verifyResults)) {
@@ -871,16 +888,16 @@ jobs:
             const path = require('path');
             const { Sigstore } = require('@docker/actions-toolkit/lib/sigstore/sigstore');
             const inplocalExportDir = core.getInput('local-output-dir');
-            
+
             const sigstore = new Sigstore();
             const signResults = await sigstore.signProvenanceBlobs({
               localExportDir: inplocalExportDir
             });
-            
+
             const verifyResults = await sigstore.verifySignedArtifacts(signResults, {
               certificateIdentityRegexp: `^https://github.com/docker/github-builder/.github/workflows/build.yml.*$`
             });
-            
+
             await core.group(`Verify commands`, async () => {
               const verifyCommands = [];
               for (const [artifactPath, verifyResult] of Object.entries(verifyResults)) {
@@ -922,7 +939,7 @@ jobs:
             const inpArtifactName = core.getInput('artifact-name');
             const inpArtifactUpload = core.getBooleanInput('artifact-upload');
             const inpSigned = core.getBooleanInput('signed');
-            
+
             const result = {
               verifyCommands: inpVerifyCommands,
               imageDigest: inpImageDigest,
@@ -930,7 +947,7 @@ jobs:
               signed: inpSigned
             }
             core.info(JSON.stringify(result, null, 2));
-            
+
             core.setOutput(`result_${inpIndex}`, JSON.stringify(result));
 
   finalize:
@@ -999,7 +1016,7 @@ jobs:
         with:
           script: |
             const { ImageTools } = require('@docker/actions-toolkit/lib/buildx/imagetools');
-            
+
             const inpPush = core.getBooleanInput('push');
             const inpImageNames = core.getMultilineInput('image-names');
             const inpTagNames = core.getMultilineInput('tag-names');
@@ -1007,7 +1024,7 @@ jobs:
             const inpAnnotations = core.getMultilineInput('annotations');
             const inpSetMetaAnnotations = core.getBooleanInput('set-meta-annotations');
             const inpMetaAnnotations = core.getMultilineInput('meta-annotations');
-            
+
             const toIndexAnnotation = annotation => {
               const keyEnd = annotation.indexOf('=');
               const rawKey = keyEnd === -1 ? annotation : annotation.substring(0, keyEnd);
@@ -1027,7 +1044,7 @@ jobs:
               inpAnnotations.push(...inpMetaAnnotations);
             }
             const indexAnnotations = inpAnnotations.filter(annotation => annotation.length > 0).map(toIndexAnnotation);
-            
+
             const digests = [];
             for (const key of Object.keys(inpBuildOutputs)) {
               const output = JSON.parse(inpBuildOutputs[key]);
@@ -1039,7 +1056,7 @@ jobs:
               core.setFailed('No image digests found from build outputs');
               return;
             }
-            
+
             let digest;
             for (const imageName of inpImageNames) {
               const tags = [];
@@ -1084,7 +1101,7 @@ jobs:
           script: |
             const inpBuildOutputs = JSON.parse(core.getInput('build-outputs'));
             const inpSigned = core.getBooleanInput('signed');
-            
+
             if (inpSigned) {
               const verifyCommands = [];
               for (const key of Object.keys(inpBuildOutputs)) {

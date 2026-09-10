@@ -34,7 +34,8 @@ describe('bd metadata wrapper', () => {
     expect(args.slice(0, 2)).toEqual(['create', 'Task title']);
     const metadataFlagIndex = args.indexOf('--metadata');
     expect(metadataFlagIndex).toBeGreaterThan(0);
-    expect(JSON.parse(args[metadataFlagIndex + 1]!)).toEqual({
+    const stampedPath = args[metadataFlagIndex + 1]!.replace(/^@/, '');
+    await expect(readFile(stampedPath, 'utf8').then(JSON.parse)).resolves.toEqual({
       priority: 'high',
       branch: 'feature/test',
       VK_WORKSPACE_ID: 'workspace-1',
@@ -55,5 +56,34 @@ describe('bd metadata wrapper', () => {
       'vkvw-123',
       '--json',
     ]);
+  });
+
+  it('stamps bd update metadata files so attach flows get workspace metadata', async () => {
+    const tempRoot = await mkdtemp(join(tmpdir(), 'bd-wrapper-update-'));
+    const { bin, argsFile } = await fakeBd(tempRoot);
+    const metadataPath = join(tempRoot, 'metadata.json');
+    await writeFile(metadataPath, JSON.stringify({ beadForms: { forms: [] }, VK_WORKSPACE_ID: 'old-workspace' }));
+
+    await execFileAsync(wrapper, ['update', 'bead-1', '--metadata', `@${metadataPath}`], {
+      env: {
+        ...process.env,
+        REAL_BD: bin,
+        VK_BD_WRAPPER_BRANCH: 'feature/forms',
+        VK_WORKSPACE_ID: 'workspace-2',
+        VK_SESSION_ID: 'session-2',
+      },
+    });
+
+    const args = JSON.parse(await readFile(argsFile, 'utf8')) as string[];
+    expect(args.slice(0, 2)).toEqual(['update', 'bead-1']);
+    const metadataFlagIndex = args.indexOf('--metadata');
+    expect(metadataFlagIndex).toBeGreaterThan(0);
+    const stampedPath = args[metadataFlagIndex + 1]!.replace(/^@/, '');
+    await expect(readFile(stampedPath, 'utf8').then(JSON.parse)).resolves.toEqual({
+      beadForms: { forms: [] },
+      branch: 'feature/forms',
+      VK_WORKSPACE_ID: 'workspace-2',
+      VK_SESSION_ID: 'session-2',
+    });
   });
 });

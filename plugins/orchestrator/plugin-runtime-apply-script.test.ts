@@ -187,8 +187,10 @@ exit 1
   it('retries Caddy reload until the admin endpoint is ready', async () => {
     const tempRoot = await mkdtemp(join(tmpdir(), 'vd-plugin-runtime-apply-'));
     const binDir = join(tempRoot, 'bin');
+    const supervisorConfigDir = join(tempRoot, 'supervisor');
     const caddyCountPath = join(tempRoot, 'caddy-count');
     await mkdir(binDir);
+    await mkdir(supervisorConfigDir);
     await writeExecutable(join(binDir, 'node'), '#!/bin/sh\nexit 0\n');
     await writeExecutable(join(binDir, 'supervisorctl'), '#!/bin/sh\nexit 0\n');
     await writeExecutable(join(binDir, 'caddy'), `#!/bin/sh
@@ -206,6 +208,7 @@ exit 0
         ...process.env,
         PATH: `${binDir}:${process.env.PATH ?? ''}`,
         CADDY_COUNT_PATH: caddyCountPath,
+        VD_PLUGIN_SUPERVISOR_CONFIG_DIR: supervisorConfigDir,
         VD_PLUGIN_CADDY_RELOAD_ATTEMPTS: '3',
         VD_PLUGIN_CADDY_RELOAD_DELAY_SECONDS: '0',
       },
@@ -219,8 +222,10 @@ exit 0
   it('fails after bounded Caddy reload attempts when the admin endpoint never becomes ready', async () => {
     const tempRoot = await mkdtemp(join(tmpdir(), 'vd-plugin-runtime-apply-fails-'));
     const binDir = join(tempRoot, 'bin');
+    const supervisorConfigDir = join(tempRoot, 'supervisor');
     const caddyCountPath = join(tempRoot, 'caddy-count');
     await mkdir(binDir);
+    await mkdir(supervisorConfigDir);
     await writeExecutable(join(binDir, 'node'), '#!/bin/sh\nexit 0\n');
     await writeExecutable(join(binDir, 'supervisorctl'), '#!/bin/sh\nexit 0\n');
     await writeExecutable(join(binDir, 'caddy'), `#!/bin/sh
@@ -235,6 +240,7 @@ exit 1
         ...process.env,
         PATH: `${binDir}:${process.env.PATH ?? ''}`,
         CADDY_COUNT_PATH: caddyCountPath,
+        VD_PLUGIN_SUPERVISOR_CONFIG_DIR: supervisorConfigDir,
         VD_PLUGIN_CADDY_RELOAD_ATTEMPTS: '3',
         VD_PLUGIN_CADDY_RELOAD_DELAY_SECONDS: '0',
       },

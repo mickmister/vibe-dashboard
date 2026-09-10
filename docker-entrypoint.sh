@@ -90,6 +90,31 @@ if [ -S /var/run/docker.sock ]; then
 fi
 startup_step_end
 
+# Prepare persistent per-instance XDG configuration and Beads state before any
+# supervised process can read them. Never replace an existing Beads config:
+# after first launch it is user-managed state.
+startup_step_begin "prepare persistent user configuration"
+install -d -m 0755 -o vkuser -g vkuser /home/vkuser/.config
+install -d -m 0755 -o vkuser -g vkuser /home/vkuser/.config/bd
+install -d -m 0700 -o vkuser -g vkadmin /home/vkuser/.beads
+install -d -m 0700 -o vkuser -g vkadmin /home/vkuser/.beads/shared-server
+install -d -m 0700 -o vkuser -g vkadmin /home/vkuser/.beads/shared-server/dolt
+
+BD_CONFIG=/home/vkuser/.config/bd/config.yaml
+if [ ! -e "$BD_CONFIG" ] && [ ! -L "$BD_CONFIG" ]; then
+    BD_CONFIG_TMP=$(mktemp "${BD_CONFIG}.tmp.XXXXXX")
+    install -m 0644 -o vkuser -g vkuser /usr/local/share/vkvd/defaults/bd-config.yaml "$BD_CONFIG_TMP"
+    mv "$BD_CONFIG_TMP" "$BD_CONFIG"
+    startup_log "Initialized Beads config at ${BD_CONFIG}"
+else
+    startup_log "Preserving existing Beads config at ${BD_CONFIG}"
+fi
+
+runuser -u vkuser -- test -w /home/vkuser/.config
+runuser -u vkuser -- test -w /home/vkuser/.config/bd
+runuser -u vkuser -- test -w /home/vkuser/.beads/shared-server/dolt
+startup_step_end
+
 # Ensure mounted mutable volumes keep shared group write semantics. This avoids
 # recurring chown -R fixes when root startup tasks and vkuser agents both manage
 # runtime state.
@@ -112,12 +137,6 @@ startup_step_end
 
 startup_debug_path_summary /home/vkuser/repos/vibe-kanban-vscode-web
 startup_log "Skipping recursive repository permission repair; repository files are created as vkuser"
-
-# Ensure the packaged vibe-dashboard runtime directory exists before supervisord starts
-startup_step_begin "prepare vibe-dashboard runtime directory"
-mkdir -p /home/vkuser/.local/share/vibe-dashboard-runtime
-chown -R vkuser:vkuser /home/vkuser/.local/share/vibe-dashboard-runtime 2>/dev/null || true
-startup_step_end
 
 # Ensure plugin runtime paths and the plugin-owned Caddy import exist before
 # supervisord starts. Plugin artifact installation intentionally runs after
