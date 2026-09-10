@@ -31,6 +31,9 @@ services:
       ENABLE_VIBE_KANBAN: ${ENABLE_VIBE_KANBAN:-true}
       VK_CODEX_BINARY: ${VK_CODEX_BINARY:-/usr/local/bin/codex}
       CODEX_SQLITE_LOGS: ${CODEX_SQLITE_LOGS:-off}
+      BEADS_DOLT_SHARED_SERVER: ${BEADS_DOLT_SHARED_SERVER:-1}
+      BEADS_DOLT_SERVER_HOST: ${BEADS_DOLT_SERVER_HOST:-127.0.0.1}
+      BEADS_DOLT_SERVER_PORT: ${BEADS_DOLT_SERVER_PORT:-3308}
 
       ENABLE_TAILSCALE: ${ENABLE_TAILSCALE:-false}
       TAILSCALE_AUTHKEY: ${TAILSCALE_AUTHKEY:-}
@@ -76,8 +79,8 @@ services:
       - code-server-data:/home/vkuser/.local/share/code-server
       - claude-data:/home/vkuser/.claude
       - codex-data:/home/vkuser/.codex
-      - gh-config:/home/vkuser/.config/gh
-      - git-config:/home/vkuser/.config/git
+      - user-config:/home/vkuser/.config
+      - beads-data:/home/vkuser/.beads
       - npm-cache:/home/vkuser/.npm
       - npm-global:/home/vkuser/.npm-global
       - pnpm-store:/home/vkuser/.local/share/pnpm
@@ -101,10 +104,10 @@ volumes:
     name: vkvd-qa-${QA_SLOT_ID:?QA_SLOT_ID is required}-claude-data
   codex-data:
     name: vkvd-qa-${QA_SLOT_ID:?QA_SLOT_ID is required}-codex-data
-  gh-config:
-    name: vkvd-qa-${QA_SLOT_ID:?QA_SLOT_ID is required}-gh-config
-  git-config:
-    name: vkvd-qa-${QA_SLOT_ID:?QA_SLOT_ID is required}-git-config
+  user-config:
+    name: vkvd-qa-${QA_SLOT_ID:?QA_SLOT_ID is required}-user-config
+  beads-data:
+    name: vkvd-qa-${QA_SLOT_ID:?QA_SLOT_ID is required}-beads-data
   npm-cache:
     name: vkvd-qa-${QA_SLOT_ID:?QA_SLOT_ID is required}-npm-cache
   npm-global:

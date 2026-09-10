@@ -39,6 +39,9 @@ services:
       ENABLE_VIBE_KANBAN: ${ENABLE_VIBE_KANBAN:-true}
       VK_CODEX_BINARY: ${VK_CODEX_BINARY:-/usr/local/bin/codex}
       CODEX_SQLITE_LOGS: ${CODEX_SQLITE_LOGS:-off}
+      BEADS_DOLT_SHARED_SERVER: ${BEADS_DOLT_SHARED_SERVER:-1}
+      BEADS_DOLT_SERVER_HOST: ${BEADS_DOLT_SERVER_HOST:-127.0.0.1}
+      BEADS_DOLT_SERVER_PORT: ${BEADS_DOLT_SERVER_PORT:-3308}
 
       # ENABLE_BOSUN: ${ENABLE_BOSUN:-false}
 
@@ -106,10 +109,11 @@ services:
       - codex-data:/home/vkuser/.codex
       # Persist agent skills/configuration
       - agents-data:/home/vkuser/.agents
-      # Persist GitHub CLI authentication
-      - gh-config:/home/vkuser/.config/gh
-      # Persist Git global config (user.name, user.email, etc.)
-      - git-config:/home/vkuser/.config/git
+      # Persist per-instance XDG configuration, including Git, GitHub CLI,
+      # code-server, Caddy, and Beads settings.
+      - user-config:/home/vkuser/.config
+      # Persist the Beads shared Dolt server and its databases.
+      - beads-data:/home/vkuser/.beads
       # Persist npm cache (speeds up installs)
       - npm-cache:/home/vkuser/.npm
       # Persist user-local npm global installs made as vkuser
@@ -219,8 +223,8 @@ volumes:
   code-server-data:
   claude-data:
   agents-data:
-  gh-config:
-  git-config:
+  user-config:
+  beads-data:
   codex-data:
   npm-global:
   npm-cache:

@@ -123,7 +123,8 @@ docker compose --profile novnc exec code-vibe curl -fsS http://novnc:9222/json/v
 
 Run `gh auth login` once after first starting the container. Git is pre-configured to use `gh` as the credential helper, so no additional setup is needed.
 
-Credentials persist in the `gh-config` volume at `/home/vkuser/.config/gh`.
+Credentials and other per-instance XDG settings persist in the `user-config`
+volume mounted at `/home/vkuser/.config`.
 
 To set your Git identity (also persisted):
 

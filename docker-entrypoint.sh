@@ -90,6 +90,31 @@ if [ -S /var/run/docker.sock ]; then
 fi
 startup_step_end
 
+# Prepare persistent per-instance XDG configuration and Beads state before any
+# supervised process can read them. Never replace an existing Beads config:
+# after first launch it is user-managed state.
+startup_step_begin "prepare persistent user configuration"
+install -d -m 0755 -o vkuser -g vkuser /home/vkuser/.config
+install -d -m 0755 -o vkuser -g vkuser /home/vkuser/.config/bd
+install -d -m 0700 -o vkuser -g vkadmin /home/vkuser/.beads
+install -d -m 0700 -o vkuser -g vkadmin /home/vkuser/.beads/shared-server
+install -d -m 0700 -o vkuser -g vkadmin /home/vkuser/.beads/shared-server/dolt
+
+BD_CONFIG=/home/vkuser/.config/bd/config.yaml
+if [ ! -e "$BD_CONFIG" ] && [ ! -L "$BD_CONFIG" ]; then
+    BD_CONFIG_TMP=$(mktemp "${BD_CONFIG}.tmp.XXXXXX")
+    install -m 0644 -o vkuser -g vkuser /usr/local/share/vkvd/defaults/bd-config.yaml "$BD_CONFIG_TMP"
+    mv "$BD_CONFIG_TMP" "$BD_CONFIG"
+    startup_log "Initialized Beads config at ${BD_CONFIG}"
+else
+    startup_log "Preserving existing Beads config at ${BD_CONFIG}"
+fi
+
+runuser -u vkuser -- test -w /home/vkuser/.config
+runuser -u vkuser -- test -w /home/vkuser/.config/bd
+runuser -u vkuser -- test -w /home/vkuser/.beads/shared-server/dolt
+startup_step_end
+
 # Ensure mounted mutable volumes keep shared group write semantics. This avoids
 # recurring chown -R fixes when root startup tasks and vkuser agents both manage
 # runtime state.
