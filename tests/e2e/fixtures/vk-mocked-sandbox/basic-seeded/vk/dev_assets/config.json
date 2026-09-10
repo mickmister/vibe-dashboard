@@ -1,0 +1,47 @@
+{
+  "config_version": "v8",
+  "theme": "SYSTEM",
+  "executor_profile": {
+    "executor": "CODEX"
+  },
+  "disclaimer_acknowledged": false,
+  "onboarding_acknowledged": false,
+  "remote_onboarding_acknowledged": false,
+  "notifications": {
+    "sound_enabled": true,
+    "push_enabled": true,
+    "sound_file": "COW_MOOING"
+  },
+  "editor": {
+    "editor_type": "VS_CODE",
+    "custom_command": null,
+    "remote_ssh_host": null,
+    "remote_ssh_user": null,
+    "auto_install_extension": true
+  },
+  "github": {
+    "pat": null,
+    "oauth_token": null,
+    "username": null,
+    "primary_email": null,
+    "default_pr_base": "main"
+  },
+  "analytics_enabled": true,
+  "workspace_dir": null,
+  "last_app_version": "0.1.44",
+  "show_release_notes": false,
+  "language": "BROWSER",
+  "git_branch_prefix": "vk",
+  "showcases": {
+    "seen_features": [
+      "workspaces-guide"
+    ]
+  },
+  "pr_auto_description_enabled": true,
+  "pr_auto_description_prompt": null,
+  "commit_reminder_enabled": true,
+  "commit_reminder_prompt": null,
+  "send_message_shortcut": "ModifierEnter",
+  "relay_enabled": false,
+  "host_nickname": null
+}

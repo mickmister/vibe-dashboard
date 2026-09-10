@@ -2,7 +2,7 @@ import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
-import type { ConversationEntry, ExecutionProcess, SendMessageBody, Session, Workspace } from '../types.js';
+import type { ConversationEntry, ExecutionProcess, QueueMessageBody, Session, Workspace } from '../types.js';
 import {
   createNudgeDaemonOptions,
   isNudgeDaemonEnabled,
@@ -83,7 +83,7 @@ function fakeClient(input: {
   processes?: ExecutionProcess[];
   entries?: Record<string, ConversationEntry[]>;
 }) {
-  const sent: Array<{ sessionId: string; body: SendMessageBody }> = [];
+  const sent: Array<{ sessionId: string; body: QueueMessageBody }> = [];
   const client: NudgeDaemonClient = {
     async getAllWorkspaces() {
       return input.workspaces ?? [workspace()];
@@ -97,9 +97,20 @@ function fakeClient(input: {
     async fetchConversation(processId: string) {
       return input.entries?.[processId] ?? [entry('tool_use', 'git status'), entry('thinking', 'still working')];
     },
-    async sendMessage(sessionId: string, body: SendMessageBody): Promise<ExecutionProcess> {
+    async queueMessage(sessionId: string, body: QueueMessageBody) {
       sent.push({ sessionId, body });
-      return process({ id: 'nudge-process', session_id: sessionId, status: 'running', completed_at: null });
+      return {
+        queued_item: {
+          id: 'nudge-queue-item',
+          session_id: sessionId,
+          workspace_id: 'workspace-1',
+          status: 'queued' as const,
+          source: body.source ?? 'system',
+          priority: 25,
+          data: { message: body.message, session_command: null },
+        },
+        status: { status: 'queued' as const, count: 1, message: null, messages: [] },
+      };
     },
   };
   return { client, sent };
@@ -145,11 +156,8 @@ describe('nudge daemon', () => {
       {
         sessionId: 'session-1',
         body: {
-          prompt: 'Continue',
-          executor_config: { executor: 'CODEX' },
-          retry_process_id: null,
-          force_when_dirty: null,
-          perform_git_reset: null,
+          message: 'Continue',
+          source: 'system',
         },
       },
     ]);

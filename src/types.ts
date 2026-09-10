@@ -36,6 +36,7 @@ export interface Craft {
   workspace?: {
     workspaceId: string;
     workspaceDir: string;
+    formsBeadId?: string;
   };
   /** Optional compact label shown in the mobile craft strip */
   mobileLabel?: string;

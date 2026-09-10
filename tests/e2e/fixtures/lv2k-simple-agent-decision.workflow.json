@@ -1,0 +1,68 @@
+{
+  "schemaVersion": 1,
+  "name": "LV2K Simple Agent Decision",
+  "description": "API-loaded workflow fixture for real VK qa-mode XML loopback.",
+  "inputs": {
+    "featureRequest": {
+      "type": "markdown",
+      "required": true,
+      "description": "Task to complete."
+    }
+  },
+  "roles": {
+    "implementer": {
+      "label": "Implementer",
+      "description": "Completes the LV2K one-agent fixture."
+    }
+  },
+  "initialState": "work",
+  "states": {
+    "work": {
+      "owner": "implementer",
+      "steps": [
+        {
+          "id": "decide",
+          "type": "agent_turn",
+          "turnType": "decision",
+          "prompt": {
+            "template": "LV2K_STEP:simple_decide\n\nHandle {{inputs.featureRequest}}. Return final workflow decision XML matching the available action."
+          },
+          "response": {
+            "format": "xml",
+            "schema": {
+              "format": "xsd",
+              "source": "state_actions"
+            },
+            "invalidXmlRetry": {
+              "maxAttempts": 1,
+              "prompt": "engine_default_with_validation_errors",
+              "onExhausted": "blocked"
+            },
+            "storeRawXml": true,
+            "rawXmlMaxChars": 20000,
+            "storeParsedFields": true,
+            "unknownFields": "reject_unless_allowed_by_result_contract"
+          }
+        }
+      ],
+      "actions": {
+        "done": {
+          "label": "Done",
+          "targetState": "done",
+          "result": {
+            "fields": {
+              "summary": {
+                "type": "markdown"
+              }
+            },
+            "required": ["summary"],
+            "unknownFields": "reject"
+          }
+        }
+      }
+    },
+    "done": {
+      "terminal": true
+    }
+  }
+}

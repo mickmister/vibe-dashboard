@@ -78,6 +78,28 @@ export interface ExecutionProcess {
   executor_action: unknown;
 }
 
+export interface QueuedMessage {
+  id: string;
+  session_id: string;
+  workspace_id: string;
+  status: 'queued' | 'leased' | 'starting' | 'running' | 'completed' | 'failed' | 'cancelled';
+  source: 'from_user' | 'workflow' | 'agent' | 'system';
+  priority: number | bigint;
+  data: { message: string; session_command?: unknown | null };
+}
+
+export interface QueueStatus {
+  count: number;
+  message: QueuedMessage | null;
+  messages: QueuedMessage[];
+  status: 'empty' | 'queued';
+}
+
+export interface QueueMessageResponse {
+  queued_item: QueuedMessage;
+  status: QueueStatus;
+}
+
 export interface WorkspaceSummary {
   workspace_id: string;
   latest_session_id: string | null;
@@ -153,6 +175,12 @@ export interface SendMessageBody {
   retry_process_id?: string | null;
   force_when_dirty?: boolean | null;
   perform_git_reset?: boolean | null;
+}
+
+export interface QueueMessageBody {
+  message: string;
+  source?: 'from_user' | 'workflow' | 'agent' | 'system';
+  priority?: number | null;
 }
 
 // Session file format

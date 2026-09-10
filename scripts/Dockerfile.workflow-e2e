@@ -1,0 +1,70 @@
+ARG PLAYWRIGHT_IMAGE=mcr.microsoft.com/playwright:v1.58.2-noble
+ARG BEADS_VERSION=v1.2.2
+ARG GASCITY_VERSION=v1.4.1
+FROM ${PLAYWRIGHT_IMAGE}
+
+ARG BEADS_VERSION
+ARG GASCITY_VERSION
+
+ENV DEBIAN_FRONTEND=noninteractive
+RUN apt-get update \
+  && apt-get install -y --no-install-recommends \
+    curl \
+    ca-certificates \
+    build-essential \
+    pkg-config \
+    libssl-dev \
+    libclang-dev \
+    lld \
+    clang \
+    sqlite3 \
+    git \
+    caddy \
+    wget \
+  && rm -rf /var/lib/apt/lists/*
+
+RUN curl --proto "=https" --tlsv1.2 -sSf https://sh.rustup.rs -o /tmp/rustup-init.sh \
+  && sh /tmp/rustup-init.sh -y --profile minimal --default-toolchain stable \
+  && rm /tmp/rustup-init.sh
+
+RUN set -eux; \
+  arch="$(dpkg --print-architecture)"; \
+  case "$arch" in \
+    amd64) go_arch=amd64; tool_arch=amd64 ;; \
+    arm64) go_arch=arm64; tool_arch=arm64 ;; \
+    *) echo "unsupported architecture: $arch" >&2; exit 1 ;; \
+  esac; \
+  wget "https://go.dev/dl/go1.25.7.linux-${go_arch}.tar.gz"; \
+  tar -C /usr/local -xzf "go1.25.7.linux-${go_arch}.tar.gz"; \
+  rm "go1.25.7.linux-${go_arch}.tar.gz"; \
+  beads_base_url="https://github.com/gastownhall/beads/releases/download/${BEADS_VERSION}"; \
+  beads_archive="beads_${BEADS_VERSION#v}_linux_${tool_arch}.tar.gz"; \
+  curl -fsSL "${beads_base_url}/${beads_archive}" -o "/tmp/${beads_archive}"; \
+  curl -fsSL "${beads_base_url}/checksums.txt" -o /tmp/beads-checksums.txt; \
+  beads_sha="$(awk -v file="${beads_archive}" '$2 == file { print $1 }' /tmp/beads-checksums.txt)"; \
+  test -n "${beads_sha}"; \
+  printf '%s  %s\n' "${beads_sha}" "/tmp/${beads_archive}" | sha256sum -c -; \
+  tar -xzf "/tmp/${beads_archive}" -C /tmp; \
+  install -m 0755 /tmp/bd /usr/local/bin/bd; \
+  ln -sf bd /usr/local/bin/beads; \
+  rm -f "/tmp/${beads_archive}" /tmp/beads-checksums.txt /tmp/bd; \
+  gascity_base_url="https://github.com/gastownhall/gascity/releases/download/${GASCITY_VERSION}"; \
+  gascity_archive="gascity_${GASCITY_VERSION#v}_linux_${tool_arch}.tar.gz"; \
+  curl -fsSL "${gascity_base_url}/${gascity_archive}" -o "/tmp/${gascity_archive}"; \
+  curl -fsSL "${gascity_base_url}/gascity_${GASCITY_VERSION#v}_checksums.txt" -o /tmp/gascity-checksums.txt; \
+  gascity_sha="$(awk -v file="${gascity_archive}" '$2 == file { print $1 }' /tmp/gascity-checksums.txt)"; \
+  test -n "${gascity_sha}"; \
+  printf '%s  %s\n' "${gascity_sha}" "/tmp/${gascity_archive}" | sha256sum -c -; \
+  tar -xzf "/tmp/${gascity_archive}" -C /tmp; \
+  install -m 0755 /tmp/gc /usr/local/bin/gc; \
+  rm -f "/tmp/${gascity_archive}" /tmp/gascity-checksums.txt /tmp/gc; \
+  bd version | grep -F "${BEADS_VERSION#v}"; \
+  gc version --json | grep -F "${GASCITY_VERSION#v}"
+
+ENV PATH="/usr/local/go/bin:/root/.cargo/bin:${PATH}"
+ENV RUSTUP_TOOLCHAIN=stable
+ENV VD_GAS_CITY_VERSION=${GASCITY_VERSION}
+ENV VD_BEADS_VERSION=${BEADS_VERSION}
+ENV GC_HOME=/root/.gc
+ENV XDG_RUNTIME_DIR=/tmp/vibe-kanban/gc-runtime
+RUN corepack enable

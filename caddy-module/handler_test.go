@@ -2,11 +2,14 @@ package vibekanbanplugins
 
 import (
 	"bytes"
+	"encoding/json"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"testing"
 
+	"github.com/caddyserver/caddy/v2/caddyconfig/caddyfile"
+	"github.com/caddyserver/caddy/v2/caddyconfig/httpcaddyfile"
 	"github.com/caddyserver/caddy/v2/modules/caddyhttp"
 )
 
@@ -26,8 +29,8 @@ func mockNextHandler(body []byte, statusCode int, headers http.Header) caddyhttp
 func TestServeHTTPRewritesJavaScriptSnippet(t *testing.T) {
 	originalJS := []byte(`if(window.self!==window.top){console.log('embedded');}`)
 	upstream := mockNextHandler(originalJS, http.StatusOK, http.Header{
-		"Content-Type": []string{"application/javascript; charset=utf-8"},
-		"ETag":         []string{`"original-etag"`},
+		"Content-Type":  []string{"application/javascript; charset=utf-8"},
+		"ETag":          []string{`"original-etag"`},
 		"Accept-Ranges": []string{"bytes"},
 	})
 
@@ -54,6 +57,50 @@ func TestServeHTTPRewritesJavaScriptSnippet(t *testing.T) {
 
 	if got := rec.Header().Get("Accept-Ranges"); got != "" {
 		t.Fatalf("expected rewritten response Accept-Ranges to be cleared, got %q", got)
+	}
+}
+
+func TestPreviewResolverAdaptsBeforeCatchAllHandle(t *testing.T) {
+	caddyfileBody := []byte(`:3001 {
+	vk_preview_resolver {
+		resolver_url http://127.0.0.1:3005/internal/preview/resolve
+		base_domain localhost
+	}
+
+	handle /* {
+		respond "fallback"
+	}
+}`)
+
+	adapted, _, err := caddyfile.Adapter{ServerType: httpcaddyfile.ServerType{}}.Adapt(caddyfileBody, nil)
+	if err != nil {
+		t.Fatalf("adapt Caddyfile: %v", err)
+	}
+
+	var config struct {
+		Apps struct {
+			HTTP struct {
+				Servers map[string]struct {
+					Routes []struct {
+						Handle []struct {
+							Handler string `json:"handler"`
+						} `json:"handle"`
+					} `json:"routes"`
+				} `json:"servers"`
+			} `json:"http"`
+		} `json:"apps"`
+	}
+	if err := json.Unmarshal(adapted, &config); err != nil {
+		t.Fatalf("unmarshal adapted Caddy JSON: %v\n%s", err, adapted)
+	}
+
+	server := config.Apps.HTTP.Servers["srv0"]
+	if len(server.Routes) < 2 {
+		t.Fatalf("expected at least two routes, got %d in %s", len(server.Routes), adapted)
+	}
+	firstHandler := server.Routes[0].Handle[0].Handler
+	if firstHandler != "vibe_preview_resolver" {
+		t.Fatalf("expected preview resolver to adapt before catch-all handle, got first handler %q in %s", firstHandler, adapted)
 	}
 }
 

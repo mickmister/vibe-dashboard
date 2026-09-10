@@ -1,17 +1,17 @@
 export type Executor =
-  | 'CLAUDE_CODE'
-  | 'CODEX'
-  | 'GEMINI'
-  | 'AMP'
-  | 'CURSOR_AGENT'
-  | 'COPILOT'
-  | 'DROID'
-  | 'OPENCODE'
-  | 'QWEN_CODE';
+  | "CLAUDE_CODE"
+  | "CODEX"
+  | "GEMINI"
+  | "AMP"
+  | "CURSOR_AGENT"
+  | "COPILOT"
+  | "DROID"
+  | "OPENCODE"
+  | "QWEN_CODE";
 
 export interface Workspace {
   id: string;
-  task_id: string;
+  task_id: string | null;
   container_ref: string | null;
   branch: string;
   agent_working_dir: string | null;
@@ -29,10 +29,80 @@ export interface RepoWithBranch {
   target_branch: string;
 }
 
+export interface WorkspaceSummary {
+  workspace_id: string;
+  latest_session_id?: string | null;
+  files_changed: number | null;
+  lines_added: number | null;
+  lines_removed: number | null;
+}
+
+export interface WorkspaceSummaryResponse {
+  summaries: WorkspaceSummary[];
+}
+
+export interface Repo {
+  id: string;
+  path: string;
+  name: string;
+  display_name: string;
+  default_target_branch?: string | null;
+}
+
+export interface DirectoryEntry {
+  name: string;
+  path: string;
+  is_directory: boolean;
+  is_git_repo: boolean;
+  last_modified: string | null;
+}
+
+export interface DirectoryListResponse {
+  entries: DirectoryEntry[];
+  current_path: string;
+}
+
+export interface GitBranch {
+  name: string;
+  is_current: boolean;
+  is_remote: boolean;
+  last_commit_date: string | null;
+}
+
+export interface ExecutorConfig {
+  executor: Executor;
+  variant?: string | null;
+  model_id?: string | null;
+  agent_id?: string | null;
+  reasoning_id?: string | null;
+  permission_policy?: string | null;
+}
+
+export interface UserSystemInfo {
+  config?: { executor_profile?: ExecutorConfig | null };
+  executors?: Partial<Record<Executor, unknown>>;
+}
+
+export interface CreateAndStartWorkspaceRequest {
+  name: string | null;
+  repos: Array<{ repo_id: string; target_branch: string }>;
+  linked_issue: { remote_project_id: string; issue_id: string } | null;
+  executor_config: ExecutorConfig;
+  prompt: string;
+  attachment_ids: string[] | null;
+}
+
+export interface CreateAndStartWorkspaceResponse {
+  workspace: Workspace;
+  execution_process: ExecutionProcess;
+}
+
 export interface Session {
   id: string;
   workspace_id: string;
   executor: Executor;
+  model?: string | null;
+  name?: string | null;
   created_at: string;
   updated_at: string;
 }
@@ -40,7 +110,7 @@ export interface Session {
 export interface ExecutionProcess {
   id: string;
   session_id: string;
-  status: 'running' | 'completed' | 'failed' | 'killed';
+  status: "running" | "completed" | "failed" | "killed";
   created_at?: string;
   started_at?: string;
   completed_at?: string | null;
@@ -51,9 +121,290 @@ export interface ExecutionProcess {
   executor_action?: unknown;
 }
 
+export interface AgentResponse {
+  execution_process_id: string;
+  session_id: string;
+  workspace_id: string;
+  status: ExecutionProcess["status"];
+  completed_at: string | null;
+  coding_agent_turn_id: string | null;
+  agent_session_id: string | null;
+  agent_message_id: string | null;
+  content: string | null;
+  truncated: boolean;
+  max_chars: number;
+  source_kind: "coding_agent_turn_summary";
+  prompt_preview: string | null;
+  prompt_truncated: boolean;
+  prompt_max_chars: number;
+  prompt_source_kind: "coding_agent_turn_prompt";
+}
+
+export interface ExecutionProcessRepoState {
+  id: string;
+  execution_process_id: string;
+  repo_id: string;
+  before_head_commit: string | null;
+  after_head_commit: string | null;
+  merge_commit: string | null;
+  created_at?: string;
+  updated_at?: string;
+}
+
+export interface PreviewResolveRequest {
+  host: string;
+  workspaceToken: string;
+  repoSlug: string;
+  slotSlug: string;
+  customerSlug: string;
+  ensure: boolean;
+  method: string;
+  path: string;
+}
+
+export interface PreviewResolveResponse {
+  status: 'ready' | 'starting' | 'not_found' | 'capacity_full' | 'failed' | 'unavailable' | 'error';
+  upstream?: string | null;
+  message?: string | null;
+  executionProcessId?: string | null;
+}
+
+export type RunConfigKind = 'long_running' | 'one_shot' | 'test';
+
+export interface RunConfig {
+  id: string;
+  repo_id: string;
+  slug: string;
+  name: string;
+  command: string;
+  working_dir?: string | null;
+  kind: RunConfigKind;
+  enabled: boolean;
+  created_at: string;
+  updated_at: string;
+}
+
+export type ActivitySessionStatus =
+  "idle" | "queued" | "running" | "callback_waiting";
+
+export interface ActivityExecutionProcess {
+  execution_process_id: string;
+  run_reason: string;
+  status: ExecutionProcess["status"];
+  started_at: string;
+  updated_at: string;
+}
+
+export interface ActivityQueueSummary {
+  count: number;
+  queued_count: number;
+  leased_count: number;
+  starting_count: number;
+  running_count: number;
+  first_item_id: string | null;
+  updated_at: string | null;
+}
+
+export interface ActivityCallbackSummary {
+  available: boolean;
+  waiting_count: number;
+}
+
+export interface ActivitySession {
+  workspace_id: string;
+  session_id: string;
+  status: ActivitySessionStatus;
+  active_turn_count: number;
+  running_execution_processes: ActivityExecutionProcess[];
+  queue: ActivityQueueSummary;
+  callback: ActivityCallbackSummary;
+  updated_at: string;
+}
+
+export interface ActivityWorkspace {
+  workspace_id: string;
+  active_turn_count: number;
+  running_turn_count: number;
+  running_dev_server_count: number;
+  queued_count: number;
+  sessions: ActivitySession[];
+  updated_at: string;
+}
+
+export interface ActivitySnapshot {
+  generated_at: string;
+  callback_state_available: boolean;
+  workspaces: ActivityWorkspace[];
+}
+
+export interface LatestResponseCursor {
+  afterExecutionProcessId?: string | null;
+  afterCompletedAt?: string | null;
+}
+
+export interface QueueStatus {
+  count: number;
+  message: QueuedMessage | null;
+  messages: QueuedMessage[];
+  status: "empty" | "queued";
+}
+
+export type QueueFollowUpSource = "from_user" | "workflow" | "agent" | "system";
+
+export interface QueueFollowUpProvenance {
+  kind: "user" | "workflow" | "agent" | "system";
+  label: string;
+  workflow_run_id?: string | null;
+  workflow_name?: string | null;
+  workflow_design_id?: string | null;
+  workflow_version?: number | null;
+  workflow_role_id?: string | null;
+  workflow_role_executor?: string | null;
+  workflow_role_model?: string | null;
+}
+
+export interface QueueFollowUpResponse {
+  queued_item: QueuedMessage;
+  status: QueueStatus;
+}
+
+export interface WorkflowCallbackRegistryUpsertRequest {
+  callback_key: string;
+  workspace_id: string;
+  target_session_id: string;
+  kind: "workflow_completion";
+  workflow_run_id: string;
+  workflow_name?: string | null;
+  workflow_design_id?: string | null;
+  workflow_version?: number | null;
+}
+
+export interface WorkflowCallbackRegistryStatusRequest {
+  status: "pending" | "delivered" | "failed" | "superseded";
+  delivered_ref?: string | null;
+  error_message?: string | null;
+}
+
+export interface QueuedMessage {
+  id: string;
+  session_id: string;
+  workspace_id: string;
+  status:
+    | "queued"
+    | "leased"
+    | "starting"
+    | "running"
+    | "completed"
+    | "failed"
+    | "cancelled";
+  source: "from_user" | "workflow" | "agent" | "system";
+  priority: number | bigint;
+  data: { message: string; session_command?: unknown | null; provenance?: QueueFollowUpProvenance | null };
+}
+
+export interface UpsertRunConfig {
+  id?: string | null;
+  repo_id: string;
+  slug: string;
+  name: string;
+  command: string;
+  working_dir?: string | null;
+  kind: RunConfigKind;
+  enabled?: boolean;
+}
+
+export interface PreviewSlot {
+  id: string;
+  repo_id: string;
+  run_config_id: string;
+  slot_slug: string;
+  title: string;
+  enabled: boolean;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface UpsertPreviewSlot {
+  id?: string | null;
+  repo_id: string;
+  run_config_id: string;
+  slot_slug: string;
+  title: string;
+  enabled?: boolean;
+}
+
+export interface PreviewProcessLink {
+  id: string;
+  workspace_id: string;
+  repo_id: string;
+  run_config_id: string;
+  preview_slot_id?: string | null;
+  execution_process_id: string;
+  assigned_port: number;
+  status_snapshot: 'starting' | 'ready' | 'failed' | 'stopped';
+  started_at: string;
+  updated_at: string;
+  ended_at?: string | null;
+}
+
+export interface RunConfigStartResponse {
+  execution_process: ExecutionProcess;
+  preview_process_link: PreviewProcessLink;
+  upstream: string;
+}
+
+export interface PreviewSlotUrlParts {
+  previewSlotId: string;
+  workspaceToken: string;
+  repoSlug: string;
+  slotSlug: string;
+}
+
+export interface WorkspaceRunConfigsResponse {
+  run_configs: RunConfig[];
+  preview_slots: PreviewSlot[];
+  preview_url_parts: PreviewSlotUrlParts[];
+}
+
+export interface PreviewSlotUrlResponse extends PreviewSlotUrlParts {
+  customerSlug: string;
+  host: string;
+  url: string;
+}
+
 export interface CreateSessionBody {
   workspace_id: string;
   executor: Executor;
+  name?: string | null;
+  model?: string | null;
+}
+
+export interface WebhookSubscriptionPublic {
+  id: string;
+  name: string;
+  upsert_key: string | null;
+  url: string;
+  enabled: boolean;
+  event_filters: string[];
+  signing_secret_set: boolean;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface CreateWebhookSubscriptionBody {
+  id?: string | null;
+  name: string;
+  upsert_key?: string | null;
+  url: string;
+  enabled: boolean;
+  event_filters: string[];
+  signing_secret: string;
+  allow_external_url: boolean;
+}
+
+export interface UpsertWebhookSubscriptionResponse {
+  subscription: WebhookSubscriptionPublic;
+  created: boolean;
 }
 
 interface ApiEnvelope<T> {
@@ -82,7 +433,7 @@ export class VkApiError extends Error {
     errorData?: unknown;
   }) {
     super(args.message);
-    this.name = 'VkApiError';
+    this.name = "VkApiError";
     this.status = args.status;
     this.bodyText = args.bodyText;
     this.errorData = args.errorData;
@@ -92,9 +443,10 @@ export class VkApiError extends Error {
 export function resolveVibeApiBaseUrl(
   env: Record<string, string | undefined> = process.env,
 ): string {
-  const configured = env.VIBE_API_URL || env.VK_API_URL || 'http://localhost:3007';
-  const withoutTrailingSlash = configured.replace(/\/+$/, '');
-  if (withoutTrailingSlash.endsWith('/api')) {
+  const configured =
+    env.VIBE_API_URL || env.VK_API_URL || "http://localhost:3007";
+  const withoutTrailingSlash = configured.replace(/\/+$/, "");
+  if (withoutTrailingSlash.endsWith("/api")) {
     return withoutTrailingSlash;
   }
   return `${withoutTrailingSlash}/api`;
@@ -105,20 +457,33 @@ export class VibeKanbanServerClient {
   private readonly fetchImpl: FetchLike;
 
   constructor(options: VibeKanbanServerClientOptions = {}) {
-    this.baseUrl = (options.baseUrl ?? resolveVibeApiBaseUrl()).replace(/\/+$/, '');
+    this.baseUrl = (options.baseUrl ?? resolveVibeApiBaseUrl()).replace(
+      /\/+$/,
+      "",
+    );
     this.fetchImpl = options.fetch ?? fetch;
   }
 
   getWorkspaces(): Promise<Workspace[]> {
-    return this.get('/workspaces');
+    return this.get("/workspaces");
+  }
+
+  getWorkspace(workspaceId: string): Promise<Workspace> {
+    return this.get(`/workspaces/${encodeURIComponent(workspaceId)}`);
   }
 
   getWorkspaceRepos(workspaceId: string): Promise<RepoWithBranch[]> {
     return this.get(`/workspaces/${encodeURIComponent(workspaceId)}/repos`);
   }
 
+  getWorkspaceSummaries(archived: boolean): Promise<WorkspaceSummaryResponse> {
+    return this.post('/workspaces/summaries', { archived });
+  }
+
   getSessions(workspaceId: string): Promise<Session[]> {
-    return this.get(`/sessions?workspace_id=${encodeURIComponent(workspaceId)}`);
+    return this.get(
+      `/sessions?workspace_id=${encodeURIComponent(workspaceId)}`,
+    );
   }
 
   getSession(sessionId: string): Promise<Session> {
@@ -126,13 +491,148 @@ export class VibeKanbanServerClient {
   }
 
   createSession(body: CreateSessionBody): Promise<Session> {
-    return this.post('/sessions', body);
+    return this.post("/sessions", body);
+  }
+
+  getInfo(): Promise<UserSystemInfo> {
+    return this.get('/info');
+  }
+
+  listRepos(): Promise<Repo[]> {
+    return this.get('/repos');
+  }
+
+  registerRepo(body: { path: string; display_name?: string }): Promise<Repo> {
+    return this.post('/repos', body);
+  }
+
+  listDirectory(path: string): Promise<DirectoryListResponse> {
+    return this.get(`/filesystem/directory?path=${encodeURIComponent(path)}`);
+  }
+
+  getRepoBranches(repoId: string): Promise<GitBranch[]> {
+    return this.get(`/repos/${encodeURIComponent(repoId)}/branches`);
+  }
+
+  createAndStartWorkspace(body: CreateAndStartWorkspaceRequest): Promise<CreateAndStartWorkspaceResponse> {
+    return this.post('/workspaces/start', body);
+  }
+
+  getExecutionProcess(processId: string): Promise<ExecutionProcess> {
+    return this.get(`/execution-processes/${encodeURIComponent(processId)}`);
+  }
+
+  getExecutionProcessFinalMessage(processId: string): Promise<AgentResponse> {
+    return this.get(
+      `/execution-processes/${encodeURIComponent(processId)}/final-message`,
+    );
+  }
+
+  getExecutionProcessRepoStates(
+    processId: string,
+  ): Promise<ExecutionProcessRepoState[]> {
+    return this.get(
+      `/execution-processes/${encodeURIComponent(processId)}/repo-states`,
+    );
+  }
+
+  getSessionLatestResponse(
+    sessionId: string,
+    cursor: LatestResponseCursor = {},
+  ): Promise<AgentResponse | null> {
+    const params = new URLSearchParams();
+    if (cursor.afterExecutionProcessId)
+      params.set("afterExecutionProcessId", cursor.afterExecutionProcessId);
+    if (cursor.afterCompletedAt)
+      params.set("afterCompletedAt", cursor.afterCompletedAt);
+    const suffix = params.toString() ? `?${params.toString()}` : "";
+    return this.get(
+      `/sessions/${encodeURIComponent(sessionId)}/latest-response${suffix}`,
+    );
+  }
+
+  getActivitySnapshot(): Promise<ActivitySnapshot> {
+    return this.get("/activity");
+  }
+
+  upsertWorkflowCallback(body: WorkflowCallbackRegistryUpsertRequest): Promise<unknown> {
+    return this.post("/activity/v1/workflow-callbacks", body);
+  }
+
+  updateWorkflowCallbackStatus(
+    callbackKey: string,
+    body: WorkflowCallbackRegistryStatusRequest,
+  ): Promise<unknown> {
+    return this.post(
+      `/activity/v1/workflow-callbacks/${encodeURIComponent(callbackKey)}/status`,
+      body,
+    );
+  }
+
+  async stopExecutionProcess(processId: string): Promise<void> {
+    await this.post(
+      `/execution-processes/${encodeURIComponent(processId)}/stop`,
+      {},
+    );
+  }
+
+  async checkHealth(): Promise<void> {
+    await this.get("/health");
+  }
+
+  createOrUpsertWebhookSubscription(
+    body: CreateWebhookSubscriptionBody,
+  ): Promise<UpsertWebhookSubscriptionResponse> {
+    return this.post("/webhook-subscriptions", body);
+  }
+
+  resolvePreview(request: PreviewResolveRequest): Promise<PreviewResolveResponse> {
+    return this.post('/preview/resolve', request);
+  }
+
+  getRunConfigs(workspaceId: string): Promise<WorkspaceRunConfigsResponse> {
+    return this.get(`/workspaces/${encodeURIComponent(workspaceId)}/execution/run-configs`);
+  }
+
+  upsertRunConfig(workspaceId: string, body: UpsertRunConfig): Promise<RunConfig> {
+    return this.post(`/workspaces/${encodeURIComponent(workspaceId)}/execution/run-configs`, body);
+  }
+
+  upsertPreviewSlot(workspaceId: string, body: UpsertPreviewSlot): Promise<PreviewSlot> {
+    return this.post(`/workspaces/${encodeURIComponent(workspaceId)}/execution/preview-slots`, body);
+  }
+
+  startRunConfig(workspaceId: string, runConfigId: string): Promise<RunConfigStartResponse> {
+    return this.post(
+      `/workspaces/${encodeURIComponent(workspaceId)}/execution/run-configs/${encodeURIComponent(runConfigId)}/start`,
+      {},
+    );
+  }
+
+  startPreviewSlot(workspaceId: string, previewSlotId: string): Promise<RunConfigStartResponse> {
+    return this.post(
+      `/workspaces/${encodeURIComponent(workspaceId)}/execution/preview-slots/${encodeURIComponent(previewSlotId)}/start`,
+      {},
+    );
+  }
+
+  getPreviewSlotUrl(
+    workspaceId: string,
+    previewSlotId: string,
+    args: { customerSlug: string; baseDomain?: string },
+  ): Promise<PreviewSlotUrlResponse> {
+    const params = new URLSearchParams({ customerSlug: args.customerSlug });
+    if (args.baseDomain) params.set('baseDomain', args.baseDomain);
+    return this.get(
+      `/workspaces/${encodeURIComponent(workspaceId)}/execution/preview-slots/${encodeURIComponent(previewSlotId)}/url?${params}`,
+    );
   }
 
   async sendFollowUp(
     sessionId: string,
     prompt: string,
   ): Promise<ExecutionProcess> {
+    // Intentional immediate/manual path. Workflow/background callers should use queueFollowUp().
     const session = await this.getSession(sessionId);
     return this.post(`/sessions/${encodeURIComponent(sessionId)}/follow-up`, {
       prompt,
@@ -145,13 +645,28 @@ export class VibeKanbanServerClient {
     });
   }
 
+  queueFollowUp(
+    sessionId: string,
+    prompt: string,
+    options: {
+      source?: QueueFollowUpSource;
+      provenance?: QueueFollowUpProvenance;
+    } = {},
+  ): Promise<QueueFollowUpResponse> {
+    return this.post(`/sessions/${encodeURIComponent(sessionId)}/queue`, {
+      message: prompt,
+      source: options.source ?? "workflow",
+      provenance: options.provenance,
+    });
+  }
+
   private get<T>(path: string): Promise<T> {
     return this.request<T>(path);
   }
 
   private post<T>(path: string, body: unknown): Promise<T> {
     return this.request<T>(path, {
-      method: 'POST',
+      method: "POST",
       body: JSON.stringify(body),
     });
   }
@@ -160,7 +675,7 @@ export class VibeKanbanServerClient {
     const response = await this.fetchImpl(`${this.baseUrl}${path}`, {
       ...init,
       headers: {
-        'Content-Type': 'application/json',
+        "Content-Type": "application/json",
         ...init?.headers,
       },
     });
@@ -188,7 +703,8 @@ export class VibeKanbanServerClient {
 
     if (!envelope.success) {
       throw new VkApiError({
-        message: envelope.message || `VK API ${path} returned unsuccessful response`,
+        message:
+          envelope.message || `VK API ${path} returned unsuccessful response`,
         status: response.status,
         bodyText,
         errorData: envelope.error_data,
@@ -201,9 +717,11 @@ export class VibeKanbanServerClient {
 
 export function selectLatestSession(sessions: Session[]): Session | null {
   if (sessions.length === 0) return null;
-  return [...sessions].sort(
-    (a, b) => parseTimestamp(b.created_at) - parseTimestamp(a.created_at),
-  )[0] ?? null;
+  return (
+    [...sessions].sort(
+      (a, b) => parseTimestamp(b.created_at) - parseTimestamp(a.created_at),
+    )[0] ?? null
+  );
 }
 
 function parseTimestamp(value: string): number {
