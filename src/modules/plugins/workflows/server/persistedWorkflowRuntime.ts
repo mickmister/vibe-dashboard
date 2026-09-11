@@ -70,7 +70,7 @@ export interface WorkflowRoleSessionBindingInput {
   model?: string | null;
   reasoningId?: string | null;
   preferenceMode?: "preferred" | null;
-  preferenceSource?: "role_default" | "launch_override" | "team_role" | "workspace_default";
+  preferenceSource?: "role_default" | "launch_override" | "team_role" | "workspace_default" | "system_default";
   preferenceSources?: {
     executorType: "role_default" | "launch_override" | "team_role" | "workspace_default" | "system_default";
     model: "role_default" | "launch_override" | "team_role" | "workspace_default" | "system_default";
