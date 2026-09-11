@@ -281,7 +281,13 @@ describe('PersistedWorkflowRuntimeService M93', () => {
       sessionId: 'session-review',
       executorType: null,
       model: null,
-      preferenceSource: 'workspace_default',
+      reasoningId: null,
+      preferenceSource: 'unset',
+      preferenceSources: {
+        executorType: 'unset',
+        model: 'unset',
+        reasoningId: 'unset',
+      },
     });
     expect(queuedAt(queued, 0)).toMatchObject({
       role: 'dev',

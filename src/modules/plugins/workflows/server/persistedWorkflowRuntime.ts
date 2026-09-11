@@ -70,7 +70,7 @@ export interface WorkflowRoleSessionBindingInput {
   model?: string | null;
   reasoningId?: string | null;
   preferenceMode?: "preferred" | null;
-  preferenceSource?: "role_default" | "launch_override" | "team_role" | "workspace_default" | "system_default";
+  preferenceSource?: "role_default" | "launch_override" | "team_role" | "workspace_default" | "system_default" | "unset";
   preferenceSources?: {
     executorType: "role_default" | "launch_override" | "team_role" | "workspace_default" | "system_default" | "unset";
     model: "role_default" | "launch_override" | "team_role" | "workspace_default" | "system_default" | "unset";
@@ -1813,7 +1813,20 @@ function resolveRuntimeRoleBindings(
         binding?.preferenceMode ?? preference?.mode ?? "preferred",
       preferenceSource:
         binding?.preferenceSource ??
-        (preference ? "role_default" : "workspace_default"),
+        (preference ? "role_default" : "unset"),
+      preferenceSources:
+        binding?.preferenceSources ??
+        (preference
+          ? {
+              executorType: "role_default",
+              model: preference.model ? "role_default" : "unset",
+              reasoningId: preference.reasoningId ? "role_default" : "unset",
+            }
+          : {
+              executorType: "unset",
+              model: "unset",
+              reasoningId: "unset",
+            }),
     };
   }
   for (const [roleId, binding] of Object.entries(input)) {
