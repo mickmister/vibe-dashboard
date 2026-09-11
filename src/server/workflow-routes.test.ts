@@ -875,7 +875,7 @@ describe("registerWorkflowRoutes", () => {
         designId: "design-executor-model",
         inputs: { featureRequest: "Use preferred executor" },
         roleBindings: {
-          dev: { mode: "create_or_reuse", name: "Dev" },
+          dev: { mode: "create_or_reuse", name: "Dev", reasoningId: "xhigh" },
           review: { mode: "existing", sessionId: "session-review" },
         },
       }),
@@ -890,7 +890,7 @@ describe("registerWorkflowRoutes", () => {
       executor_config: {
         executor: "CLAUDE_CODE",
         model_id: "recommended",
-        reasoning_id: "high",
+        reasoning_id: "xhigh",
       },
     });
     expect(queued[0]).toMatchObject({
@@ -899,12 +899,12 @@ describe("registerWorkflowRoutes", () => {
         workflow_role_id: "dev",
         workflow_role_executor: "CLAUDE_CODE",
         workflow_role_model: "recommended",
-        workflow_role_reasoning_id: "high",
+        workflow_role_reasoning_id: "xhigh",
       },
       executorConfig: {
         executor: "CLAUDE_CODE",
         model_id: "recommended",
-        reasoning_id: "high",
+        reasoning_id: "xhigh",
       },
     });
     const runRow = await handle.db
@@ -916,8 +916,13 @@ describe("registerWorkflowRoutes", () => {
         sessionId: "session-dev-created",
         executorType: "CLAUDE_CODE",
         model: "recommended",
-        reasoningId: "high",
+        reasoningId: "xhigh",
         preferenceSource: "role_default",
+        preferenceSources: {
+          executorType: "role_default",
+          model: "role_default",
+          reasoningId: "launch_override",
+        },
       },
     });
   });
@@ -1067,13 +1072,15 @@ describe("registerWorkflowRoutes", () => {
         sessionId: "session-dev-gemini",
         executorType: null,
         model: null,
-        preferenceSource: "workspace_default",
+        preferenceSource: "system_default",
+        preferenceSources: { executorType: "unset", model: "unset", reasoningId: "unset" },
       },
       review: {
         sessionId: "session-review-claude",
         executorType: null,
         model: null,
-        preferenceSource: "workspace_default",
+        preferenceSource: "system_default",
+        preferenceSources: { executorType: "unset", model: "unset", reasoningId: "unset" },
       },
     });
   });

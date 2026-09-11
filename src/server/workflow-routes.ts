@@ -118,6 +118,9 @@ export interface RegisterWorkflowRoutesOptions {
   workflowCompletionResponseProvider?: WorkflowCompletionResponseProvider;
   workflowBatchCapacity?: Partial<typeof DEFAULT_WORKFLOW_BATCH_CAPACITY>;
   workspaceLaneStore?: DbWorkspaceLaneStore;
+  workspaceExecutorConfig?: (
+    workspaceId: string,
+  ) => Promise<import("./vk-client").ExecutorConfig | null>;
   vkClient?: Partial<
     Pick<
       VibeKanbanServerClient,
@@ -2387,49 +2390,51 @@ function resolveRolePreference(
   },
   binding: WorkflowLaunchRoleBindingRequest,
   workspaceDefault?: import("./vk-client").ExecutorConfig | null,
+  systemDefault?: import("./vk-client").ExecutorConfig | null,
 ): {
   executorType: string | null;
   model: string | null;
   reasoningId: string | null;
   source: "role_default" | "launch_override" | "team_role" | "workspace_default" | "system_default";
+  sources: {
+    executorType: "role_default" | "launch_override" | "team_role" | "workspace_default" | "system_default" | "unset";
+    model: "role_default" | "launch_override" | "team_role" | "workspace_default" | "system_default" | "unset";
+    reasoningId: "role_default" | "launch_override" | "team_role" | "workspace_default" | "system_default" | "unset";
+  };
 } {
   const bindingExecutor = binding.executorType?.trim();
   const bindingModel = binding.model?.trim();
   const bindingReasoning = binding.reasoningId?.trim();
   const rolePreference = role.executorPreference ?? null;
   const teamPreference = binding.teamPreference;
+  const resolveSetting = (
+    run: string | null | undefined,
+    team: string | null | undefined,
+    roleValue: string | null | undefined,
+    workspace: string | null | undefined,
+    system: string | null | undefined,
+  ) => {
+    for (const [value, source] of [
+      [run, "launch_override"],
+      [team, "team_role"],
+      [roleValue, "role_default"],
+      [workspace, "workspace_default"],
+      [system, "system_default"],
+    ] as const) {
+      if (value?.trim()) return { value: value.trim(), source };
+    }
+    return { value: null, source: "unset" as const };
+  };
+  const executor = resolveSetting(bindingExecutor, teamPreference?.executorType, rolePreference?.executorType, workspaceDefault?.executor, systemDefault?.executor);
+  const model = resolveSetting(bindingModel, teamPreference?.model, rolePreference?.model, workspaceDefault?.model_id, systemDefault?.model_id);
+  const reasoning = resolveSetting(bindingReasoning, teamPreference?.reasoningId, rolePreference?.reasoningId, workspaceDefault?.reasoning_id, systemDefault?.reasoning_id);
+  const source = executor.source === "unset" ? model.source === "unset" ? reasoning.source === "unset" ? "system_default" : reasoning.source : model.source : executor.source;
   return {
-    executorType:
-      bindingExecutor ||
-      teamPreference?.executorType?.trim() ||
-      rolePreference?.executorType ||
-      workspaceDefault?.executor ||
-      null,
-    model:
-      bindingModel ||
-      teamPreference?.model?.trim() ||
-      rolePreference?.model ||
-      workspaceDefault?.model_id ||
-      null,
-    reasoningId:
-      bindingReasoning ||
-      teamPreference?.reasoningId?.trim() ||
-      rolePreference?.reasoningId ||
-      workspaceDefault?.reasoning_id ||
-      null,
-    source:
-      bindingExecutor || bindingModel || bindingReasoning
-        ? "launch_override"
-        : teamPreference &&
-            (teamPreference.executorType ||
-              teamPreference.model ||
-              teamPreference.reasoningId)
-          ? "team_role"
-        : rolePreference
-          ? "role_default"
-          : workspaceDefault
-            ? "workspace_default"
-            : "workspace_default",
+    executorType: executor.value,
+    model: model.value,
+    reasoningId: reasoning.value,
+    source,
+    sources: { executorType: executor.source, model: model.source, reasoningId: reasoning.source },
   };
 }
 
@@ -2493,7 +2498,10 @@ async function resolveLaunchRoleBindings(
   workflow: Awaited<ReturnType<typeof buildLaunchWorkflowSummary>>,
   requested: Record<string, WorkflowLaunchRoleBindingRequest>,
 ) {
-  const workspaceDefault = options.vkClient?.getInfo
+  const workspaceDefault = options.workspaceExecutorConfig
+    ? await options.workspaceExecutorConfig(workspaceId)
+    : null;
+  const systemDefault = options.vkClient?.getInfo
     ? (await options.vkClient.getInfo()).config?.executor_profile ?? null
     : null;
   const result: Record<
@@ -2508,9 +2516,9 @@ async function resolveLaunchRoleBindings(
       preferenceSource:
         "role_default" | "launch_override" | "team_role" | "workspace_default" | "system_default";
       preferenceSources: {
-        executorType: "role_default" | "launch_override" | "team_role" | "workspace_default" | "system_default";
-        model: "role_default" | "launch_override" | "team_role" | "workspace_default" | "system_default";
-        reasoningId: "role_default" | "launch_override" | "team_role" | "workspace_default" | "system_default";
+        executorType: "role_default" | "launch_override" | "team_role" | "workspace_default" | "system_default" | "unset";
+        model: "role_default" | "launch_override" | "team_role" | "workspace_default" | "system_default" | "unset";
+        reasoningId: "role_default" | "launch_override" | "team_role" | "workspace_default" | "system_default" | "unset";
       };
     }
   > = {};
@@ -2521,7 +2529,7 @@ async function resolveLaunchRoleBindings(
         `role.${role.id}`,
         `Choose a session for ${role.label}.`,
       );
-    const preference = resolveRolePreference(role, binding, workspaceDefault);
+    const preference = resolveRolePreference(role, binding, workspaceDefault, systemDefault);
     const expectedExecutor = normalizeVkExecutor(preference.executorType);
     if (preference.executorType && !expectedExecutor) {
       throw new WorkflowLaunchFieldError(
@@ -2587,11 +2595,7 @@ async function resolveLaunchRoleBindings(
         reasoningId: preference.reasoningId,
         preferenceMode: "preferred",
         preferenceSource: preference.source,
-        preferenceSources: {
-          executorType: preference.source,
-          model: preference.source,
-          reasoningId: preference.source,
-        },
+        preferenceSources: preference.sources,
       };
       continue;
     }
@@ -2643,11 +2647,7 @@ async function resolveLaunchRoleBindings(
         reasoningId: preference.reasoningId,
         preferenceMode: "preferred",
         preferenceSource: preference.source,
-        preferenceSources: {
-          executorType: preference.source,
-          model: preference.source,
-          reasoningId: preference.source,
-        },
+        preferenceSources: preference.sources,
       };
     } catch (error) {
       throw new WorkflowLaunchFieldError(

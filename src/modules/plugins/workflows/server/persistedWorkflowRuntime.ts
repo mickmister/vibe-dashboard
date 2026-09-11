@@ -72,9 +72,9 @@ export interface WorkflowRoleSessionBindingInput {
   preferenceMode?: "preferred" | null;
   preferenceSource?: "role_default" | "launch_override" | "team_role" | "workspace_default" | "system_default";
   preferenceSources?: {
-    executorType: "role_default" | "launch_override" | "team_role" | "workspace_default" | "system_default";
-    model: "role_default" | "launch_override" | "team_role" | "workspace_default" | "system_default";
-    reasoningId: "role_default" | "launch_override" | "team_role" | "workspace_default" | "system_default";
+    executorType: "role_default" | "launch_override" | "team_role" | "workspace_default" | "system_default" | "unset";
+    model: "role_default" | "launch_override" | "team_role" | "workspace_default" | "system_default" | "unset";
+    reasoningId: "role_default" | "launch_override" | "team_role" | "workspace_default" | "system_default" | "unset";
   };
 }
 

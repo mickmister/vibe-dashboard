@@ -97,13 +97,13 @@ export const WORKFLOW_EXECUTOR_REASONING_OPTIONS: Record<
   string[]
 > = {
   AMP: [],
-  CLAUDE_CODE: ["low", "medium", "high"],
-  CODEX: ["minimal", "low", "medium", "high", "xhigh"],
+  CLAUDE_CODE: ["low", "medium", "high", "xhigh", "max"],
+  CODEX: ["low", "medium", "high", "xhigh"],
   COPILOT: [],
-  CURSOR_AGENT: ["low", "medium", "high"],
+  CURSOR_AGENT: ["medium", "high"],
   DROID: [],
   GEMINI: [],
-  OPENCODE: ["low", "medium", "high"],
+  OPENCODE: [],
   QWEN_CODE: [],
 };
 
