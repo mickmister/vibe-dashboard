@@ -1,5 +1,5 @@
 import { execFile as execFileCallback } from 'node:child_process';
-import { mkdtemp, mkdir, realpath, rm, symlink } from 'node:fs/promises';
+import { mkdtemp, mkdir, readdir, realpath, rm, symlink, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { promisify } from 'node:util';
@@ -11,6 +11,7 @@ import {
   GitWorkflowWorktreeDriver,
   ProductionWorkflowWorkAreaProvider,
   WorkflowWorkAreaError,
+  classifyProcessIdentity,
   type RegisteredWorkAreaWorkspace,
   type WorkflowWorkAreaRequest,
   type WorkflowWorktreeDriver,
@@ -154,6 +155,7 @@ describe('ProductionWorkflowWorkAreaProvider', () => {
         { repoKey: 'web', repositoryRoot, sourceRevision: revision }, { repoKey: 'api', repositoryRoot: apiRoot, sourceRevision: apiRevision },
       ] }) },
       authorizer: { authorize: async () => true },
+      serverStateRoot: join(root, 'server-state'),
     });
 
     const result = await provider.createOrReuse(request());
@@ -200,7 +202,7 @@ describe('ProductionWorkflowWorkAreaProvider', () => {
     const workspace = { workspaceId: 'workspace-a', workspaceRoot: root, repositories: [{ repoKey: 'web', repositoryRoot: join(root, 'source'), sourceRevision: 'abc123' }] };
     const makeProvider = (handle: VdDbHandle) => new ProductionWorkflowWorkAreaProvider({ registry: new DbWorkflowWorkAreaRegistry({ db: handle.db }),
       workspaceRegistry: { getWorkspace: async () => workspace }, authorizer: { authorize: async () => true }, worktreeDriver: driver,
-      minimumReservationBytes: 10, estimateReservationBytes: () => 10, byteLimit: 100, leaseTtlMs: 500, leaseWaitMs: 2_000 });
+      serverStateRoot: join(root, 'server-state'), minimumReservationBytes: 10, estimateReservationBytes: () => 10, byteLimit: 100, leaseTtlMs: 500, leaseWaitMs: 2_000 });
     const [first, second] = await Promise.all([makeProvider(firstDb).createOrReuse(request()), makeProvider(secondDb).createOrReuse(request())]);
     expect(first.workAreaId).toBe(second.workAreaId);
     expect(driver.create).toHaveBeenCalledTimes(1);
@@ -221,7 +223,7 @@ describe('ProductionWorkflowWorkAreaProvider', () => {
     const workspace = { workspaceId: 'workspace-a', workspaceRoot: root, repositories: [{ repoKey: 'web', repositoryRoot: source, sourceRevision: 'abc123' }] };
     const make = (registry: DbWorkflowWorkAreaRegistry) => new ProductionWorkflowWorkAreaProvider({ registry,
       workspaceRegistry: { getWorkspace: async () => workspace }, authorizer: { authorize: async () => true }, worktreeDriver: driver,
-      minimumReservationBytes: 10, estimateReservationBytes: () => 10, byteLimit: 100, leaseTtlMs: 50, leaseWaitMs: 1_000 });
+      serverStateRoot: join(root, 'server-state'), minimumReservationBytes: 10, estimateReservationBytes: () => 10, byteLimit: 100, leaseTtlMs: 50, leaseWaitMs: 1_000 });
     const firstPromise = make(new LosingRegistry({ db: firstDb.db })).createOrReuse(request());
     await new Promise((resolveDelay) => setTimeout(resolveDelay, 90));
     const secondPromise = make(new DbWorkflowWorkAreaRegistry({ db: secondDb.db })).createOrReuse({ ...request(), operationKey: 'op-new-fence' });
@@ -234,16 +236,16 @@ describe('ProductionWorkflowWorkAreaProvider', () => {
 
   it('never steals a live filesystem lock by age and recovers only a proven-dead owner', async () => {
     const root = await mkdtemp(join(tmpdir(), 'workflow-fs-lock-')); dirs.push(root);
-    const held = await new FilesystemWorkAreaMutationLockManager({ currentProcessIdentity: async () => 'process-a', processIdentity: async () => 'same' })
-      .acquire({ managedRoot: root, sourceIdentity: 'source-a', targetIdentity: 'target-a', holderId: 'holder-a', waitMs: 100 });
-    const contender = new FilesystemWorkAreaMutationLockManager({ currentProcessIdentity: async () => 'process-b', processIdentity: async () => 'same' });
-    await expect(contender.acquire({ managedRoot: root, sourceIdentity: 'source-a', targetIdentity: 'target-a', holderId: 'holder-b', waitMs: 40 }))
+    const held = await new FilesystemWorkAreaMutationLockManager({ serverStateRoot: root, currentProcessIdentity: async () => 'process-a', processIdentity: async () => 'same' })
+      .acquire({ sourceIdentity: 'source-a', targetIdentity: 'target-a', holderId: 'holder-a', waitMs: 100 });
+    const contender = new FilesystemWorkAreaMutationLockManager({ serverStateRoot: root, currentProcessIdentity: async () => 'process-b', processIdentity: async () => 'same' });
+    await expect(contender.acquire({ sourceIdentity: 'source-a', targetIdentity: 'target-a', holderId: 'holder-b', waitMs: 40 }))
       .rejects.toMatchObject({ code: 'operation_busy' });
-    const recovery = new FilesystemWorkAreaMutationLockManager({ currentProcessIdentity: async () => 'process-c', processIdentity: async () => 'different' });
-    const recovered = await recovery.acquire({ managedRoot: root, sourceIdentity: 'source-a', targetIdentity: 'target-a', holderId: 'holder-c', waitMs: 100 });
+    const recovery = new FilesystemWorkAreaMutationLockManager({ serverStateRoot: root, currentProcessIdentity: async () => 'process-c', processIdentity: async () => 'different' });
+    const recovered = await recovery.acquire({ sourceIdentity: 'source-a', targetIdentity: 'target-a', holderId: 'holder-c', waitMs: 100 });
     await held.release();
-    const stillExclusive = new FilesystemWorkAreaMutationLockManager({ currentProcessIdentity: async () => 'process-d', processIdentity: async () => 'same' });
-    await expect(stillExclusive.acquire({ managedRoot: root, sourceIdentity: 'source-a', targetIdentity: 'target-a', holderId: 'holder-d', waitMs: 40 }))
+    const stillExclusive = new FilesystemWorkAreaMutationLockManager({ serverStateRoot: root, currentProcessIdentity: async () => 'process-d', processIdentity: async () => 'same' });
+    await expect(stillExclusive.acquire({ sourceIdentity: 'source-a', targetIdentity: 'target-a', holderId: 'holder-d', waitMs: 40 }))
       .rejects.toMatchObject({ code: 'operation_busy' });
     await recovered.release();
   });
@@ -273,6 +275,7 @@ describe('ProductionWorkflowWorkAreaProvider', () => {
     const make = (handle: VdDbHandle, repositoryRoot: string, revision: string) => new ProductionWorkflowWorkAreaProvider({
       registry: new DbWorkflowWorkAreaRegistry({ db: handle.db }), workspaceRegistry: { getWorkspace: async () => ({ workspaceId: 'workspace-a', workspaceRoot: root, repositories: [{ repoKey: 'web', repositoryRoot, sourceRevision: revision }] }) },
       authorizer: { authorize: async () => true }, worktreeDriver: driver, minimumReservationBytes: 10, estimateReservationBytes: () => 10, byteLimit: 100,
+      serverStateRoot: join(root, 'server-state'),
     });
     const results = await Promise.allSettled([make(firstDb, sourceA, 'aaa').createOrReuse(request()), make(secondDb, sourceB, 'bbb').createOrReuse(request())]);
     expect(results.filter((result) => result.status === 'fulfilled')).toHaveLength(1);
@@ -298,7 +301,7 @@ describe('ProductionWorkflowWorkAreaProvider', () => {
       inspect: async (input) => { const value = await real.inspect(input); if (value.exists && failInspection) throw new Error('crash after add'); return value; } };
     const workspace = { workspaceId: 'workspace-a', workspaceRoot: root, repositories: [{ repoKey: 'web', repositoryRoot: source, sourceRevision: revision }] };
     const provider = new ProductionWorkflowWorkAreaProvider({ registry: new DbWorkflowWorkAreaRegistry({ db: handle.db }), workspaceRegistry: { getWorkspace: async () => workspace },
-      authorizer: { authorize: async () => true }, worktreeDriver: driver });
+      authorizer: { authorize: async () => true }, worktreeDriver: driver, serverStateRoot: join(root, 'server-state') });
     expect((await provider.createOrReuse(request())).status).toBe('retained'); failInspection = false;
     const { kind: _kind, ...rest } = request();
     expect((await provider.reconcile({ ...rest, operationKey: 'op-recover' })).status).toBe('ready');
@@ -311,6 +314,74 @@ describe('ProductionWorkflowWorkAreaProvider', () => {
     const result = await fixture.provider.createOrReuse(request());
     expect(result.status).toBe('retained');
     expect(JSON.stringify(result)).not.toContain(outside);
+  });
+
+  it('serializes one source Git registry across workspace roots and database instances', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'workflow-global-fence-')); dirs.push(root);
+    const source = join(root, 'source'); const state = join(root, 'server-state'); await mkdir(source);
+    await mkdir(join(root, 'workspace-a')); await mkdir(join(root, 'workspace-b'));
+    const firstDb = await initVdDb({ path: join(root, 'first.sqlite') }); const secondDb = await initVdDb({ path: join(root, 'second.sqlite') }); handles.push(firstDb, secondDb);
+    const driver = new FakeDriver(); driver.createDelayMs = 80;
+    const make = (handle: VdDbHandle, workspaceId: string, workspaceRoot: string) => new ProductionWorkflowWorkAreaProvider({
+      registry: new DbWorkflowWorkAreaRegistry({ db: handle.db }), serverStateRoot: state,
+      workspaceRegistry: { getWorkspace: async () => ({ workspaceId, workspaceRoot, repositories: [{ repoKey: 'web', repositoryRoot: source, sourceRevision: 'abc123' }] }) },
+      authorizer: { authorize: async () => true }, worktreeDriver: driver, minimumReservationBytes: 10, estimateReservationBytes: () => 10,
+    });
+    const results = await Promise.all([
+      make(firstDb, 'workspace-a', join(root, 'workspace-a')).createOrReuse({ ...request(), repoKeys: ['web'] }),
+      make(secondDb, 'workspace-b', join(root, 'workspace-b')).createOrReuse({ ...request(), workspaceId: 'workspace-b', lineageKey: 'task-b', ownerRunId: 'run-b', operationKey: 'op-b', repoKeys: ['web'] }),
+    ]);
+    expect(results.map((result) => result.status)).toEqual(['ready', 'ready']);
+    expect(driver.create).toHaveBeenCalledTimes(2);
+    expect(driver.maxConcurrentCreates).toBe(1);
+  });
+
+  it('durably syncs lock transitions and leaves no resurrected claim after release', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'workflow-lock-sync-')); dirs.push(root);
+    const syncDirectory = vi.fn(async () => undefined);
+    const manager = new FilesystemWorkAreaMutationLockManager({ serverStateRoot: root, syncDirectory,
+      currentProcessIdentity: async () => 'linux:1', processIdentity: async () => 'same' });
+    const lock = await manager.acquire({ sourceIdentity: 'source', targetIdentity: 'target', holderId: 'holder', waitMs: 100 });
+    const lockRoot = join(await realpath(root), '.workflow-workarea-locks');
+    expect((await readdir(lockRoot)).filter((name) => name.endsWith('.lock'))).toHaveLength(1);
+    await lock.release();
+    expect((await readdir(lockRoot)).filter((name) => name.endsWith('.lock'))).toHaveLength(0);
+    expect(syncDirectory).toHaveBeenCalledTimes(4);
+    const replay = await manager.acquire({ sourceIdentity: 'source', targetIdentity: 'target', holderId: 'replay', waitMs: 100 });
+    await replay.release();
+  });
+
+  it('fails closed when atomic hard links are unsupported and retains work', async () => {
+    const fixture = await setup();
+    const linkClaim = vi.fn(async () => { throw Object.assign(new Error('unsupported'), { code: 'EOPNOTSUPP' }); });
+    const provider = new ProductionWorkflowWorkAreaProvider({ registry: new DbWorkflowWorkAreaRegistry({ db: fixture.handle.db }),
+      workspaceRegistry: fixture.workspaceRegistry, authorizer: { authorize: async () => true }, worktreeDriver: fixture.driver,
+      mutationLockManager: new FilesystemWorkAreaMutationLockManager({ serverStateRoot: join(fixture.root, 'server-state-hardlink'), linkClaim }),
+      minimumReservationBytes: 10, estimateReservationBytes: () => 80 });
+    const result = await provider.createOrReuse(request());
+    expect(result.status).toBe('retained');
+    expect(fixture.driver.create).not.toHaveBeenCalled();
+  });
+
+  it('bounds stale forensic lock metadata and durably records cleanup', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'workflow-lock-retention-')); dirs.push(root);
+    const initializer = new FilesystemWorkAreaMutationLockManager({ serverStateRoot: root });
+    const initial = await initializer.acquire({ sourceIdentity: 'init', targetIdentity: 'target', holderId: 'init', waitMs: 100 });
+    await initial.release();
+    const lockRoot = join(await realpath(root), '.workflow-workarea-locks');
+    for (let index = 0; index < 6; index += 1) await writeFile(join(lockRoot, `.claim-${index}.stale`), 'retained evidence');
+    const syncDirectory = vi.fn(async () => undefined);
+    const manager = new FilesystemWorkAreaMutationLockManager({ serverStateRoot: root, forensicRetentionLimit: 3, syncDirectory });
+    const lock = await manager.acquire({ sourceIdentity: 'next', targetIdentity: 'target', holderId: 'next', waitMs: 100 });
+    expect((await readdir(lockRoot)).filter((name) => name.endsWith('.stale'))).toHaveLength(3);
+    expect(syncDirectory).toHaveBeenCalled();
+    await lock.release();
+  });
+
+  it('treats same-second macOS process identity as uncertain', () => {
+    expect(classifyProcessIdentity('darwin-second:Fri Sep 11 12:00:00 2026', 'darwin-second:Fri Sep 11 12:00:00 2026')).toBe('unknown');
+    expect(classifyProcessIdentity('linux:123', 'linux:123')).toBe('same');
+    expect(classifyProcessIdentity('darwin-second:a', 'darwin-second:b')).toBe('different');
   });
 });
 
@@ -342,7 +413,7 @@ async function setup(options: { authorized?: boolean; countLimit?: number; byteL
     authorizer: { authorize: vi.fn(async () => options.authorized !== false) }, worktreeDriver: driver,
     countLimit: options.countLimit ?? 4, byteLimit: options.byteLimit ?? 1_000,
     minimumReservationBytes: 10, estimateReservationBytes: () => 80,
-    leaseTtlMs: 200, leaseWaitMs: 500,
+    leaseTtlMs: 200, leaseWaitMs: 500, serverStateRoot: join(root, 'server-state'),
   });
   return { handle, root, provider, driver, workspaceRegistry };
 }
@@ -350,13 +421,17 @@ async function setup(options: { authorized?: boolean; countLimit?: number; byteL
 class FakeDriver implements WorkflowWorktreeDriver {
   readonly created = new Set<string>();
   readonly create = vi.fn(async (input: { worktreeRoot: string }) => {
-    this.created.add(input.worktreeRoot);
-    this.onCreate?.();
-    if (this.createDelayMs) await new Promise((resolveDelay) => setTimeout(resolveDelay, this.createDelayMs));
-    await mkdir(input.worktreeRoot, { recursive: true });
-    if (this.swapTargetRoot) { await rm(input.worktreeRoot, { recursive: true, force: true }); await symlink(this.swapTargetRoot, input.worktreeRoot); }
-    if (this.throwMessage) throw new Error(this.throwMessage);
+    this.activeCreates += 1; this.maxConcurrentCreates = Math.max(this.maxConcurrentCreates, this.activeCreates);
+    try {
+      this.created.add(input.worktreeRoot); this.onCreate?.();
+      if (this.createDelayMs) await new Promise((resolveDelay) => setTimeout(resolveDelay, this.createDelayMs));
+      await mkdir(input.worktreeRoot, { recursive: true });
+      if (this.swapTargetRoot) { await rm(input.worktreeRoot, { recursive: true, force: true }); await symlink(this.swapTargetRoot, input.worktreeRoot); }
+      if (this.throwMessage) throw new Error(this.throwMessage);
+    } finally { this.activeCreates -= 1; }
   });
+  activeCreates = 0;
+  maxConcurrentCreates = 0;
   nextInspection: WorktreeInspection | null = null;
   failAfterCreate = false;
   throwMessage: string | null = null;

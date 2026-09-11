@@ -1,6 +1,6 @@
 import { execFile as execFileCallback } from 'node:child_process';
 import { createHash, randomUUID } from 'node:crypto';
-import { chmod, link, lstat, mkdir, open, readFile, realpath, rename, unlink } from 'node:fs/promises';
+import { chmod, link, lstat, mkdir, open, readFile, readdir, realpath, rename, stat, unlink } from 'node:fs/promises';
 import { isAbsolute, join, relative, resolve, sep } from 'node:path';
 import { promisify } from 'node:util';
 import { sql, type Kysely, type Selectable, type Transaction } from 'kysely';
@@ -42,7 +42,7 @@ export interface WorkAreaMutationLock {
   release(): Promise<void>;
 }
 export interface WorkAreaMutationLockManager {
-  acquire(input: { managedRoot: string; sourceIdentity: string; targetIdentity: string; holderId: string; waitMs: number }): Promise<WorkAreaMutationLock>;
+  acquire(input: { sourceIdentity: string; targetIdentity: string; holderId: string; waitMs: number }): Promise<WorkAreaMutationLock>;
 }
 
 interface MutationLockOwner { holderId: string; pid: number; processIdentity: string; createdAt: number }
@@ -52,18 +52,27 @@ type ProcessIdentityState = 'same' | 'different' | 'unknown';
  * Cross-process mutation exclusion. The claim is an atomic hard link to a
  * fully-written owner record, so a crash cannot leave a claim with no owner.
  * Stale claims are recovered only after the recorded OS process identity is
- * proven absent/different; age alone never authorizes takeover.
+ * proven absent/different; age alone never authorizes takeover. The server
+ * state filesystem must support atomic hard links. There is deliberately no
+ * weaker fallback because it could permit concurrent Git registry mutation.
  */
 export class FilesystemWorkAreaMutationLockManager implements WorkAreaMutationLockManager {
+  private readonly serverStateRoot: string;
   constructor(private readonly options: {
+    serverStateRoot?: string;
     processIdentity?: (pid: number, expected: string) => Promise<ProcessIdentityState>;
     currentProcessIdentity?: () => Promise<string>;
     now?: () => number;
-  } = {}) {}
+    linkClaim?: typeof link;
+    syncDirectory?: (path: string) => Promise<void>;
+    forensicRetentionLimit?: number;
+  } = {}) {
+    this.serverStateRoot = options.serverStateRoot ?? resolve(process.cwd(), 'data');
+  }
 
-  async acquire(input: { managedRoot: string; sourceIdentity: string; targetIdentity: string; holderId: string; waitMs: number }): Promise<WorkAreaMutationLock> {
-    const lockRoot = join(input.managedRoot, '.mutation-locks');
-    await ensurePrivateDirectory(lockRoot, []);
+  async acquire(input: { sourceIdentity: string; targetIdentity: string; holderId: string; waitMs: number }): Promise<WorkAreaMutationLock> {
+    const lockRoot = await prepareGlobalLockRoot(this.serverStateRoot);
+    await cleanupLockMetadata(lockRoot, this.options.forensicRetentionLimit ?? 32, this.options.processIdentity ?? inspectProcessIdentity, this.options.syncDirectory ?? fsyncDirectory);
     // Serialize all worktree-registry mutations for the same source repository;
     // target identity remains in the caller contract for deterministic auditing.
     const key = stableDigest({ source: input.sourceIdentity });
@@ -74,14 +83,20 @@ export class FilesystemWorkAreaMutationLockManager implements WorkAreaMutationLo
     const ownerPath = join(lockRoot, `.${key}.${input.holderId}.owner`);
     const file = await open(ownerPath, 'wx', 0o600);
     try { await file.writeFile(JSON.stringify(owner)); await file.sync(); } finally { await file.close(); }
+    await (this.options.syncDirectory ?? fsyncDirectory)(lockRoot);
     try {
       while ((this.options.now ?? Date.now)() <= deadline) {
         try {
-          await link(ownerPath, claimPath);
+          await (this.options.linkClaim ?? link)(ownerPath, claimPath);
+          await (this.options.syncDirectory ?? fsyncDirectory)(lockRoot);
+          await unlink(ownerPath);
+          await (this.options.syncDirectory ?? fsyncDirectory)(lockRoot);
           return { release: async () => {
             const current = await readLockOwner(claimPath);
-            if (current?.holderId === owner.holderId && current.processIdentity === owner.processIdentity) await unlink(claimPath).catch(ignoreMissing);
-            await unlink(ownerPath).catch(ignoreMissing);
+            if (current?.holderId === owner.holderId && current.processIdentity === owner.processIdentity) {
+              await unlink(claimPath).catch(ignoreMissing);
+              await (this.options.syncDirectory ?? fsyncDirectory)(lockRoot);
+            }
           } };
         } catch (error) {
           if ((error as NodeJS.ErrnoException).code !== 'EEXIST') throw error;
@@ -89,15 +104,20 @@ export class FilesystemWorkAreaMutationLockManager implements WorkAreaMutationLo
           if (!existing) throw new WorkflowWorkAreaError('operation_busy', 'Task work filesystem ownership could not be verified.');
           const state = await (this.options.processIdentity ?? inspectProcessIdentity)(existing.pid, existing.processIdentity);
           if (state === 'different') {
-            try { await rename(claimPath, join(lockRoot, `.${key}.${randomUUID()}.stale`)); continue; }
+            try { await rename(claimPath, join(lockRoot, `.${key}.${randomUUID()}.stale`)); await (this.options.syncDirectory ?? fsyncDirectory)(lockRoot); continue; }
             catch (renameError) { if ((renameError as NodeJS.ErrnoException).code !== 'ENOENT') throw renameError; }
           }
-          if (state === 'unknown') throw new WorkflowWorkAreaError('operation_busy', 'Task work filesystem ownership could not be verified.');
+          // Unknown identity is never stealable (notably macOS same-second PID
+          // ambiguity), but the current holder may release during this wait.
           await delay(20);
         }
       }
       throw new WorkflowWorkAreaError('operation_busy', 'Task work filesystem preparation is still active.');
-    } catch (error) { await unlink(ownerPath).catch(ignoreMissing); throw error; }
+    } catch (error) {
+      const removed = await unlink(ownerPath).then(() => true, (unlinkError) => { ignoreMissing(unlinkError); return false; });
+      if (removed) await (this.options.syncDirectory ?? fsyncDirectory)(lockRoot);
+      throw error;
+    }
   }
 }
 
@@ -252,6 +272,8 @@ export interface ProductionWorkflowWorkAreaProviderOptions {
   estimateReservationBytes?: (input: { workspaceId: string; repositoryCount: number; mode: 'read' | 'write' }) => number;
   minimumReservationBytes?: number; leaseTtlMs?: number; leaseWaitMs?: number; now?: () => number;
   mutationLockManager?: WorkAreaMutationLockManager;
+  /** Trusted server configuration; never populated from a workflow request. */
+  serverStateRoot?: string;
 }
 
 export class ProductionWorkflowWorkAreaProvider {
@@ -262,7 +284,7 @@ export class ProductionWorkflowWorkAreaProvider {
     this.driver = options.worktreeDriver ?? new GitWorkflowWorktreeDriver(); this.countLimit = options.countLimit ?? 8;
     this.byteLimit = options.byteLimit ?? 20 * 1024 * 1024 * 1024; this.minimumReservation = Math.max(1, options.minimumReservationBytes ?? DEFAULT_MINIMUM_RESERVATION);
     this.leaseTtl = options.leaseTtlMs ?? 30_000; this.leaseWait = options.leaseWaitMs ?? 35_000; this.now = options.now ?? (() => Date.now());
-    this.mutationLocks = options.mutationLockManager ?? new FilesystemWorkAreaMutationLockManager();
+    this.mutationLocks = options.mutationLockManager ?? new FilesystemWorkAreaMutationLockManager({ serverStateRoot: options.serverStateRoot });
   }
 
   async createOrReuse(request: WorkflowWorkAreaRequest): Promise<WorkflowWorkAreaReadModel> {
@@ -290,7 +312,7 @@ export class ProductionWorkflowWorkAreaProvider {
       await ensurePrivateDirectory(join(areaRoot, 'repos'), workspace.repositories.map((r) => r.repositoryRoot));
       let failed = false; let ownershipLost = false;
       for (const repo of prepared) {
-        try { await this.withLease(reservation, repo, managedRoot, areaRoot, requestDigest); }
+        try { await this.withLease(reservation, repo, areaRoot, requestDigest); }
         catch (error) { failed = true;
           if (error instanceof WorkAreaLeaseLostError) { ownershipLost = true; break; }
           else await this.retainIfNeeded(reservation.area.workAreaId, repo, error);
@@ -307,7 +329,7 @@ export class ProductionWorkflowWorkAreaProvider {
   reconcile(request: Omit<WorkflowWorkAreaRequest, 'kind'>) { return this.createOrReuse({ ...request, kind: 'reconcile' }); }
   private async prepare(repo: RegisteredWorkAreaRepository): Promise<PreparedRepository> { return { ...repo, source: await this.driver.resolveSource(repo) }; }
 
-  private async withLease(reservation: { area: Selectable<WorkflowWorkArea>; operationId: string }, repo: PreparedRepository, managedRoot: string, areaRoot: string, requestDigest: string) {
+  private async withLease(reservation: { area: Selectable<WorkflowWorkArea>; operationId: string }, repo: PreparedRepository, areaRoot: string, requestDigest: string) {
     const holderId = randomUUID(); const leaseKey = `${reservation.area.workAreaId}:${repo.repoKey}`; const deadline = this.now() + this.leaseWait;
     let claim: { acquired: boolean; fence: number; expiresAt: number };
     do { claim = await this.options.registry.claimLease({ leaseKey, workAreaId: reservation.area.workAreaId, repoKey: repo.repoKey,
@@ -320,7 +342,7 @@ export class ProductionWorkflowWorkAreaProvider {
     const timer = setInterval(() => { void heartbeat(); }, Math.max(10, Math.floor(this.leaseTtl / 3)));
     let filesystemLock: WorkAreaMutationLock | null = null;
     try {
-      filesystemLock = await this.mutationLocks.acquire({ managedRoot, sourceIdentity: repo.source.commonDirIdentity,
+      filesystemLock = await this.mutationLocks.acquire({ sourceIdentity: repo.source.commonDirIdentity,
         targetIdentity: join(areaRoot, 'repos', repo.repoKey), holderId, waitMs: this.leaseWait });
       const assertLease = async () => { if (leaseLost) throw new WorkAreaLeaseLostError(); await heartbeat();
         if (leaseLost) throw new WorkAreaLeaseLostError(); };
@@ -460,13 +482,51 @@ async function readLockOwner(path: string): Promise<MutationLockOwner | null> { 
   return typeof value.holderId === 'string' && Number.isSafeInteger(value.pid) && typeof value.processIdentity === 'string' && typeof value.createdAt === 'number' ? value as MutationLockOwner : null;
 } catch (error) { if ((error as NodeJS.ErrnoException).code === 'ENOENT') return null; return null; } }
 function ignoreMissing(error: unknown) { if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error; }
+async function prepareGlobalLockRoot(serverStateRoot: string): Promise<string> {
+  const configured = resolve(serverStateRoot);
+  await mkdir(configured, { recursive: true, mode: 0o700 });
+  const configuredStat = await lstat(configured);
+  if (configuredStat.isSymbolicLink() || !configuredStat.isDirectory() || (typeof process.getuid === 'function' && configuredStat.uid !== process.getuid())) {
+    throw new WorkflowWorkAreaError('unsafe_layout', 'Server work-area lock storage could not be verified.');
+  }
+  const canonicalStateRoot = await realpath(configured);
+  const lockRoot = join(canonicalStateRoot, '.workflow-workarea-locks');
+  assertContained(canonicalStateRoot, lockRoot);
+  await ensurePrivateDirectory(lockRoot, []);
+  return lockRoot;
+}
+async function fsyncDirectory(path: string): Promise<void> { const directory = await open(path, 'r'); try { await directory.sync(); } finally { await directory.close(); } }
+async function cleanupLockMetadata(lockRoot: string, limit: number, inspect: (pid: number, expected: string) => Promise<ProcessIdentityState>, sync: (path: string) => Promise<void>) {
+  const entries = await readdir(lockRoot);
+  const stale = entries.filter((name) => name.endsWith('.stale'));
+  if (stale.length > limit) {
+    const ordered = await Promise.all(stale.map(async (name) => ({ name, mtime: (await stat(join(lockRoot, name))).mtimeMs })));
+    for (const entry of ordered.sort((a, b) => a.mtime - b.mtime).slice(0, stale.length - limit)) await unlink(join(lockRoot, entry.name)).catch(ignoreMissing);
+    await sync(lockRoot);
+  }
+  const owners = entries.filter((name) => name.endsWith('.owner'));
+  for (const name of owners) {
+    const path = join(lockRoot, name); const owner = await readLockOwner(path);
+    if (owner && await inspect(owner.pid, owner.processIdentity) === 'different') await unlink(path).catch(ignoreMissing);
+  }
+  const remainingOwners = (await readdir(lockRoot)).filter((name) => name.endsWith('.owner'));
+  if (remainingOwners.length >= limit) throw new WorkflowWorkAreaError('operation_busy', 'Task work lock metadata needs reconciliation.');
+  if (owners.length !== remainingOwners.length) await sync(lockRoot);
+}
 async function currentProcessIdentity(): Promise<string> { const identity = await readProcessIdentity(process.pid); return identity ?? `unverifiable:${process.pid}:${randomUUID()}`; }
 async function inspectProcessIdentity(pid: number, expected: string): Promise<ProcessIdentityState> { const actual = await readProcessIdentity(pid);
-  if (actual) return actual === expected ? 'same' : 'different';
+  if (actual) return classifyProcessIdentity(actual, expected);
   try { process.kill(pid, 0); return 'unknown'; } catch (error) { return (error as NodeJS.ErrnoException).code === 'ESRCH' ? 'different' : 'unknown'; } }
+export function classifyProcessIdentity(actual: string, expected: string): ProcessIdentityState {
+  if (actual !== expected) return 'different';
+  // macOS ps exposes process start only to whole seconds. A recycled PID in
+  // the same second cannot be distinguished, so retain the claim for explicit
+  // reconciliation rather than risking concurrent Git mutation.
+  return actual.startsWith('darwin-second:') ? 'unknown' : 'same';
+}
 async function readProcessIdentity(pid: number): Promise<string | null> { try {
   if (process.platform === 'linux') { const stat = await readFile(`/proc/${pid}/stat`, 'utf8'); const fields = stat.slice(stat.lastIndexOf(')') + 2).split(' '); return fields[19] ? `linux:${fields[19]}` : null; }
-  if (process.platform === 'darwin') { const started = (await execFile('ps', ['-o', 'lstart=', '-p', String(pid)])).stdout.trim(); return started ? `darwin:${started}` : null; }
+  if (process.platform === 'darwin') { const started = (await execFile('ps', ['-o', 'lstart=', '-p', String(pid)])).stdout.trim(); return started ? `darwin-second:${started}` : null; }
   return null;
 } catch { return null; } }
 async function retrySqliteBusy<T>(operation: () => Promise<T>): Promise<T> { let last: unknown;
