@@ -3,7 +3,9 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
 import { sql } from 'kysely';
-import { getVdDbPath, initVdDb, splitSqlStatements } from './database';
+import { executeSqlMigration, getVdDbPath, initVdDb, splitSqlStatements } from './database';
+import { migration as workAreaMigration } from '../store/db/migrations/20260912000000_workflow_work_areas/migration';
+import { migration as workAreaLeaseMigration } from '../store/db/migrations/20260912010000_workflow_work_area_leases/migration';
 
 const tempDirs: string[] = [];
 
@@ -48,6 +50,7 @@ describe('VD database', () => {
         '20260817000000_workflow_meta_run_child_bindings',
         '20260817001000_workflow_role_templates',
         '20260912000000_workflow_work_areas',
+        '20260912010000_workflow_work_area_leases',
       ]);
       const tables = await sql<{ name: string }>`
         SELECT name FROM sqlite_master
@@ -63,7 +66,7 @@ describe('VD database', () => {
           'WorkspaceLane', 'WorkspaceLaneBinding', 'WorkspaceLaneCapacityLease',
           'WorkspaceLaneAuditEvent', 'WorkflowMetaRun', 'WorkflowMetaRunItem',
           'WorkflowMetaRunEvent', 'WorkflowWorkArea', 'WorkflowWorkAreaRepository',
-          'WorkflowWorkAreaOperation', 'WorkflowWorkAreaAuditEvent', 'Migration'
+          'WorkflowWorkAreaOperation', 'WorkflowWorkAreaOperationLease', 'WorkflowWorkAreaAuditEvent', 'Migration'
         )
       `.execute(handle.db);
       expect(tables.rows.map((table) => table.name).sort()).toEqual([
@@ -98,6 +101,7 @@ describe('VD database', () => {
         'WorkflowWorkArea',
         'WorkflowWorkAreaAuditEvent',
         'WorkflowWorkAreaOperation',
+        'WorkflowWorkAreaOperationLease',
         'WorkflowWorkAreaRepository',
         'WorkspaceLane',
         'WorkspaceLaneAuditEvent',
@@ -229,6 +233,20 @@ describe('VD database', () => {
     } finally {
       await handle.db.destroy();
       handle.sqlite.close();
+    }
+  });
+
+  it('forwards an intermediate work-area registry without rewriting its applied migration', async () => {
+    const handle = await initVdDb({ path: ':memory:', runMigrations: false });
+    try {
+      await executeSqlMigration(handle.db, workAreaMigration);
+      await executeSqlMigration(handle.db, workAreaLeaseMigration);
+      const columns = await sql<{ name: string }>`PRAGMA table_info('WorkflowWorkAreaRepository')`.execute(handle.db);
+      expect(columns.rows.map((column) => column.name)).toContain('sourceIdentity');
+      const lease = await sql<{ name: string }>`SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'WorkflowWorkAreaOperationLease'`.execute(handle.db);
+      expect(lease.rows).toEqual([{ name: 'WorkflowWorkAreaOperationLease' }]);
+    } finally {
+      await handle.db.destroy(); handle.sqlite.close();
     }
   });
 

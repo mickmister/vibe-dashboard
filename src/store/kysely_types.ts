@@ -729,12 +729,28 @@ export interface WorkflowWorkAreaRepository {
   workAreaId: string;
   repoKey: string;
   sourceRevision: string;
+  sourceIdentity: string;
   status: WorkflowWorkAreaRepositoryStatus;
   generation: number;
   dirty: number;
   active: number;
   uniqueWork: number;
   retainReason: NullableString;
+  createdAt: number;
+  updatedAt: number;
+}
+
+export interface WorkflowWorkAreaOperationLease {
+  leaseKey: string;
+  workAreaId: string;
+  repoKey: string;
+  operationId: string;
+  requestDigest: string;
+  holderId: string;
+  fence: number;
+  status: 'active' | 'released';
+  expiresAt: number;
+  heartbeatAt: number;
   createdAt: number;
   updatedAt: number;
 }
@@ -781,6 +797,7 @@ export interface DB {
   WorkflowWorkArea: WorkflowWorkArea;
   WorkflowWorkAreaRepository: WorkflowWorkAreaRepository;
   WorkflowWorkAreaOperation: WorkflowWorkAreaOperation;
+  WorkflowWorkAreaOperationLease: WorkflowWorkAreaOperationLease;
   WorkflowWorkAreaAuditEvent: WorkflowWorkAreaAuditEvent;
   WorkflowDesign: WorkflowDesign;
   WorkflowDesignDraft: WorkflowDesignDraft;
