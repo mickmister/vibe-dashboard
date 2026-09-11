@@ -2,6 +2,7 @@ import { execFile as execFileCallback } from 'node:child_process';
 import { createHash, randomUUID } from 'node:crypto';
 import { chmod, link, lstat, mkdir, open, readFile, readdir, realpath, rename, stat, unlink } from 'node:fs/promises';
 import { isAbsolute, join, relative, resolve, sep } from 'node:path';
+import { tmpdir } from 'node:os';
 import { promisify } from 'node:util';
 import { sql, type Kysely, type Selectable, type Transaction } from 'kysely';
 import type { DB, WorkflowWorkArea, WorkflowWorkAreaRepository, WorkflowWorkAreaStatus } from '../../../../store/kysely_types';
@@ -42,6 +43,7 @@ export interface WorkAreaMutationLock {
   release(): Promise<void>;
 }
 export interface WorkAreaMutationLockManager {
+  initialize(): Promise<{ canonicalLockRoot: string }>;
   acquire(input: { sourceIdentity: string; targetIdentity: string; holderId: string; waitMs: number }): Promise<WorkAreaMutationLock>;
 }
 
@@ -58,6 +60,7 @@ type ProcessIdentityState = 'same' | 'different' | 'unknown';
  */
 export class FilesystemWorkAreaMutationLockManager implements WorkAreaMutationLockManager {
   private readonly serverStateRoot: string;
+  private initialized: Promise<{ canonicalLockRoot: string }> | null = null;
   constructor(private readonly options: {
     serverStateRoot?: string;
     processIdentity?: (pid: number, expected: string) => Promise<ProcessIdentityState>;
@@ -67,11 +70,15 @@ export class FilesystemWorkAreaMutationLockManager implements WorkAreaMutationLo
     syncDirectory?: (path: string) => Promise<void>;
     forensicRetentionLimit?: number;
   } = {}) {
-    this.serverStateRoot = options.serverStateRoot ?? resolve(process.cwd(), 'data');
+    if (!options.serverStateRoot) throw new WorkflowWorkAreaError('unsafe_layout', 'A server lock storage capability is required.');
+    this.serverStateRoot = options.serverStateRoot;
   }
 
+  initialize() { return this.initialized ??= validateGlobalLockCapability(this.serverStateRoot, this.options.linkClaim ?? link,
+    this.options.syncDirectory ?? fsyncDirectory, this.options.currentProcessIdentity ?? currentProcessIdentity); }
+
   async acquire(input: { sourceIdentity: string; targetIdentity: string; holderId: string; waitMs: number }): Promise<WorkAreaMutationLock> {
-    const lockRoot = await prepareGlobalLockRoot(this.serverStateRoot);
+    const lockRoot = (await this.initialize()).canonicalLockRoot;
     await cleanupLockMetadata(lockRoot, this.options.forensicRetentionLimit ?? 32, this.options.processIdentity ?? inspectProcessIdentity, this.options.syncDirectory ?? fsyncDirectory);
     // Serialize all worktree-registry mutations for the same source repository;
     // target identity remains in the caller contract for deterministic auditing.
@@ -154,6 +161,23 @@ export class DbWorkflowWorkAreaRegistry {
   private readonly now: () => number;
   constructor(private readonly options: { db: Kysely<DB>; now?: () => number }) { this.now = options.now ?? (() => Date.now()); }
   private get db(): Kysely<DB> { return this.options.db; }
+
+  async assertDeploymentLockDomain(input: { lockDomainId: string; domainDigest: string }): Promise<void> {
+    await retrySqliteBusy(() => this.db.transaction().execute(async (trx) => {
+      const existing = await trx.selectFrom('WorkflowWorkAreaLockDomain').selectAll().where('singletonKey', '=', 'work-area-provider').executeTakeFirst();
+      if (existing) {
+        if (existing.lockDomainId !== input.lockDomainId || existing.domainDigest !== input.domainDigest) throw conflict('Task work lock deployment configuration does not match this registry.');
+        return;
+      }
+      try {
+        await trx.insertInto('WorkflowWorkAreaLockDomain').values({ singletonKey: 'work-area-provider', lockDomainId: input.lockDomainId,
+          domainDigest: input.domainDigest, createdAt: this.now(), updatedAt: this.now() }).execute();
+      } catch (error) {
+        const raced = await trx.selectFrom('WorkflowWorkAreaLockDomain').selectAll().where('singletonKey', '=', 'work-area-provider').executeTakeFirst();
+        if (!raced || raced.lockDomainId !== input.lockDomainId || raced.domainDigest !== input.domainDigest) throw error;
+      }
+    }));
+  }
 
   async reserve(input: ReservationInput): Promise<{ area: Selectable<WorkflowWorkArea>; operationId: string; reused: boolean }> {
     return retrySqliteBusy(() => this.db.transaction().execute(async (trx) => {
@@ -272,22 +296,35 @@ export interface ProductionWorkflowWorkAreaProviderOptions {
   estimateReservationBytes?: (input: { workspaceId: string; repositoryCount: number; mode: 'read' | 'write' }) => number;
   minimumReservationBytes?: number; leaseTtlMs?: number; leaseWaitMs?: number; now?: () => number;
   mutationLockManager?: WorkAreaMutationLockManager;
-  /** Trusted server configuration; never populated from a workflow request. */
-  serverStateRoot?: string;
+  /** Trusted deployment capability; never populated from a workflow request. */
+  deployment: WorkAreaDeploymentCapability;
 }
+
+export type WorkAreaDeploymentCapability =
+  | { mode: 'production_single_host'; serverStateRoot: string; lockDomainId: string; hostId: string }
+  | { mode: 'development_temporary'; serverStateRoot?: string };
 
 export class ProductionWorkflowWorkAreaProvider {
   private readonly driver: WorkflowWorktreeDriver; private readonly countLimit: number; private readonly byteLimit: number;
   private readonly minimumReservation: number; private readonly leaseTtl: number; private readonly leaseWait: number; private readonly now: () => number;
   private readonly mutationLocks: WorkAreaMutationLockManager;
+  private readonly deployment: ReturnType<typeof normalizeDeploymentCapability>;
+  private deploymentReady: Promise<void> | null = null;
   constructor(private readonly options: ProductionWorkflowWorkAreaProviderOptions) {
     this.driver = options.worktreeDriver ?? new GitWorkflowWorktreeDriver(); this.countLimit = options.countLimit ?? 8;
     this.byteLimit = options.byteLimit ?? 20 * 1024 * 1024 * 1024; this.minimumReservation = Math.max(1, options.minimumReservationBytes ?? DEFAULT_MINIMUM_RESERVATION);
     this.leaseTtl = options.leaseTtlMs ?? 30_000; this.leaseWait = options.leaseWaitMs ?? 35_000; this.now = options.now ?? (() => Date.now());
-    this.mutationLocks = options.mutationLockManager ?? new FilesystemWorkAreaMutationLockManager({ serverStateRoot: options.serverStateRoot });
+    this.deployment = normalizeDeploymentCapability(options.deployment);
+    this.mutationLocks = options.mutationLockManager ?? new FilesystemWorkAreaMutationLockManager({ serverStateRoot: this.deployment.serverStateRoot });
   }
 
+  initialize(): Promise<void> { return this.deploymentReady ??= this.mutationLocks.initialize().then(async ({ canonicalLockRoot }) => {
+    const domainDigest = stableDigest({ mode: this.deployment.mode, lockDomainId: this.deployment.lockDomainId, hostId: this.deployment.hostId, canonicalLockRoot });
+    await this.options.registry.assertDeploymentLockDomain({ lockDomainId: this.deployment.lockDomainId, domainDigest });
+  }); }
+
   async createOrReuse(request: WorkflowWorkAreaRequest): Promise<WorkflowWorkAreaReadModel> {
+    await this.initialize();
     const input = normalizeRequest(request);
     if (!await this.options.authorizer.authorize(input)) throw new WorkflowWorkAreaError('not_authorized', 'This role is not authorized to use task work capacity.');
     const workspace = await this.options.workspaceRegistry.getWorkspace(input.workspaceId);
@@ -494,6 +531,34 @@ async function prepareGlobalLockRoot(serverStateRoot: string): Promise<string> {
   assertContained(canonicalStateRoot, lockRoot);
   await ensurePrivateDirectory(lockRoot, []);
   return lockRoot;
+}
+async function validateGlobalLockCapability(serverStateRoot: string, createLink: typeof link, sync: (path: string) => Promise<void>, identify: () => Promise<string>) {
+  const canonicalLockRoot = await prepareGlobalLockRoot(serverStateRoot);
+  const processIdentity = await identify();
+  if (!processIdentity || processIdentity.startsWith('unverifiable:')) throw new WorkflowWorkAreaError('unsafe_layout', 'Server process identity capability could not be verified.');
+  const probe = `.capability-${process.pid}-${randomUUID()}`; const owner = join(canonicalLockRoot, `${probe}.owner`); const claim = join(canonicalLockRoot, `${probe}.lock`);
+  try {
+    const file = await open(owner, 'wx', 0o600); try { await file.writeFile('capability'); await file.sync(); } finally { await file.close(); }
+    await sync(canonicalLockRoot); await createLink(owner, claim); await sync(canonicalLockRoot);
+    const ownerStat = await stat(owner); const claimStat = await stat(claim);
+    if (ownerStat.ino !== claimStat.ino || ownerStat.dev !== claimStat.dev) throw new WorkflowWorkAreaError('unsafe_layout', 'Server lock storage does not provide reliable atomic claims.');
+  } catch (error) {
+    if (error instanceof WorkflowWorkAreaError) throw error;
+    throw new WorkflowWorkAreaError('unsafe_layout', 'Server lock storage capability could not be verified.');
+  } finally {
+    await unlink(claim).catch(ignoreMissing); await unlink(owner).catch(ignoreMissing); await sync(canonicalLockRoot).catch(() => undefined);
+  }
+  return { canonicalLockRoot };
+}
+function normalizeDeploymentCapability(capability: WorkAreaDeploymentCapability | undefined) {
+  if (!capability) throw new WorkflowWorkAreaError('unsafe_layout', 'A work-area deployment capability is required.');
+  if (capability.mode === 'production_single_host') {
+    const serverStateRoot = capability.serverStateRoot?.trim(); const lockDomainId = requiredId(capability.lockDomainId, 'lock domain'); const hostId = requiredId(capability.hostId, 'host');
+    if (!serverStateRoot || !isAbsolute(serverStateRoot)) throw new WorkflowWorkAreaError('unsafe_layout', 'Production lock storage must be explicitly configured.');
+    return { mode: capability.mode, serverStateRoot, lockDomainId, hostId };
+  }
+  return { mode: capability.mode, serverStateRoot: capability.serverStateRoot ?? join(tmpdir(), `vd-workarea-development-${process.pid}`),
+    lockDomainId: 'development-temporary', hostId: `process-${process.pid}` };
 }
 async function fsyncDirectory(path: string): Promise<void> { const directory = await open(path, 'r'); try { await directory.sync(); } finally { await directory.close(); } }
 async function cleanupLockMetadata(lockRoot: string, limit: number, inspect: (pid: number, expected: string) => Promise<ProcessIdentityState>, sync: (path: string) => Promise<void>) {
