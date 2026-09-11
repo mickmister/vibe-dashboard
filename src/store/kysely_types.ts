@@ -759,6 +759,8 @@ export interface WorkflowWorkAreaLockDomain {
   singletonKey: string;
   lockDomainId: string;
   domainDigest: string;
+  deploymentMode: NullableString;
+  hostIdentityDigest: NullableString;
   createdAt: number;
   updatedAt: number;
 }

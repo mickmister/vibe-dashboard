@@ -7,6 +7,7 @@ import { executeSqlMigration, getVdDbPath, initVdDb, splitSqlStatements } from '
 import { migration as workAreaMigration } from '../store/db/migrations/20260912000000_workflow_work_areas/migration';
 import { migration as workAreaLeaseMigration } from '../store/db/migrations/20260912010000_workflow_work_area_leases/migration';
 import { migration as workAreaLockDomainMigration } from '../store/db/migrations/20260912020000_workflow_work_area_lock_domain/migration';
+import { migration as workAreaHostIdentityMigration } from '../store/db/migrations/20260912030000_workflow_work_area_host_identity/migration';
 
 const tempDirs: string[] = [];
 
@@ -53,6 +54,7 @@ describe('VD database', () => {
         '20260912000000_workflow_work_areas',
         '20260912010000_workflow_work_area_leases',
         '20260912020000_workflow_work_area_lock_domain',
+        '20260912030000_workflow_work_area_host_identity',
       ]);
       const tables = await sql<{ name: string }>`
         SELECT name FROM sqlite_master
@@ -245,12 +247,15 @@ describe('VD database', () => {
       await executeSqlMigration(handle.db, workAreaMigration);
       await executeSqlMigration(handle.db, workAreaLeaseMigration);
       await executeSqlMigration(handle.db, workAreaLockDomainMigration);
+      await executeSqlMigration(handle.db, workAreaHostIdentityMigration);
       const columns = await sql<{ name: string }>`PRAGMA table_info('WorkflowWorkAreaRepository')`.execute(handle.db);
       expect(columns.rows.map((column) => column.name)).toContain('sourceIdentity');
       const lease = await sql<{ name: string }>`SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'WorkflowWorkAreaOperationLease'`.execute(handle.db);
       expect(lease.rows).toEqual([{ name: 'WorkflowWorkAreaOperationLease' }]);
       const domain = await sql<{ name: string }>`SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'WorkflowWorkAreaLockDomain'`.execute(handle.db);
       expect(domain.rows).toEqual([{ name: 'WorkflowWorkAreaLockDomain' }]);
+      const domainColumns = await sql<{ name: string }>`PRAGMA table_info('WorkflowWorkAreaLockDomain')`.execute(handle.db);
+      expect(domainColumns.rows.map((column) => column.name)).toEqual(expect.arrayContaining(['deploymentMode', 'hostIdentityDigest']));
     } finally {
       await handle.db.destroy(); handle.sqlite.close();
     }
