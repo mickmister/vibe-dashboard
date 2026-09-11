@@ -2,6 +2,9 @@ import { createHash } from "node:crypto";
 import {
   normalizeWorkflowDefinitionV1,
   renderExpectedXmlResponseXsd,
+  WORKFLOW_EXECUTOR_MODEL_OPTIONS,
+  WORKFLOW_EXECUTOR_REASONING_OPTIONS,
+  WORKFLOW_EXECUTOR_TYPES,
   type AgentWorkflowDefinitionV1,
   type AgentWorkflowStepV1,
   type NormalizedAgentWorkflowModel,
@@ -15,12 +18,20 @@ export const VD_GAS_CITY_VERSION = "1.4.1" as const;
 export const VD_BEADS_VERSION = "1.2.2" as const;
 export const VD_GC_SESSION_BRIDGE_VERSION = "vd-gc-session-vibe.v1" as const;
 export const VD_BUNDLE_COMPILER_POLICY = "vd.formulas-v2.strict.v1" as const;
+const COMPILER_CAPABILITIES = new Set([
+  "workflow.agent-turn",
+  "workflow.action-result.xml",
+  "workflow.result-note",
+  "workflow.caller-callback",
+  "workflow.notification",
+  "workflow.task-context.latest",
+]);
 
 type PreferenceSource = "launch_override" | "team_role" | "role_default" | "workspace_default" | "system_default" | "unset";
 
 export interface ResolvedBundleRole {
   roleId: string;
-  template: null | { id: string; version: number; contentHash: string };
+  template: null | { id: string; version: number; content: string; contentHash: string };
   promptAssets: Array<{ id: string; version: number; content: string; contentHash: string }>;
   skillAssets: Array<{ id: string; version: number; content: string; contentHash: string }>;
   baseInstructions: string;
@@ -51,13 +62,22 @@ export interface GasCityExecutionBundleCompileInput {
 }
 
 export interface GasCityCompiledPreview {
-  gasCityVersion: string;
-  formulaCompiler: string;
-  nodes: Array<{ id: string; role: string; needs: string[] }>;
+  identity: {
+    provider: "pinned_gas_city_formula_compiler";
+    gasCityVersion: typeof VD_GAS_CITY_VERSION;
+    beadsVersion: typeof VD_BEADS_VERSION;
+    formulaCompiler: typeof VD_FORMULA_COMPILER_REQUIREMENT;
+  };
+  formulaSha256: string;
+  compiledArtifactSha256: string;
 }
 
 export interface GasCityFormulaPreviewProvider {
-  compileFormula(input: { formulaToml: string; gasCityVersion: string; formulaCompiler: string }): Promise<GasCityCompiledPreview>;
+  readonly identity: GasCityCompiledPreview["identity"];
+  compileFormula(input: {
+    formulaBytes: Uint8Array;
+    semanticArtifactBytes: Uint8Array;
+  }): Promise<GasCityCompiledPreview>;
 }
 
 export interface CompiledGasCityExecutionBundle {
@@ -83,6 +103,7 @@ export async function compileGasCityExecutionBundle(
   validateGraph(model);
   validateInputs(model, input.inputs);
   validateRoles(model, input.roles);
+  validateCapabilities(model, input);
 
   const canonicalDefinition = canonicalize(input.workflow.definition) as AgentWorkflowDefinitionV1;
   const pack = generateGasCityPackFromWorkflow({
@@ -95,14 +116,31 @@ export async function compileGasCityExecutionBundle(
     fail("Generated formula does not declare the pinned formula compiler requirement.");
   }
   const intendedGraph = buildIntendedGraph(model);
-  const preview = await previewProvider.compileFormula({
-    formulaToml,
-    gasCityVersion: input.compatibility.gasCity,
-    formulaCompiler: input.compatibility.formulaCompiler,
-  });
-  validatePreview(preview, intendedGraph);
-
   const responseSchemas = buildResponseSchemas(model);
+  const semanticArtifact = canonicalize({
+    workflow: { designId: input.workflow.designId, version: input.workflow.version, definition: canonicalDefinition },
+    graph: intendedGraph,
+    roles: [...input.roles].sort((a, b) => a.roleId.localeCompare(b.roleId)).map(canonicalRole),
+    inputs: canonicalize(input.inputs),
+    policies: {
+      taskContext: { ...input.taskContextPolicy, beadIds: [...input.taskContextPolicy.beadIds].sort() },
+      session: input.sessionPolicy,
+      effects: { allowed: [...input.effects.allowed].sort(), closePolicy: input.effects.closePolicy },
+      retry: input.retry,
+      limits: input.limits,
+    },
+    capabilities: [...input.capabilities].sort(),
+    responseSchemas,
+    compatibility: input.compatibility,
+  });
+  const semanticArtifactText = JSON.stringify(semanticArtifact);
+  validatePreviewProviderIdentity(previewProvider.identity);
+  const preview = await previewProvider.compileFormula({
+    formulaBytes: new TextEncoder().encode(formulaToml),
+    semanticArtifactBytes: new TextEncoder().encode(semanticArtifactText),
+  });
+  validatePreview(preview, formulaToml, semanticArtifactText);
+
   const document = canonicalize({
     schemaVersion: VD_EXECUTION_BUNDLE_SCHEMA,
     compilerPolicy: input.compatibility.compilerPolicy,
@@ -115,7 +153,7 @@ export async function compileGasCityExecutionBundle(
     roles: [...input.roles].sort((a, b) => a.roleId.localeCompare(b.roleId)).map(canonicalRole),
     inputs: canonicalize(input.inputs),
     policies: {
-      taskContext: canonicalize(input.taskContextPolicy),
+      taskContext: { ...input.taskContextPolicy, beadIds: [...input.taskContextPolicy.beadIds].sort() },
       session: input.sessionPolicy,
       effects: { allowed: [...input.effects.allowed].sort(), closePolicy: input.effects.closePolicy },
       retry: input.retry,
@@ -162,7 +200,8 @@ function validateCompileInput(value: unknown): GasCityExecutionBundleCompileInpu
   exactObject(input.compatibility, ["compilerPolicy", "formulaCompiler", "gasCity", "beads", "bridge"], "compatibility");
   const expected = { compilerPolicy: VD_BUNDLE_COMPILER_POLICY, formulaCompiler: VD_FORMULA_COMPILER_REQUIREMENT, gasCity: VD_GAS_CITY_VERSION, beads: VD_BEADS_VERSION, bridge: VD_GC_SESSION_BRIDGE_VERSION };
   for (const [key, expectedValue] of Object.entries(expected)) if (input.compatibility[key as keyof typeof input.compatibility] !== expectedValue) fail(`Unsupported pinned ${key} compatibility.`);
-  if (!Array.isArray(input.capabilities) || input.capabilities.some((capability) => !/^[a-z][a-z0-9_.-]{0,127}$/.test(capability))) fail("Capability manifest contains an unsupported capability.");
+  if (!Array.isArray(input.capabilities) || input.capabilities.some((capability) => !COMPILER_CAPABILITIES.has(capability))) fail("Capability manifest contains an unsupported capability.");
+  if (new Set(input.capabilities).size !== input.capabilities.length) fail("Capability manifest contains a duplicate capability.");
   return input;
 }
 
@@ -170,8 +209,9 @@ function validateRole(role: ResolvedBundleRole, index: number): void {
   exactObject(role, ["roleId", "template", "promptAssets", "skillAssets", "baseInstructions", "executor", "model", "reasoningId", "preferenceSources"], `roles[${index}]`);
   requiredId(role.roleId, "role id");
   if (role.template !== null) {
-    exactObject(role.template, ["id", "version", "contentHash"], "role template");
+    exactObject(role.template, ["id", "version", "content", "contentHash"], "role template");
     requiredId(role.template.id, "role template id"); positiveInt(role.template.version, "role template version", 1_000_000); requiredHash(role.template.contentHash);
+    if (typeof role.template.content !== "string" || sha256(role.template.content) !== role.template.contentHash) fail("Role template content hash does not match resolved content.");
   }
   for (const [kind, assets] of [["prompt", role.promptAssets], ["skill", role.skillAssets]] as const) {
     if (!Array.isArray(assets)) fail(`${kind} assets must be an array.`);
@@ -189,6 +229,20 @@ function validateRole(role: ResolvedBundleRole, index: number): void {
   if (Object.values(role.preferenceSources).some((source) => !sources.has(source))) fail("Role preference provenance is unsupported.");
   if (role.executor === null && role.model !== null) fail("A model cannot be resolved without an executor.");
   if (role.executor === null && role.reasoningId !== null) fail("A reasoning level cannot be resolved without an executor.");
+  for (const [field, value, source] of [
+    ["executor", role.executor, role.preferenceSources.executor],
+    ["model", role.model, role.preferenceSources.model],
+    ["reasoning", role.reasoningId, role.preferenceSources.reasoningId],
+  ] as const) {
+    if (value === null && source !== "unset") fail(`Null ${field} preference must have unset provenance.`);
+    if (value !== null && source === "unset") fail(`Resolved ${field} preference cannot have unset provenance.`);
+  }
+  if (role.executor !== null) {
+    if (!WORKFLOW_EXECUTOR_TYPES.includes(role.executor as never)) fail("Resolved executor is unsupported.");
+    const executor = role.executor as keyof typeof WORKFLOW_EXECUTOR_MODEL_OPTIONS;
+    if (role.model !== null && !WORKFLOW_EXECUTOR_MODEL_OPTIONS[executor].models.includes(role.model)) fail("Resolved model is unsupported for the executor.");
+    if (role.reasoningId !== null && !WORKFLOW_EXECUTOR_REASONING_OPTIONS[executor].includes(role.reasoningId)) fail("Resolved reasoning level is unsupported for the executor.");
+  }
 }
 
 function validateGraph(model: NormalizedAgentWorkflowModel): void {
@@ -208,8 +262,18 @@ function validateGraph(model: NormalizedAgentWorkflowModel): void {
   for (const state of Object.values(model.states)) if (!state.terminal) {
     const id = formulaNodeId(state.id); if (formulaIds.has(id)) fail("Workflow states collide after formula identifier normalization."); formulaIds.add(id);
     if (!model.roles[state.owner]) fail("Workflow state references a missing role.");
-    if (state.steps.some((step) => !["agent_turn", "human_form", "workflow_call"].includes(step.type))) fail("Workflow contains a step unsupported by formulas-v2.");
+    if (state.steps.length !== 1 || state.steps[0]?.type !== "agent_turn") fail("The strict formulas-v2 subset requires exactly one agent turn per active state.");
+    if (Object.keys(state.actions).length !== 1) fail("Conditional or branching workflow actions are unsupported by the strict formulas-v2 subset.");
   }
+}
+
+function validateCapabilities(model: NormalizedAgentWorkflowModel, input: GasCityExecutionBundleCompileInput): void {
+  const required = new Set<string>(["workflow.agent-turn"]);
+  if (Object.values(model.states).some((state) => !state.terminal && state.steps[0]?.type === "agent_turn" && state.steps[0].turnType === "decision")) required.add("workflow.action-result.xml");
+  if (input.taskContextPolicy.beadIds.length) required.add("workflow.task-context.latest");
+  for (const effect of input.effects.allowed) required.add(`workflow.${effect.replaceAll("_", "-")}`);
+  const actual = new Set(input.capabilities);
+  if (required.size !== actual.size || [...required].some((value) => !actual.has(value))) fail("Capability manifest must exactly match compiled workflow behavior.");
 }
 
 function validateInputs(model: NormalizedAgentWorkflowModel, values: Record<string, string | number | boolean>): void {
@@ -229,27 +293,52 @@ function validateRoles(model: NormalizedAgentWorkflowModel, roles: ResolvedBundl
   if (JSON.stringify(expected) !== JSON.stringify(actual)) fail("Resolved roles do not exactly match workflow roles.");
 }
 
-function buildIntendedGraph(model: NormalizedAgentWorkflowModel): GasCityCompiledPreview["nodes"] {
-  const active = Object.values(model.states).filter((state) => !state.terminal);
-  const order = new Map(active.map((state, index) => [state.id, index]));
-  return active.map((state) => {
-    const needs = active.filter((candidate) => Object.values(candidate.actions).some((action) => action.targetState === state.id) && (order.get(candidate.id) ?? 0) < (order.get(state.id) ?? 0)).map((candidate) => formulaNodeId(candidate.id)).sort();
-    return { id: formulaNodeId(state.id), role: formulaRoleId(state.owner), needs };
-  }).sort((a, b) => a.id.localeCompare(b.id));
+type IntendedNode = {
+  id: string;
+  stateId: string;
+  role: string;
+  needs: string[];
+  step: unknown;
+  route: unknown;
+};
+
+function buildIntendedGraph(model: NormalizedAgentWorkflowModel): IntendedNode[] {
+  const nodes: IntendedNode[] = [];
+  let stateId = model.initialState;
+  let predecessor: string | null = null;
+  const seen = new Set<string>();
+  while (true) {
+    const state = model.states[stateId];
+    if (!state) fail("Workflow graph references a missing state.");
+    if (state.terminal) break;
+    if (seen.has(stateId)) fail("Workflow graph contains a cycle unsupported by formulas-v2.");
+    seen.add(stateId);
+    const action = Object.values(state.actions)[0]!;
+    const nodeId = formulaNodeId(state.id);
+    nodes.push({
+      id: nodeId,
+      stateId: state.id,
+      role: formulaRoleId(state.owner),
+      needs: predecessor ? [predecessor] : [],
+      step: canonicalize(state.steps[0]),
+      route: canonicalize(action),
+    });
+    predecessor = nodeId;
+    stateId = action.targetState;
+  }
+  return nodes;
 }
 
-function validatePreview(preview: GasCityCompiledPreview, intended: GasCityCompiledPreview["nodes"]): void {
-  exactObject(preview, ["gasCityVersion", "formulaCompiler", "nodes"], "compiled preview");
-  if (preview.gasCityVersion !== VD_GAS_CITY_VERSION || preview.formulaCompiler !== VD_FORMULA_COMPILER_REQUIREMENT) fail("Compiled preview did not use the pinned compatibility contract.");
-  if (!Array.isArray(preview.nodes)) fail("Compiled preview nodes are unavailable.");
-  preview.nodes.forEach((node) => {
-    exactObject(node, ["id", "role", "needs"], "compiled preview node");
-    requiredId(node.id, "compiled node id");
-    requiredId(node.role, "compiled node role");
-    if (!Array.isArray(node.needs) || node.needs.some((dependency) => typeof dependency !== "string")) fail("Compiled preview dependencies are invalid.");
-  });
-  const actual = preview.nodes.map((node) => ({ id: node.id, role: node.role, needs: [...node.needs].sort() })).sort((a, b) => a.id.localeCompare(b.id));
-  if (JSON.stringify(actual) !== JSON.stringify(intended)) fail("Pinned Gas City compiled preview does not match the intended workflow graph.");
+function validatePreviewProviderIdentity(identity: GasCityCompiledPreview["identity"]): void {
+  exactObject(identity, ["provider", "gasCityVersion", "beadsVersion", "formulaCompiler"], "preview provider identity");
+  if (identity.provider !== "pinned_gas_city_formula_compiler" || identity.gasCityVersion !== VD_GAS_CITY_VERSION || identity.beadsVersion !== VD_BEADS_VERSION || identity.formulaCompiler !== VD_FORMULA_COMPILER_REQUIREMENT) fail("Preview provider is not bound to the pinned compiler environment.");
+}
+
+function validatePreview(preview: GasCityCompiledPreview, formulaToml: string, semanticArtifact: string): void {
+  exactObject(preview, ["identity", "formulaSha256", "compiledArtifactSha256"], "compiled preview");
+  validatePreviewProviderIdentity(preview.identity);
+  if (preview.formulaSha256 !== sha256(formulaToml)) fail("Pinned compiler preview is not bound to the exact emitted formula bytes.");
+  if (preview.compiledArtifactSha256 !== sha256(semanticArtifact)) fail("Pinned compiler preview does not match the complete execution semantics.");
 }
 
 function buildResponseSchemas(model: NormalizedAgentWorkflowModel): Array<{ stateId: string; stepId: string; xsd: string }> {

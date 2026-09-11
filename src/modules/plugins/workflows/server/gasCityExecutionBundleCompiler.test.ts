@@ -55,7 +55,7 @@ function input(): GasCityExecutionBundleCompileInput {
         executor: "CLAUDE_CODE", model: "claude-sonnet-4", reasoningId: "high", preferenceSources: { executor: "role_default", model: "role_default", reasoningId: "team_role" },
       },
       {
-        roleId: "dev", template: { id: "developer", version: 3, contentHash: hash("template") }, promptAssets: [], skillAssets: [], baseInstructions: "Implement the task.",
+        roleId: "dev", template: { id: "developer", version: 3, content: "template", contentHash: hash("template") }, promptAssets: [], skillAssets: [], baseInstructions: "Implement the task.",
         executor: "CODEX", model: "gpt-5-codex", reasoningId: "high", preferenceSources: { executor: "workspace_default", model: "system_default", reasoningId: "launch_override" },
       },
     ],
@@ -66,20 +66,24 @@ function input(): GasCityExecutionBundleCompileInput {
     retry: { invalidResultAttempts: 1, abruptTurnNudges: 2 },
     limits: { maxTurns: 20, maxPromptChars: 100_000, maxResultChars: 50_000 },
     compatibility: { compilerPolicy: VD_BUNDLE_COMPILER_POLICY, formulaCompiler: VD_FORMULA_COMPILER_REQUIREMENT, gasCity: VD_GAS_CITY_VERSION, beads: VD_BEADS_VERSION, bridge: VD_GC_SESSION_BRIDGE_VERSION },
-    capabilities: ["workflow.action-result.xml", "workflow.callback"],
+    capabilities: ["workflow.agent-turn", "workflow.action-result.xml", "workflow.task-context.latest", "workflow.result-note", "workflow.caller-callback", "workflow.notification"],
   };
 }
 
-function preview(overrides: Partial<{ gasCityVersion: string; formulaCompiler: string; nodes: Array<{ id: string; role: string; needs: string[] }> }> = {}): GasCityFormulaPreviewProvider {
+function preview(overrides: Partial<{ provider: string; gasCityVersion: string; beadsVersion: string; formulaCompiler: string; formulaSha256: string; compiledArtifactSha256: string }> = {}): GasCityFormulaPreviewProvider {
+  const identity = {
+    provider: "pinned_gas_city_formula_compiler" as const,
+    gasCityVersion: VD_GAS_CITY_VERSION,
+    beadsVersion: VD_BEADS_VERSION,
+    formulaCompiler: VD_FORMULA_COMPILER_REQUIREMENT,
+    ...Object.fromEntries(Object.entries(overrides).filter(([key]) => ["provider", "gasCityVersion", "beadsVersion", "formulaCompiler"].includes(key))),
+  } as GasCityFormulaPreviewProvider["identity"];
   return {
-    compileFormula: vi.fn(async () => ({
-      gasCityVersion: VD_GAS_CITY_VERSION,
-      formulaCompiler: VD_FORMULA_COMPILER_REQUIREMENT,
-      nodes: [
-        { id: "state-build", role: "dev", needs: [] },
-        { id: "state-review", role: "review", needs: ["state-build"] },
-      ],
-      ...overrides,
+    identity,
+    compileFormula: vi.fn(async ({ formulaBytes, semanticArtifactBytes }) => ({
+      identity,
+      formulaSha256: overrides.formulaSha256 ?? hash(Buffer.from(formulaBytes).toString()),
+      compiledArtifactSha256: overrides.compiledArtifactSha256 ?? hash(Buffer.from(semanticArtifactBytes).toString()),
     })),
   };
 }
@@ -112,12 +116,61 @@ describe("compileGasCityExecutionBundle", () => {
       (value: GasCityExecutionBundleCompileInput) => { value.roles[0]!.reasoningId = "xhigh"; },
       (value: GasCityExecutionBundleCompileInput) => { value.roles[0]!.promptAssets[0]!.content = "Changed"; value.roles[0]!.promptAssets[0]!.contentHash = hash("Changed"); },
       (value: GasCityExecutionBundleCompileInput) => { value.retry.abruptTurnNudges = 1; },
-      (value: GasCityExecutionBundleCompileInput) => { value.capabilities.push("workflow.ask-user"); },
+      (value: GasCityExecutionBundleCompileInput) => { value.effects.allowed = value.effects.allowed.filter((item) => item !== "notification"); value.capabilities = value.capabilities.filter((item) => item !== "workflow.notification"); },
     ];
     for (const mutate of variants) {
       const value = input(); mutate(value);
       expect((await compileGasCityExecutionBundle(value, preview())).digest).not.toBe(baseline.digest);
     }
+  });
+
+  it("changes digest across each execution-semantic category", async () => {
+    const baseline = (await compileGasCityExecutionBundle(input(), preview())).digest;
+    const mutations: Array<(value: GasCityExecutionBundleCompileInput) => void> = [
+      (value) => { value.workflow.version += 1; },
+      (value) => { (value.workflow.definition as AgentWorkflowDefinitionV1).name = "Another workflow"; },
+      (value) => { ((value.workflow.definition as AgentWorkflowDefinitionV1).states.build as any).steps[0].prompt.template = "Changed authored prompt"; },
+      (value) => { ((value.workflow.definition as AgentWorkflowDefinitionV1).states.build as any).actions.ready.result.fields.summary.description = "Changed contract"; },
+      (value) => { value.roles[1]!.template!.version += 1; },
+      (value) => { value.roles[1]!.template!.content = "new template"; value.roles[1]!.template!.contentHash = hash("new template"); },
+      (value) => { value.roles[0]!.baseInstructions = "Different base"; },
+      (value) => { value.roles[0]!.promptAssets[0]!.version += 1; },
+      (value) => { value.roles[0]!.skillAssets.push({ id: "review.skill", version: 1, content: "Skill", contentHash: hash("Skill") }); },
+      (value) => { value.roles[0]!.model = "claude-opus-4"; },
+      (value) => { value.roles[0]!.reasoningId = "xhigh"; },
+      (value) => { value.roles[0]!.preferenceSources.reasoningId = "launch_override"; },
+      (value) => { value.inputs.task = "Other task"; },
+      (value) => { value.taskContextPolicy.beadIds = ["bead-2"]; },
+      (value) => { value.sessionPolicy.incompatibleSession = "replace"; },
+      (value) => { value.retry.invalidResultAttempts = 2; },
+      (value) => { value.retry.abruptTurnNudges = 1; },
+      (value) => { value.limits.maxTurns += 1; },
+      (value) => { value.limits.maxPromptChars += 1; },
+      (value) => { value.limits.maxResultChars += 1; },
+      (value) => { value.effects.allowed = value.effects.allowed.filter((effect) => effect !== "caller_callback"); value.capabilities = value.capabilities.filter((capability) => capability !== "workflow.caller-callback"); },
+    ];
+    for (const mutate of mutations) {
+      const value = input(); mutate(value);
+      expect((await compileGasCityExecutionBundle(value, preview())).digest).not.toBe(baseline);
+    }
+  });
+
+  it("canonicalizes all declared set and map ordering without changing bytes", async () => {
+    const first = input();
+    first.taskContextPolicy.beadIds.push("bead-2");
+    first.roles[0]!.promptAssets.push({ id: "a.prompt", version: 1, content: "A", contentHash: hash("A") });
+    first.roles[0]!.skillAssets.push(
+      { id: "z.skill", version: 1, content: "Z", contentHash: hash("Z") },
+      { id: "a.skill", version: 1, content: "A", contentHash: hash("A") },
+    );
+    const second = structuredClone(first);
+    second.roles.reverse();
+    second.roles.find((role) => role.roleId === "review")!.promptAssets.reverse();
+    second.roles.find((role) => role.roleId === "review")!.skillAssets.reverse();
+    second.effects.allowed.reverse(); second.capabilities.reverse(); second.taskContextPolicy.beadIds.reverse();
+    const firstBundle = await compileGasCityExecutionBundle(first, preview());
+    const secondBundle = await compileGasCityExecutionBundle(second, preview());
+    expect(Buffer.from(secondBundle.bytes)).toEqual(Buffer.from(firstBundle.bytes));
   });
 
   it("rejects unknown, inert, unsafe, unpinned, and inconsistent inputs", async () => {
@@ -146,14 +199,83 @@ describe("compileGasCityExecutionBundle", () => {
     await expect(compileGasCityExecutionBundle(unreachable, preview())).rejects.toThrow(/unreachable/i);
   });
 
+  it("is independent of authored map order and preserves the exact linear dependency chain", async () => {
+    const ordered = input();
+    const reordered = input();
+    const source = reordered.workflow.definition as AgentWorkflowDefinitionV1;
+    source.states = { done: source.states.done!, review: source.states.review!, build: source.states.build! };
+    source.roles = { review: source.roles.review!, dev: source.roles.dev! };
+    source.inputs = { task: source.inputs!.task! };
+    const first = await compileGasCityExecutionBundle(ordered, preview());
+    const second = await compileGasCityExecutionBundle(reordered, preview());
+    expect(Buffer.from(second.bytes)).toEqual(Buffer.from(first.bytes));
+    expect((first.document.formula as any).intendedGraph.map((node: any) => ({ id: node.id, needs: node.needs }))).toEqual([
+      { id: "state-build", needs: [] },
+      { id: "state-review", needs: ["state-build"] },
+    ]);
+  });
+
+  it("rejects branch, diamond/multi-predecessor, multi-step, human-form, and workflow-call lowering", async () => {
+    const branch = input();
+    const branchDefinition = branch.workflow.definition as AgentWorkflowDefinitionV1;
+    (branchDefinition.states.build as any).actions.alternate = { targetState: "done" };
+    await expect(compileGasCityExecutionBundle(branch, preview())).rejects.toThrow(/branching/i);
+
+    const diamond = input();
+    const diamondDefinition = diamond.workflow.definition as AgentWorkflowDefinitionV1;
+    diamondDefinition.roles.ops = { label: "Ops" };
+    diamond.roles.push({ ...diamond.roles[0]!, roleId: "ops", promptAssets: [] });
+    (diamondDefinition.states.build as any).actions = { left: { targetState: "review" }, right: { targetState: "ops" } };
+    diamondDefinition.states.ops = { owner: "ops", steps: [{ id: "ops", type: "agent_turn", turnType: "decision", prompt: { template: "Ops" }, response }], actions: { join: { targetState: "done" } } };
+    await expect(compileGasCityExecutionBundle(diamond, preview())).rejects.toThrow(/branching/i);
+
+    const multiStep = input();
+    (multiStep.workflow.definition as AgentWorkflowDefinitionV1).states.build = { ...(multiStep.workflow.definition as AgentWorkflowDefinitionV1).states.build as any, steps: [...((multiStep.workflow.definition as AgentWorkflowDefinitionV1).states.build as any).steps, { id: "again", type: "agent_turn", turnType: "non_decision", prompt: { template: "Again" } }] };
+    await expect(compileGasCityExecutionBundle(multiStep, preview())).rejects.toThrow(/decision step|exactly one agent turn/i);
+
+    for (const step of [
+      { id: "form", type: "human_form", title: "Input", form: { providerType: "beads_form", formSchema: {} } },
+      { id: "child", type: "workflow_call", mode: "blocking", workflow: { designId: "child", version: 1 } },
+    ]) {
+      const unsupported = input();
+      (unsupported.workflow.definition as any).states.build.steps = [step];
+      await expect(compileGasCityExecutionBundle(unsupported, preview())).rejects.toThrow();
+    }
+  });
+
+  it("allows an exact terminal edge and rejects inconsistent role content, tuple, and provenance", async () => {
+    const valid = await compileGasCityExecutionBundle(input(), preview());
+    expect(((valid.document.formula as any).intendedGraph.at(-1) as any).route.targetState).toBe("done");
+    const badTemplate = input(); badTemplate.roles[1]!.template!.content = "changed";
+    await expect(compileGasCityExecutionBundle(badTemplate, preview())).rejects.toThrow(/template content hash/i);
+    const badTuple = input(); badTuple.roles[0]!.executor = "CODEX"; badTuple.roles[0]!.model = "claude-sonnet-4";
+    await expect(compileGasCityExecutionBundle(badTuple, preview())).rejects.toThrow(/model is unsupported/i);
+    const badReasoning = input(); badReasoning.roles[0]!.reasoningId = "extreme";
+    await expect(compileGasCityExecutionBundle(badReasoning, preview())).rejects.toThrow(/reasoning level/i);
+    const badNullSource = input(); badNullSource.roles[0]!.model = null;
+    await expect(compileGasCityExecutionBundle(badNullSource, preview())).rejects.toThrow(/null model.*unset/i);
+    const badSetSource = input(); badSetSource.roles[0]!.preferenceSources.model = "unset";
+    await expect(compileGasCityExecutionBundle(badSetSource, preview())).rejects.toThrow(/cannot have unset/i);
+  });
+
+  it("rejects unneeded, unsafe, removed, and missing capabilities", async () => {
+    for (const capability of ["shell.exec", "workflow.ask-user", "workflow.graph-v2", "workflow.removed"]) {
+      const value = input(); value.capabilities.push(capability);
+      await expect(compileGasCityExecutionBundle(value, preview())).rejects.toThrow(/unsupported capability/i);
+    }
+    const missing = input(); missing.capabilities = missing.capabilities.filter((value) => value !== "workflow.action-result.xml");
+    await expect(compileGasCityExecutionBundle(missing, preview())).rejects.toThrow(/exactly match/i);
+  });
+
   it("fails closed when the pinned compiled preview differs or reports another compatibility", async () => {
-    await expect(compileGasCityExecutionBundle(input(), preview({ nodes: [{ id: "state-build", role: "dev", needs: [] }] }))).rejects.toThrow(/does not match/i);
-    await expect(compileGasCityExecutionBundle(input(), preview({ gasCityVersion: "1.5.0" }))).rejects.toThrow(/pinned compatibility/i);
+    await expect(compileGasCityExecutionBundle(input(), preview({ compiledArtifactSha256: hash("wrong") }))).rejects.toThrow(/complete execution semantics/i);
+    await expect(compileGasCityExecutionBundle(input(), preview({ formulaSha256: hash("wrong") }))).rejects.toThrow(/exact emitted formula bytes/i);
+    await expect(compileGasCityExecutionBundle(input(), preview({ gasCityVersion: "1.5.0" }))).rejects.toThrow(/pinned compiler environment/i);
   });
 
   it("has a stable golden digest for the supported formulas-v2 fixture", async () => {
     const bundle = await compileGasCityExecutionBundle(input(), preview());
-    expect(bundle.digest).toBe("336b529f6caf62577e8530543f6855f6597d50fe8ff578597cde8d01b2754f8d");
+    expect(bundle.digest).toBe("68051016855cedb4afbfaf5af3ca9967c5aedd9bff49e230ee5bf617f212459e");
     expect(Buffer.from(bundle.bytes).toString().endsWith("\n")).toBe(true);
   });
 });
