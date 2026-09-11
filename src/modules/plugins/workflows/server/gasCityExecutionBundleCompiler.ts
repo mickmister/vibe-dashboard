@@ -11,6 +11,10 @@ import {
   type WorkflowRuntimeSnapshot,
 } from "@vibe-dashboard/workflow-core";
 import { generateGasCityPackFromWorkflow } from "./gasCityPackGenerator";
+import {
+  isVerifiedPinnedGasCityAdapter,
+  type PinnedGasCityFormulaCompilerAdapter,
+} from "./pinnedGasCityFormulaCompilerAdapter";
 
 export const VD_EXECUTION_BUNDLE_SCHEMA = "vd.execution-bundle.v1" as const;
 export const VD_FORMULA_COMPILER_REQUIREMENT = ">=2.0.0" as const;
@@ -61,25 +65,6 @@ export interface GasCityExecutionBundleCompileInput {
   capabilities: string[];
 }
 
-export interface GasCityCompiledPreview {
-  identity: {
-    provider: "pinned_gas_city_formula_compiler";
-    gasCityVersion: typeof VD_GAS_CITY_VERSION;
-    beadsVersion: typeof VD_BEADS_VERSION;
-    formulaCompiler: typeof VD_FORMULA_COMPILER_REQUIREMENT;
-  };
-  formulaSha256: string;
-  compiledArtifactSha256: string;
-}
-
-export interface GasCityFormulaPreviewProvider {
-  readonly identity: GasCityCompiledPreview["identity"];
-  compileFormula(input: {
-    formulaBytes: Uint8Array;
-    semanticArtifactBytes: Uint8Array;
-  }): Promise<GasCityCompiledPreview>;
-}
-
 export interface CompiledGasCityExecutionBundle {
   schemaVersion: typeof VD_EXECUTION_BUNDLE_SCHEMA;
   digest: string;
@@ -96,7 +81,7 @@ export class GasCityExecutionBundleCompileError extends Error {
 
 export async function compileGasCityExecutionBundle(
   rawInput: GasCityExecutionBundleCompileInput | unknown,
-  previewProvider: GasCityFormulaPreviewProvider,
+  previewProvider: PinnedGasCityFormulaCompilerAdapter,
 ): Promise<CompiledGasCityExecutionBundle> {
   const input = validateCompileInput(rawInput);
   const model = normalizeWorkflowDefinitionV1(input.workflow.definition, { workflowId: input.workflow.designId });
@@ -106,15 +91,6 @@ export async function compileGasCityExecutionBundle(
   validateCapabilities(model, input);
 
   const canonicalDefinition = canonicalize(input.workflow.definition) as AgentWorkflowDefinitionV1;
-  const pack = generateGasCityPackFromWorkflow({
-    designId: input.workflow.designId,
-    designVersion: input.workflow.version,
-    definition: canonicalDefinition,
-  });
-  const formulaToml = pack.files.find((file) => file.kind === "formula.toml")?.contents;
-  if (!formulaToml || !formulaToml.includes(`[requires]\nformula_compiler = "${VD_FORMULA_COMPILER_REQUIREMENT}"`)) {
-    fail("Generated formula does not declare the pinned formula compiler requirement.");
-  }
   const intendedGraph = buildIntendedGraph(model);
   const responseSchemas = buildResponseSchemas(model);
   const semanticArtifact = canonicalize({
@@ -134,12 +110,18 @@ export async function compileGasCityExecutionBundle(
     compatibility: input.compatibility,
   });
   const semanticArtifactText = JSON.stringify(semanticArtifact);
-  validatePreviewProviderIdentity(previewProvider.identity);
-  const preview = await previewProvider.compileFormula({
-    formulaBytes: new TextEncoder().encode(formulaToml),
-    semanticArtifactBytes: new TextEncoder().encode(semanticArtifactText),
-  });
-  validatePreview(preview, formulaToml, semanticArtifactText);
+  const pack = generateGasCityPackFromWorkflow({ designId: input.workflow.designId, designVersion: input.workflow.version, definition: canonicalDefinition });
+  const generatedFormula = pack.files.find((file) => file.kind === "formula.toml")?.contents;
+  if (!generatedFormula || !generatedFormula.includes(`[requires]\nformula_compiler = "${VD_FORMULA_COMPILER_REQUIREMENT}"`)) fail("Generated formula does not declare the pinned formula compiler requirement.");
+  const formulaToml = embedExecutionSemantics(generatedFormula, semanticArtifactText);
+  if (!isVerifiedPinnedGasCityAdapter(previewProvider)) fail("A verified packaged Gas City compiler adapter is required.");
+  let preview: Awaited<ReturnType<PinnedGasCityFormulaCompilerAdapter["compileFormula"]>>;
+  try {
+    preview = await previewProvider.compileFormula(new TextEncoder().encode(formulaToml));
+  } catch {
+    fail("Pinned Gas City compiler validation failed.");
+  }
+  validatePreview(preview, formulaToml, semanticArtifact, intendedGraph, model);
 
   const document = canonicalize({
     schemaVersion: VD_EXECUTION_BUNDLE_SCHEMA,
@@ -159,7 +141,7 @@ export async function compileGasCityExecutionBundle(
       retry: input.retry,
       limits: input.limits,
     },
-    compatibility: input.compatibility,
+    compatibility: { ...input.compatibility, pinnedCompiler: preview.policy, compilerOutputSha256: preview.outputSha256 },
     capabilities: [...new Set(input.capabilities)].sort(),
     responseSchemas,
     formula: { requirement: input.compatibility.formulaCompiler, contents: formulaToml, intendedGraph },
@@ -329,16 +311,28 @@ function buildIntendedGraph(model: NormalizedAgentWorkflowModel): IntendedNode[]
   return nodes;
 }
 
-function validatePreviewProviderIdentity(identity: GasCityCompiledPreview["identity"]): void {
-  exactObject(identity, ["provider", "gasCityVersion", "beadsVersion", "formulaCompiler"], "preview provider identity");
-  if (identity.provider !== "pinned_gas_city_formula_compiler" || identity.gasCityVersion !== VD_GAS_CITY_VERSION || identity.beadsVersion !== VD_BEADS_VERSION || identity.formulaCompiler !== VD_FORMULA_COMPILER_REQUIREMENT) fail("Preview provider is not bound to the pinned compiler environment.");
+function validatePreview(
+  preview: Awaited<ReturnType<PinnedGasCityFormulaCompilerAdapter["compileFormula"]>>,
+  formulaToml: string,
+  semanticArtifact: unknown,
+  intendedGraph: IntendedNode[],
+  model: NormalizedAgentWorkflowModel,
+): void {
+  if (preview.formulaSha256 !== sha256(formulaToml)) fail("Pinned compiler preview is not bound to the exact emitted formula bytes.");
+  if (JSON.stringify(canonicalize(preview.canonicalOutput.semantics)) !== JSON.stringify(semanticArtifact)) fail("Pinned Gas City output does not preserve the complete execution semantics.");
+  const expectedNodes = intendedGraph.map(({ id, stateId, role, needs, route }) => {
+    const action = route as { id: string; label?: string; targetState: string };
+    return { id, role, needs, type: "task", stateId, roleId: (model.states[stateId] as { owner: string }).owner, actions: [{ id: action.id, label: action.label ?? labelFromId(action.id), targetState: action.targetState }] };
+  }).sort((a, b) => a.id.localeCompare(b.id));
+  if (JSON.stringify(canonicalize(preview.canonicalOutput.nodes)) !== JSON.stringify(canonicalize(expectedNodes))) fail("Pinned Gas City output graph differs from VD intent.");
+  const expectedVars = Object.entries(model.inputs).map(([name, spec]) => ({ name, type: spec.type, required: spec.required === true })).sort((a, b) => a.name.localeCompare(b.name));
+  if (JSON.stringify(canonicalize(preview.canonicalOutput.vars)) !== JSON.stringify(canonicalize(expectedVars))) fail("Pinned Gas City output inputs differ from VD intent.");
 }
 
-function validatePreview(preview: GasCityCompiledPreview, formulaToml: string, semanticArtifact: string): void {
-  exactObject(preview, ["identity", "formulaSha256", "compiledArtifactSha256"], "compiled preview");
-  validatePreviewProviderIdentity(preview.identity);
-  if (preview.formulaSha256 !== sha256(formulaToml)) fail("Pinned compiler preview is not bound to the exact emitted formula bytes.");
-  if (preview.compiledArtifactSha256 !== sha256(semanticArtifact)) fail("Pinned compiler preview does not match the complete execution semantics.");
+function embedExecutionSemantics(formulaToml: string, semanticArtifact: string): string {
+  const marker = "\n[requires]\n";
+  if (!formulaToml.includes(marker)) fail("Generated formula is missing its compiler requirement.");
+  return formulaToml.replace(marker, `\n[metadata]\nvd_execution_semantics = ${JSON.stringify(semanticArtifact)}\n${marker}`);
 }
 
 function buildResponseSchemas(model: NormalizedAgentWorkflowModel): Array<{ stateId: string; stepId: string; xsd: string }> {
@@ -363,6 +357,7 @@ function assetOrder(a: { id: string; version: number }, b: { id: string; version
 function formulaNodeId(id: string): string { return `state-${slug(id).slice(0, 50) || "step"}`; }
 function formulaRoleId(id: string): string { return slug(id).slice(0, 120) || "worker"; }
 function slug(value: string): string { return value.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, ""); }
+function labelFromId(value: string): string { return value.split(/[-_.]+/u).filter(Boolean).map((part) => `${part[0]?.toUpperCase() ?? ""}${part.slice(1)}`).join(" ") || value; }
 function requiredId(value: unknown, label: string): asserts value is string { if (typeof value !== "string" || !/^[A-Za-z0-9][A-Za-z0-9_.:-]{0,127}$/.test(value)) fail(`Invalid ${label}.`); }
 function requiredHash(value: unknown): void { if (typeof value !== "string" || !/^[a-f0-9]{64}$/.test(value)) fail("Content hash must be a SHA-256 digest."); }
 function positiveInt(value: unknown, label: string, max: number): void { boundedInt(value, label, 1, max); }
