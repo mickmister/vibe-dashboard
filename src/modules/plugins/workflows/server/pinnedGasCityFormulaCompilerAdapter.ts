@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto";
 import { execFile } from "node:child_process";
-import { chmod, mkdir, mkdtemp, readFile, writeFile } from "node:fs/promises";
+import { chmod, mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { promisify } from "node:util";
@@ -21,6 +21,9 @@ export interface PinnedGasCityCompilerPolicy {
   beadsVersion: "1.2.2";
   compilerIdentity: "gas-city.formula-compiler.v2@1.4.1";
   invocationContract: "gc-formula-show-json.v1";
+  /** Test-only controls; rejected for production packaged adapters. */
+  testTemporaryRoot?: string;
+  testTimeoutMs?: number;
 }
 
 export interface CanonicalPinnedGasCityOutput {
@@ -30,9 +33,10 @@ export interface CanonicalPinnedGasCityOutput {
 }
 
 export interface PinnedGasCityCompilation {
-  policy: Omit<PinnedGasCityCompilerPolicy, "gasCityExecutable" | "beadsExecutable">;
+  policy: Omit<PinnedGasCityCompilerPolicy, "gasCityExecutable" | "beadsExecutable" | "testTemporaryRoot" | "testTimeoutMs">;
   formulaSha256: string;
-  outputSha256: string;
+  rawOutputSha256: string;
+  canonicalOutputSha256: string;
   canonicalOutput: CanonicalPinnedGasCityOutput;
 }
 
@@ -63,21 +67,26 @@ export class PinnedGasCityFormulaCompilerAdapter {
     const formulaText = new TextDecoder().decode(formulaBytes);
     const formulaName = /^formula\s*=\s*"([a-zA-Z0-9_.-]+)"$/m.exec(formulaText)?.[1];
     if (!formulaName) throw new Error("Generated formula name is invalid.");
-    const root = await mkdtemp(join(tmpdir(), "vd-gc-compiler-"));
-    await chmod(root, 0o700);
-    await writeFile(join(root, "city.toml"), '[workspace]\nname = "vd-compiler"\nprovider = "claude"\n\n[providers.claude]\nbase = "builtin:claude"\n\n[daemon]\nformula_v2 = true\n', { mode: 0o600 });
-    const formulas = join(root, "formulas");
-    // The process creates this fixed server-owned child directory; no caller path participates.
-    await mkdir(formulas, { mode: 0o700 });
-    await writeFile(join(formulas, `${formulaName}.toml`), formulaBytes, { mode: 0o600 });
-    const result = await invoke(this.policy.gasCityExecutable, ["formula", "show", formulaName, "--json"], root);
-    const parsed = parseCompilerOutput(result.stdout, formulaName);
-    return {
-      policy: stripPaths(this.policy),
-      formulaSha256: sha256(formulaBytes),
-        outputSha256: sha256(new TextEncoder().encode(JSON.stringify(parsed))),
-      canonicalOutput: parsed,
-    };
+    const root = await mkdtemp(join(this.policy.testTemporaryRoot ?? tmpdir(), "vd-gc-compiler-"));
+    try {
+      await chmod(root, 0o700);
+      await writeFile(join(root, "city.toml"), '[workspace]\nname = "vd-compiler"\nprovider = "claude"\n\n[providers.claude]\nbase = "builtin:claude"\n\n[daemon]\nformula_v2 = true\n', { mode: 0o600 });
+      const formulas = join(root, "formulas");
+      await mkdir(formulas, { mode: 0o700 });
+      await writeFile(join(formulas, `${formulaName}.toml`), formulaBytes, { mode: 0o600 });
+      const result = await invoke(this.policy.gasCityExecutable, ["formula", "show", formulaName, "--json"], root, this.policy.testTimeoutMs);
+      const rawOutput = new TextEncoder().encode(result.stdout);
+      const parsed = parseCompilerOutput(result.stdout, formulaName);
+      return {
+        policy: stripPaths(this.policy),
+        formulaSha256: sha256(formulaBytes),
+        rawOutputSha256: sha256(rawOutput),
+        canonicalOutputSha256: sha256(new TextEncoder().encode(JSON.stringify(parsed))),
+        canonicalOutput: parsed,
+      };
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
   }
 }
 
@@ -120,6 +129,7 @@ function validatePolicy(policy: PinnedGasCityCompilerPolicy): void {
   if (policy.mode === "hermetic_test") {
     if (process.env.NODE_ENV !== "test") throw new Error("Hermetic compiler fixtures are test-only.");
   } else {
+    if (policy.testTemporaryRoot !== undefined || policy.testTimeoutMs !== undefined) throw new Error("Test compiler controls are not allowed in production.");
     const gcRelease = new Map([
       ["8d8c8b511db3fc44931445aab5cb9f212509c0867105c880d6c3d0e6e5d33e42", "38950f1b763f413bd0d7462e9e09de28dff59b604dfa6a1f8521044d057522c4"],
       ["6620ef51c8ba620821e5ef8b208bb1b3de090fa86ec5e0327da1edd615407e29", "129af47a25e44fdb007ce3b597530edf96e02c2f4307c67b39819ab8c55d4139"],
@@ -133,8 +143,8 @@ function validatePolicy(policy: PinnedGasCityCompilerPolicy): void {
   if (!policy.gasCityBuild.trim()) throw new Error("Pinned Gas City build identity is required.");
 }
 async function verifyExecutable(path: string, expected: string): Promise<void> { const actual = sha256(await readFile(path)); if (actual !== expected) throw new Error("Packaged executable digest does not match compiler policy."); }
-async function invoke(file: string, args: string[], cwd?: string): Promise<{ stdout: string }> { const result = await execFileAsync(file, args, { cwd, encoding: "utf8", timeout: 15_000, maxBuffer: 4 * 1024 * 1024 }); return { stdout: result.stdout }; }
-function stripPaths(policy: PinnedGasCityCompilerPolicy): Omit<PinnedGasCityCompilerPolicy, "gasCityExecutable" | "beadsExecutable"> { const { gasCityExecutable: _gc, beadsExecutable: _bd, ...safe } = policy; return safe; }
+async function invoke(file: string, args: string[], cwd?: string, timeout = 15_000): Promise<{ stdout: string }> { const result = await execFileAsync(file, args, { cwd, encoding: "utf8", timeout, maxBuffer: 4 * 1024 * 1024 }); return { stdout: result.stdout }; }
+function stripPaths(policy: PinnedGasCityCompilerPolicy): PinnedGasCityCompilation["policy"] { const { gasCityExecutable: _gc, beadsExecutable: _bd, testTemporaryRoot: _root, testTimeoutMs: _timeout, ...safe } = policy; return safe; }
 function canonicalize(value: unknown): unknown { if (Array.isArray(value)) return value.map(canonicalize); if (value && typeof value === "object") return Object.fromEntries(Object.entries(value as Record<string, unknown>).sort(([a], [b]) => a.localeCompare(b)).map(([key, item]) => [key, canonicalize(item)])); return value; }
 function slug(value: string): string { return value.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, ""); }
 function sha256(value: Uint8Array): string { return createHash("sha256").update(value).digest("hex"); }

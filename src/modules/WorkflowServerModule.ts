@@ -32,11 +32,16 @@ import { registerPreviewResolverRoutes } from '../server/preview-resolver-routes
 import { workflowRegistry } from '../workflows/registry';
 import type { CachedRepoAlias } from '../workflows/github-ci';
 import { createBdWorkflowProviders } from './plugins/workflows/server/bdBeadWorkflowProvider';
+import { createProductionGasCityExecutionBundleCompiler } from './plugins/workflows/server/gasCityExecutionBundleCompilerComposition';
 
 const execFileAsync = promisify(execFile);
 const reposRoot = process.env.VK_REPOS_ROOT || join(process.env.HOME || '/home/vkuser', 'repos');
 const pluginInstallRoot = process.env.VD_PLUGIN_INSTALL_ROOT || join(process.cwd(), 'plugins');
 let cachedGitRepos: CachedRepoAlias[] | null = null;
+
+// Lazy verification keeps non-workflow server startup compatible while every
+// production bundle compilation fails closed without the packaged manifest.
+export const gasCityExecutionBundleCompiler = createProductionGasCityExecutionBundleCompiler();
 
 serverRegistry.registerServerModule((api) => {
   const workflowOrchestrationStore = new DbWorkflowOrchestrationStore({

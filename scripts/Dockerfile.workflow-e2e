@@ -46,6 +46,7 @@ RUN set -eux; \
   printf '%s  %s\n' "${beads_sha}" "/tmp/${beads_archive}" | sha256sum -c -; \
   tar -xzf "/tmp/${beads_archive}" -C /tmp; \
   install -m 0755 /tmp/bd /usr/local/bin/bd; \
+  beads_executable_sha="$(sha256sum /usr/local/bin/bd | awk '{print $1}')"; \
   ln -sf bd /usr/local/bin/beads; \
   rm -f "/tmp/${beads_archive}" /tmp/beads-checksums.txt /tmp/bd; \
   gascity_base_url="https://github.com/gastownhall/gascity/releases/download/${GASCITY_VERSION}"; \
@@ -57,6 +58,10 @@ RUN set -eux; \
   printf '%s  %s\n' "${gascity_sha}" "/tmp/${gascity_archive}" | sha256sum -c -; \
   tar -xzf "/tmp/${gascity_archive}" -C /tmp; \
   install -m 0755 /tmp/gc /usr/local/bin/gc; \
+  gascity_executable_sha="$(sha256sum /usr/local/bin/gc | awk '{print $1}')"; \
+  mkdir -p /usr/local/share/vd; \
+  printf '{"schemaVersion":"vd.gas-city-runtime.v1","gasCityExecutable":"/usr/local/bin/gc","gasCityExecutableSha256":"%s","gasCityArchiveSha256":"%s","gasCityVersion":"1.4.1","gasCityBuild":"58ef17e3bd685fd5cf7f21286277b208d3324590","beadsExecutable":"/usr/local/bin/bd","beadsExecutableSha256":"%s","beadsArchiveSha256":"%s","beadsVersion":"1.2.2","compilerIdentity":"gas-city.formula-compiler.v2@1.4.1","invocationContract":"gc-formula-show-json.v1"}\n' "${gascity_executable_sha}" "${gascity_sha}" "${beads_executable_sha}" "${beads_sha}" > /usr/local/share/vd/gas-city-runtime.json; \
+  chmod 0444 /usr/local/share/vd/gas-city-runtime.json; \
   rm -f "/tmp/${gascity_archive}" /tmp/gascity-checksums.txt /tmp/gc; \
   bd version | grep -F "${BEADS_VERSION#v}"; \
   gc version --json | grep -F "${GASCITY_VERSION#v}"
@@ -64,6 +69,7 @@ RUN set -eux; \
 ENV PATH="/usr/local/go/bin:/root/.cargo/bin:${PATH}"
 ENV RUSTUP_TOOLCHAIN=stable
 ENV VD_GAS_CITY_VERSION=${GASCITY_VERSION}
+ENV VD_GAS_CITY_RUNTIME_MANIFEST=/usr/local/share/vd/gas-city-runtime.json
 ENV VD_BEADS_VERSION=${BEADS_VERSION}
 ENV GC_HOME=/root/.gc
 ENV XDG_RUNTIME_DIR=/tmp/vibe-kanban/gc-runtime

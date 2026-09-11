@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import { chmod, mkdtemp, writeFile } from "node:fs/promises";
+import { chmod, mkdtemp, readdir, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { beforeAll, describe, expect, it } from "vitest";
@@ -14,6 +14,7 @@ import {
   type GasCityExecutionBundleCompileInput,
 } from "./gasCityExecutionBundleCompiler";
 import { PinnedGasCityFormulaCompilerAdapter } from "./pinnedGasCityFormulaCompilerAdapter";
+import { createProductionGasCityExecutionBundleCompiler } from "./gasCityExecutionBundleCompilerComposition";
 
 const response = {
   format: "xml" as const,
@@ -77,7 +78,7 @@ let adapter: PinnedGasCityFormulaCompilerAdapter;
 
 beforeAll(async () => { adapter = await fixtureAdapter("normal"); });
 
-async function fixtureAdapter(mode: "normal" | "tamper-semantics" | "tamper-graph" = "normal"): Promise<PinnedGasCityFormulaCompilerAdapter> {
+async function fixtureAdapter(mode: "normal" | "tamper-semantics" | "tamper-graph" | "process-failure" | "parse-failure" | "timeout" = "normal", testTemporaryRoot?: string): Promise<PinnedGasCityFormulaCompilerAdapter> {
   const root = await mkdtemp(join(tmpdir(), "vd-gc-fixture-"));
   const gc = join(root, "gc"); const bd = join(root, "bd");
   const gcSource = `#!/usr/bin/env node
@@ -85,6 +86,9 @@ const fs=require('fs'),crypto=require('crypto');
 const a=process.argv.slice(2);
 if(a[0]==='version'){console.log(JSON.stringify({version:'1.4.1',build:'fixture-build'}));process.exit(0)}
 if(a[0]==='formula'&&a[1]==='show'){
+ if('${mode}'==='process-failure') process.exit(9);
+ if('${mode}'==='parse-failure'){console.log('not-json');process.exit(0)}
+ if('${mode}'==='timeout') Atomics.wait(new Int32Array(new SharedArrayBuffer(4)),0,0,10000)
  const text=fs.readFileSync('formulas/'+a[2]+'.toml','utf8');
  const raw=/vd_execution_semantics = ("(?:[^"\\\\]|\\\\.)*")/.exec(text)[1]; let semantics=JSON.parse(raw);
  if('${mode}'==='tamper-semantics') semantics=JSON.stringify({...JSON.parse(semantics),capabilities:[]});
@@ -97,7 +101,7 @@ if(a[0]==='formula'&&a[1]==='show'){
 process.exit(2);`;
   const bdSource = "#!/usr/bin/env node\nif(process.argv[2]==='version'){console.log('bd version 1.2.2');process.exit(0)}process.exit(2);\n";
   await writeFile(gc, gcSource); await writeFile(bd, bdSource); await chmod(gc, 0o700); await chmod(bd, 0o700);
-  return PinnedGasCityFormulaCompilerAdapter.create({ mode: "hermetic_test", gasCityExecutable: gc, gasCityExecutableSha256: hash(gcSource), gasCityArchiveSha256: hash("fixture-archive"), gasCityVersion: "1.4.1", gasCityBuild: "fixture-build", beadsExecutable: bd, beadsExecutableSha256: hash(bdSource), beadsArchiveSha256: hash("fixture-beads-archive"), beadsVersion: "1.2.2", compilerIdentity: "gas-city.formula-compiler.v2@1.4.1", invocationContract: "gc-formula-show-json.v1" });
+  return PinnedGasCityFormulaCompilerAdapter.create({ mode: "hermetic_test", gasCityExecutable: gc, gasCityExecutableSha256: hash(gcSource), gasCityArchiveSha256: hash("fixture-archive"), gasCityVersion: "1.4.1", gasCityBuild: "fixture-build", beadsExecutable: bd, beadsExecutableSha256: hash(bdSource), beadsArchiveSha256: hash("fixture-beads-archive"), beadsVersion: "1.2.2", compilerIdentity: "gas-city.formula-compiler.v2@1.4.1", invocationContract: "gc-formula-show-json.v1", testTemporaryRoot, testTimeoutMs: mode === "timeout" ? 20 : undefined });
 }
 
 describe("compileGasCityExecutionBundle", () => {
@@ -112,6 +116,11 @@ describe("compileGasCityExecutionBundle", () => {
 
     expect(Buffer.from(first.bytes).toString()).toEqual(Buffer.from(second.bytes).toString());
     expect(first.digest).toEqual(second.digest);
+    const evidence = first.verificationEvidence;
+    expect(evidence.rawCompilerOutputSha256).toMatch(/^[a-f0-9]{64}$/);
+    expect(evidence.canonicalCompilerOutputSha256).toMatch(/^[a-f0-9]{64}$/);
+    expect(evidence.attestationSha256).toMatch(/^[a-f0-9]{64}$/);
+    expect(evidence.rawCompilerOutputSha256).not.toBe(evidence.canonicalCompilerOutputSha256);
     const text = Buffer.from(first.bytes).toString();
     expect(text).toContain('"schemaVersion":"vd.execution-bundle.v1"');
     expect(text).toContain('formula_compiler = \\\">=2.0.0\\\"');
@@ -295,17 +304,27 @@ describe("compileGasCityExecutionBundle", () => {
     await expect(PinnedGasCityFormulaCompilerAdapter.create({ mode: "production_packaged", gasCityExecutable: gc, gasCityExecutableSha256: hash("#!/bin/sh\necho changed\n"), gasCityArchiveSha256: hash("changed-archive"), gasCityVersion: "1.4.1", gasCityBuild: "build", beadsExecutable: bd, beadsExecutableSha256: hash("#!/bin/sh\necho 'bd version 1.2.2'\n"), beadsArchiveSha256: hash("changed-beads-archive"), beadsVersion: "1.2.2", compilerIdentity: "gas-city.formula-compiler.v2@1.4.1", invocationContract: "gc-formula-show-json.v1" })).rejects.toThrow(/release allowlist/i);
   });
 
+  it.each(["normal", "process-failure", "parse-failure", "timeout", "tamper-semantics"] as const)("removes private compiler files after %s", async (mode) => {
+    const parent = await mkdtemp(join(tmpdir(), "vd-gc-cleanup-test-"));
+    const testAdapter = await fixtureAdapter(mode, parent);
+    if (mode === "normal") await compileGasCityExecutionBundle(input(), testAdapter);
+    else await expect(compileGasCityExecutionBundle(input(), testAdapter)).rejects.toThrow();
+    expect(await readdir(parent)).toEqual([]);
+  });
+
   it("has a stable golden digest for the supported formulas-v2 fixture", async () => {
     const bundle = await compileGasCityExecutionBundle(input(), adapter);
-    expect(bundle.digest).toBe("0cb8b8aea6285d4f35aeb9db7a18336dfa1489a4ed929b4db3a4b10cc9933100");
+    expect(bundle.digest).toBe("e5f5bb77712622837fe888261e40a50f62d3f36efb60bf4a6a135a67af7c5292");
     expect(Buffer.from(bundle.bytes).toString().endsWith("\n")).toBe(true);
   });
 });
 
 const realCompilerConfigured = Boolean(process.env.VD_PINNED_GC_SHA256 && process.env.VD_PINNED_BD_SHA256 && process.env.VD_PINNED_GC_ARCHIVE_SHA256 && process.env.VD_PINNED_BD_ARCHIVE_SHA256);
+const realCompilerRequired = process.env.VD_REQUIRE_PACKAGED_GC_COMPILER_TEST === "1";
 
 describe("packaged Gas City compiler integration", () => {
-  it.skipIf(!realCompilerConfigured)("executes and verifies the actual pinned packaged compiler", async () => {
+  it.skipIf(!realCompilerConfigured && !realCompilerRequired)("executes and verifies the actual pinned packaged compiler", async () => {
+    if (!realCompilerConfigured) throw new Error("Required packaged compiler evidence was not provided.");
     const realAdapter = await PinnedGasCityFormulaCompilerAdapter.create({
       mode: "production_packaged",
       gasCityExecutable: process.env.VD_PINNED_GC_BIN ?? "/usr/local/bin/gc",
@@ -320,6 +339,11 @@ describe("packaged Gas City compiler integration", () => {
       compilerIdentity: "gas-city.formula-compiler.v2@1.4.1",
       invocationContract: "gc-formula-show-json.v1",
     });
-    await expect(compileGasCityExecutionBundle(input(), realAdapter)).resolves.toMatchObject({ schemaVersion: "vd.execution-bundle.v1" });
+    const first = await compileGasCityExecutionBundle(input(), realAdapter);
+    const second = await compileGasCityExecutionBundle(input(), realAdapter);
+    expect(Buffer.from(first.bytes)).toEqual(Buffer.from(second.bytes));
+    const manifest = process.env.VD_GAS_CITY_RUNTIME_MANIFEST;
+    if (process.env.VD_REQUIRE_PACKAGED_GC_COMPILER_TEST === "1" && !manifest) throw new Error("Required packaged compiler manifest was not provided.");
+    if (manifest) await expect(createProductionGasCityExecutionBundleCompiler(manifest).compile(input())).resolves.toMatchObject({ schemaVersion: "vd.execution-bundle.v1" });
   });
 });

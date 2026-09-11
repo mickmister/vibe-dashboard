@@ -70,6 +70,12 @@ export interface CompiledGasCityExecutionBundle {
   digest: string;
   bytes: Uint8Array;
   document: Readonly<Record<string, unknown>>;
+  verificationEvidence: Readonly<{
+    formulaSha256: string;
+    rawCompilerOutputSha256: string;
+    canonicalCompilerOutputSha256: string;
+    attestationSha256: string;
+  }>;
 }
 
 export class GasCityExecutionBundleCompileError extends Error {
@@ -141,7 +147,11 @@ export async function compileGasCityExecutionBundle(
       retry: input.retry,
       limits: input.limits,
     },
-    compatibility: { ...input.compatibility, pinnedCompiler: preview.policy, compilerOutputSha256: preview.outputSha256 },
+    compatibility: {
+      ...input.compatibility,
+      pinnedCompiler: preview.policy,
+      compilerCanonicalOutputSha256: preview.canonicalOutputSha256,
+    },
     capabilities: [...new Set(input.capabilities)].sort(),
     responseSchemas,
     formula: { requirement: input.compatibility.formulaCompiler, contents: formulaToml, intendedGraph },
@@ -152,6 +162,17 @@ export async function compileGasCityExecutionBundle(
     digest: sha256(encoded),
     bytes: new TextEncoder().encode(encoded),
     document: Object.freeze(document),
+    verificationEvidence: Object.freeze({
+      formulaSha256: preview.formulaSha256,
+      rawCompilerOutputSha256: preview.rawOutputSha256,
+      canonicalCompilerOutputSha256: preview.canonicalOutputSha256,
+      attestationSha256: hashCanonical({
+        formulaSha256: preview.formulaSha256,
+        rawCompilerOutputSha256: preview.rawOutputSha256,
+        canonicalCompilerOutputSha256: preview.canonicalOutputSha256,
+        policy: preview.policy,
+      }),
+    }),
   };
 }
 

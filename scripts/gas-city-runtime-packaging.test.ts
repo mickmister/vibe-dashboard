@@ -7,6 +7,7 @@ describe('Gas City runtime packaging GCW-9', () => {
   const workflowDockerfile = readFileSync(resolve('scripts/Dockerfile.workflow-e2e'), 'utf8');
   const workflowHarness = readFileSync(resolve('scripts/workflow-e2e-docker-playwright.sh'), 'utf8');
   const runtimeSmoke = readFileSync(resolve('scripts/smoke-gas-city-runtime.sh'), 'utf8');
+  const compilerGate = readFileSync(resolve('scripts/verify-pinned-gas-city-compiler.sh'), 'utf8');
   const provider = readFileSync(resolve('src/modules/plugins/workflows/server/gasCityCliWorkflowProvider.ts'), 'utf8');
   const adr = readFileSync(resolve('docs/adr/0002-gas-city-backed-vd-workflows.md'), 'utf8');
 
@@ -19,6 +20,9 @@ describe('Gas City runtime packaging GCW-9', () => {
       expect(contents).toContain('github.com/gastownhall/beads/releases/download/${BEADS_VERSION}');
       expect(contents).toContain('checksums.txt');
       expect(contents).toContain('gc version --json | grep -F "${GASCITY_VERSION#v}"');
+      expect(contents).toContain('gas-city-runtime.json');
+      expect(contents).toContain('gasCityExecutableSha256');
+      expect(contents).toContain('gasCityArchiveSha256');
       expect(contents).toContain('bd version | grep -F "${BEADS_VERSION#v}"');
     }
     expect(provider).toContain('DEFAULT_PINNED_GAS_CITY_VERSION = "1.4.1"');
@@ -37,9 +41,13 @@ describe('Gas City runtime packaging GCW-9', () => {
 
   it('keeps Docker workflow E2E on the same pinned runtime tools', () => {
     expect(workflowHarness).toContain('run_with_log gas-city-runtime-smoke bash scripts/smoke-gas-city-runtime.sh --skip-bridge');
+    expect(workflowHarness).toContain('run_with_log pinned-gas-city-compiler bash scripts/verify-pinned-gas-city-compiler.sh');
     expect(workflowDockerfile).toContain('ENV VD_GAS_CITY_VERSION=${GASCITY_VERSION}');
     expect(workflowDockerfile).toContain('ENV VD_BEADS_VERSION=${BEADS_VERSION}');
     expect(workflowDockerfile).toContain('ENV GC_HOME=/root/.gc');
     expect(workflowDockerfile).toContain('ENV XDG_RUNTIME_DIR=/tmp/vibe-kanban/gc-runtime');
+    expect(compilerGate).toContain('VD_REQUIRE_PACKAGED_GC_COMPILER_TEST=1');
+    expect(compilerGate).toContain('hash(m[pathKey]) !== m[hashKey]');
+    expect(compilerGate).toContain('executes and verifies the actual pinned packaged compiler');
   });
 });
