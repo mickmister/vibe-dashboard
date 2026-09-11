@@ -89,6 +89,7 @@ import {
   type WorkflowWebhookWakeup,
 } from "./workflow-webhook-inbox";
 import type { WorkflowPlanLaunchService, WorkflowPlanPrincipal, WorkflowPlanRequest } from "../modules/plugins/workflows/server/workflowPlanLaunchService";
+import type { WorkflowPlanAuthService } from "../modules/plugins/workflows/server/workflowPlanAuthorization";
 
 export interface RegisterWorkflowRoutesOptions {
   registry: WorkflowRegistry;
@@ -141,6 +142,7 @@ export interface RegisterWorkflowRoutesOptions {
   repoAliasCache?: RepoAliasCache;
   workflowPlanLaunchService?: Pick<WorkflowPlanLaunchService, "plan" | "launch">;
   authorizeWorkflowPlan?: (request: Request, plan: WorkflowPlanRequest) => Promise<WorkflowPlanPrincipal>;
+  workflowPlanAuthService?: Pick<WorkflowPlanAuthService, "issueBrowserSession" | "authenticate">;
 }
 
 export interface RepoAliasCache {
@@ -153,6 +155,14 @@ export function registerWorkflowRoutes(
   hono: Hono,
   options: RegisterWorkflowRoutesOptions,
 ): void {
+  hono.post("/dashboard/api/workflows/plan/auth/session", (c) => {
+    try {
+      if (!options.workflowPlanAuthService) throw new Error("Workflow browser authorization is unavailable.");
+      const session = options.workflowPlanAuthService.issueBrowserSession(c.req.raw);
+      c.header("Set-Cookie", session.cookie);
+      return c.json({ csrfToken: session.csrfToken, expiresAt: session.expiresAt });
+    } catch (error) { return c.json({ error: "workflow_plan_auth_failed", message: safeWorkflowRouteMessage(error) }, 403); }
+  });
   hono.post("/dashboard/api/workflows/plan", async (c) => {
     if (!options.workflowPlanLaunchService) return c.json({ error: "workflow_plan_unavailable", message: "Workflow planning is not available." }, 503);
     try {
@@ -3571,7 +3581,7 @@ function parsePlanCompletionResponse(value: unknown): WorkflowPlanRequest["compl
 }
 
 async function requireWorkflowPlanPrincipal(options: RegisterWorkflowRoutesOptions, request: Request, plan: WorkflowPlanRequest): Promise<WorkflowPlanPrincipal> {
-  if (request.headers.get("x-vd-workflow-csrf") !== "workflow-plan-v1") throw new Error("Workflow request authorization is required.");
+  if (options.workflowPlanAuthService) return options.workflowPlanAuthService.authenticate(request, plan);
   if (!options.authorizeWorkflowPlan) throw new Error("Workflow request authorization is unavailable.");
   return options.authorizeWorkflowPlan(request, plan);
 }

@@ -62,6 +62,7 @@ describe('VD database', () => {
         '20260912050000_workflow_work_area_registry_adoption_audit',
         '20260912060000_workflow_work_area_adoption_capability',
         '20260912070000_workflow_issued_plans',
+        '20260912080000_harden_workflow_plan_launch',
       ]);
       const tables = await sql<{ name: string }>`
         SELECT name FROM sqlite_master

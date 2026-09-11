@@ -3,7 +3,7 @@ import type { GasCityExecutionBundleCompileInput, CompiledGasCityExecutionBundle
 import type { DbWorkflowPlanStore } from "./workflowPlanStore";
 
 export interface WorkflowPlanPrincipal { principalId: string; workspaceId: string; callerSessionId?: string | null }
-export interface WorkflowRoleBinding { mode?: "existing" | "create" | "create_or_reuse"; sessionId?: string; name?: string; executorType?: string; model?: string; reasoningId?: string }
+export interface WorkflowRoleBinding { mode: "existing" | "create" | "create_or_reuse"; sessionId?: string; name?: string; executorType?: string; model?: string; reasoningId?: string }
 
 export interface WorkflowPlanRequest {
   workspaceId: string;
@@ -49,7 +49,7 @@ export interface WorkflowBundleCompiler {
 export interface WorkflowNativeLaunchProvider {
   checkDynamic(plan: WorkflowPlan): Promise<{ ready: boolean; message?: string }>;
   launch(input: { request: WorkflowPlanRequest; plan: WorkflowPlan; bundle: CompiledGasCityExecutionBundle; idempotencyKey: string }): Promise<{ runId: string; status: string; url: string; reused?: boolean }>;
-  reconcile?(idempotencyKey: string): Promise<{ runId: string; status: string; url: string; reused?: boolean } | null>;
+  reconcile(idempotencyKey: string): Promise<{ outcome: "found"; run: { runId: string; status: string; url: string; reused?: boolean } } | { outcome: "not_found" | "unknown" }>;
 }
 
 export class WorkflowPlanLaunchService {
@@ -80,18 +80,26 @@ export class WorkflowPlanLaunchService {
     const dynamic = await this.options.launcher.checkDynamic(current);
     if (!dynamic.ready) return { status: "waiting", plan: current, message: safe(dynamic.message || "Work is waiting for available capacity.") };
     const idempotencyKey = hash({ digest: confirmedDigest, workspaceId: request.workspaceId, designId: request.designId });
-    const claim = await this.options.store.claimLaunch(issued.planId, idempotencyKey, hash(request));
+    let claim = await this.options.store.claimLaunch(issued.planId, idempotencyKey, hash(request));
     if (claim.state === "launched") return { status: "reused", plan: current, run: safeRun(claim.result) };
     if (claim.state === "pending") return { status: "waiting", plan: current, message: "This plan is already starting." };
-    try {
-      const recovered = await this.options.launcher.reconcile?.(idempotencyKey);
-      const run = recovered ?? await this.options.launcher.launch({ request: clone(request), plan: current, bundle, idempotencyKey });
-      await this.options.store.complete(issued.planId, idempotencyKey, claim.fence, run);
-      return { status: run.reused || recovered ? "reused" : "launched", plan: current, run: safeRun(run) };
-    } catch (error) {
-      await this.options.store.fail(idempotencyKey, claim.fence);
-      throw error;
+    if (claim.state === "reconcile_required") {
+      const reconciliation = await this.options.launcher.reconcile(idempotencyKey);
+      if (reconciliation.outcome === "unknown") return { status: "waiting", plan: current, message: "The earlier start outcome cannot be confirmed. No replacement work was started." };
+      claim = await this.options.store.claimLaunch(issued.planId, idempotencyKey, hash(request), reconciliation.outcome);
+      if (claim.state !== "claimed") return { status: "waiting", plan: current, message: "This plan is already being reconciled." };
+      if (reconciliation.outcome === "found") {
+        await this.options.store.complete(issued.planId, idempotencyKey, claim.fence, reconciliation.run);
+        return { status: "reused", plan: current, run: safeRun(reconciliation.run) };
+      }
     }
+    if (claim.state !== "claimed") return { status: "waiting", plan: current, message: "This plan is already starting." };
+    // An exception can occur after the provider performed its durable effect.
+    // Keep the claim pending so expiry always requires provider reconciliation;
+    // only an explicit, proven pre-effect failure may transition to failed.
+    const run = await this.options.launcher.launch({ request: clone(request), plan: current, bundle, idempotencyKey });
+    await this.options.store.complete(issued.planId, idempotencyKey, claim.fence, run);
+    return { status: run.reused ? "reused" : "launched", plan: current, run: safeRun(run) };
   }
 
   private now(): number { return (this.options.now ?? Date.now)(); }
@@ -128,8 +136,9 @@ function validateRequest(value: WorkflowPlanRequest): void {
     if (!/^[A-Za-z_][A-Za-z0-9_.-]*$/.test(roleId) || !binding || typeof binding !== "object" || Array.isArray(binding)) throw new Error("A role setting is invalid.");
     for (const key of Object.keys(binding)) if (!["mode", "sessionId", "name", "executorType", "model", "reasoningId"].includes(key)) throw new Error("A role setting is not supported.");
     for (const field of Object.values(binding)) if (field !== undefined && (typeof field !== "string" || !field.trim())) throw new Error("A role setting is invalid.");
-    if (binding.mode === "existing" && !binding.sessionId) throw new Error("An existing role session is required.");
-    if ((binding.mode === "create" || binding.mode === "create_or_reuse") && !binding.name) throw new Error("A role session name is required.");
+    if (!["existing", "create", "create_or_reuse"].includes(binding.mode)) throw new Error("A role session mode is required.");
+    if (binding.mode === "existing" && (!binding.sessionId || binding.name)) throw new Error("An existing role requires only a session id.");
+    if ((binding.mode === "create" || binding.mode === "create_or_reuse") && (!binding.name || binding.sessionId)) throw new Error("A new role requires only a session name.");
   }
   if (value.completionResponse && (!value.completionResponse.sessionId?.trim() || value.completionResponse.source !== "vibe-agent-cli")) throw new Error("Completion response settings are invalid.");
 }

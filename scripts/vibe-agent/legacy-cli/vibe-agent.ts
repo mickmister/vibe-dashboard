@@ -3310,7 +3310,7 @@ async function dashboardRequest(pathname: string, init: RequestInit = {}): Promi
   const url = `${base}${pathname}`;
   const response = await fetch(url, {
     ...init,
-    headers: { Accept: 'application/json', 'Content-Type': 'application/json', 'X-VD-Workflow-CSRF': 'workflow-plan-v1', 'X-VD-Workflow-Client': 'vibe-agent', ...init.headers },
+    headers: { Accept: 'application/json', 'Content-Type': 'application/json', ...(process.env.VK_WORKFLOW_SESSION_CAPABILITY ? { 'X-VK-Workflow-Session-Capability': process.env.VK_WORKFLOW_SESSION_CAPABILITY } : {}), ...init.headers },
   });
   const text = await response.text();
   let parsed: unknown = null;

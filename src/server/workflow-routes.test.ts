@@ -23,6 +23,7 @@ import { BUILT_IN_WORKFLOW_TEMPLATES } from "../modules/plugins/workflows/templa
 import { PersistedWorkflowRuntimeService } from "../modules/plugins/workflows/server/persistedWorkflowRuntime";
 import { validateWorkflowGraph } from "../modules/plugins/workflows/components/graph/workflowGraphModel";
 import type { Session } from "./vk-client";
+import { WorkflowPlanAuthService } from "../modules/plugins/workflows/server/workflowPlanAuthorization";
 
 describe("registerWorkflowRoutes", () => {
   const dbHandles: VdDbHandle[] = [];
@@ -64,8 +65,22 @@ describe("registerWorkflowRoutes", () => {
     const launchResponse = await app.request("/dashboard/api/workflows/plan/launch", { method: "POST", headers: { "content-type": "application/json", "x-vd-workflow-csrf": "workflow-plan-v1" }, body: JSON.stringify({ request, planDigest: "a".repeat(64) }) });
     expect(launchResponse.status).toBe(201); expect(service.launch).toHaveBeenCalledWith(expect.objectContaining({ workspaceId: "workspace-a" }), "a".repeat(64), expect.objectContaining({ principalId: "user-a" }));
 
-    const csrfFailure = await app.request("/dashboard/api/workflows/plan", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(request) });
-    expect(csrfFailure.status).toBe(400);
+  });
+
+  it("issues a bound browser session and rejects forged or cross-session CSRF", async () => {
+    const auth = new WorkflowPlanAuthService({ kernelLoopback: (request) => request.headers.get("x-test-loopback") === "yes", now: () => 1_000 });
+    const service = { plan: vi.fn(async (_request, principal) => ({ digest: "a".repeat(64), principal: principal.principalId })), launch: vi.fn() } as any;
+    const app = new Hono(); registerWorkflowRoutes(app, { registry: createWorkflowRegistry(), workflowPlanLaunchService: service, workflowPlanAuthService: auth });
+    const denied = await app.request("http://localhost/dashboard/api/workflows/plan/auth/session", { method: "POST" });
+    expect(denied.status).toBe(403);
+    const issued = await app.request("http://localhost/dashboard/api/workflows/plan/auth/session", { method: "POST", headers: { "x-test-loopback": "yes", origin: "https://localhost" } });
+    const token = (await issued.json()).csrfToken; const cookie = issued.headers.get("set-cookie")!;
+    const body = JSON.stringify({ workspaceId: "ws", designId: "d", inputs: {}, roleBindings: {}, beadIds: [] });
+    expect((await app.request("http://localhost/dashboard/api/workflows/plan", { method: "POST", headers: { cookie, origin: "http://localhost", "sec-fetch-site": "same-origin", "x-vd-workflow-csrf": token, "content-type": "application/json" }, body })).status).toBe(200);
+    expect((await app.request("http://localhost/dashboard/api/workflows/plan", { method: "POST", headers: { cookie, origin: "http://localhost", "x-vd-workflow-csrf": "forged", "content-type": "application/json" }, body })).status).toBe(400);
+    const second = await app.request("http://localhost/dashboard/api/workflows/plan/auth/session", { method: "POST", headers: { "x-test-loopback": "yes", origin: "https://localhost" } });
+    const secondToken = (await second.json()).csrfToken;
+    expect((await app.request("http://localhost/dashboard/api/workflows/plan", { method: "POST", headers: { cookie, origin: "http://localhost", "x-vd-workflow-csrf": secondToken, "content-type": "application/json" }, body })).status).toBe(400);
   });
 
   it("TEST_CASE_M120A_1A exposes lane overview and creation without raw host paths", async () => {

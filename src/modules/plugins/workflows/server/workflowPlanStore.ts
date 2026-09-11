@@ -47,16 +47,17 @@ export class DbWorkflowPlanStore {
     return row;
   }
 
+  /** Server-maintenance primitive only. No user/browser revocation operation is exposed in this slice. */
   async revoke(planId: string, principalId: string): Promise<void> {
     const db = await this.options.getDb(); const now = this.now();
     const updated = await db.updateTable("WorkflowIssuedPlan").set({ status: "revoked", updatedAt: now }).where("planId", "=", planId).where("principalId", "=", principalId).where("status", "=", "issued").executeTakeFirst();
     if (Number(updated.numUpdatedRows) === 1) await db.insertInto("WorkflowPlanAuditEvent").values({ auditId: randomUUID(), planId, principalId, action: "revoked", summary: "Plan revoked.", createdAt: now }).execute();
   }
 
-  async claimLaunch(planId: string, operationKey: string, requestDigest: string): Promise<{ state: "claimed"; fence: number } | { state: "launched"; result: any } | { state: "pending" }> {
+  async claimLaunch(planId: string, operationKey: string, requestDigest: string, staleOutcome?: "not_found" | "found"): Promise<{ state: "claimed"; fence: number } | { state: "launched"; result: any } | { state: "pending" | "reconcile_required" }> {
     const db = await this.options.getDb(); const now = this.now(); const owner = this.options.ownerId ?? "workflow-plan-service"; const until = now + (this.options.leaseMs ?? 30_000);
     return db.transaction().execute(async (trx) => {
-      const inserted = await trx.insertInto("WorkflowPlanLaunchEffect").values({ operationKey, planId, requestDigest, status: "pending", leaseOwner: owner, leaseExpiresAt: until, fence: 1, resultJson: null, createdAt: now, updatedAt: now }).onConflict((conflict) => conflict.column("operationKey").doNothing()).executeTakeFirst();
+      const inserted = await trx.insertInto("WorkflowPlanLaunchEffect").values({ operationKey, planId, requestDigest, status: "pending", leaseOwner: owner, leaseExpiresAt: until, fence: 1, resultJson: null, attempts: 1, lastError: null, createdAt: now, updatedAt: now }).onConflict((conflict) => conflict.column("operationKey").doNothing()).executeTakeFirst();
       if (Number(inserted.numInsertedOrUpdatedRows ?? 0) === 1) {
         return { state: "claimed", fence: 1 } as const;
       }
@@ -64,8 +65,10 @@ export class DbWorkflowPlanStore {
       if (existing.planId !== planId || existing.requestDigest !== requestDigest) throw new WorkflowPlanConflictError("The start request conflicts with an earlier request.");
       if (existing.status === "launched" && existing.resultJson) return { state: "launched", result: JSON.parse(existing.resultJson) } as const;
       if ((existing.leaseExpiresAt ?? 0) > now) return { state: "pending" } as const;
+      if (existing.status === "pending" && !staleOutcome) return { state: "reconcile_required" } as const;
       const fence = existing.fence + 1;
-      await trx.updateTable("WorkflowPlanLaunchEffect").set({ leaseOwner: owner, leaseExpiresAt: until, fence, updatedAt: now }).where("operationKey", "=", operationKey).where("fence", "=", existing.fence).executeTakeFirstOrThrow();
+      const updated = await trx.updateTable("WorkflowPlanLaunchEffect").set({ status: "pending", leaseOwner: owner, leaseExpiresAt: until, fence, attempts: existing.attempts + 1, lastError: null, updatedAt: now }).where("operationKey", "=", operationKey).where("fence", "=", existing.fence).where("status", "=", existing.status).executeTakeFirst();
+      if (Number(updated.numUpdatedRows) !== 1) return { state: "pending" } as const;
       return { state: "claimed", fence } as const;
     });
   }
@@ -82,7 +85,7 @@ export class DbWorkflowPlanStore {
   }
 
   async fail(operationKey: string, fence: number): Promise<void> {
-    const db = await this.options.getDb(); await db.updateTable("WorkflowPlanLaunchEffect").set({ status: "failed", leaseOwner: null, leaseExpiresAt: null, updatedAt: this.now() }).where("operationKey", "=", operationKey).where("fence", "=", fence).execute();
+    const db = await this.options.getDb(); await db.updateTable("WorkflowPlanLaunchEffect").set({ status: "failed", leaseOwner: null, leaseExpiresAt: null, lastError: "Start attempt failed.", updatedAt: this.now() }).where("operationKey", "=", operationKey).where("fence", "=", fence).execute();
   }
   private now() { return (this.options.now ?? Date.now)(); }
 }

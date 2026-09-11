@@ -13,6 +13,7 @@ import {
 const originalWorkspace = process.env.VK_WORKSPACE_ID;
 const originalBead = process.env.VK_BEAD_ID;
 const originalSession = process.env.VK_SESSION_ID;
+const originalCapability = process.env.VK_WORKFLOW_SESSION_CAPABILITY;
 
 beforeEach(() => {
   vi.restoreAllMocks();
@@ -20,6 +21,7 @@ beforeEach(() => {
   delete process.env.VK_WORKSPACE_ID;
   delete process.env.VK_BEAD_ID;
   delete process.env.VK_SESSION_ID;
+  delete process.env.VK_WORKFLOW_SESSION_CAPABILITY;
 });
 
 afterEach(() => {
@@ -31,6 +33,8 @@ afterEach(() => {
   else process.env.VK_BEAD_ID = originalBead;
   if (originalSession === undefined) delete process.env.VK_SESSION_ID;
   else process.env.VK_SESSION_ID = originalSession;
+  if (originalCapability === undefined) delete process.env.VK_WORKFLOW_SESSION_CAPABILITY;
+  else process.env.VK_WORKFLOW_SESSION_CAPABILITY = originalCapability;
 });
 
 describe('vibe-agent workflow CLI foundation', () => {
@@ -143,10 +147,12 @@ describe('vibe-agent workflow CLI foundation', () => {
 
   it('runs a planned teammate workflow through digest-bound APIs and detaches with JSON output', async () => {
     process.env.VK_WORKSPACE_ID = 'workspace-a';
+    process.env.VK_SESSION_ID = 'caller-session';
+    process.env.VK_WORKFLOW_SESSION_CAPABILITY = 'signed-capability';
     const digest = 'a'.repeat(64);
     const fetchMock = vi.fn(async (url: string, init?: RequestInit) => {
       if (url.endsWith('/dashboard/api/workflows/home?workspaceId=workspace-a')) return json({ home: { workspaceId: 'workspace-a', userWorkflows: [workflow('design-ask', 'Ask teammate')], starterTemplates: [] } });
-      if (url.endsWith('/dashboard/api/workflows/plan')) return json({ plan: { digest, bundleDigest: 'b'.repeat(64), summary: 'One task.', workflow: { label: 'Ask teammate', version: 1 }, tasks: [{ id: 'bead-explicit', title: 'Task' }], repositories: [], expiresAt: 9999 } });
+      if (url.endsWith('/dashboard/api/workflows/plan')) { expect(new Headers(init?.headers).get('x-vk-workflow-session-capability')).toBe('signed-capability'); return json({ plan: { digest, bundleDigest: 'b'.repeat(64), summary: 'One task.', workflow: { label: 'Ask teammate', version: 1 }, tasks: [{ id: 'bead-explicit', title: 'Task' }], repositories: [], expiresAt: 9999 } }); }
       if (url.endsWith('/dashboard/api/workflows/plan/launch')) {
         const body = JSON.parse(String(init?.body)); expect(body.planDigest).toBe(digest); expect(body.request.beadIds).toEqual(['bead-explicit']);
         return json({ result: { status: 'launched', run: { runId: 'run-1', status: 'running', url: '/dashboard/workflows/run-1' }, plan: { digest } } }, 201);

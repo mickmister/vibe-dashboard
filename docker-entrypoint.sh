@@ -2,6 +2,13 @@
 set -e
 umask 0002
 
+# Shared only by the local VK executor and VD verifier. The value is generated
+# per container start and is never returned by an HTTP product endpoint.
+if [ -z "${VK_WORKFLOW_SESSION_CAPABILITY_SECRET:-}" ]; then
+    VK_WORKFLOW_SESSION_CAPABILITY_SECRET="$(head -c 48 /dev/urandom | base64 | tr -d '\n')"
+    export VK_WORKFLOW_SESSION_CAPABILITY_SECRET
+fi
+
 startup_log() {
     printf '%s [startup] %s\n' "$(date -Iseconds)" "$*"
 }

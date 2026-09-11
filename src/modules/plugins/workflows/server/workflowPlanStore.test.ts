@@ -46,6 +46,33 @@ describe("DbWorkflowPlanStore", () => {
     expect(await one.claimLaunch(row.planId, "op", "req")).toMatchObject({ state: "claimed" });
     expect(await two.claimLaunch(row.planId, "op", "req")).toEqual({ state: "pending" });
     now = 1_011;
-    expect(await two.claimLaunch(row.planId, "op", "req")).toMatchObject({ state: "claimed", fence: 2 });
+    expect(await two.claimLaunch(row.planId, "op", "req")).toEqual({ state: "reconcile_required" });
+    expect(await two.claimLaunch(row.planId, "op", "req", "not_found")).toMatchObject({ state: "claimed", fence: 2 });
+  });
+
+  it("atomically fences simultaneous stale takeovers and supports audited failed retry", async () => {
+    handle = await initVdDb({ path: ":memory:" }); let now = 1_000;
+    const one = new DbWorkflowPlanStore({ getDb: async () => handle.db, now: () => now, ownerId: "one", leaseMs: 10 });
+    const two = new DbWorkflowPlanStore({ getDb: async () => handle.db, now: () => now, ownerId: "two", leaseMs: 10 });
+    await one.issue(principal, request, plan); const row = await one.requireIssued(principal, request, plan.digest);
+    const first = await one.claimLaunch(row.planId, "op-concurrent", "req"); expect(first).toMatchObject({ state: "claimed", fence: 1 });
+    await one.fail("op-concurrent", 1);
+    const retry = await two.claimLaunch(row.planId, "op-concurrent", "req"); expect(retry).toMatchObject({ state: "claimed", fence: 2 });
+    await two.fail("op-concurrent", 2); now = 1_011;
+    const outcomes = await Promise.all([one.claimLaunch(row.planId, "op-concurrent", "req", "not_found"), two.claimLaunch(row.planId, "op-concurrent", "req", "not_found")]);
+    expect(outcomes.filter((item) => item.state === "claimed")).toHaveLength(1);
+    expect(outcomes.filter((item) => item.state === "pending")).toHaveLength(1);
+    expect((await handle.db.selectFrom("WorkflowPlanLaunchEffect").selectAll().where("operationKey", "=", "op-concurrent").executeTakeFirstOrThrow()).attempts).toBe(3);
+  });
+
+  it("rejects stale-fence completion without replacing the current claim", async () => {
+    handle = await initVdDb({ path: ":memory:" }); let now = 1_000;
+    const one = new DbWorkflowPlanStore({ getDb: async () => handle.db, now: () => now, ownerId: "one", leaseMs: 10 });
+    const two = new DbWorkflowPlanStore({ getDb: async () => handle.db, now: () => now, ownerId: "two", leaseMs: 10 });
+    await one.issue(principal, request, plan); const row = await one.requireIssued(principal, request, plan.digest);
+    await one.claimLaunch(row.planId, "op-fence", "req"); now = 1_011;
+    await two.claimLaunch(row.planId, "op-fence", "req", "not_found");
+    await expect(one.complete(row.planId, "op-fence", 1, { runId: "old" })).rejects.toThrow("claim changed");
+    expect(await handle.db.selectFrom("WorkflowPlanLaunchEffect").select(["fence", "status"]).where("operationKey", "=", "op-fence").executeTakeFirst()).toEqual({ fence: 2, status: "pending" });
   });
 });

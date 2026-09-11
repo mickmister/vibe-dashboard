@@ -2,7 +2,7 @@ import { createHash } from "node:crypto";
 import { describe, expect, it, vi } from "vitest";
 import { WorkflowPlanLaunchService, type WorkflowPlanRequest } from "./workflowPlanLaunchService";
 
-const request = (): WorkflowPlanRequest => ({ workspaceId: "workspace-1", designId: "workflow-1", version: 2, inputs: { task: "Ship" }, roleBindings: { dev: { model: "m" } }, beadIds: ["bead-1", "bead-2"] });
+const request = (): WorkflowPlanRequest => ({ workspaceId: "workspace-1", designId: "workflow-1", version: 2, inputs: { task: "Ship" }, roleBindings: { dev: { mode: "create", name: "Dev", model: "m" } }, beadIds: ["bead-1", "bead-2"] });
 const compileInput = (): any => ({ workflow: { version: 2 }, inputs: { task: "Ship" } });
 
 function setup(now = 1_000) {
@@ -11,11 +11,11 @@ function setup(now = 1_000) {
   const effects = { workflows: 0, beads: 0, sessions: 0, messages: 0, worktrees: 0, capacity: 0, callbacks: 0, notifications: 0 };
   const source = { resolve: vi.fn(async (value: WorkflowPlanRequest) => ({ compileInput: { ...compileInput(), inputs: value.inputs }, workflowLabel: "Review work", tasks: value.beadIds.map((id) => ({ id, title: `Task ${id}`, structuralRevision: revision })), repositories: [{ id: "repo-a", accessRevision: "access-1", mode: "write" as const }], securityPolicyRevision: "policy-1" })) };
   const compiler = { compile: vi.fn(async (input: any) => { const digest = createHash("sha256").update(JSON.stringify(input)).digest("hex"); return { schemaVersion: "vd.execution-bundle.v1" as const, digest, bytes: new Uint8Array(), document: {}, verificationEvidence: {} as any }; }) };
-  const launcher = { checkDynamic: vi.fn(async () => ({ ready, message: ready ? undefined : "Capacity is currently full." })), launch: vi.fn(async ({ idempotencyKey }: any) => ({ runId: `run-${idempotencyKey.slice(0, 8)}`, status: "running", url: "/dashboard/workflows/run-1" })) };
+  const launcher = { checkDynamic: vi.fn(async () => ({ ready, message: ready ? undefined : "Capacity is currently full." })), reconcile: vi.fn(async () => ({ outcome: "not_found" as const })), launch: vi.fn(async ({ idempotencyKey }: any) => ({ runId: `run-${idempotencyKey.slice(0, 8)}`, status: "running", url: "/dashboard/workflows/run-1" })) };
   const issued = new Map<string, any>(); const effectsByKey = new Map<string, any>();
   const store = { issue: vi.fn(async (principal: any, req: any, plan: any) => { issued.set(plan.digest, { planId: plan.digest, planJson: JSON.stringify(plan), principal, req }); }), requireIssued: vi.fn(async (principal: any, req: any, digest: string) => { const row = issued.get(digest); if (!row || JSON.stringify(row.principal) !== JSON.stringify(principal) || JSON.stringify(row.req) !== JSON.stringify(req)) throw new Error("not issued"); return row; }), claimLaunch: vi.fn(async (_planId: string, key: string) => effectsByKey.has(key) ? { state: "launched", result: effectsByKey.get(key) } : { state: "claimed", fence: 1 }), complete: vi.fn(async (_planId: string, key: string, _fence: number, result: any) => { effectsByKey.set(key, result); }), fail: vi.fn() };
   const service = new WorkflowPlanLaunchService({ source, compiler, launcher, store: store as any, now: () => now, ttlMs: 100 });
-  return { service, source, compiler, launcher, effects, setRevision: (v: string) => { revision = v; }, setReady: (v: boolean) => { ready = v; } };
+  return { service, source, compiler, launcher, store, effects, setRevision: (v: string) => { revision = v; }, setReady: (v: boolean) => { ready = v; } };
 }
 const principal = (workspaceId = "workspace-1") => ({ principalId: "user-1", workspaceId, callerSessionId: null });
 
@@ -56,5 +56,26 @@ describe("digest-bound workflow planning", () => {
     await expect(h.service.plan({ ...request(), beadIds: ["same", "same"] }, principal())).rejects.toThrow("duplicates");
     await expect(h.service.plan({ ...request(), additionalInstructions: "ignored" } as any, principal())).rejects.toThrow("unsupported");
     await expect(h.service.plan({ ...request(), roleBindings: { missing: { debug: "x" } as any } }, principal())).rejects.toThrow("not supported");
+    await expect(h.service.plan({ ...request(), roleBindings: { dev: { mode: "existing", sessionId: "s", name: "forbidden" } } }, principal())).rejects.toThrow("only a session id");
+    await expect(h.service.plan({ ...request(), roleBindings: { dev: { mode: "create", name: "Dev", sessionId: "forbidden" } } }, principal())).rejects.toThrow("only a session name");
+  });
+
+  it("blocks stale takeover when the durable provider outcome is unknown", async () => {
+    const h = setup(); const plan = await h.service.plan(request(), principal());
+    h.store.claimLaunch.mockResolvedValueOnce({ state: "reconcile_required" } as any);
+    h.launcher.reconcile.mockResolvedValueOnce({ outcome: "unknown" } as any);
+    const result = await h.service.launch(request(), plan.digest, principal());
+    expect(result).toMatchObject({ status: "waiting", message: expect.stringContaining("cannot be confirmed") });
+    expect(h.launcher.launch).not.toHaveBeenCalled();
+  });
+
+  it("reconciles a crash after provider effect without invoking the provider twice", async () => {
+    const h = setup(); const plan = await h.service.plan(request(), principal());
+    h.store.complete.mockRejectedValueOnce(new Error("database interrupted"));
+    await expect(h.service.launch(request(), plan.digest, principal())).rejects.toThrow("interrupted");
+    h.store.claimLaunch.mockResolvedValueOnce({ state: "reconcile_required" } as any).mockResolvedValueOnce({ state: "claimed", fence: 2 } as any);
+    h.launcher.reconcile.mockResolvedValueOnce({ outcome: "found", run: { runId: "run-recovered", status: "running", url: "/dashboard/workflows/run-recovered" } } as any);
+    await expect(h.service.launch(request(), plan.digest, principal())).resolves.toMatchObject({ status: "reused", run: { runId: "run-recovered" } });
+    expect(h.launcher.launch).toHaveBeenCalledTimes(1);
   });
 });

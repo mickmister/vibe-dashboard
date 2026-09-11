@@ -36,7 +36,7 @@ import { createProductionGasCityExecutionBundleCompiler } from './plugins/workfl
 import { WorkflowPlanLaunchService } from './plugins/workflows/server/workflowPlanLaunchService';
 import { DbWorkflowPlanSource } from './plugins/workflows/server/workflowPlanSource';
 import { DbWorkflowPlanStore } from './plugins/workflows/server/workflowPlanStore';
-import { createWorkflowPlanAuthorizer } from './plugins/workflows/server/workflowPlanAuthorization';
+import { WorkflowPlanAuthService } from './plugins/workflows/server/workflowPlanAuthorization';
 
 const execFileAsync = promisify(execFile);
 const reposRoot = process.env.VK_REPOS_ROOT || join(process.env.HOME || '/home/vkuser', 'repos');
@@ -82,9 +82,11 @@ serverRegistry.registerServerModule((api) => {
     }),
     launcher: {
       async checkDynamic() { return { ready: false, message: 'Native workflow start is not available yet. The verified plan can be reviewed now.' }; },
+      async reconcile() { return { outcome: 'unknown' as const }; },
       async launch() { throw new Error('Native workflow start is not available.'); },
     },
   });
+  const workflowPlanAuthService = new WorkflowPlanAuthService({ cliCapabilitySecret: process.env.VK_WORKFLOW_SESSION_CAPABILITY_SECRET });
   const declarativeWorkflowRuntime = new DeclarativeWorkflowRuntime({
     store: workflowOrchestrationStore,
     resolver: roleSessionResolver,
@@ -141,7 +143,7 @@ serverRegistry.registerServerModule((api) => {
     workflowRoadmapLiveProvider: workflowBeadProviders.roadmapProvider,
     vkClient,
     workflowPlanLaunchService,
-    authorizeWorkflowPlan: createWorkflowPlanAuthorizer(vkClient),
+    workflowPlanAuthService,
   });
   registerPluginAssetRoutes(api.hono, { installRoot: pluginInstallRoot });
   registerPluginAdminRoutes(api.hono);

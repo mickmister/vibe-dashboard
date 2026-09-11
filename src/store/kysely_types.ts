@@ -834,6 +834,8 @@ export interface WorkflowPlanLaunchEffect {
   resultJson: NullableString;
   createdAt: number;
   updatedAt: number;
+  attempts: number;
+  lastError: NullableString;
 }
 
 export interface WorkflowPlanAuditEvent {
