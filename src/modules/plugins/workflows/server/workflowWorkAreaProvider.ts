@@ -164,6 +164,29 @@ export class DbWorkflowWorkAreaRegistry {
   constructor(private readonly options: { db: Kysely<DB>; now?: () => number }) { this.now = options.now ?? (() => Date.now()); }
   private get db(): Kysely<DB> { return this.options.db; }
 
+  async configureRegistryKind(input: { kind: 'production' | 'development'; registryId: string }): Promise<void> {
+    const registryId = requiredId(input.registryId, 'registry');
+    await retrySqliteBusy(() => this.db.transaction().execute(async (trx) => {
+      const existing = await trx.selectFrom('WorkflowWorkAreaRegistryIdentity').selectAll().where('singletonKey', '=', 'work-area-registry').executeTakeFirst();
+      if (existing) {
+        if (existing.kind !== input.kind || existing.registryId !== registryId) throw conflict('Task work registry identity does not match this deployment.');
+        return;
+      }
+      const [areas, domains] = await Promise.all([
+        trx.selectFrom('WorkflowWorkArea').select(({ fn }) => fn.countAll<number>().as('count')).executeTakeFirstOrThrow(),
+        trx.selectFrom('WorkflowWorkAreaLockDomain').select(({ fn }) => fn.countAll<number>().as('count')).executeTakeFirstOrThrow(),
+      ]);
+      if (Number(areas.count) !== 0 || Number(domains.count) !== 0) throw conflict('Task work registry must be designated before use.');
+      await trx.insertInto('WorkflowWorkAreaRegistryIdentity').values({ singletonKey: 'work-area-registry', registryId,
+        kind: input.kind, createdAt: this.now(), updatedAt: this.now() }).execute();
+    }));
+  }
+
+  async assertRegistryKind(kind: 'production' | 'development'): Promise<void> {
+    const identity = await this.db.selectFrom('WorkflowWorkAreaRegistryIdentity').selectAll().where('singletonKey', '=', 'work-area-registry').executeTakeFirst();
+    if (!identity || identity.kind !== kind) throw conflict('Task work registry is not designated for this runtime.');
+  }
+
   async assertDeploymentLockDomain(input: { lockDomainId: string; domainDigest: string; legacyDomainDigest: string; deploymentMode: string; hostIdentityDigest: string }): Promise<void> {
     await retrySqliteBusy(() => this.db.transaction().execute(async (trx) => {
       const existing = await trx.selectFrom('WorkflowWorkAreaLockDomain').selectAll().where('singletonKey', '=', 'work-area-provider').executeTakeFirst();
@@ -330,7 +353,8 @@ export class ProductionWorkflowWorkAreaProvider {
     this.mutationLocks = options.mutationLockManager ?? new FilesystemWorkAreaMutationLockManager({ serverStateRoot: this.deployment.serverStateRoot });
   }
 
-  initialize(): Promise<void> { return this.deploymentReady ??= this.mutationLocks.initialize().then(async ({ canonicalLockRoot, hostIdentityDigest }) => {
+  initialize(): Promise<void> { return this.deploymentReady ??= this.options.registry.assertRegistryKind(this.deployment.registryKind)
+    .then(() => this.mutationLocks.initialize()).then(async ({ canonicalLockRoot, hostIdentityDigest }) => {
     const legacyDomainDigest = stableDigest({ mode: this.deployment.mode, lockDomainId: this.deployment.lockDomainId, hostId: this.deployment.hostId, canonicalLockRoot });
     const domainDigest = stableDigest({ mode: this.deployment.mode, lockDomainId: this.deployment.lockDomainId, hostId: this.deployment.hostId,
       canonicalLockRoot, hostIdentityDigest });
@@ -572,10 +596,10 @@ function normalizeDeploymentCapability(capability: WorkAreaDeploymentCapability 
     if (classification !== 'production') throw new WorkflowWorkAreaError('unsafe_layout', 'Production work-area capability requires production runtime classification.');
     const serverStateRoot = capability.serverStateRoot?.trim(); const lockDomainId = requiredId(capability.lockDomainId, 'lock domain'); const hostId = requiredId(capability.hostId, 'host');
     if (!serverStateRoot || !isAbsolute(serverStateRoot)) throw new WorkflowWorkAreaError('unsafe_layout', 'Production lock storage must be explicitly configured.');
-    return { mode: capability.mode, serverStateRoot, lockDomainId, hostId };
+    return { mode: capability.mode, registryKind: 'production' as const, serverStateRoot, lockDomainId, hostId };
   }
   if (classification === 'production' || capability.unsafeDevelopmentOptIn !== true) throw new WorkflowWorkAreaError('unsafe_layout', 'Temporary work-area capability is not allowed in production.');
-  return { mode: capability.mode, serverStateRoot: capability.serverStateRoot ?? join(tmpdir(), `vd-workarea-development-${process.pid}`),
+  return { mode: capability.mode, registryKind: 'development' as const, serverStateRoot: capability.serverStateRoot ?? join(tmpdir(), `vd-workarea-development-${process.pid}`),
     lockDomainId: `unsafe-development-${requiredId(capability.registryNamespace, 'development registry namespace')}`, hostId: `process-${process.pid}` };
 }
 async function ensurePrivateHostIdentity(stateRoot: string, runtimeHostIdentity: string, createLink: typeof link, sync: (path: string) => Promise<void>) {

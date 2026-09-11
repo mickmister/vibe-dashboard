@@ -765,6 +765,14 @@ export interface WorkflowWorkAreaLockDomain {
   updatedAt: number;
 }
 
+export interface WorkflowWorkAreaRegistryIdentity {
+  singletonKey: string;
+  registryId: string;
+  kind: 'production' | 'development';
+  createdAt: number;
+  updatedAt: number;
+}
+
 export interface WorkflowWorkAreaOperation {
   operationId: string;
   operationKey: string;
@@ -809,6 +817,7 @@ export interface DB {
   WorkflowWorkAreaOperation: WorkflowWorkAreaOperation;
   WorkflowWorkAreaOperationLease: WorkflowWorkAreaOperationLease;
   WorkflowWorkAreaLockDomain: WorkflowWorkAreaLockDomain;
+  WorkflowWorkAreaRegistryIdentity: WorkflowWorkAreaRegistryIdentity;
   WorkflowWorkAreaAuditEvent: WorkflowWorkAreaAuditEvent;
   WorkflowDesign: WorkflowDesign;
   WorkflowDesignDraft: WorkflowDesignDraft;

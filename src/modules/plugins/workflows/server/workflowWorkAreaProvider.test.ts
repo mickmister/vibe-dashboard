@@ -143,6 +143,7 @@ describe('ProductionWorkflowWorkAreaProvider', () => {
   it('creates and verifies real multi-repository detached Git worktrees under one managed area', async () => {
     const handle = await initVdDb({ path: ':memory:' });
     handles.push(handle);
+    await designate(handle);
     const root = await mkdtemp(join(tmpdir(), 'workflow-workarea-git-'));
     dirs.push(root);
     const repositoryRoot = join(root, 'sources', 'web');
@@ -198,6 +199,7 @@ describe('ProductionWorkflowWorkAreaProvider', () => {
     await mkdir(join(root, 'source'), { recursive: true });
     const dbPath = join(root, 'vd.sqlite');
     const firstDb = await initVdDb({ path: dbPath }); const secondDb = await initVdDb({ path: dbPath }); handles.push(firstDb, secondDb);
+    await designate(firstDb);
     const driver = new FakeDriver(); driver.createDelayMs = 80;
     const workspace = { workspaceId: 'workspace-a', workspaceRoot: root, repositories: [{ repoKey: 'web', repositoryRoot: join(root, 'source'), sourceRevision: 'abc123' }] };
     const makeProvider = (handle: VdDbHandle) => new ProductionWorkflowWorkAreaProvider({ registry: new DbWorkflowWorkAreaRegistry({ db: handle.db }),
@@ -213,6 +215,7 @@ describe('ProductionWorkflowWorkAreaProvider', () => {
     const source = join(root, 'source'); await mkdir(source);
     const dbPath = join(root, 'vd.sqlite');
     const firstDb = await initVdDb({ path: dbPath }); const secondDb = await initVdDb({ path: dbPath }); handles.push(firstDb, secondDb);
+    await designate(firstDb);
     let loseFirstLease = false;
     class LosingRegistry extends DbWorkflowWorkAreaRegistry {
       override heartbeatLease(key: string, holder: string, fence: number, ttl: number) {
@@ -271,6 +274,7 @@ describe('ProductionWorkflowWorkAreaProvider', () => {
     const root = await mkdtemp(join(tmpdir(), 'workflow-layout-race-')); dirs.push(root);
     const sourceA = join(root, 'source-a'); const sourceB = join(root, 'source-b'); await mkdir(sourceA); await mkdir(sourceB);
     const dbPath = join(root, 'vd.sqlite'); const firstDb = await initVdDb({ path: dbPath }); const secondDb = await initVdDb({ path: dbPath }); handles.push(firstDb, secondDb);
+    await designate(firstDb);
     const driver = new FakeDriver();
     const make = (handle: VdDbHandle, repositoryRoot: string, revision: string) => new ProductionWorkflowWorkAreaProvider({
       registry: new DbWorkflowWorkAreaRegistry({ db: handle.db }), workspaceRegistry: { getWorkspace: async () => ({ workspaceId: 'workspace-a', workspaceRoot: root, repositories: [{ repoKey: 'web', repositoryRoot, sourceRevision: revision }] }) },
@@ -296,6 +300,7 @@ describe('ProductionWorkflowWorkAreaProvider', () => {
     const root = await mkdtemp(join(tmpdir(), 'workflow-workarea-crash-')); dirs.push(root);
     const source = join(root, 'source'); const revision = await createGitRepository(source);
     const handle = await initVdDb({ path: ':memory:' }); handles.push(handle);
+    await designate(handle);
     const real = new GitWorkflowWorktreeDriver(); let failInspection = true; let creates = 0;
     const driver: WorkflowWorktreeDriver = { resolveSource: (input) => real.resolveSource(input), create: async (input) => { creates += 1; await real.create(input); },
       inspect: async (input) => { const value = await real.inspect(input); if (value.exists && failInspection) throw new Error('crash after add'); return value; } };
@@ -321,6 +326,7 @@ describe('ProductionWorkflowWorkAreaProvider', () => {
     const source = join(root, 'source'); const state = join(root, 'server-state'); await mkdir(source);
     await mkdir(join(root, 'workspace-a')); await mkdir(join(root, 'workspace-b'));
     const firstDb = await initVdDb({ path: join(root, 'first.sqlite') }); const secondDb = await initVdDb({ path: join(root, 'second.sqlite') }); handles.push(firstDb, secondDb);
+    await designate(firstDb); await designate(secondDb, 'production', 'test-production-b');
     const driver = new FakeDriver(); driver.createDelayMs = 80;
     const make = (handle: VdDbHandle, workspaceId: string, workspaceRoot: string) => new ProductionWorkflowWorkAreaProvider({
       registry: new DbWorkflowWorkAreaRegistry({ db: handle.db }), runtimeClassification: 'production', deployment: deployment(state),
@@ -408,7 +414,7 @@ describe('ProductionWorkflowWorkAreaProvider', () => {
   });
 
   it('supports an explicit temporary development capability without production defaults', async () => {
-    const fixture = await setup();
+    const fixture = await setup({ registryKind: 'development' });
     const provider = new ProductionWorkflowWorkAreaProvider({ registry: new DbWorkflowWorkAreaRegistry({ db: fixture.handle.db }),
       workspaceRegistry: fixture.workspaceRegistry, authorizer: { authorize: async () => true }, worktreeDriver: fixture.driver,
       runtimeClassification: 'development', deployment: { mode: 'development_temporary', unsafeDevelopmentOptIn: true, registryNamespace: 'test-dev', serverStateRoot: join(fixture.root, 'development-state') } });
@@ -422,20 +428,32 @@ describe('ProductionWorkflowWorkAreaProvider', () => {
       runtimeClassification: 'production', deployment: { mode: 'development_temporary', unsafeDevelopmentOptIn: true, registryNamespace: 'unsafe' } }))
       .toThrow(/not allowed in production/i);
 
+    const freshProductionBefore = await registrySnapshot(fixture.handle);
+    const developmentAgainstFreshProduction = new ProductionWorkflowWorkAreaProvider({ registry: new DbWorkflowWorkAreaRegistry({ db: fixture.handle.db }),
+      workspaceRegistry: fixture.workspaceRegistry, authorizer: { authorize: async () => true }, worktreeDriver: fixture.driver,
+      runtimeClassification: 'test', deployment: { mode: 'development_temporary', unsafeDevelopmentOptIn: true,
+        registryNamespace: 'fresh-drift', serverStateRoot: join(fixture.root, 'fresh-dev-drift') } });
+    await expect(developmentAgainstFreshProduction.initialize()).rejects.toMatchObject({ code: 'conflict' });
+    expect(await registrySnapshot(fixture.handle)).toEqual(freshProductionBefore);
+
     await fixture.provider.initialize();
+    const productionBefore = await registrySnapshot(fixture.handle);
     const developmentAgainstProduction = new ProductionWorkflowWorkAreaProvider({ registry: new DbWorkflowWorkAreaRegistry({ db: fixture.handle.db }),
       workspaceRegistry: fixture.workspaceRegistry, authorizer: { authorize: async () => true }, worktreeDriver: fixture.driver,
       runtimeClassification: 'test', deployment: { mode: 'development_temporary', unsafeDevelopmentOptIn: true,
         registryNamespace: 'mode-drift', serverStateRoot: join(fixture.root, 'dev-drift') } });
     await expect(developmentAgainstProduction.initialize()).rejects.toMatchObject({ code: 'conflict' });
+    expect(await registrySnapshot(fixture.handle)).toEqual(productionBefore);
 
-    const other = await setup();
+    const other = await setup({ registryKind: 'development' });
     const developmentFirst = new ProductionWorkflowWorkAreaProvider({ registry: new DbWorkflowWorkAreaRegistry({ db: other.handle.db }),
       workspaceRegistry: other.workspaceRegistry, authorizer: { authorize: async () => true }, worktreeDriver: other.driver,
       runtimeClassification: 'test', deployment: { mode: 'development_temporary', unsafeDevelopmentOptIn: true,
         registryNamespace: 'mode-drift', serverStateRoot: join(other.root, 'dev-first') } });
     await developmentFirst.initialize();
+    const developmentBefore = await registrySnapshot(other.handle);
     await expect(other.provider.initialize()).rejects.toMatchObject({ code: 'conflict' });
+    expect(await registrySnapshot(other.handle)).toEqual(developmentBefore);
   });
 
   it('creates one private host identity concurrently and rejects copied state on another host', async () => {
@@ -477,9 +495,10 @@ function deployment(serverStateRoot: string) {
   return { mode: 'production_single_host' as const, serverStateRoot, lockDomainId: 'test-lock-domain', hostId: 'test-host' };
 }
 
-async function setup(options: { authorized?: boolean; countLimit?: number; byteLimit?: number; repositoriesInsideManagedRoot?: boolean } = {}) {
+async function setup(options: { authorized?: boolean; countLimit?: number; byteLimit?: number; repositoriesInsideManagedRoot?: boolean; registryKind?: 'production' | 'development' } = {}) {
   const handle = await initVdDb({ path: ':memory:' });
   handles.push(handle);
+  await designate(handle, options.registryKind ?? 'production', options.registryKind === 'development' ? 'test-development' : 'test-production');
   const root = await mkdtemp(join(tmpdir(), 'workflow-workspace-'));
   dirs.push(root);
   await mkdir(join(root, 'sources', 'web'), { recursive: true });
@@ -501,6 +520,22 @@ async function setup(options: { authorized?: boolean; countLimit?: number; byteL
     leaseTtlMs: 200, leaseWaitMs: 500, runtimeClassification: 'production', deployment: deployment(join(root, 'server-state')),
   });
   return { handle, root, provider, driver, workspaceRegistry };
+}
+
+async function designate(handle: VdDbHandle, kind: 'production' | 'development' = 'production', registryId = 'test-production') {
+  await new DbWorkflowWorkAreaRegistry({ db: handle.db }).configureRegistryKind({ kind, registryId });
+}
+
+async function registrySnapshot(handle: VdDbHandle) {
+  return {
+    identity: await handle.db.selectFrom('WorkflowWorkAreaRegistryIdentity').selectAll().execute(),
+    domains: await handle.db.selectFrom('WorkflowWorkAreaLockDomain').selectAll().execute(),
+    areas: await handle.db.selectFrom('WorkflowWorkArea').selectAll().execute(),
+    operations: await handle.db.selectFrom('WorkflowWorkAreaOperation').selectAll().execute(),
+    leases: await handle.db.selectFrom('WorkflowWorkAreaOperationLease').selectAll().execute(),
+    repositories: await handle.db.selectFrom('WorkflowWorkAreaRepository').selectAll().execute(),
+    audits: await handle.db.selectFrom('WorkflowWorkAreaAuditEvent').selectAll().execute(),
+  };
 }
 
 class FakeDriver implements WorkflowWorktreeDriver {

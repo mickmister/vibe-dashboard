@@ -8,6 +8,7 @@ import { migration as workAreaMigration } from '../store/db/migrations/202609120
 import { migration as workAreaLeaseMigration } from '../store/db/migrations/20260912010000_workflow_work_area_leases/migration';
 import { migration as workAreaLockDomainMigration } from '../store/db/migrations/20260912020000_workflow_work_area_lock_domain/migration';
 import { migration as workAreaHostIdentityMigration } from '../store/db/migrations/20260912030000_workflow_work_area_host_identity/migration';
+import { migration as workAreaRegistryIdentityMigration } from '../store/db/migrations/20260912040000_workflow_work_area_registry_identity/migration';
 
 const tempDirs: string[] = [];
 
@@ -55,6 +56,7 @@ describe('VD database', () => {
         '20260912010000_workflow_work_area_leases',
         '20260912020000_workflow_work_area_lock_domain',
         '20260912030000_workflow_work_area_host_identity',
+        '20260912040000_workflow_work_area_registry_identity',
       ]);
       const tables = await sql<{ name: string }>`
         SELECT name FROM sqlite_master
@@ -70,7 +72,7 @@ describe('VD database', () => {
           'WorkspaceLane', 'WorkspaceLaneBinding', 'WorkspaceLaneCapacityLease',
           'WorkspaceLaneAuditEvent', 'WorkflowMetaRun', 'WorkflowMetaRunItem',
           'WorkflowMetaRunEvent', 'WorkflowWorkArea', 'WorkflowWorkAreaRepository',
-          'WorkflowWorkAreaOperation', 'WorkflowWorkAreaOperationLease', 'WorkflowWorkAreaLockDomain', 'WorkflowWorkAreaAuditEvent', 'Migration'
+          'WorkflowWorkAreaOperation', 'WorkflowWorkAreaOperationLease', 'WorkflowWorkAreaLockDomain', 'WorkflowWorkAreaRegistryIdentity', 'WorkflowWorkAreaAuditEvent', 'Migration'
         )
       `.execute(handle.db);
       expect(tables.rows.map((table) => table.name).sort()).toEqual([
@@ -107,6 +109,7 @@ describe('VD database', () => {
         'WorkflowWorkAreaLockDomain',
         'WorkflowWorkAreaOperation',
         'WorkflowWorkAreaOperationLease',
+        'WorkflowWorkAreaRegistryIdentity',
         'WorkflowWorkAreaRepository',
         'WorkspaceLane',
         'WorkspaceLaneAuditEvent',
@@ -248,6 +251,7 @@ describe('VD database', () => {
       await executeSqlMigration(handle.db, workAreaLeaseMigration);
       await executeSqlMigration(handle.db, workAreaLockDomainMigration);
       await executeSqlMigration(handle.db, workAreaHostIdentityMigration);
+      await executeSqlMigration(handle.db, workAreaRegistryIdentityMigration);
       const columns = await sql<{ name: string }>`PRAGMA table_info('WorkflowWorkAreaRepository')`.execute(handle.db);
       expect(columns.rows.map((column) => column.name)).toContain('sourceIdentity');
       const lease = await sql<{ name: string }>`SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'WorkflowWorkAreaOperationLease'`.execute(handle.db);
@@ -256,6 +260,8 @@ describe('VD database', () => {
       expect(domain.rows).toEqual([{ name: 'WorkflowWorkAreaLockDomain' }]);
       const domainColumns = await sql<{ name: string }>`PRAGMA table_info('WorkflowWorkAreaLockDomain')`.execute(handle.db);
       expect(domainColumns.rows.map((column) => column.name)).toEqual(expect.arrayContaining(['deploymentMode', 'hostIdentityDigest']));
+      const registryIdentity = await sql<{ name: string }>`SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'WorkflowWorkAreaRegistryIdentity'`.execute(handle.db);
+      expect(registryIdentity.rows).toEqual([{ name: 'WorkflowWorkAreaRegistryIdentity' }]);
     } finally {
       await handle.db.destroy(); handle.sqlite.close();
     }

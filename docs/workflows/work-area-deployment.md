@@ -29,6 +29,15 @@ namespace. Its process-local temporary fallback is never accepted as
 production configuration, and a registry cannot drift between production and
 development modes.
 
+Development must also use a physically separate database/registry configured
+with the durable `development` registry-kind marker before the provider starts.
+Production registries must be pre-designated `production`. Provider startup is
+read-only until that marker matches, so accidentally pointing development at a
+production database—or production at a development database—fails without
+creating lock-domain, work-area, operation, lease, repository, or audit rows.
+An unmarked database is disabled rather than inferred or adopted. Registry kind
+cannot be changed after designation; create a separate database instead.
+
 Multi-host work-area creation is unsupported. It requires a future distributed
 Git-registry coordinator that fences mutations using durable host and boot
 identity. Deployments must not attempt to emulate multi-host support with

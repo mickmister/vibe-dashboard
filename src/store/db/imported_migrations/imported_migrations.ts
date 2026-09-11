@@ -24,8 +24,9 @@ import { migration as workflowWorkAreasMigration } from '../migrations/202609120
 import { migration as workflowWorkAreaLeasesMigration } from '../migrations/20260912010000_workflow_work_area_leases/migration';
 import { migration as workflowWorkAreaLockDomainMigration } from '../migrations/20260912020000_workflow_work_area_lock_domain/migration';
 import { migration as workflowWorkAreaHostIdentityMigration } from '../migrations/20260912030000_workflow_work_area_host_identity/migration';
+import { migration as workflowWorkAreaRegistryIdentityMigration } from '../migrations/20260912040000_workflow_work_area_registry_identity/migration';
 
-export const databaseVersion = 26;
+export const databaseVersion = 27;
 
 export const migrations = [
   { name: '20260702000000_external_integrations', migration: _20260702000000_external_integrations },
@@ -54,4 +55,5 @@ export const migrations = [
   { name: '20260912010000_workflow_work_area_leases', migration: workflowWorkAreaLeasesMigration },
   { name: '20260912020000_workflow_work_area_lock_domain', migration: workflowWorkAreaLockDomainMigration },
   { name: '20260912030000_workflow_work_area_host_identity', migration: workflowWorkAreaHostIdentityMigration },
+  { name: '20260912040000_workflow_work_area_registry_identity', migration: workflowWorkAreaRegistryIdentityMigration },
 ] as const;
