@@ -88,6 +88,7 @@ import {
   type WorkflowWebhookEventRefs,
   type WorkflowWebhookWakeup,
 } from "./workflow-webhook-inbox";
+import type { WorkflowPlanLaunchService, WorkflowPlanRequest } from "../modules/plugins/workflows/server/workflowPlanLaunchService";
 
 export interface RegisterWorkflowRoutesOptions {
   registry: WorkflowRegistry;
@@ -138,6 +139,7 @@ export interface RegisterWorkflowRoutesOptions {
   vkWorkflowWebhookSecret?: string;
   githubWebhookSecret?: string;
   repoAliasCache?: RepoAliasCache;
+  workflowPlanLaunchService?: Pick<WorkflowPlanLaunchService, "plan" | "launch">;
 }
 
 export interface RepoAliasCache {
@@ -150,6 +152,28 @@ export function registerWorkflowRoutes(
   hono: Hono,
   options: RegisterWorkflowRoutesOptions,
 ): void {
+  hono.post("/dashboard/api/workflows/plan", async (c) => {
+    if (!options.workflowPlanLaunchService) return c.json({ error: "workflow_plan_unavailable", message: "Workflow planning is not available." }, 503);
+    try {
+      const request = parseWorkflowPlanRequest(asRecord(await readJsonBody(c.req.raw)));
+      return c.json({ plan: await options.workflowPlanLaunchService.plan(request) });
+    } catch (error) {
+      return c.json({ error: "workflow_plan_failed", message: safeWorkflowRouteMessage(error) }, 400);
+    }
+  });
+  hono.post("/dashboard/api/workflows/plan/launch", async (c) => {
+    if (!options.workflowPlanLaunchService) return c.json({ error: "workflow_plan_unavailable", message: "Workflow planning is not available." }, 503);
+    try {
+      const body = asRecord(await readJsonBody(c.req.raw));
+      const request = parseWorkflowPlanRequest(asRecord(body?.request));
+      const digest = asString(body?.planDigest) ?? "";
+      const result = await options.workflowPlanLaunchService.launch(request, digest);
+      return c.json({ result }, result.status === "launched" || result.status === "reused" ? 201 : 200);
+    } catch (error) {
+      return c.json({ error: "workflow_plan_launch_failed", message: safeWorkflowRouteMessage(error) }, 400);
+    }
+  });
+
   hono.get("/dashboard/api/workflows/health", (c) => c.json({ ok: true }));
 
   hono.get("/dashboard/api/workspace-lanes", async (c) => {
@@ -3518,4 +3542,27 @@ function parseRoleSessionResolveRequest(input: unknown) {
         ? record.allowRoleNameReuse
         : true,
   };
+}
+
+function parseWorkflowPlanRequest(body: Record<string, unknown> | null): WorkflowPlanRequest {
+  if (!body) throw new Error("Workflow plan request is required.");
+  const allowed = new Set(["workspaceId", "designId", "version", "inputs", "roleBindings", "beadIds", "effects", "additionalInstructions", "laneId"]);
+  if (Object.keys(body).some((key) => !allowed.has(key))) throw new Error("Workflow plan request contains unsupported fields.");
+  if (Array.isArray(body.beadIds) && body.beadIds.some((value) => typeof value !== "string")) throw new Error("Task identifiers are invalid.");
+  return {
+    workspaceId: asString(body?.workspaceId)?.trim() ?? "",
+    designId: asString(body?.designId)?.trim() ?? "",
+    version: parsePositiveInteger(asString(body?.version) ?? (typeof body?.version === "number" ? String(body.version) : null)),
+    inputs: asRecord(body?.inputs) ?? {},
+    roleBindings: asRecord(body?.roleBindings) ?? {},
+    beadIds: Array.isArray(body?.beadIds) ? body.beadIds.filter((value): value is string => typeof value === "string") : [],
+    effects: Array.isArray(body?.effects) ? body.effects.filter((value): value is string => typeof value === "string") : undefined,
+    additionalInstructions: asString(body.additionalInstructions) ?? null,
+    laneId: asString(body.laneId) ?? null,
+  };
+}
+
+function safeWorkflowRouteMessage(error: unknown): string {
+  const text = error instanceof Error ? error.message : "Workflow request failed.";
+  return text.replace(/(?:\/Users|\/tmp|\/private\/var)\/\S+|\b(?:queue[_ -]?item|webhook|provider diagnostics|raw XML|raw JSON)\b/gi, "details unavailable").slice(0, 240);
 }

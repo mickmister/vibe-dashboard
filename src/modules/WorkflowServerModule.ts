@@ -33,6 +33,8 @@ import { workflowRegistry } from '../workflows/registry';
 import type { CachedRepoAlias } from '../workflows/github-ci';
 import { createBdWorkflowProviders } from './plugins/workflows/server/bdBeadWorkflowProvider';
 import { createProductionGasCityExecutionBundleCompiler } from './plugins/workflows/server/gasCityExecutionBundleCompilerComposition';
+import { WorkflowPlanLaunchService } from './plugins/workflows/server/workflowPlanLaunchService';
+import { DbWorkflowPlanSource } from './plugins/workflows/server/workflowPlanSource';
 
 const execFileAsync = promisify(execFile);
 const reposRoot = process.env.VK_REPOS_ROOT || join(process.env.HOME || '/home/vkuser', 'repos');
@@ -64,6 +66,22 @@ serverRegistry.registerServerModule((api) => {
   const workflowDesignStore = new DbWorkflowDesignStore({ getDb: async () => (await getVdDb()).db, templates: BUILT_IN_WORKFLOW_TEMPLATES });
   const workspaceLaneStore = new DbWorkspaceLaneStore({ getDb: async () => (await getVdDb()).db });
   const workflowBeadProviders = createBdWorkflowProviders();
+  const workflowPlanLaunchService = new WorkflowPlanLaunchService({
+    compiler: gasCityExecutionBundleCompiler,
+    source: new DbWorkflowPlanSource({
+      designStore: workflowDesignStore,
+      tasks: {
+        async getBeadsByIds(_workspaceId, ids) {
+          return (await workflowBeadProviders.beadProvider.readBeads(ids)).map((bead) => ({ id: bead.beadId, title: bead.title, status: bead.status }));
+        },
+      },
+      repositories: async (workspaceId) => (await vkClient.getWorkspaceRepos(workspaceId)).map((repo) => ({ id: repo.id, name: repo.name, targetRevision: repo.target_branch })),
+    }),
+    launcher: {
+      async checkDynamic() { return { ready: false, message: 'Native workflow start is not available yet. The verified plan can be reviewed now.' }; },
+      async launch() { throw new Error('Native workflow start is not available.'); },
+    },
+  });
   const declarativeWorkflowRuntime = new DeclarativeWorkflowRuntime({
     store: workflowOrchestrationStore,
     resolver: roleSessionResolver,
@@ -119,6 +137,7 @@ serverRegistry.registerServerModule((api) => {
     metaWorkflowBeadProvider: workflowBeadProviders.beadProvider,
     workflowRoadmapLiveProvider: workflowBeadProviders.roadmapProvider,
     vkClient,
+    workflowPlanLaunchService,
   });
   registerPluginAssetRoutes(api.hono, { installRoot: pluginInstallRoot });
   registerPluginAdminRoutes(api.hono);

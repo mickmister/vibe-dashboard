@@ -264,6 +264,31 @@ export interface LaunchWorkspaceWorkflowRequest {
   beadIds?: string[];
 }
 
+export interface WorkflowPlanModel {
+  schemaVersion: "vd.workflow-plan.v1";
+  digest: string;
+  bundleDigest: string;
+  summary: string;
+  expiresAt: number;
+  workflow: { designId: string; version: number; label: string };
+  tasks: Array<{ id: string; title: string }>;
+  repositories: Array<{ id: string; mode: "read" | "write" }>;
+}
+
+export async function planWorkspaceWorkflow(request: LaunchWorkspaceWorkflowRequest): Promise<WorkflowPlanModel> {
+  const response = await fetch("/dashboard/api/workflows/plan", { method: "POST", headers: { Accept: "application/json", "Content-Type": "application/json" }, body: JSON.stringify(request) });
+  const payload = await response.json().catch(() => ({})) as { plan?: WorkflowPlanModel; message?: string };
+  if (response.ok && payload.plan) return payload.plan;
+  throw new WorkflowApiError(payload.message || "Workflow plan is not available.", {});
+}
+
+export async function launchPlannedWorkspaceWorkflow(request: LaunchWorkspaceWorkflowRequest, planDigest: string): Promise<{ result: any }> {
+  const response = await fetch("/dashboard/api/workflows/plan/launch", { method: "POST", headers: { Accept: "application/json", "Content-Type": "application/json" }, body: JSON.stringify({ request, planDigest }) });
+  const payload = await response.json().catch(() => ({})) as { result?: any; message?: string };
+  if ((response.ok || response.status === 409) && payload.result) return payload as { result: any };
+  throw new WorkflowApiError(payload.message || "Workflow could not start.", {});
+}
+
 export interface BatchLaunchWorkspaceWorkflowRequest {
   workspaceId: string;
   designId: string;

@@ -51,6 +51,20 @@ describe("registerWorkflowRoutes", () => {
     });
   });
 
+  it("uses one digest-bound plan contract for plan and launch", async () => {
+    const service = {
+      plan: vi.fn(async () => ({ schemaVersion: "vd.workflow-plan.v1", digest: "a".repeat(64), summary: "One task.", workspaceId: "workspace-a" })),
+      launch: vi.fn(async (_request, digest) => ({ status: "launched", plan: { digest }, run: { runId: "run-1", status: "running", url: "/dashboard/workflows/run-1" } })),
+    } as any;
+    const app = new Hono();
+    registerWorkflowRoutes(app, { registry: createWorkflowRegistry(), workflowPlanLaunchService: service });
+    const request = { workspaceId: "workspace-a", designId: "design-a", inputs: { task: "Work" }, roleBindings: {}, beadIds: ["bead-a"] };
+    const planResponse = await app.request("/dashboard/api/workflows/plan", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(request) });
+    expect(planResponse.status).toBe(200); expect(service.plan).toHaveBeenCalledOnce();
+    const launchResponse = await app.request("/dashboard/api/workflows/plan/launch", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ request, planDigest: "a".repeat(64) }) });
+    expect(launchResponse.status).toBe(201); expect(service.launch).toHaveBeenCalledWith(expect.objectContaining({ workspaceId: "workspace-a" }), "a".repeat(64));
+  });
+
   it("TEST_CASE_M120A_1A exposes lane overview and creation without raw host paths", async () => {
     const handle = await initVdDb({ path: ":memory:" });
     dbHandles.push(handle);

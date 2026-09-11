@@ -6,6 +6,7 @@ import * as os from 'os';
 import * as path from 'path';
 import { execFileSync, spawn } from 'child_process';
 import { fileURLToPath } from 'url';
+import { createInterface } from 'node:readline/promises';
 import { client } from '../core/client.js';
 import type { ConversationEntry, ExecutionProcess, Session } from '../types.js';
 import {
@@ -2190,6 +2191,11 @@ Commands:
     --no-caller-response        Do not queue a completion response back to caller
     --json                      Output as JSON
 
+  workflow plan <workflow>      Compile a side-effect-free launch plan
+    --input key=value           Runtime input (repeatable)
+    --bead <id>                 Ordered task context (repeatable)
+    --json                      Output as JSON
+
   workflow status <run-id>      Read clean workflow run status
   workflow result <run-id>      Read clean workflow result outputs
     --json                      Output as JSON
@@ -2656,6 +2662,10 @@ async function workflowCommandInner(args: string[]): Promise<void> {
     await workflowRun(args.slice(1));
     return;
   }
+  if (subcommand === 'plan') {
+    await workflowPlan(args.slice(1));
+    return;
+  }
   if (subcommand === 'status') {
     await workflowStatus(args.slice(1), false);
     return;
@@ -2727,6 +2737,23 @@ async function workflowShow(args: string[], inputsOnly: boolean): Promise<void> 
   console.log('Bead context: pass --bead <id> or use current bead environment.');
 }
 
+async function workflowPlan(args: string[]): Promise<void> {
+  const flags = parseWorkflowCliFlags(args);
+  const workflowRef = flags.positionals[0];
+  if (!workflowRef) throw new Error('Usage: vibe-agent workflow plan <workflow> --input key=value [--bead id] [--json]');
+  const workspaceId = resolveWorkflowWorkspace(flags, { required: true }) as string;
+  const home = await fetchWorkflowCliHome(workspaceId);
+  const resolved = resolveWorkflowReference(workflowRef, workflowCliCatalog(home));
+  validateWorkflowCliInputs(resolved.workflow, flags.inputs);
+  if (isGasCityWorkflowCliSummary(resolved.workflow)) throw new Error('Task-backed recipe planning is not available through this contract yet.');
+  const request = { workspaceId, designId: resolved.workflow.id, version: resolved.workflow.version ?? undefined, inputs: flags.inputs, roleBindings: buildWorkflowCliRoleBindings(resolved.workflow, flags), beadIds: flags.beadIds.length ? flags.beadIds : currentWorkflowBeadIdsFromEnv() };
+  const payload = await dashboardRequest('/dashboard/api/workflows/plan', { method: 'POST', body: JSON.stringify(request) }) as { plan?: any };
+  if (!payload.plan) throw new Error('Workflow planning did not return a plan.');
+  if (flags.json) { console.log(JSON.stringify({ ok: true, plan: payload.plan }, null, 2)); return; }
+  printWorkflowPlan(payload.plan);
+  console.log(`To start noninteractively, pass --plan-digest ${payload.plan.digest}.`);
+}
+
 async function workflowRun(args: string[]): Promise<void> {
   const flags = parseWorkflowCliFlags(args);
   const workflowRef = flags.positionals[0];
@@ -2740,53 +2767,66 @@ async function workflowRun(args: string[]): Promise<void> {
     await workflowRunGasCityRecipe({ resolved, workspaceId, flags, beadIds });
     return;
   }
-  const launchWorkflow = resolved.workflow.source === 'template'
-    ? await materializeWorkflowTemplateForCli(resolved.workflow, workspaceId)
-    : resolved.workflow;
-  const launchOptions = await fetchWorkflowCliLaunchOptions(workspaceId, launchWorkflow.id, launchWorkflow.version ?? undefined);
-  const roleBindings = buildWorkflowCliRoleBindings(launchOptions.workflow, flags);
-  const body = {
+  const roleBindings = buildWorkflowCliRoleBindings(resolved.workflow, flags);
+  const request = {
     workspaceId,
-    designId: launchWorkflow.id,
-    version: launchWorkflow.version ?? undefined,
+    designId: resolved.workflow.id,
+    version: resolved.workflow.version ?? undefined,
     inputs: flags.inputs,
     roleBindings,
     beadIds,
-    completionResponse: flags.callerSessionId ? { sessionId: flags.callerSessionId, source: 'vibe-agent-cli' } : undefined,
   };
-  const launched = await dashboardRequest('/dashboard/api/workflows/launch', { method: 'POST', body: JSON.stringify(body) }) as { run?: { runId: string; status: string; detailUrl?: string | null } };
-  const run = launched.run;
-  if (!run?.runId) throw new Error('Workflow launch did not return a run id.');
-  const runUrl = absoluteDashboardUrl(run.detailUrl ?? `/dashboard/workflows/${encodeURIComponent(run.runId)}`);
-  const output = {
-    ok: true,
-    runId: run.runId,
-    status: run.status,
-    workspaceId,
-    workflow: { id: launchWorkflow.id, requested: resolved.workflow.id, alias: resolved.alias, title: launchWorkflow.title, version: launchWorkflow.version ?? null },
-    beadIds,
-    runUrl,
-    completionResponse: flags.callerSessionId ? { sessionId: flags.callerSessionId, expected: true } : { expected: false, reason: 'No caller session was detected.' },
-    nextAction: flags.callerSessionId
-      ? 'Request sent. End this turn; the workflow response will arrive later in this session through workflow coordination.'
-      : 'Request sent. End this turn; inspect the workflow later with vibe-agent workflow result <run-id>.' ,
-  };
-  if (flags.json) {
-    console.log(JSON.stringify(output, null, 2));
+  const planned = await dashboardRequest('/dashboard/api/workflows/plan', { method: 'POST', body: JSON.stringify(request) }) as { plan?: { digest: string; bundleDigest: string; summary: string; workflow: { label: string; version: number }; tasks: Array<{id:string;title:string}>; repositories: Array<{id:string;mode:string}>; expiresAt: number } };
+  if (!planned.plan) throw new Error('Workflow planning did not return a plan.');
+  const plan = planned.plan;
+  let confirmedDigest = flags.planDigest;
+  if (!confirmedDigest) {
+    if (!process.stdin.isTTY || !process.stdout.isTTY) throw new Error('Noninteractive workflow run requires --plan-digest from a current workflow plan.');
+    printWorkflowPlan(plan);
+    await confirmWorkflowPlan(flags.yes, async () => {
+      const reader = createInterface({ input: process.stdin, output: process.stdout });
+      try { return await reader.question('Start this exact plan? [y/N] '); } finally { reader.close(); }
+    });
+    confirmedDigest = plan.digest;
+  }
+  const launched = await dashboardRequest('/dashboard/api/workflows/plan/launch', { method: 'POST', body: JSON.stringify({ request, planDigest: confirmedDigest }) }) as { result?: any };
+  const result = launched.result;
+  if (!result) throw new Error('Workflow start did not return a result.');
+  if (result.status === 'stale') {
+    if (flags.json) { console.log(JSON.stringify({ ok: false, ...result }, null, 2)); return; }
+    console.log('Plan changed. Nothing was started.');
+    for (const item of result.changed ?? []) console.log(`- ${productSafeWorkflowCliText(item)}`);
+    console.log(`New plan digest: ${result.plan.digest}`);
     return;
   }
-  console.log(`Started workflow: ${productSafeWorkflowCliText(launchWorkflow.title)}`);
-  console.log(`Run: ${productSafeWorkflowCliText(run.runId)}`);
-  console.log(`Status: ${productSafeWorkflowCliText(run.status)}`);
-  console.log(`Workspace: ${productSafeWorkflowCliText(workspaceId)}`);
-  if (beadIds.length) console.log(`Beads: ${beadIds.map((id) => productSafeWorkflowCliText(id)).join(', ')}`);
-  console.log(`Open: ${runUrl}`);
-  console.log('');
-  if (flags.callerSessionId) {
-    console.log('Request sent. End this turn; the workflow response will arrive later in this session through workflow coordination.');
-  } else {
-    console.log('Request sent. End this turn; inspect the workflow later with vibe-agent workflow result <run-id>.');
+  if (result.status === 'waiting') {
+    if (flags.json) { console.log(JSON.stringify({ ok: true, ...result }, null, 2)); return; }
+    console.log(productSafeWorkflowCliText(result.message)); return;
   }
+  const output = { ok: true, runId: result.run.runId, status: result.run.status, workspaceId, workflow: { id: resolved.workflow.id, alias: resolved.alias, title: resolved.workflow.title, version: plan.workflow.version }, beadIds, runUrl: absoluteDashboardUrl(result.run.url), planDigest: plan.digest, nextAction: 'Request sent. End this turn; inspect the workflow later from Workflows.' };
+  if (flags.json) { console.log(JSON.stringify(output, null, 2)); return; }
+  console.log(`Started workflow: ${productSafeWorkflowCliText(resolved.workflow.title)}`);
+  console.log(`Run: ${productSafeWorkflowCliText(result.run.runId)}`);
+  console.log(`Status: ${productSafeWorkflowCliText(result.run.status)}`);
+  console.log(`Plan digest: ${plan.digest}`);
+  console.log(`Open: ${absoluteDashboardUrl(result.run.url)}`);
+  console.log('Request sent. End this turn; inspect the workflow later from Workflows.');
+
+}
+
+export async function confirmWorkflowPlan(yes: boolean, ask: () => Promise<string>): Promise<void> {
+  if (yes) return;
+  let answer: string;
+  try { answer = await ask(); } catch { throw new Error('Confirmation ended. Nothing was started.'); }
+  if (!/^y(?:es)?$/i.test(answer.trim())) throw new Error('Declined. Nothing was started.');
+}
+
+function printWorkflowPlan(plan: { digest: string; summary: string; workflow: { label: string; version: number }; tasks: Array<{id:string;title:string}>; repositories: Array<{id:string;mode:string}>; expiresAt: number }): void {
+  console.log(`Plan: ${productSafeWorkflowCliText(plan.workflow.label)} v${plan.workflow.version}`);
+  console.log(productSafeWorkflowCliText(plan.summary));
+  for (const task of plan.tasks) console.log(`Task: ${productSafeWorkflowCliText(task.id)} — ${productSafeWorkflowCliText(task.title)}`);
+  for (const repo of plan.repositories) console.log(`Repository: ${productSafeWorkflowCliText(repo.id)} (${repo.mode})`);
+  console.log(`Plan digest: ${plan.digest}`);
 }
 
 async function workflowStatus(args: string[], resultOnly: boolean): Promise<void> {
@@ -3079,10 +3119,12 @@ interface WorkflowCliParsedFlags {
   roleModels: WorkflowCliRoleOverride[];
   roleReasonings: WorkflowCliRoleOverride[];
   positionals: string[];
+  planDigest?: string;
+  yes: boolean;
 }
 
 export function parseWorkflowCliFlags(args: string[]): WorkflowCliParsedFlags {
-  const result: WorkflowCliParsedFlags = { json: false, inputs: {}, beadIds: [], callerSessionId: detectWorkflowCallerSessionId(), roleSessions: [], roleExecutors: [], roleModels: [], roleReasonings: [], positionals: [] };
+  const result: WorkflowCliParsedFlags = { json: false, inputs: {}, beadIds: [], callerSessionId: detectWorkflowCallerSessionId(), roleSessions: [], roleExecutors: [], roleModels: [], roleReasonings: [], positionals: [], yes: false };
   for (let i = 0; i < args.length; i++) {
     const arg = args[i] ?? '';
     const readValue = (flag: string): string => {
@@ -3094,6 +3136,8 @@ export function parseWorkflowCliFlags(args: string[]): WorkflowCliParsedFlags {
       return value;
     };
     if (arg === '--json') { result.json = true; continue; }
+    if (arg === '--yes') { result.yes = true; continue; }
+    if (arg === '--plan-digest' || arg.startsWith('--plan-digest=')) { result.planDigest = readValue('--plan-digest'); continue; }
     if (arg === '--workspace' || arg === '--workspace-id' || arg.startsWith('--workspace=') || arg.startsWith('--workspace-id=')) { result.workspaceId = readValue(arg.startsWith('--workspace-id') ? '--workspace-id' : '--workspace'); continue; }
     if (arg === '--bead' || arg.startsWith('--bead=')) { result.beadIds.push(readValue('--bead')); continue; }
     if (arg === '--caller-session' || arg.startsWith('--caller-session=')) { result.callerSessionId = readValue('--caller-session'); continue; }

@@ -11,7 +11,8 @@ import {
   fetchWorkflowLaunchOptions,
   fetchWorkspaceWorkflowsHome,
   launchGasCitySourceWorkflow,
-  launchWorkspaceWorkflow,
+  launchPlannedWorkspaceWorkflow,
+  planWorkspaceWorkflow,
   useWorkflowTemplate,
   WorkflowApiError,
   type WorkflowLaunchOptions,
@@ -26,6 +27,7 @@ import {
   type WorkspaceLaneSummary,
   type WorkspaceWorkflowSummary,
   type LaunchWorkspaceWorkflowResponse,
+  type WorkflowPlanModel,
 } from "../client/workflowsHomeApi";
 import {
   buildMetaWorkflowTerminalNotification,
@@ -1166,6 +1168,7 @@ function RunWorkflowDialog({
   const [beadSearchMessage, setBeadSearchMessage] = useState<string | null>(null);
   const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
   const [submitting, setSubmitting] = useState(false);
+  const [confirmedPlan, setConfirmedPlan] = useState<WorkflowPlanModel | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [launched, setLaunched] = useState<
     LaunchWorkspaceWorkflowResponse["run"] | null
@@ -1358,7 +1361,7 @@ function RunWorkflowDialog({
           (binding) => binding.mode === "existing",
         )?.sessionId ?? null,
       );
-      const launched = await launchWorkspaceWorkflow({
+      const request = {
         workspaceId,
         designId: workflow.id,
         version: workflow.version,
@@ -1367,9 +1370,22 @@ function RunWorkflowDialog({
         roleBindings,
         laneId: selectedLaneId || null,
         beadIds: selectedBeads.map((bead) => bead.beadId),
-      });
-      setLaunched(launched.run);
-      if (launched.home) onLaunched(launched.home);
+      };
+      if (!confirmedPlan) {
+        setConfirmedPlan(await planWorkspaceWorkflow(request));
+        return;
+      }
+      const launched = await launchPlannedWorkspaceWorkflow(request, confirmedPlan.digest);
+      if (launched.result.status === "stale") {
+        setConfirmedPlan(launched.result.plan);
+        setFieldErrors({ form: "The plan changed. Nothing was started. Review the updated plan." });
+        return;
+      }
+      if (launched.result.status === "waiting") {
+        setFieldErrors({ form: launched.result.message });
+        return;
+      }
+      setLaunched(launched.result.run);
     } catch (caught) {
       if (caught instanceof WorkflowApiError)
         setFieldErrors({ form: caught.message, ...caught.fieldErrors });
@@ -1776,6 +1792,14 @@ function RunWorkflowDialog({
           </div>
         ) : null}
 
+        {confirmedPlan && !launched ? (
+          <section className="mt-6 border-t border-zinc-800 pt-4" aria-label="Workflow plan">
+            <h3 className="font-medium text-zinc-100">Review plan</h3>
+            <p className="mt-1 text-sm text-zinc-300">{confirmedPlan.summary}</p>
+            <p className="mt-2 break-all font-mono text-xs text-zinc-500">Plan digest: {confirmedPlan.digest}</p>
+            <p className="mt-2 text-sm text-amber-200">Start only if this plan matches the work you expect.</p>
+          </section>
+        ) : null}
         <div className="mt-6 flex justify-end gap-3">
           <button
             type="button"
@@ -1790,7 +1814,7 @@ function RunWorkflowDialog({
               className="rounded-md bg-cyan-500 px-3 py-2 text-sm font-medium text-zinc-950 disabled:opacity-60"
               disabled={submitting || Boolean(loadError)}
             >
-              {submitting ? "Launching…" : "Launch workflow"}
+              {submitting ? "Checking…" : confirmedPlan ? "Confirm and start" : "Review plan"}
             </button>
           ) : null}
         </div>
