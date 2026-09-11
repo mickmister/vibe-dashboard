@@ -20,8 +20,9 @@ import { migration as workspaceLanesMigration } from '../migrations/202608140000
 import { migration as workflowMetaRunsMigration } from '../migrations/20260815000000_workflow_meta_runs/migration';
 import { migration as workflowMetaRunChildBindingsMigration } from '../migrations/20260817000000_workflow_meta_run_child_bindings/migration';
 import { migration as workflowRoleTemplatesMigration } from '../migrations/20260817001000_workflow_role_templates/migration';
+import { migration as workflowWorkAreasMigration } from '../migrations/20260912000000_workflow_work_areas/migration';
 
-export const databaseVersion = 22;
+export const databaseVersion = 23;
 
 export const migrations = [
   { name: '20260702000000_external_integrations', migration: _20260702000000_external_integrations },
@@ -46,4 +47,5 @@ export const migrations = [
   { name: '20260815000000_workflow_meta_runs', migration: workflowMetaRunsMigration },
   { name: '20260817000000_workflow_meta_run_child_bindings', migration: workflowMetaRunChildBindingsMigration },
   { name: '20260817001000_workflow_role_templates', migration: workflowRoleTemplatesMigration },
+  { name: '20260912000000_workflow_work_areas', migration: workflowWorkAreasMigration },
 ] as const;

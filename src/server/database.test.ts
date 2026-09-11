@@ -25,6 +25,10 @@ describe('VD database', () => {
     const handle = await initVdDb({ path: join(dir, 'vd.sqlite') });
     try {
       expect(handle.appliedMigrations).toEqual([
+        '20260702000000_external_integrations',
+        '20260702010000_external_issue_workspace_mappings',
+        '20260702020000_external_repo_project_mappings',
+        '20260804220000_external_repo_project_mapping_site_scope',
         '20260722000000_workflow_runs',
         '20260722010000_workflow_run_indexes',
         '20260731000000_workflow_orchestration',
@@ -43,6 +47,7 @@ describe('VD database', () => {
         '20260815000000_workflow_meta_runs',
         '20260817000000_workflow_meta_run_child_bindings',
         '20260817001000_workflow_role_templates',
+        '20260912000000_workflow_work_areas',
       ]);
       const tables = await sql<{ name: string }>`
         SELECT name FROM sqlite_master
@@ -57,7 +62,8 @@ describe('VD database', () => {
           'WorkflowPersistedRun', 'WorkflowBatch', 'WorkflowBatchItem',
           'WorkspaceLane', 'WorkspaceLaneBinding', 'WorkspaceLaneCapacityLease',
           'WorkspaceLaneAuditEvent', 'WorkflowMetaRun', 'WorkflowMetaRunItem',
-          'WorkflowMetaRunEvent', 'Migration'
+          'WorkflowMetaRunEvent', 'WorkflowWorkArea', 'WorkflowWorkAreaRepository',
+          'WorkflowWorkAreaOperation', 'WorkflowWorkAreaAuditEvent', 'Migration'
         )
       `.execute(handle.db);
       expect(tables.rows.map((table) => table.name).sort()).toEqual([
@@ -89,6 +95,10 @@ describe('VD database', () => {
         'WorkflowStepState',
         'WorkflowWebhookInbox',
         'WorkflowWebhookProvisioningState',
+        'WorkflowWorkArea',
+        'WorkflowWorkAreaAuditEvent',
+        'WorkflowWorkAreaOperation',
+        'WorkflowWorkAreaRepository',
         'WorkspaceLane',
         'WorkspaceLaneAuditEvent',
         'WorkspaceLaneBinding',

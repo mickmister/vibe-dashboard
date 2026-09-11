@@ -708,6 +708,61 @@ export interface WorkspaceLaneAuditEvent {
   createdAt: number;
 }
 
+export type WorkflowWorkAreaStatus = 'reserved' | 'provisioning' | 'ready' | 'blocked' | 'retained' | 'released';
+export type WorkflowWorkAreaRepositoryStatus = 'reserved' | 'creating' | 'ready' | 'blocked' | 'retained';
+
+export interface WorkflowWorkArea {
+  workAreaId: string;
+  workspaceId: string;
+  lineageKey: string;
+  ownerRunId: string;
+  layoutDigest: string;
+  status: WorkflowWorkAreaStatus;
+  generation: number;
+  reservedBytes: number;
+  retainReason: NullableString;
+  createdAt: number;
+  updatedAt: number;
+}
+
+export interface WorkflowWorkAreaRepository {
+  workAreaId: string;
+  repoKey: string;
+  sourceRevision: string;
+  status: WorkflowWorkAreaRepositoryStatus;
+  generation: number;
+  dirty: number;
+  active: number;
+  uniqueWork: number;
+  retainReason: NullableString;
+  createdAt: number;
+  updatedAt: number;
+}
+
+export interface WorkflowWorkAreaOperation {
+  operationId: string;
+  operationKey: string;
+  requestDigest: string;
+  workAreaId: string;
+  actorId: string;
+  kind: 'preflight' | 'create_or_reuse' | 'reconcile';
+  status: 'preparing' | 'completed' | 'blocked';
+  message: string;
+  createdAt: number;
+  updatedAt: number;
+}
+
+export interface WorkflowWorkAreaAuditEvent {
+  auditId: string;
+  workAreaId: string;
+  workspaceId: string;
+  operationId: NullableString;
+  actorId: string;
+  eventType: string;
+  message: string;
+  createdAt: number;
+}
+
 export interface DB {
   BetterAuthUser: BetterAuthUser;
   BetterAuthSession: BetterAuthSession;
@@ -723,6 +778,10 @@ export interface DB {
   WorkspaceLaneBinding: WorkspaceLaneBinding;
   WorkspaceLaneCapacityLease: WorkspaceLaneCapacityLease;
   WorkspaceLaneAuditEvent: WorkspaceLaneAuditEvent;
+  WorkflowWorkArea: WorkflowWorkArea;
+  WorkflowWorkAreaRepository: WorkflowWorkAreaRepository;
+  WorkflowWorkAreaOperation: WorkflowWorkAreaOperation;
+  WorkflowWorkAreaAuditEvent: WorkflowWorkAreaAuditEvent;
   WorkflowDesign: WorkflowDesign;
   WorkflowDesignDraft: WorkflowDesignDraft;
   WorkflowDesignVersion: WorkflowDesignVersion;
