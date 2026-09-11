@@ -501,9 +501,17 @@ describe('ProductionWorkflowWorkAreaProvider', () => {
     const before = await registrySnapshot(handle);
     await expect(provider.initialize()).rejects.toMatchObject({ code: 'conflict' });
     expect(await registrySnapshot(handle)).toEqual(before);
+    const filesystemBefore = await readdir(stateRoot);
+    for (const capability of ['', 'wrong-token', 'stale-token']) {
+      await expect(adoptLegacyProductionWorkAreaRegistry({ registry, mutationLockManager: manager, runtimeClassification: 'production', deployment: deploymentConfig,
+        registryId: 'legacy-production-registry', adoptionKey: 'unauthorized-adoption', capability,
+        authorizeMaintenance: maintenanceAuthorization() })).rejects.toMatchObject({ code: 'not_authorized' });
+      expect(await registrySnapshot(handle)).toEqual(before);
+      expect(await readdir(stateRoot)).toEqual(filesystemBefore);
+    }
 
     const adoption = { registry, mutationLockManager: manager, runtimeClassification: 'production' as const, deployment: deploymentConfig,
-      registryId: 'legacy-production-registry', adoptionKey: 'legacy-adoption-1', actorId: 'server-admin' };
+      registryId: 'legacy-production-registry', adoptionKey: 'legacy-adoption-1', capability: 'valid-token', authorizeMaintenance: maintenanceAuthorization() };
     await adoptLegacyProductionWorkAreaRegistry(adoption);
     await provider.initialize();
     expect(await handle.db.selectFrom('WorkflowWorkArea').selectAll().execute()).toEqual(before.areas);
@@ -512,10 +520,11 @@ describe('ProductionWorkflowWorkAreaProvider', () => {
     expect(await handle.db.selectFrom('WorkflowWorkAreaOperationLease').selectAll().execute()).toEqual(before.leases);
     expect(await handle.db.selectFrom('WorkflowWorkAreaAuditEvent').selectAll().execute()).toEqual(before.audits);
     expect(await handle.db.selectFrom('WorkflowWorkAreaRegistryAdoptionAudit').selectAll().executeTakeFirst()).toMatchObject({
-      adoptionKey: 'legacy-adoption-1', actorId: 'server-admin', eventType: 'legacy_production_registry_adopted',
+      adoptionKey: 'legacy-adoption-1', actorId: 'server-admin', capabilityId: 'registry-adoption', capabilityGeneration: 1,
+      eventType: 'legacy_production_registry_adopted',
     });
     await adoptLegacyProductionWorkAreaRegistry(adoption);
-    await expect(adoptLegacyProductionWorkAreaRegistry({ ...adoption, actorId: 'other-admin' })).rejects.toMatchObject({ code: 'conflict' });
+    await expect(adoptLegacyProductionWorkAreaRegistry({ ...adoption, authorizeMaintenance: maintenanceAuthorization('other-admin') })).rejects.toMatchObject({ code: 'conflict' });
   });
 
   it('allows only one exact trusted legacy adoption and never permits development adoption', async () => {
@@ -529,20 +538,22 @@ describe('ProductionWorkflowWorkAreaProvider', () => {
       hostId: deploymentConfig.hostId, canonicalLockRoot: initialized.canonicalLockRoot })).digest('hex');
     const registry = new DbWorkflowWorkAreaRegistry({ db: handle.db }); const before = await registrySnapshot(handle);
     await expect(adoptLegacyProductionWorkAreaRegistry({ registry, mutationLockManager: manager, runtimeClassification: 'production', deployment: deploymentConfig,
-      registryId: 'absent-production', adoptionKey: 'absent-adoption', actorId: 'server-admin' })).rejects.toMatchObject({ code: 'conflict' });
+      registryId: 'absent-production', adoptionKey: 'absent-adoption', capability: 'valid-token', authorizeMaintenance: maintenanceAuthorization() })).rejects.toMatchObject({ code: 'conflict' });
     expect(await registrySnapshot(handle)).toEqual(before);
     await seedPopulatedLegacyRegistry(handle, legacyDigest);
     const populatedBefore = await registrySnapshot(handle);
     await expect(adoptLegacyProductionWorkAreaRegistry({ registry, mutationLockManager: manager, runtimeClassification: 'test',
       deployment: { mode: 'development_temporary', unsafeDevelopmentOptIn: true, registryNamespace: 'legacy-dev', serverStateRoot: stateRoot },
-      registryId: 'bad-development', adoptionKey: 'bad-adoption', actorId: 'server-admin' })).rejects.toMatchObject({ code: 'not_authorized' });
+      registryId: 'bad-development', adoptionKey: 'bad-adoption', capability: 'valid-token', authorizeMaintenance: maintenanceAuthorization() })).rejects.toMatchObject({ code: 'not_authorized' });
     expect(await registrySnapshot(handle)).toEqual(populatedBefore);
     await expect(adoptLegacyProductionWorkAreaRegistry({ registry, mutationLockManager: manager, runtimeClassification: 'production',
-      deployment: { ...deploymentConfig, hostId: 'wrong-host-label' }, registryId: 'wrong-production', adoptionKey: 'wrong-adoption', actorId: 'server-admin' }))
+      deployment: { ...deploymentConfig, hostId: 'wrong-host-label' }, registryId: 'wrong-production', adoptionKey: 'wrong-adoption',
+      capability: 'valid-token', authorizeMaintenance: maintenanceAuthorization() }))
       .rejects.toMatchObject({ code: 'conflict' });
     expect(await registrySnapshot(handle)).toEqual(populatedBefore);
 
-    const base = { mutationLockManager: manager, runtimeClassification: 'production' as const, deployment: deploymentConfig, actorId: 'server-admin' };
+    const base = { mutationLockManager: manager, runtimeClassification: 'production' as const, deployment: deploymentConfig,
+      capability: 'valid-token', authorizeMaintenance: maintenanceAuthorization() };
     const raced = await Promise.allSettled([
       adoptLegacyProductionWorkAreaRegistry({ ...base, registry: new DbWorkflowWorkAreaRegistry({ db: handle.db }), registryId: 'production-a', adoptionKey: 'adopt-a' }),
       adoptLegacyProductionWorkAreaRegistry({ ...base, registry: new DbWorkflowWorkAreaRegistry({ db: handle.db }), registryId: 'production-b', adoptionKey: 'adopt-b' }),
@@ -551,6 +562,34 @@ describe('ProductionWorkflowWorkAreaProvider', () => {
     expect(raced.filter((entry) => entry.status === 'rejected')).toHaveLength(1);
     expect(await handle.db.selectFrom('WorkflowWorkAreaRegistryIdentity').selectAll().execute()).toHaveLength(1);
     expect(await handle.db.selectFrom('WorkflowWorkAreaRegistryAdoptionAudit').selectAll().execute()).toHaveLength(1);
+  });
+
+  it.each([
+    ['repository generation', async (handle: VdDbHandle) => { await handle.db.updateTable('WorkflowWorkAreaRepository').set({ generation: 2 }).execute(); }],
+    ['lease repository', async (handle: VdDbHandle) => { await handle.db.updateTable('WorkflowWorkAreaOperationLease').set({ repoKey: 'missing' }).execute(); }],
+    ['lease request digest', async (handle: VdDbHandle) => { await handle.db.updateTable('WorkflowWorkAreaOperationLease').set({ requestDigest: 'other' }).execute(); }],
+    ['audit operation area', async (handle: VdDbHandle) => {
+      await handle.db.insertInto('WorkflowWorkArea').values({ workAreaId: 'wa-other', workspaceId: 'workspace-b', lineageKey: 'lineage-b', ownerRunId: 'run-b',
+        layoutDigest: 'layout-b', status: 'ready', generation: 1, reservedBytes: 1, retainReason: null, createdAt: 1, updatedAt: 1 }).execute();
+      await handle.db.insertInto('WorkflowWorkAreaOperation').values({ operationId: 'operation-b', operationKey: 'operation-key-b', requestDigest: 'request-b',
+        workAreaId: 'wa-other', actorId: 'actor-b', kind: 'preflight', status: 'completed', message: 'Ready.', createdAt: 1, updatedAt: 1 }).execute();
+      await handle.db.updateTable('WorkflowWorkAreaAuditEvent').set({ operationId: 'operation-b' }).where('auditId', '=', 'audit-a').execute();
+    }],
+  ] as const)('rejects malformed legacy %s linkage without database or filesystem mutation', async (_label, mutate) => {
+    const handle = await initVdDb({ path: ':memory:' }); handles.push(handle);
+    const root = await mkdtemp(join(tmpdir(), 'workflow-malformed-adoption-')); dirs.push(root); const stateRoot = join(root, 'state');
+    const manager = new FilesystemWorkAreaMutationLockManager({ serverStateRoot: stateRoot, runtimeHostIdentity: async () => 'malformed-host' });
+    const initialized = await manager.initialize(); const deploymentConfig = { mode: 'production_single_host' as const,
+      serverStateRoot: stateRoot, lockDomainId: 'legacy-domain', hostId: 'legacy-host' };
+    const legacyDigest = createHash('sha256').update(JSON.stringify({ mode: deploymentConfig.mode, lockDomainId: deploymentConfig.lockDomainId,
+      hostId: deploymentConfig.hostId, canonicalLockRoot: initialized.canonicalLockRoot })).digest('hex');
+    await seedPopulatedLegacyRegistry(handle, legacyDigest); await mutate(handle);
+    const before = await registrySnapshot(handle); const filesystemBefore = await readdir(stateRoot);
+    await expect(adoptLegacyProductionWorkAreaRegistry({ registry: new DbWorkflowWorkAreaRegistry({ db: handle.db }), mutationLockManager: manager,
+      runtimeClassification: 'production', deployment: deploymentConfig, registryId: 'production-registry', adoptionKey: 'adoption-malformed',
+      capability: 'valid-token', authorizeMaintenance: maintenanceAuthorization() })).rejects.toMatchObject({ code: 'conflict' });
+    expect(await registrySnapshot(handle)).toEqual(before); expect(await readdir(stateRoot)).toEqual(filesystemBefore);
+    expect(before.identity).toHaveLength(0); expect(before.adoptionAudits).toHaveLength(0);
   });
 });
 
@@ -563,6 +602,10 @@ function request(): WorkflowWorkAreaRequest {
 
 function deployment(serverStateRoot: string) {
   return { mode: 'production_single_host' as const, serverStateRoot, lockDomainId: 'test-lock-domain', hostId: 'test-host' };
+}
+
+function maintenanceAuthorization(actorId = 'server-admin', capabilityId = 'registry-adoption', generation = 1) {
+  return async ({ capability }: { capability: string }) => capability === 'valid-token' ? { actorId, capabilityId, generation } : null;
 }
 
 async function setup(options: { authorized?: boolean; countLimit?: number; byteLimit?: number; repositoriesInsideManagedRoot?: boolean; registryKind?: 'production' | 'development' } = {}) {

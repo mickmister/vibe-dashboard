@@ -778,6 +778,8 @@ export interface WorkflowWorkAreaRegistryAdoptionAudit {
   requestDigest: string;
   registryId: string;
   actorId: string;
+  capabilityId: NullableString;
+  capabilityGeneration: NullableNumber;
   eventType: 'legacy_production_registry_adopted';
   createdAt: number;
 }

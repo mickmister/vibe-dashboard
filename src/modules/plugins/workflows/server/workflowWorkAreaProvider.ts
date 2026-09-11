@@ -43,6 +43,7 @@ export interface WorkAreaMutationLock {
   release(): Promise<void>;
 }
 export interface WorkAreaMutationLockManager {
+  preflight(): Promise<{ canonicalLockRoot: string; hostIdentityDigest: string | null }>;
   initialize(): Promise<{ canonicalLockRoot: string; hostIdentityDigest: string }>;
   acquire(input: { sourceIdentity: string; targetIdentity: string; holderId: string; waitMs: number }): Promise<WorkAreaMutationLock>;
 }
@@ -78,6 +79,9 @@ export class FilesystemWorkAreaMutationLockManager implements WorkAreaMutationLo
   initialize() { return this.initialized ??= validateGlobalLockCapability(this.serverStateRoot, this.options.linkClaim ?? link,
     this.options.syncDirectory ?? fsyncDirectory, this.options.currentProcessIdentity ?? currentProcessIdentity,
     this.options.runtimeHostIdentity ?? deriveRuntimeHostIdentity); }
+  async preflight() { const canonicalLockRoot = await inspectGlobalLockRoot(this.serverStateRoot);
+    return { canonicalLockRoot, hostIdentityDigest: await inspectPrivateHostIdentity(resolve(canonicalLockRoot, '..'),
+      await (this.options.runtimeHostIdentity ?? deriveRuntimeHostIdentity)()) }; }
 
   async acquire(input: { sourceIdentity: string; targetIdentity: string; holderId: string; waitMs: number }): Promise<WorkAreaMutationLock> {
     const lockRoot = (await this.initialize()).canonicalLockRoot;
@@ -187,26 +191,35 @@ export class DbWorkflowWorkAreaRegistry {
     if (!identity || identity.kind !== kind) throw conflict('Task work registry is not designated for this runtime.');
   }
 
+  async preflightLegacyProductionRegistry(input: { lockDomainId: string; legacyDomainDigest: string }): Promise<void> {
+    await this.db.transaction().execute(async (trx) => verifyLegacyProductionRegistry(trx, input));
+  }
+
+  async isLegacyAdoptionReplay(input: { adoptionKey: string; requestDigest: string; actorId: string; capabilityId: string; capabilityGeneration: number }): Promise<boolean> {
+    const previous = await this.db.selectFrom('WorkflowWorkAreaRegistryAdoptionAudit').selectAll().where('adoptionKey', '=', input.adoptionKey).executeTakeFirst();
+    if (!previous) return false;
+    if (previous.requestDigest !== input.requestDigest || previous.actorId !== input.actorId || previous.capabilityId !== input.capabilityId
+      || previous.capabilityGeneration !== input.capabilityGeneration) throw conflict('Registry adoption request conflicts with an earlier operation.');
+    return true;
+  }
+
   async adoptLegacyProductionRegistry(input: { adoptionKey: string; requestDigest: string; registryId: string; actorId: string;
-    lockDomainId: string; legacyDomainDigest: string }): Promise<void> {
+    capabilityId: string; capabilityGeneration: number; lockDomainId: string; legacyDomainDigest: string }): Promise<void> {
     await retrySqliteBusy(() => this.db.transaction().execute(async (trx) => {
       const previous = await trx.selectFrom('WorkflowWorkAreaRegistryAdoptionAudit').selectAll().where('adoptionKey', '=', input.adoptionKey).executeTakeFirst();
       if (previous) {
-        if (previous.requestDigest !== input.requestDigest || previous.actorId !== input.actorId) throw conflict('Registry adoption request conflicts with an earlier operation.');
+        if (previous.requestDigest !== input.requestDigest || previous.actorId !== input.actorId || previous.capabilityId !== input.capabilityId
+          || previous.capabilityGeneration !== input.capabilityGeneration) throw conflict('Registry adoption request conflicts with an earlier operation.');
         return;
       }
       if (await trx.selectFrom('WorkflowWorkAreaRegistryIdentity').select('singletonKey').executeTakeFirst()) throw conflict('Task work registry is already designated.');
-      const domains = await trx.selectFrom('WorkflowWorkAreaLockDomain').selectAll().execute();
-      if (domains.length !== 1 || domains[0]!.singletonKey !== 'work-area-provider' || domains[0]!.lockDomainId !== input.lockDomainId
-        || domains[0]!.domainDigest !== input.legacyDomainDigest || domains[0]!.deploymentMode !== null || domains[0]!.hostIdentityDigest !== null) {
-        throw conflict('Legacy task work lock identity does not match the trusted migration request.');
-      }
-      await assertCompatibleLegacyRegistry(trx);
+      await verifyLegacyProductionRegistry(trx, input);
       const now = this.now();
       await trx.insertInto('WorkflowWorkAreaRegistryIdentity').values({ singletonKey: 'work-area-registry', registryId: input.registryId,
         kind: 'production', createdAt: now, updatedAt: now }).execute();
       await trx.insertInto('WorkflowWorkAreaRegistryAdoptionAudit').values({ adoptionKey: input.adoptionKey, requestDigest: input.requestDigest,
-        registryId: input.registryId, actorId: input.actorId, eventType: 'legacy_production_registry_adopted', createdAt: now }).execute();
+        registryId: input.registryId, actorId: input.actorId, capabilityId: input.capabilityId, capabilityGeneration: input.capabilityGeneration,
+        eventType: 'legacy_production_registry_adopted', createdAt: now }).execute();
     }));
   }
 
@@ -364,15 +377,32 @@ export type WorkAreaDeploymentCapability =
 
 /** Trusted server-maintenance operation. It is intentionally not registered as a route or workflow action. */
 export async function adoptLegacyProductionWorkAreaRegistry(input: { registry: DbWorkflowWorkAreaRegistry; mutationLockManager: WorkAreaMutationLockManager;
-  runtimeClassification: 'production' | 'development' | 'test'; deployment: WorkAreaDeploymentCapability; registryId: string; adoptionKey: string; actorId: string }) {
+  runtimeClassification: 'production' | 'development' | 'test'; deployment: WorkAreaDeploymentCapability; registryId: string; adoptionKey: string;
+  capability: string; authorizeMaintenance: (request: { capability: string; adoptionKey: string; registryId: string }) => Promise<{
+    actorId: string; capabilityId: string; generation: number;
+  } | null> }) {
   const deployment = normalizeDeploymentCapability(input.deployment, input.runtimeClassification);
   if (deployment.mode !== 'production_single_host') throw new WorkflowWorkAreaError('not_authorized', 'Only a production registry can be adopted.');
   const registryId = requiredId(input.registryId, 'registry'); const adoptionKey = requiredId(input.adoptionKey, 'adoption operation');
-  const actorId = requiredId(input.actorId, 'maintenance actor');
+  const authorization = await input.authorizeMaintenance({ capability: input.capability, adoptionKey, registryId });
+  if (!authorization || !Number.isSafeInteger(authorization.generation) || authorization.generation < 1) throw new WorkflowWorkAreaError('not_authorized', 'Trusted registry maintenance authorization is required.');
+  const actorId = requiredId(authorization.actorId, 'maintenance actor'); const capabilityId = requiredId(authorization.capabilityId, 'maintenance capability');
+  const preflight = await input.mutationLockManager.preflight();
+  const legacyDomainDigest = deploymentDomainDigests(deployment, preflight.canonicalLockRoot, '').legacyDomainDigest;
+  if (preflight.hostIdentityDigest) {
+    const replayDigests = deploymentDomainDigests(deployment, preflight.canonicalLockRoot, preflight.hostIdentityDigest);
+    const replayRequestDigest = stableDigest({ registryId, adoptionKey, actorId, capabilityId, capabilityGeneration: authorization.generation,
+      lockDomainId: deployment.lockDomainId, ...replayDigests });
+    if (await input.registry.isLegacyAdoptionReplay({ adoptionKey, requestDigest: replayRequestDigest, actorId, capabilityId,
+      capabilityGeneration: authorization.generation })) return;
+  }
+  await input.registry.preflightLegacyProductionRegistry({ lockDomainId: deployment.lockDomainId, legacyDomainDigest });
   const { canonicalLockRoot, hostIdentityDigest } = await input.mutationLockManager.initialize();
   const digests = deploymentDomainDigests(deployment, canonicalLockRoot, hostIdentityDigest);
-  const requestDigest = stableDigest({ registryId, adoptionKey, actorId, lockDomainId: deployment.lockDomainId, ...digests });
-  await input.registry.adoptLegacyProductionRegistry({ adoptionKey, requestDigest, registryId, actorId,
+  const requestDigest = stableDigest({ registryId, adoptionKey, actorId, capabilityId, capabilityGeneration: authorization.generation,
+    lockDomainId: deployment.lockDomainId, ...digests });
+  await input.registry.adoptLegacyProductionRegistry({ adoptionKey, requestDigest, registryId, actorId, capabilityId,
+    capabilityGeneration: authorization.generation,
     lockDomainId: deployment.lockDomainId, legacyDomainDigest: digests.legacyDomainDigest });
 }
 
@@ -599,18 +629,27 @@ function deploymentDomainDigests(deployment: ReturnType<typeof normalizeDeployme
   return { legacyDomainDigest, domainDigest: stableDigest({ mode: deployment.mode, lockDomainId: deployment.lockDomainId,
     hostId: deployment.hostId, canonicalLockRoot, hostIdentityDigest }) };
 }
-async function assertCompatibleLegacyRegistry(trx: Transaction<DB>) {
+async function verifyLegacyProductionRegistry(trx: Transaction<DB>, input: { lockDomainId: string; legacyDomainDigest: string }) {
+  if (await trx.selectFrom('WorkflowWorkAreaRegistryIdentity').select('singletonKey').executeTakeFirst()) throw conflict('Task work registry is already designated.');
+  const domains = await trx.selectFrom('WorkflowWorkAreaLockDomain').selectAll().execute();
+  if (domains.length !== 1 || domains[0]!.singletonKey !== 'work-area-provider' || domains[0]!.lockDomainId !== input.lockDomainId
+    || domains[0]!.domainDigest !== input.legacyDomainDigest || domains[0]!.deploymentMode !== null || domains[0]!.hostIdentityDigest !== null) {
+    throw conflict('Legacy task work lock identity does not match the trusted migration request.');
+  }
   const [areas, repositories, operations, leases, audits] = await Promise.all([
     trx.selectFrom('WorkflowWorkArea').selectAll().execute(), trx.selectFrom('WorkflowWorkAreaRepository').selectAll().execute(),
     trx.selectFrom('WorkflowWorkAreaOperation').selectAll().execute(), trx.selectFrom('WorkflowWorkAreaOperationLease').selectAll().execute(),
     trx.selectFrom('WorkflowWorkAreaAuditEvent').selectAll().execute(),
   ]);
   const areaById = new Map(areas.map((area) => [area.workAreaId, area])); const operationById = new Map(operations.map((operation) => [operation.operationId, operation]));
-  const compatible = areas.every((area) => Boolean(area.layoutDigest) && area.reservedBytes >= 0 && area.generation > 0)
-    && repositories.every((repo) => Boolean(repo.sourceIdentity) && Boolean(repo.sourceRevision) && areaById.has(repo.workAreaId))
-    && operations.every((operation) => areaById.has(operation.workAreaId) && Boolean(operation.requestDigest))
-    && leases.every((lease) => areaById.has(lease.workAreaId) && operationById.get(lease.operationId)?.workAreaId === lease.workAreaId && lease.fence > 0)
-    && audits.every((audit) => areaById.get(audit.workAreaId)?.workspaceId === audit.workspaceId && (audit.operationId === null || operationById.has(audit.operationId)));
+  const repositoryKeys = new Set(repositories.map((repo) => `${repo.workAreaId}\0${repo.repoKey}`));
+  const compatible = areas.every((area) => Boolean(area.workspaceId && area.lineageKey && area.ownerRunId && area.layoutDigest) && area.reservedBytes >= 0 && area.generation > 0)
+    && repositories.every((repo) => Boolean(repo.sourceIdentity && repo.sourceRevision) && areaById.get(repo.workAreaId)?.generation === repo.generation)
+    && operations.every((operation) => areaById.has(operation.workAreaId) && Boolean(operation.requestDigest && operation.operationKey && operation.actorId))
+    && leases.every((lease) => repositoryKeys.has(`${lease.workAreaId}\0${lease.repoKey}`)
+      && operationById.get(lease.operationId)?.workAreaId === lease.workAreaId && operationById.get(lease.operationId)?.requestDigest === lease.requestDigest && lease.fence > 0)
+    && audits.every((audit) => areaById.get(audit.workAreaId)?.workspaceId === audit.workspaceId
+      && (audit.operationId === null || operationById.get(audit.operationId)?.workAreaId === audit.workAreaId));
   if (!compatible) throw conflict('Legacy task work registry contents require manual reconciliation before adoption.');
 }
 function conflict(message: string) { return new WorkflowWorkAreaError('conflict', message); }
@@ -631,6 +670,16 @@ async function prepareGlobalLockRoot(serverStateRoot: string): Promise<string> {
   assertContained(canonicalStateRoot, lockRoot);
   await ensurePrivateDirectory(lockRoot, []);
   return lockRoot;
+}
+async function inspectGlobalLockRoot(serverStateRoot: string): Promise<string> {
+  const configured = resolve(serverStateRoot); const configuredStat = await lstat(configured).catch(() => null);
+  if (!configuredStat || configuredStat.isSymbolicLink() || !configuredStat.isDirectory()
+    || (typeof process.getuid === 'function' && configuredStat.uid !== process.getuid())) throw new WorkflowWorkAreaError('unsafe_layout', 'Server work-area lock storage could not be verified.');
+  const canonicalStateRoot = await realpath(configured); const lockRoot = join(canonicalStateRoot, '.workflow-workarea-locks');
+  const lockStat = await lstat(lockRoot).catch(() => null);
+  if (!lockStat || lockStat.isSymbolicLink() || !lockStat.isDirectory()
+    || (typeof process.getuid === 'function' && lockStat.uid !== process.getuid())) throw new WorkflowWorkAreaError('unsafe_layout', 'Server work-area lock storage could not be verified.');
+  return realpath(lockRoot);
 }
 async function validateGlobalLockCapability(serverStateRoot: string, createLink: typeof link, sync: (path: string) => Promise<void>, identify: () => Promise<string>, identifyHost: () => Promise<string>) {
   const canonicalLockRoot = await prepareGlobalLockRoot(serverStateRoot);
@@ -672,11 +721,17 @@ async function ensurePrivateHostIdentity(stateRoot: string, runtimeHostIdentity:
   try { await createLink(temporary, path); await sync(stateRoot); }
   catch (error) { if ((error as NodeJS.ErrnoException).code !== 'EEXIST') throw new WorkflowWorkAreaError('unsafe_layout', 'Server host identity could not be established.'); }
   finally { await unlink(temporary).catch(ignoreMissing); await sync(stateRoot); }
-  const identityStat = await lstat(path);
+  const inspected = await inspectPrivateHostIdentity(stateRoot, runtimeHostIdentity);
+  if (!inspected) throw new WorkflowWorkAreaError('unsafe_layout', 'Server host identity could not be read.');
+  return inspected;
+}
+async function inspectPrivateHostIdentity(stateRoot: string, runtimeHostIdentity: string): Promise<string | null> {
+  const path = join(stateRoot, '.workflow-workarea-host-identity'); const identityStat = await lstat(path).catch((error: NodeJS.ErrnoException) => error.code === 'ENOENT' ? null : Promise.reject(error));
+  if (!identityStat) return null;
   if (!identityStat.isFile() || identityStat.isSymbolicLink() || (identityStat.mode & 0o077) !== 0
     || (typeof process.getuid === 'function' && identityStat.uid !== process.getuid())) throw new WorkflowWorkAreaError('unsafe_layout', 'Server host identity storage could not be verified.');
-  let stored: typeof record;
-  try { stored = JSON.parse(await readFile(path, 'utf8')) as typeof record; } catch { throw new WorkflowWorkAreaError('unsafe_layout', 'Server host identity could not be read.'); }
+  let stored: { version: number; instanceId: string; hostFingerprintDigest: string };
+  try { stored = JSON.parse(await readFile(path, 'utf8')) as typeof stored; } catch { throw new WorkflowWorkAreaError('unsafe_layout', 'Server host identity could not be read.'); }
   if (stored.version !== 1 || !/^[0-9a-f-]{36}$/i.test(stored.instanceId) || stored.hostFingerprintDigest !== stableDigest(runtimeHostIdentity)) {
     throw new WorkflowWorkAreaError('conflict', 'Server host identity does not match this work-area deployment.');
   }

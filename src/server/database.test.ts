@@ -10,6 +10,7 @@ import { migration as workAreaLockDomainMigration } from '../store/db/migrations
 import { migration as workAreaHostIdentityMigration } from '../store/db/migrations/20260912030000_workflow_work_area_host_identity/migration';
 import { migration as workAreaRegistryIdentityMigration } from '../store/db/migrations/20260912040000_workflow_work_area_registry_identity/migration';
 import { migration as workAreaRegistryAdoptionAuditMigration } from '../store/db/migrations/20260912050000_workflow_work_area_registry_adoption_audit/migration';
+import { migration as workAreaAdoptionCapabilityMigration } from '../store/db/migrations/20260912060000_workflow_work_area_adoption_capability/migration';
 
 const tempDirs: string[] = [];
 
@@ -59,6 +60,7 @@ describe('VD database', () => {
         '20260912030000_workflow_work_area_host_identity',
         '20260912040000_workflow_work_area_registry_identity',
         '20260912050000_workflow_work_area_registry_adoption_audit',
+        '20260912060000_workflow_work_area_adoption_capability',
       ]);
       const tables = await sql<{ name: string }>`
         SELECT name FROM sqlite_master
@@ -257,6 +259,7 @@ describe('VD database', () => {
       await executeSqlMigration(handle.db, workAreaHostIdentityMigration);
       await executeSqlMigration(handle.db, workAreaRegistryIdentityMigration);
       await executeSqlMigration(handle.db, workAreaRegistryAdoptionAuditMigration);
+      await executeSqlMigration(handle.db, workAreaAdoptionCapabilityMigration);
       const columns = await sql<{ name: string }>`PRAGMA table_info('WorkflowWorkAreaRepository')`.execute(handle.db);
       expect(columns.rows.map((column) => column.name)).toContain('sourceIdentity');
       const lease = await sql<{ name: string }>`SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'WorkflowWorkAreaOperationLease'`.execute(handle.db);
@@ -269,6 +272,8 @@ describe('VD database', () => {
       expect(registryIdentity.rows).toEqual([{ name: 'WorkflowWorkAreaRegistryIdentity' }]);
       const adoptionAudit = await sql<{ name: string }>`SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'WorkflowWorkAreaRegistryAdoptionAudit'`.execute(handle.db);
       expect(adoptionAudit.rows).toEqual([{ name: 'WorkflowWorkAreaRegistryAdoptionAudit' }]);
+      const adoptionColumns = await sql<{ name: string }>`PRAGMA table_info('WorkflowWorkAreaRegistryAdoptionAudit')`.execute(handle.db);
+      expect(adoptionColumns.rows.map((column) => column.name)).toEqual(expect.arrayContaining(['capabilityId', 'capabilityGeneration']));
     } finally {
       await handle.db.destroy(); handle.sqlite.close();
     }

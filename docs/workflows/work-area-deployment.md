@@ -44,7 +44,12 @@ A populated registry created before the registry-kind marker remains disabled
 after migration. It is never inferred from its contents. A server-only
 maintenance operation may designate it as production exactly once. The
 operation is not exposed through workflow, browser, agent, or normal request
-routes. It requires an authenticated maintenance actor and idempotency key and
+routes. It requires an injected server-maintenance capability verifier—not a
+caller-supplied actor name—and an idempotency key. The verified actor,
+capability identity, and monotonic capability generation are bound into the
+request and immutable audit. Missing, wrong, or stale capabilities are rejected
+before database or filesystem changes. A read-only structural database
+preflight also runs before host-identity or lock initialization. It
 verifies the exact legacy lock-domain digest against the canonical lock root,
 configured production labels, private host identity, and compatible work-area,
 repository, operation, lease, audit, and reservation records. It atomically
