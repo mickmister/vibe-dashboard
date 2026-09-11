@@ -7,6 +7,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { initVdDb, type VdDbHandle } from '../../../../server/database';
 import {
   DbWorkflowWorkAreaRegistry,
+  FilesystemWorkAreaMutationLockManager,
   GitWorkflowWorktreeDriver,
   ProductionWorkflowWorkAreaProvider,
   WorkflowWorkAreaError,
@@ -205,6 +206,48 @@ describe('ProductionWorkflowWorkAreaProvider', () => {
     expect(driver.create).toHaveBeenCalledTimes(1);
   });
 
+  it('keeps filesystem mutation exclusive after DB lease expiry and latches ownership loss', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'workflow-workarea-fence-race-')); dirs.push(root);
+    const source = join(root, 'source'); await mkdir(source);
+    const dbPath = join(root, 'vd.sqlite');
+    const firstDb = await initVdDb({ path: dbPath }); const secondDb = await initVdDb({ path: dbPath }); handles.push(firstDb, secondDb);
+    let loseFirstLease = false;
+    class LosingRegistry extends DbWorkflowWorkAreaRegistry {
+      override heartbeatLease(key: string, holder: string, fence: number, ttl: number) {
+        return loseFirstLease ? Promise.resolve(false) : super.heartbeatLease(key, holder, fence, ttl);
+      }
+    }
+    const driver = new FakeDriver(); driver.createDelayMs = 180; driver.onCreate = () => { loseFirstLease = true; };
+    const workspace = { workspaceId: 'workspace-a', workspaceRoot: root, repositories: [{ repoKey: 'web', repositoryRoot: source, sourceRevision: 'abc123' }] };
+    const make = (registry: DbWorkflowWorkAreaRegistry) => new ProductionWorkflowWorkAreaProvider({ registry,
+      workspaceRegistry: { getWorkspace: async () => workspace }, authorizer: { authorize: async () => true }, worktreeDriver: driver,
+      minimumReservationBytes: 10, estimateReservationBytes: () => 10, byteLimit: 100, leaseTtlMs: 50, leaseWaitMs: 1_000 });
+    const firstPromise = make(new LosingRegistry({ db: firstDb.db })).createOrReuse(request());
+    await new Promise((resolveDelay) => setTimeout(resolveDelay, 90));
+    const secondPromise = make(new DbWorkflowWorkAreaRegistry({ db: secondDb.db })).createOrReuse({ ...request(), operationKey: 'op-new-fence' });
+    const [first, second] = await Promise.all([firstPromise, secondPromise]);
+    expect(driver.create).toHaveBeenCalledTimes(1);
+    expect(first.status).toBe('retained');
+    expect(second.status).toBe('ready');
+    expect((await secondDb.db.selectFrom('WorkflowWorkAreaOperationLease').selectAll().executeTakeFirstOrThrow()).fence).toBeGreaterThan(1);
+  });
+
+  it('never steals a live filesystem lock by age and recovers only a proven-dead owner', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'workflow-fs-lock-')); dirs.push(root);
+    const held = await new FilesystemWorkAreaMutationLockManager({ currentProcessIdentity: async () => 'process-a', processIdentity: async () => 'same' })
+      .acquire({ managedRoot: root, sourceIdentity: 'source-a', targetIdentity: 'target-a', holderId: 'holder-a', waitMs: 100 });
+    const contender = new FilesystemWorkAreaMutationLockManager({ currentProcessIdentity: async () => 'process-b', processIdentity: async () => 'same' });
+    await expect(contender.acquire({ managedRoot: root, sourceIdentity: 'source-a', targetIdentity: 'target-a', holderId: 'holder-b', waitMs: 40 }))
+      .rejects.toMatchObject({ code: 'operation_busy' });
+    const recovery = new FilesystemWorkAreaMutationLockManager({ currentProcessIdentity: async () => 'process-c', processIdentity: async () => 'different' });
+    const recovered = await recovery.acquire({ managedRoot: root, sourceIdentity: 'source-a', targetIdentity: 'target-a', holderId: 'holder-c', waitMs: 100 });
+    await held.release();
+    const stillExclusive = new FilesystemWorkAreaMutationLockManager({ currentProcessIdentity: async () => 'process-d', processIdentity: async () => 'same' });
+    await expect(stillExclusive.acquire({ managedRoot: root, sourceIdentity: 'source-a', targetIdentity: 'target-a', holderId: 'holder-d', waitMs: 40 }))
+      .rejects.toMatchObject({ code: 'operation_busy' });
+    await recovered.release();
+  });
+
   it('heartbeats operation leases and fences stale owners on takeover', async () => {
     let now = 1_000;
     const fixture = await setup();
@@ -308,6 +351,7 @@ class FakeDriver implements WorkflowWorktreeDriver {
   readonly created = new Set<string>();
   readonly create = vi.fn(async (input: { worktreeRoot: string }) => {
     this.created.add(input.worktreeRoot);
+    this.onCreate?.();
     if (this.createDelayMs) await new Promise((resolveDelay) => setTimeout(resolveDelay, this.createDelayMs));
     await mkdir(input.worktreeRoot, { recursive: true });
     if (this.swapTargetRoot) { await rm(input.worktreeRoot, { recursive: true, force: true }); await symlink(this.swapTargetRoot, input.worktreeRoot); }
@@ -318,6 +362,7 @@ class FakeDriver implements WorkflowWorktreeDriver {
   throwMessage: string | null = null;
   createDelayMs = 0;
   swapTargetRoot: string | null = null;
+  onCreate: (() => void) | null = null;
   changeRevisionAfterFirstResolve = false;
   private readonly resolveCounts = new Map<string, number>();
 
