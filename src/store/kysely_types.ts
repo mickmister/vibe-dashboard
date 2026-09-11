@@ -773,6 +773,15 @@ export interface WorkflowWorkAreaRegistryIdentity {
   updatedAt: number;
 }
 
+export interface WorkflowWorkAreaRegistryAdoptionAudit {
+  adoptionKey: string;
+  requestDigest: string;
+  registryId: string;
+  actorId: string;
+  eventType: 'legacy_production_registry_adopted';
+  createdAt: number;
+}
+
 export interface WorkflowWorkAreaOperation {
   operationId: string;
   operationKey: string;
@@ -818,6 +827,7 @@ export interface DB {
   WorkflowWorkAreaOperationLease: WorkflowWorkAreaOperationLease;
   WorkflowWorkAreaLockDomain: WorkflowWorkAreaLockDomain;
   WorkflowWorkAreaRegistryIdentity: WorkflowWorkAreaRegistryIdentity;
+  WorkflowWorkAreaRegistryAdoptionAudit: WorkflowWorkAreaRegistryAdoptionAudit;
   WorkflowWorkAreaAuditEvent: WorkflowWorkAreaAuditEvent;
   WorkflowDesign: WorkflowDesign;
   WorkflowDesignDraft: WorkflowDesignDraft;

@@ -38,6 +38,21 @@ creating lock-domain, work-area, operation, lease, repository, or audit rows.
 An unmarked database is disabled rather than inferred or adopted. Registry kind
 cannot be changed after designation; create a separate database instead.
 
+## Legacy production registry adoption
+
+A populated registry created before the registry-kind marker remains disabled
+after migration. It is never inferred from its contents. A server-only
+maintenance operation may designate it as production exactly once. The
+operation is not exposed through workflow, browser, agent, or normal request
+routes. It requires an authenticated maintenance actor and idempotency key and
+verifies the exact legacy lock-domain digest against the canonical lock root,
+configured production labels, private host identity, and compatible work-area,
+repository, operation, lease, audit, and reservation records. It atomically
+writes the production marker and an immutable adoption audit record. Normal
+provider initialization then performs the existing exact legacy-domain upgrade.
+Development adoption and ambiguous, absent, or mismatched legacy state are
+rejected without mutation.
+
 Multi-host work-area creation is unsupported. It requires a future distributed
 Git-registry coordinator that fences mutations using durable host and boot
 identity. Deployments must not attempt to emulate multi-host support with
