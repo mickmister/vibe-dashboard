@@ -8,7 +8,7 @@ import {
 } from "./gasCityExecutionBundleCompiler";
 import type { WorkflowPlanRequest, WorkflowPlanSource } from "./workflowPlanLaunchService";
 
-export interface WorkflowPlanTaskReader { getBeadsByIds(workspaceId: string, ids: string[]): Promise<Array<{ id: string; title: string; status?: string; updatedAt?: number; dependencies?: string[] }>>; }
+export interface WorkflowPlanTaskReader { getBeadsByIds(workspaceId: string, ids: string[]): Promise<Array<{ id: string; title: string; workspaceId: string; contentRevision?: string; dependencies?: string[] }>>; }
 
 export class DbWorkflowPlanSource implements WorkflowPlanSource {
   constructor(private readonly options: { designStore: DbWorkflowDesignStore; tasks: WorkflowPlanTaskReader; repositories: (workspaceId: string) => Promise<Array<{ id: string; name: string; targetRevision?: string }>> }) {}
@@ -19,6 +19,7 @@ export class DbWorkflowPlanSource implements WorkflowPlanSource {
     const version = await this.options.designStore.getVersion(request.designId, request.version ?? undefined);
     if (!version) throw new Error("A published workflow version is required.");
     const definition = version.resolvedDefinition;
+    for (const roleId of Object.keys(request.roleBindings)) if (!definition.roles[roleId]) throw new Error("A role setting refers to an unavailable role.");
     const roles: ResolvedBundleRole[] = [];
     for (const [roleId, role] of Object.entries(definition.roles)) {
       const binding = (request.roleBindings[roleId] ?? {}) as Record<string, unknown>;
@@ -39,7 +40,7 @@ export class DbWorkflowPlanSource implements WorkflowPlanSource {
     }
     const taskRows = await this.options.tasks.getBeadsByIds(request.workspaceId, request.beadIds);
     const taskMap = new Map(taskRows.map((item) => [item.id, item]));
-    const tasks = request.beadIds.map((id) => { const item = taskMap.get(id); if (!item) throw new Error("A selected task is unavailable."); return { id, title: item.title, structuralRevision: digest(item) }; });
+    const tasks = request.beadIds.map((id) => { const item = taskMap.get(id); if (!item || item.workspaceId !== request.workspaceId) throw new Error("A selected task is not available in this workspace."); return { id, title: item.title, structuralRevision: workflowTaskStructuralRevision(item) }; });
     const repositories = (await this.options.repositories(request.workspaceId)).map((repo) => ({ id: repo.id, accessRevision: digest(repo), mode: "write" as const }));
     const compileInput: GasCityExecutionBundleCompileInput = {
       schemaVersion: "vd.execution-bundle.compile-input.v1", workflow: { designId: request.designId, version: version.version, definition }, roles,
@@ -55,3 +56,6 @@ export class DbWorkflowPlanSource implements WorkflowPlanSource {
 function stateOwnerForPath(definition: AgentWorkflowDefinitionV1, path: string): string | null { const stateId = path.split(".")[1]; const state = stateId ? definition.states[stateId] : undefined; return state && !("terminal" in state) ? state.owner : null; }
 function stringOrNull(value: unknown): string | null { return typeof value === "string" && value.trim() ? value.trim() : null; }
 function digest(value: unknown): string { return createHash("sha256").update(JSON.stringify(value)).digest("hex"); }
+export function workflowTaskStructuralRevision(item: { id: string; title: string; contentRevision?: string; dependencies?: string[] }): string {
+  return digest({ id: item.id, title: item.title, dependencies: [...(item.dependencies ?? [])].sort(), contentRevision: item.contentRevision ?? null });
+}

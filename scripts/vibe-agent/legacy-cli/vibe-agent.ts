@@ -2743,10 +2743,11 @@ async function workflowPlan(args: string[]): Promise<void> {
   if (!workflowRef) throw new Error('Usage: vibe-agent workflow plan <workflow> --input key=value [--bead id] [--json]');
   const workspaceId = resolveWorkflowWorkspace(flags, { required: true }) as string;
   const home = await fetchWorkflowCliHome(workspaceId);
-  const resolved = resolveWorkflowReference(workflowRef, workflowCliCatalog(home));
+  let resolved = resolveWorkflowReference(workflowRef, workflowCliCatalog(home));
   validateWorkflowCliInputs(resolved.workflow, flags.inputs);
   if (isGasCityWorkflowCliSummary(resolved.workflow)) throw new Error('Task-backed recipe planning is not available through this contract yet.');
-  const request = { workspaceId, designId: resolved.workflow.id, version: resolved.workflow.version ?? undefined, inputs: flags.inputs, roleBindings: buildWorkflowCliRoleBindings(resolved.workflow, flags), beadIds: flags.beadIds.length ? flags.beadIds : currentWorkflowBeadIdsFromEnv() };
+  if (resolved.workflow.source === 'template') resolved = { ...resolved, workflow: await materializeWorkflowTemplateForCli(resolved.workflow, workspaceId) };
+  const request = { workspaceId, designId: resolved.workflow.id, version: resolved.workflow.version ?? undefined, inputs: flags.inputs, roleBindings: buildWorkflowCliRoleBindings(resolved.workflow, flags), beadIds: flags.beadIds.length ? flags.beadIds : currentWorkflowBeadIdsFromEnv(), completionResponse: flags.callerSessionId ? { sessionId: flags.callerSessionId, source: 'vibe-agent-cli' } : null };
   const payload = await dashboardRequest('/dashboard/api/workflows/plan', { method: 'POST', body: JSON.stringify(request) }) as { plan?: any };
   if (!payload.plan) throw new Error('Workflow planning did not return a plan.');
   if (flags.json) { console.log(JSON.stringify({ ok: true, plan: payload.plan }, null, 2)); return; }
@@ -2760,13 +2761,14 @@ async function workflowRun(args: string[]): Promise<void> {
   if (!workflowRef) throw new Error('Usage: vibe-agent workflow run <workflow> --input key=value [--bead id] [--json]');
   const workspaceId = resolveWorkflowWorkspace(flags, { required: true }) as string;
   const home = await fetchWorkflowCliHome(workspaceId);
-  const resolved = resolveWorkflowReference(workflowRef, workflowCliCatalog(home));
+  let resolved = resolveWorkflowReference(workflowRef, workflowCliCatalog(home));
   validateWorkflowCliInputs(resolved.workflow, flags.inputs);
   const beadIds = flags.beadIds.length ? flags.beadIds : currentWorkflowBeadIdsFromEnv();
   if (isGasCityWorkflowCliSummary(resolved.workflow)) {
     await workflowRunGasCityRecipe({ resolved, workspaceId, flags, beadIds });
     return;
   }
+  if (resolved.workflow.source === 'template') resolved = { ...resolved, workflow: await materializeWorkflowTemplateForCli(resolved.workflow, workspaceId) };
   const roleBindings = buildWorkflowCliRoleBindings(resolved.workflow, flags);
   const request = {
     workspaceId,
@@ -2775,6 +2777,7 @@ async function workflowRun(args: string[]): Promise<void> {
     inputs: flags.inputs,
     roleBindings,
     beadIds,
+    completionResponse: flags.callerSessionId ? { sessionId: flags.callerSessionId, source: 'vibe-agent-cli' } : null,
   };
   const planned = await dashboardRequest('/dashboard/api/workflows/plan', { method: 'POST', body: JSON.stringify(request) }) as { plan?: { digest: string; bundleDigest: string; summary: string; workflow: { label: string; version: number }; tasks: Array<{id:string;title:string}>; repositories: Array<{id:string;mode:string}>; expiresAt: number } };
   if (!planned.plan) throw new Error('Workflow planning did not return a plan.');
@@ -3307,7 +3310,7 @@ async function dashboardRequest(pathname: string, init: RequestInit = {}): Promi
   const url = `${base}${pathname}`;
   const response = await fetch(url, {
     ...init,
-    headers: { Accept: 'application/json', 'Content-Type': 'application/json', ...init.headers },
+    headers: { Accept: 'application/json', 'Content-Type': 'application/json', 'X-VD-Workflow-CSRF': 'workflow-plan-v1', 'X-VD-Workflow-Client': 'vibe-agent', ...init.headers },
   });
   const text = await response.text();
   let parsed: unknown = null;

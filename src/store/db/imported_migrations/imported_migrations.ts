@@ -27,8 +27,9 @@ import { migration as workflowWorkAreaHostIdentityMigration } from '../migration
 import { migration as workflowWorkAreaRegistryIdentityMigration } from '../migrations/20260912040000_workflow_work_area_registry_identity/migration';
 import { migration as workflowWorkAreaRegistryAdoptionAuditMigration } from '../migrations/20260912050000_workflow_work_area_registry_adoption_audit/migration';
 import { migration as workflowWorkAreaAdoptionCapabilityMigration } from '../migrations/20260912060000_workflow_work_area_adoption_capability/migration';
+import { migration as workflowIssuedPlansMigration } from '../migrations/20260912070000_workflow_issued_plans/migration';
 
-export const databaseVersion = 29;
+export const databaseVersion = 30;
 
 export const migrations = [
   { name: '20260702000000_external_integrations', migration: _20260702000000_external_integrations },
@@ -60,4 +61,5 @@ export const migrations = [
   { name: '20260912040000_workflow_work_area_registry_identity', migration: workflowWorkAreaRegistryIdentityMigration },
   { name: '20260912050000_workflow_work_area_registry_adoption_audit', migration: workflowWorkAreaRegistryAdoptionAuditMigration },
   { name: '20260912060000_workflow_work_area_adoption_capability', migration: workflowWorkAreaAdoptionCapabilityMigration },
+  { name: '20260912070000_workflow_issued_plans', migration: workflowIssuedPlansMigration },
 ] as const;

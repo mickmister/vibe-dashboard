@@ -126,6 +126,21 @@ describe('vibe-agent workflow CLI foundation', () => {
     expect(String(fetchMock.mock.calls[0]?.[0])).toContain('/dashboard/api/workflows/home');
   });
 
+  it('materializes a valid starter before planning and preserves caller response intent', async () => {
+    process.env.VK_WORKSPACE_ID = 'workspace-a'; process.env.VK_SESSION_ID = 'caller-1';
+    const digest = 'c'.repeat(64);
+    const fetchMock = vi.fn(async (url: string, init?: RequestInit) => {
+      if (url.endsWith('/dashboard/api/workflows/home?workspaceId=workspace-a')) return json({ home: { workspaceId: 'workspace-a', userWorkflows: [], starterTemplates: [workflow('built-in/ask-teammate', 'Ask teammate', 'template')] } });
+      if (url.endsWith('/dashboard/api/workflow-templates/use')) return json({ design: { designId: 'copy-1', latestPublishedVersion: 1 }, version: { version: 1 } }, 201);
+      if (url.endsWith('/dashboard/api/workflows/plan')) { const body = JSON.parse(String(init?.body)); expect(body).toMatchObject({ designId: 'copy-1', completionResponse: { sessionId: 'caller-1', source: 'vibe-agent-cli' } }); return json({ plan: { digest, summary: 'Plan.', workflow: { label: 'Ask teammate', version: 1 }, tasks: [], repositories: [], expiresAt: 9999 } }); }
+      throw new Error(`unexpected fetch ${url}`);
+    });
+    vi.stubGlobal('fetch', fetchMock); const lines = captureConsole();
+    await workflowCommand(['plan', 'ask-teammate', '--input', 'role=review', '--input', 'request=Review', '--json']);
+    expect(JSON.parse(lines.join('\n'))).toMatchObject({ ok: true, plan: { digest } });
+    expect(fetchMock).toHaveBeenCalledTimes(3);
+  });
+
   it('runs a planned teammate workflow through digest-bound APIs and detaches with JSON output', async () => {
     process.env.VK_WORKSPACE_ID = 'workspace-a';
     const digest = 'a'.repeat(64);

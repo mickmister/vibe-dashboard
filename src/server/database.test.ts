@@ -61,6 +61,7 @@ describe('VD database', () => {
         '20260912040000_workflow_work_area_registry_identity',
         '20260912050000_workflow_work_area_registry_adoption_audit',
         '20260912060000_workflow_work_area_adoption_capability',
+        '20260912070000_workflow_issued_plans',
       ]);
       const tables = await sql<{ name: string }>`
         SELECT name FROM sqlite_master
@@ -77,7 +78,8 @@ describe('VD database', () => {
           'WorkspaceLaneAuditEvent', 'WorkflowMetaRun', 'WorkflowMetaRunItem',
           'WorkflowMetaRunEvent', 'WorkflowWorkArea', 'WorkflowWorkAreaRepository',
           'WorkflowWorkAreaOperation', 'WorkflowWorkAreaOperationLease', 'WorkflowWorkAreaLockDomain', 'WorkflowWorkAreaRegistryIdentity',
-          'WorkflowWorkAreaRegistryAdoptionAudit', 'WorkflowWorkAreaAuditEvent', 'Migration'
+          'WorkflowWorkAreaRegistryAdoptionAudit', 'WorkflowWorkAreaAuditEvent',
+          'WorkflowIssuedPlan', 'WorkflowPlanLaunchEffect', 'WorkflowPlanAuditEvent', 'Migration'
         )
       `.execute(handle.db);
       expect(tables.rows.map((table) => table.name).sort()).toEqual([
@@ -95,10 +97,13 @@ describe('VD database', () => {
         'WorkflowExternalWait',
         'WorkflowFactoryWorkItem',
         'WorkflowInstance',
+        'WorkflowIssuedPlan',
         'WorkflowMetaRun',
         'WorkflowMetaRunEvent',
         'WorkflowMetaRunItem',
         'WorkflowPersistedRun',
+        'WorkflowPlanAuditEvent',
+        'WorkflowPlanLaunchEffect',
         'WorkflowPromptAsset',
         'WorkflowRoleSessionBinding',
         'WorkflowRoleTemplate',

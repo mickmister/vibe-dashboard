@@ -1352,6 +1352,8 @@ function RunWorkflowDialog({
         });
       }
     }
+    if (additionalInstructions.trim()) nextErrors.form = "Extra instructions are not supported by verified plans yet.";
+    if (selectedLaneId) nextErrors.form = "Lane selection is not supported by verified plans yet.";
     setFieldErrors(nextErrors);
     if (Object.keys(nextErrors).length > 0) return;
     setSubmitting(true);
@@ -1366,9 +1368,7 @@ function RunWorkflowDialog({
         designId: workflow.id,
         version: workflow.version,
         inputs,
-        additionalInstructions: additionalInstructions.trim() || null,
         roleBindings,
-        laneId: selectedLaneId || null,
         beadIds: selectedBeads.map((bead) => bead.beadId),
       };
       if (!confirmedPlan) {

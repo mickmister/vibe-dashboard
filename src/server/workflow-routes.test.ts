@@ -57,12 +57,15 @@ describe("registerWorkflowRoutes", () => {
       launch: vi.fn(async (_request, digest) => ({ status: "launched", plan: { digest }, run: { runId: "run-1", status: "running", url: "/dashboard/workflows/run-1" } })),
     } as any;
     const app = new Hono();
-    registerWorkflowRoutes(app, { registry: createWorkflowRegistry(), workflowPlanLaunchService: service });
+    registerWorkflowRoutes(app, { registry: createWorkflowRegistry(), workflowPlanLaunchService: service, authorizeWorkflowPlan: async (_request, plan) => ({ principalId: "user-a", workspaceId: plan.workspaceId, callerSessionId: null }) });
     const request = { workspaceId: "workspace-a", designId: "design-a", inputs: { task: "Work" }, roleBindings: {}, beadIds: ["bead-a"] };
-    const planResponse = await app.request("/dashboard/api/workflows/plan", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(request) });
+    const planResponse = await app.request("/dashboard/api/workflows/plan", { method: "POST", headers: { "content-type": "application/json", "x-vd-workflow-csrf": "workflow-plan-v1" }, body: JSON.stringify(request) });
     expect(planResponse.status).toBe(200); expect(service.plan).toHaveBeenCalledOnce();
-    const launchResponse = await app.request("/dashboard/api/workflows/plan/launch", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ request, planDigest: "a".repeat(64) }) });
-    expect(launchResponse.status).toBe(201); expect(service.launch).toHaveBeenCalledWith(expect.objectContaining({ workspaceId: "workspace-a" }), "a".repeat(64));
+    const launchResponse = await app.request("/dashboard/api/workflows/plan/launch", { method: "POST", headers: { "content-type": "application/json", "x-vd-workflow-csrf": "workflow-plan-v1" }, body: JSON.stringify({ request, planDigest: "a".repeat(64) }) });
+    expect(launchResponse.status).toBe(201); expect(service.launch).toHaveBeenCalledWith(expect.objectContaining({ workspaceId: "workspace-a" }), "a".repeat(64), expect.objectContaining({ principalId: "user-a" }));
+
+    const csrfFailure = await app.request("/dashboard/api/workflows/plan", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(request) });
+    expect(csrfFailure.status).toBe(400);
   });
 
   it("TEST_CASE_M120A_1A exposes lane overview and creation without raw host paths", async () => {

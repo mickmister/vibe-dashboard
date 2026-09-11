@@ -808,6 +808,43 @@ export interface WorkflowWorkAreaAuditEvent {
   createdAt: number;
 }
 
+export interface WorkflowIssuedPlan {
+  planId: string;
+  digest: string;
+  principalId: string;
+  workspaceId: string;
+  callerSessionId: NullableString;
+  requestDigest: string;
+  requestJson: string;
+  planJson: string;
+  status: 'issued' | 'launched' | 'revoked' | 'expired';
+  expiresAt: number;
+  createdAt: number;
+  updatedAt: number;
+}
+
+export interface WorkflowPlanLaunchEffect {
+  operationKey: string;
+  planId: string;
+  requestDigest: string;
+  status: 'pending' | 'launched' | 'failed';
+  leaseOwner: NullableString;
+  leaseExpiresAt: NullableNumber;
+  fence: number;
+  resultJson: NullableString;
+  createdAt: number;
+  updatedAt: number;
+}
+
+export interface WorkflowPlanAuditEvent {
+  auditId: string;
+  planId: string;
+  principalId: string;
+  action: string;
+  summary: string;
+  createdAt: number;
+}
+
 export interface DB {
   BetterAuthUser: BetterAuthUser;
   BetterAuthSession: BetterAuthSession;
@@ -830,6 +867,9 @@ export interface DB {
   WorkflowWorkAreaLockDomain: WorkflowWorkAreaLockDomain;
   WorkflowWorkAreaRegistryIdentity: WorkflowWorkAreaRegistryIdentity;
   WorkflowWorkAreaRegistryAdoptionAudit: WorkflowWorkAreaRegistryAdoptionAudit;
+  WorkflowIssuedPlan: WorkflowIssuedPlan;
+  WorkflowPlanLaunchEffect: WorkflowPlanLaunchEffect;
+  WorkflowPlanAuditEvent: WorkflowPlanAuditEvent;
   WorkflowWorkAreaAuditEvent: WorkflowWorkAreaAuditEvent;
   WorkflowDesign: WorkflowDesign;
   WorkflowDesignDraft: WorkflowDesignDraft;

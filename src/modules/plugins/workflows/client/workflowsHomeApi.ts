@@ -276,14 +276,14 @@ export interface WorkflowPlanModel {
 }
 
 export async function planWorkspaceWorkflow(request: LaunchWorkspaceWorkflowRequest): Promise<WorkflowPlanModel> {
-  const response = await fetch("/dashboard/api/workflows/plan", { method: "POST", headers: { Accept: "application/json", "Content-Type": "application/json" }, body: JSON.stringify(request) });
+  const response = await fetch("/dashboard/api/workflows/plan", { method: "POST", headers: { Accept: "application/json", "Content-Type": "application/json", "X-VD-Workflow-CSRF": "workflow-plan-v1" }, body: JSON.stringify(request) });
   const payload = await response.json().catch(() => ({})) as { plan?: WorkflowPlanModel; message?: string };
   if (response.ok && payload.plan) return payload.plan;
   throw new WorkflowApiError(payload.message || "Workflow plan is not available.", {});
 }
 
 export async function launchPlannedWorkspaceWorkflow(request: LaunchWorkspaceWorkflowRequest, planDigest: string): Promise<{ result: any }> {
-  const response = await fetch("/dashboard/api/workflows/plan/launch", { method: "POST", headers: { Accept: "application/json", "Content-Type": "application/json" }, body: JSON.stringify({ request, planDigest }) });
+  const response = await fetch("/dashboard/api/workflows/plan/launch", { method: "POST", headers: { Accept: "application/json", "Content-Type": "application/json", "X-VD-Workflow-CSRF": "workflow-plan-v1" }, body: JSON.stringify({ request, planDigest }) });
   const payload = await response.json().catch(() => ({})) as { result?: any; message?: string };
   if ((response.ok || response.status === 409) && payload.result) return payload as { result: any };
   throw new WorkflowApiError(payload.message || "Workflow could not start.", {});

@@ -88,7 +88,7 @@ import {
   type WorkflowWebhookEventRefs,
   type WorkflowWebhookWakeup,
 } from "./workflow-webhook-inbox";
-import type { WorkflowPlanLaunchService, WorkflowPlanRequest } from "../modules/plugins/workflows/server/workflowPlanLaunchService";
+import type { WorkflowPlanLaunchService, WorkflowPlanPrincipal, WorkflowPlanRequest } from "../modules/plugins/workflows/server/workflowPlanLaunchService";
 
 export interface RegisterWorkflowRoutesOptions {
   registry: WorkflowRegistry;
@@ -140,6 +140,7 @@ export interface RegisterWorkflowRoutesOptions {
   githubWebhookSecret?: string;
   repoAliasCache?: RepoAliasCache;
   workflowPlanLaunchService?: Pick<WorkflowPlanLaunchService, "plan" | "launch">;
+  authorizeWorkflowPlan?: (request: Request, plan: WorkflowPlanRequest) => Promise<WorkflowPlanPrincipal>;
 }
 
 export interface RepoAliasCache {
@@ -156,7 +157,8 @@ export function registerWorkflowRoutes(
     if (!options.workflowPlanLaunchService) return c.json({ error: "workflow_plan_unavailable", message: "Workflow planning is not available." }, 503);
     try {
       const request = parseWorkflowPlanRequest(asRecord(await readJsonBody(c.req.raw)));
-      return c.json({ plan: await options.workflowPlanLaunchService.plan(request) });
+      const principal = await requireWorkflowPlanPrincipal(options, c.req.raw, request);
+      return c.json({ plan: await options.workflowPlanLaunchService.plan(request, principal) });
     } catch (error) {
       return c.json({ error: "workflow_plan_failed", message: safeWorkflowRouteMessage(error) }, 400);
     }
@@ -167,7 +169,8 @@ export function registerWorkflowRoutes(
       const body = asRecord(await readJsonBody(c.req.raw));
       const request = parseWorkflowPlanRequest(asRecord(body?.request));
       const digest = asString(body?.planDigest) ?? "";
-      const result = await options.workflowPlanLaunchService.launch(request, digest);
+      const principal = await requireWorkflowPlanPrincipal(options, c.req.raw, request);
+      const result = await options.workflowPlanLaunchService.launch(request, digest, principal);
       return c.json({ result }, result.status === "launched" || result.status === "reused" ? 201 : 200);
     } catch (error) {
       return c.json({ error: "workflow_plan_launch_failed", message: safeWorkflowRouteMessage(error) }, 400);
@@ -3546,7 +3549,7 @@ function parseRoleSessionResolveRequest(input: unknown) {
 
 function parseWorkflowPlanRequest(body: Record<string, unknown> | null): WorkflowPlanRequest {
   if (!body) throw new Error("Workflow plan request is required.");
-  const allowed = new Set(["workspaceId", "designId", "version", "inputs", "roleBindings", "beadIds", "effects", "additionalInstructions", "laneId"]);
+  const allowed = new Set(["workspaceId", "designId", "version", "inputs", "roleBindings", "beadIds", "completionResponse"]);
   if (Object.keys(body).some((key) => !allowed.has(key))) throw new Error("Workflow plan request contains unsupported fields.");
   if (Array.isArray(body.beadIds) && body.beadIds.some((value) => typeof value !== "string")) throw new Error("Task identifiers are invalid.");
   return {
@@ -3554,12 +3557,23 @@ function parseWorkflowPlanRequest(body: Record<string, unknown> | null): Workflo
     designId: asString(body?.designId)?.trim() ?? "",
     version: parsePositiveInteger(asString(body?.version) ?? (typeof body?.version === "number" ? String(body.version) : null)),
     inputs: asRecord(body?.inputs) ?? {},
-    roleBindings: asRecord(body?.roleBindings) ?? {},
+    roleBindings: (asRecord(body?.roleBindings) ?? {}) as WorkflowPlanRequest["roleBindings"],
     beadIds: Array.isArray(body?.beadIds) ? body.beadIds.filter((value): value is string => typeof value === "string") : [],
-    effects: Array.isArray(body?.effects) ? body.effects.filter((value): value is string => typeof value === "string") : undefined,
-    additionalInstructions: asString(body.additionalInstructions) ?? null,
-    laneId: asString(body.laneId) ?? null,
+    completionResponse: parsePlanCompletionResponse(body.completionResponse),
   };
+}
+
+function parsePlanCompletionResponse(value: unknown): WorkflowPlanRequest["completionResponse"] {
+  if (value == null) return null;
+  const record = asRecord(value);
+  if (!record || Object.keys(record).some((key) => !["sessionId", "source"].includes(key))) throw new Error("Completion response settings are invalid.");
+  return { sessionId: asString(record.sessionId)?.trim() ?? "", source: asString(record.source) as "vibe-agent-cli" };
+}
+
+async function requireWorkflowPlanPrincipal(options: RegisterWorkflowRoutesOptions, request: Request, plan: WorkflowPlanRequest): Promise<WorkflowPlanPrincipal> {
+  if (request.headers.get("x-vd-workflow-csrf") !== "workflow-plan-v1") throw new Error("Workflow request authorization is required.");
+  if (!options.authorizeWorkflowPlan) throw new Error("Workflow request authorization is unavailable.");
+  return options.authorizeWorkflowPlan(request, plan);
 }
 
 function safeWorkflowRouteMessage(error: unknown): string {
