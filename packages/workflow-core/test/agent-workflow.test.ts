@@ -404,6 +404,7 @@ describe("agent workflow V1 normalization", () => {
       executorPreference: {
         executorType: "CODEX",
         model: "recommended",
+        reasoningId: "high",
         mode: "preferred",
       },
     };
@@ -413,6 +414,7 @@ describe("agent workflow V1 normalization", () => {
     expect(model.roles.dev!.executorPreference).toEqual({
       executorType: "CODEX",
       model: "recommended",
+      reasoningId: "high",
       mode: "preferred",
     });
     expect(model.roles.review!.executorPreference).toBeUndefined();
@@ -443,6 +445,18 @@ describe("agent workflow V1 normalization", () => {
       },
       "WORKFLOW_CONFIG_INVALID_ACTIVE_STATE",
       "roles.dev.executorPreference.model",
+    );
+    expectDefinitionError(
+      () => {
+        const invalid: any = makeDefinition();
+        invalid.roles.dev.executorPreference = {
+          executorType: "GEMINI",
+          reasoningId: "high",
+        };
+        return normalizeWorkflowDefinitionV1(invalid);
+      },
+      "WORKFLOW_CONFIG_INVALID_ACTIVE_STATE",
+      "roles.dev.executorPreference.reasoningId",
     );
   });
 

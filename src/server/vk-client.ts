@@ -102,6 +102,7 @@ export interface Session {
   workspace_id: string;
   executor: Executor;
   model?: string | null;
+  reasoning_id?: string | null;
   name?: string | null;
   created_at: string;
   updated_at: string;
@@ -261,6 +262,7 @@ export interface QueueFollowUpProvenance {
   workflow_role_id?: string | null;
   workflow_role_executor?: string | null;
   workflow_role_model?: string | null;
+  workflow_role_reasoning_id?: string | null;
 }
 
 export interface QueueFollowUpResponse {
@@ -377,6 +379,7 @@ export interface CreateSessionBody {
   executor: Executor;
   name?: string | null;
   model?: string | null;
+  executor_config?: ExecutorConfig;
 }
 
 export interface WebhookSubscriptionPublic {
@@ -651,10 +654,12 @@ export class VibeKanbanServerClient {
     options: {
       source?: QueueFollowUpSource;
       provenance?: QueueFollowUpProvenance;
+      executorConfig?: ExecutorConfig;
     } = {},
   ): Promise<QueueFollowUpResponse> {
     return this.post(`/sessions/${encodeURIComponent(sessionId)}/queue`, {
       message: prompt,
+      executor_config: options.executorConfig,
       source: options.source ?? "workflow",
       provenance: options.provenance,
     });

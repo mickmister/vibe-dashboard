@@ -28,6 +28,7 @@ import {
   normalizeWorkflowDefinitionV1,
   renderExpectedXmlResponseXsd,
   WORKFLOW_EXECUTOR_MODEL_OPTIONS,
+  WORKFLOW_EXECUTOR_REASONING_OPTIONS,
   WORKFLOW_EXECUTOR_TYPES,
 } from "@vibe-dashboard/workflow-core";
 import {
@@ -1126,7 +1127,7 @@ function RoleDetails({
         assets={assets}
         onChange={onChange}
       />
-      <div className="mt-3 grid gap-3 sm:grid-cols-2">
+      <div className="mt-3 grid gap-3 sm:grid-cols-3">
         <label className="block text-sm">
           <span className="font-medium">Executor preference</span>
           <select
@@ -1145,6 +1146,7 @@ function RoleDetails({
                       ? {
                           executorType: nextExecutor as never,
                           model: "recommended",
+                          reasoningId: undefined,
                           mode: "preferred",
                         }
                       : undefined,
@@ -1179,6 +1181,7 @@ function RoleDetails({
                       ? {
                           executorType,
                           model: event.target.value,
+                          reasoningId: role.executorPreference?.reasoningId,
                           mode: "preferred",
                         }
                       : undefined,
@@ -1191,6 +1194,39 @@ function RoleDetails({
               <option key={model} value={model}>
                 {model}
               </option>
+            ))}
+          </select>
+        </label>
+        <label className="block text-sm">
+          <span className="font-medium">Reasoning preference</span>
+          <select
+            aria-label={`${roleId} reasoning preference`}
+            className="mt-1 w-full rounded-md border border-zinc-700 bg-zinc-950 p-2 disabled:opacity-60"
+            value={role.executorPreference?.reasoningId ?? ""}
+            disabled={!executorType}
+            onChange={(event) =>
+              onChange({
+                ...definition,
+                roles: {
+                  ...definition.roles,
+                  [roleId]: {
+                    ...role,
+                    executorPreference: executorType
+                      ? {
+                          ...role.executorPreference,
+                          executorType,
+                          reasoningId: event.target.value || undefined,
+                          mode: "preferred",
+                        }
+                      : undefined,
+                  },
+                },
+              })
+            }
+          >
+            <option value="">Default reasoning</option>
+            {(executorType ? WORKFLOW_EXECUTOR_REASONING_OPTIONS[executorType] : []).map((level) => (
+              <option key={level} value={level}>{level}</option>
             ))}
           </select>
         </label>

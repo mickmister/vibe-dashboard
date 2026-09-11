@@ -168,6 +168,7 @@ export interface WorkspaceWorkflowRoleSummary {
   executorPreference?: {
     executorType: string | null;
     model: string | null;
+    reasoningId: string | null;
     mode: "preferred";
   } | null;
 }
@@ -218,6 +219,7 @@ export interface WorkflowLaunchSessionSummary {
   name: string | null;
   executor: string;
   model?: string | null;
+  reasoningId?: string | null;
   workspaceId: string;
 }
 
@@ -232,6 +234,7 @@ export interface WorkflowLaunchExecutorOption {
   executorType: string;
   label: string;
   models: string[];
+  reasoningLevels: string[];
 }
 
 export type WorkflowLaunchRoleBindingRequest =
@@ -240,12 +243,14 @@ export type WorkflowLaunchRoleBindingRequest =
       sessionId: string;
       executorType?: string;
       model?: string;
+      reasoningId?: string;
     }
   | {
       mode: "create_or_reuse";
       name: string;
       executorType?: string;
       model?: string;
+      reasoningId?: string;
     };
 
 export interface LaunchWorkspaceWorkflowRequest {

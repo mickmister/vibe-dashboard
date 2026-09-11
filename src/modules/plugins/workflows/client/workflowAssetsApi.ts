@@ -32,7 +32,7 @@ export interface WorkflowRoleTemplatePickerItem {
   promptMarkdown?: string;
   promptRefs?: WorkflowAssetAttachmentRef[];
   skillRefs: WorkflowAssetAttachmentRef[];
-  executorPreference: { executorType: string; model?: string; mode?: string } | null;
+  executorPreference: { executorType: string; model?: string; reasoningId?: string; mode?: string } | null;
   active: boolean;
 }
 
@@ -68,7 +68,7 @@ export interface CreateWorkflowRoleTemplateRequest {
   promptMarkdown: string;
   promptRefs?: WorkflowAssetAttachmentRef[];
   skillRefs?: WorkflowAssetAttachmentRef[];
-  executorPreference?: { executorType: string; model?: string; mode?: string } | null;
+  executorPreference?: { executorType: string; model?: string; reasoningId?: string; mode?: string } | null;
 }
 
 async function postWorkflowLibraryJson<T>(url: string, body: unknown): Promise<T> {

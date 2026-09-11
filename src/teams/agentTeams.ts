@@ -11,6 +11,8 @@ export interface TeamAgent {
   vkWorkspaceId?: string | null;
   vkSessionId?: string | null;
   executor?: string | null;
+  model?: string | null;
+  reasoningId?: string | null;
   instructions?: string | null;
 }
 
@@ -254,6 +256,8 @@ function normalizeTeamAgent(value: unknown): TeamAgent | null {
     vkWorkspaceId: record.vkWorkspaceId ?? null,
     vkSessionId: record.vkSessionId ?? null,
     executor: record.executor ?? null,
+    model: record.model ?? null,
+    reasoningId: record.reasoningId ?? null,
     instructions: record.instructions ?? null,
   };
 }

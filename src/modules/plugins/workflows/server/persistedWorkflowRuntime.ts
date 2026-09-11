@@ -68,8 +68,14 @@ export interface WorkflowRoleSessionBindingInput {
   workspaceId?: string;
   executorType?: string | null;
   model?: string | null;
+  reasoningId?: string | null;
   preferenceMode?: "preferred" | null;
-  preferenceSource?: "role_default" | "launch_override" | "workspace_default";
+  preferenceSource?: "role_default" | "launch_override" | "team_role" | "workspace_default";
+  preferenceSources?: {
+    executorType: "role_default" | "launch_override" | "team_role" | "workspace_default" | "system_default";
+    model: "role_default" | "launch_override" | "team_role" | "workspace_default" | "system_default";
+    reasoningId: "role_default" | "launch_override" | "team_role" | "workspace_default" | "system_default";
+  };
 }
 
 export interface WorkflowQueueAgentTurnRequest {
@@ -91,10 +97,12 @@ export interface WorkflowQueueAgentTurnRequest {
     workflow_role_id?: string;
     workflow_role_executor?: string | null;
     workflow_role_model?: string | null;
+    workflow_role_reasoning_id?: string | null;
   };
   executorPreference?: {
     executorType: string | null;
     model: string | null;
+    reasoningId: string | null;
     mode: "preferred";
   };
 }
@@ -1303,10 +1311,12 @@ export class PersistedWorkflowRuntimeService {
           workflow_role_id: effect.role,
           workflow_role_executor: binding.executorType ?? null,
           workflow_role_model: binding.model ?? null,
+          workflow_role_reasoning_id: binding.reasoningId ?? null,
         },
         executorPreference: {
           executorType: binding.executorType ?? null,
           model: binding.model ?? null,
+          reasoningId: binding.reasoningId ?? null,
           mode: binding.preferenceMode ?? "preferred",
         },
       });
@@ -1318,6 +1328,7 @@ export class PersistedWorkflowRuntimeService {
           sessionId: binding.sessionId,
           executorType: binding.executorType ?? null,
           model: binding.model ?? null,
+          reasoningId: binding.reasoningId ?? null,
         },
       };
       return this.updateRun(
@@ -1797,6 +1808,7 @@ function resolveRuntimeRoleBindings(
       workspaceId: binding?.workspaceId,
       executorType: binding?.executorType ?? preference?.executorType ?? null,
       model: binding?.model ?? preference?.model ?? null,
+      reasoningId: binding?.reasoningId ?? preference?.reasoningId ?? null,
       preferenceMode:
         binding?.preferenceMode ?? preference?.mode ?? "preferred",
       preferenceSource:

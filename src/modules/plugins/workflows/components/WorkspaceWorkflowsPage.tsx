@@ -1158,6 +1158,7 @@ function RunWorkflowDialog({
     Record<string, string>
   >({});
   const [roleModels, setRoleModels] = useState<Record<string, string>>({});
+  const [roleReasonings, setRoleReasonings] = useState<Record<string, string>>({});
   const [selectedLaneId, setSelectedLaneId] = useState("");
   const [selectedBeads, setSelectedBeads] = useState<MetaWorkflowBeadSummary[]>([]);
   const [beadQuery, setBeadQuery] = useState("");
@@ -1185,9 +1186,11 @@ function RunWorkflowDialog({
         const existing: Record<string, string> = {};
         const executorTypes: Record<string, string> = {};
         const models: Record<string, string> = {};
+        const reasonings: Record<string, string> = {};
         for (const role of loaded.workflow.roles) {
           executorTypes[role.id] = role.executorPreference?.executorType || "";
           models[role.id] = role.executorPreference?.model || "";
+          reasonings[role.id] = role.executorPreference?.reasoningId || "";
           const matchingSession = loaded.sessions.find(
             (session) =>
               normalizeName(session.name) === normalizeName(role.label) &&
@@ -1202,6 +1205,7 @@ function RunWorkflowDialog({
         setNewSessionNames(names);
         setRoleExecutorTypes(executorTypes);
         setRoleModels(models);
+        setRoleReasonings(reasonings);
       })
       .catch((caught) => {
         if (active)
@@ -1332,6 +1336,7 @@ function RunWorkflowDialog({
           sessionId: sessionId ?? "",
           executorType: roleExecutorTypes[role.id],
           model: roleModels[role.id],
+          reasoningId: roleReasonings[role.id],
         });
       } else {
         const name = newSessionNames[role.id]?.trim() || role.label;
@@ -1340,6 +1345,7 @@ function RunWorkflowDialog({
           name,
           executorType: roleExecutorTypes[role.id],
           model: roleModels[role.id],
+          reasoningId: roleReasonings[role.id],
         });
       }
     }
@@ -1599,7 +1605,7 @@ function RunWorkflowDialog({
                     <p className="mt-1 text-xs text-zinc-400">
                       {formatRoleExecutorPreference(role)}
                     </p>
-                    <div className="mt-3 grid gap-3 md:grid-cols-2">
+                    <div className="mt-3 grid gap-3 md:grid-cols-3">
                       <label className="flex items-center gap-2 text-sm">
                         <input
                           type="radio"
@@ -1688,6 +1694,7 @@ function RunWorkflowDialog({
                               ...current,
                               [role.id]: firstModel,
                             }));
+                            setRoleReasonings((current) => ({ ...current, [role.id]: "" }));
                           }}
                         >
                           <option value="">Workspace default</option>
@@ -1698,6 +1705,28 @@ function RunWorkflowDialog({
                             >
                               {option.label}
                             </option>
+                          ))}
+                        </select>
+                      </label>
+                      <label className="block text-xs text-zinc-400">
+                        Reasoning
+                        <select
+                          aria-label={`${role.label} reasoning`}
+                          className="mt-1 w-full rounded-md border border-zinc-700 bg-zinc-950 p-2 text-sm text-zinc-100"
+                          value={roleReasonings[role.id] ?? ""}
+                          disabled={!roleExecutorTypes[role.id]}
+                          onChange={(event) =>
+                            setRoleReasonings((current) => ({
+                              ...current,
+                              [role.id]: event.target.value,
+                            }))
+                          }
+                        >
+                          <option value="">Workspace default</option>
+                          {(options?.executorOptions?.find(
+                            (option) => option.executorType === roleExecutorTypes[role.id],
+                          )?.reasoningLevels ?? []).map((level) => (
+                            <option key={level} value={level}>{level}</option>
                           ))}
                         </select>
                       </label>
@@ -2072,22 +2101,26 @@ export function buildLaunchRoleBinding(
         sessionId: string;
         executorType?: string | null;
         model?: string | null;
+        reasoningId?: string | null;
       }
     | {
         mode: "create_or_reuse";
         name: string;
         executorType?: string | null;
         model?: string | null;
+        reasoningId?: string | null;
       },
 ): WorkflowLaunchRoleBindingRequest {
   const executorType = args.executorType?.trim() || undefined;
   const model = args.model?.trim() || undefined;
+  const reasoningId = args.reasoningId?.trim() || undefined;
   if (args.mode === "existing") {
     return {
       mode: args.mode,
       sessionId: args.sessionId,
       ...(executorType ? { executorType } : {}),
       ...(model ? { model } : {}),
+      ...(reasoningId ? { reasoningId } : {}),
     };
   }
   return {
@@ -2095,6 +2128,7 @@ export function buildLaunchRoleBinding(
     name: args.name,
     ...(executorType ? { executorType } : {}),
     ...(model ? { model } : {}),
+    ...(reasoningId ? { reasoningId } : {}),
   };
 }
 

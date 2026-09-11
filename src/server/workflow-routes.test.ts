@@ -783,6 +783,7 @@ describe("registerWorkflowRoutes", () => {
     ).executorPreference = {
       executorType: "CLAUDE_CODE",
       model: "recommended",
+      reasoningId: "high",
       mode: "preferred",
     };
     await designStore.createDesign({
@@ -798,6 +799,7 @@ describe("registerWorkflowRoutes", () => {
       sessionId: string;
       prompt: string;
       provenance: unknown;
+      executorConfig?: unknown;
     }> = [];
     registerWorkflowRoutes(app, {
       registry: createWorkflowRegistry(),
@@ -826,7 +828,7 @@ describe("registerWorkflowRoutes", () => {
           return session;
         },
         queueFollowUp: async (sessionId, prompt, options) => {
-          queued.push({ sessionId, prompt, provenance: options?.provenance });
+          queued.push({ sessionId, prompt, provenance: options?.provenance, executorConfig: options?.executorConfig });
           return {
             queued_item: {
               id: `queue-${queued.length}`,
@@ -856,6 +858,7 @@ describe("registerWorkflowRoutes", () => {
               executorPreference: {
                 executorType: "CLAUDE_CODE",
                 model: "recommended",
+                reasoningId: "high",
                 mode: "preferred",
               },
             }),
@@ -884,6 +887,11 @@ describe("registerWorkflowRoutes", () => {
       executor: "CLAUDE_CODE",
       name: "Dev",
       model: "recommended",
+      executor_config: {
+        executor: "CLAUDE_CODE",
+        model_id: "recommended",
+        reasoning_id: "high",
+      },
     });
     expect(queued[0]).toMatchObject({
       sessionId: "session-dev-created",
@@ -891,6 +899,12 @@ describe("registerWorkflowRoutes", () => {
         workflow_role_id: "dev",
         workflow_role_executor: "CLAUDE_CODE",
         workflow_role_model: "recommended",
+        workflow_role_reasoning_id: "high",
+      },
+      executorConfig: {
+        executor: "CLAUDE_CODE",
+        model_id: "recommended",
+        reasoning_id: "high",
       },
     });
     const runRow = await handle.db
@@ -902,6 +916,7 @@ describe("registerWorkflowRoutes", () => {
         sessionId: "session-dev-created",
         executorType: "CLAUDE_CODE",
         model: "recommended",
+        reasoningId: "high",
         preferenceSource: "role_default",
       },
     });

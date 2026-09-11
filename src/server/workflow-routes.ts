@@ -3,6 +3,7 @@ import type { Context, Hono } from "hono";
 import type { Kysely } from "kysely";
 import {
   WORKFLOW_EXECUTOR_MODEL_OPTIONS,
+  WORKFLOW_EXECUTOR_REASONING_OPTIONS,
   WORKFLOW_EXECUTOR_TYPES,
   runWorkflow,
   WorkflowNotFoundError,
@@ -2168,6 +2169,12 @@ interface WorkflowLaunchRoleBindingRequest {
   name?: string;
   executorType?: string;
   model?: string;
+  reasoningId?: string;
+  teamPreference?: {
+    executorType?: string;
+    model?: string;
+    reasoningId?: string;
+  };
 }
 
 interface WorkflowLaunchRequest {
@@ -2355,6 +2362,7 @@ function summarizeLaunchRoles(definition: unknown) {
 function normalizeRoleExecutorPreference(value: unknown): {
   executorType: string | null;
   model: string | null;
+  reasoningId: string | null;
   mode: "preferred";
 } | null {
   const record = asRecord(value);
@@ -2362,6 +2370,7 @@ function normalizeRoleExecutorPreference(value: unknown): {
   return {
     executorType: asString(record.executorType)?.trim() || null,
     model: asString(record.model)?.trim() || null,
+    reasoningId: asString(record.reasoningId)?.trim() || null,
     mode: "preferred",
   };
 }
@@ -2371,6 +2380,7 @@ function resolveRolePreference(
     executorPreference?: {
       executorType: string | null;
       model: string | null;
+      reasoningId: string | null;
       mode: "preferred";
     } | null;
   },
@@ -2378,17 +2388,38 @@ function resolveRolePreference(
 ): {
   executorType: string | null;
   model: string | null;
-  source: "role_default" | "launch_override" | "workspace_default";
+  reasoningId: string | null;
+  source: "role_default" | "launch_override" | "team_role" | "workspace_default";
 } {
   const bindingExecutor = binding.executorType?.trim();
   const bindingModel = binding.model?.trim();
+  const bindingReasoning = binding.reasoningId?.trim();
   const rolePreference = role.executorPreference ?? null;
+  const teamPreference = binding.teamPreference;
   return {
-    executorType: bindingExecutor || rolePreference?.executorType || null,
-    model: bindingModel || rolePreference?.model || null,
+    executorType:
+      bindingExecutor ||
+      teamPreference?.executorType?.trim() ||
+      rolePreference?.executorType ||
+      null,
+    model:
+      bindingModel ||
+      teamPreference?.model?.trim() ||
+      rolePreference?.model ||
+      null,
+    reasoningId:
+      bindingReasoning ||
+      teamPreference?.reasoningId?.trim() ||
+      rolePreference?.reasoningId ||
+      null,
     source:
-      bindingExecutor || bindingModel
+      bindingExecutor || bindingModel || bindingReasoning
         ? "launch_override"
+        : teamPreference &&
+            (teamPreference.executorType ||
+              teamPreference.model ||
+              teamPreference.reasoningId)
+          ? "team_role"
         : rolePreference
           ? "role_default"
           : "workspace_default",
@@ -2417,10 +2448,19 @@ function modelMatchesExecutor(
   );
 }
 
+function reasoningMatchesExecutor(
+  executorType: Executor | null,
+  reasoningId: string | null,
+): boolean {
+  if (!reasoningId) return true;
+  if (!executorType) return false;
+  return WORKFLOW_EXECUTOR_REASONING_OPTIONS[executorType]?.includes(reasoningId) ?? false;
+}
+
 function listWorkflowExecutorOptions() {
   return WORKFLOW_EXECUTOR_TYPES.map((executorType) => {
     const option = WORKFLOW_EXECUTOR_MODEL_OPTIONS[executorType];
-    return { executorType, label: option.label, models: option.models };
+    return { executorType, label: option.label, models: option.models, reasoningLevels: WORKFLOW_EXECUTOR_REASONING_OPTIONS[executorType] };
   });
 }
 
@@ -2435,6 +2475,7 @@ async function listLaunchSessions(
     name: session.name ?? null,
     executor: session.executor,
     model: session.model ?? null,
+    reasoningId: session.reasoning_id ?? null,
     workspaceId: session.workspace_id,
   }));
 }
@@ -2452,9 +2493,15 @@ async function resolveLaunchRoleBindings(
       workspaceId: string;
       executorType: string | null;
       model: string | null;
+      reasoningId: string | null;
       preferenceMode: "preferred";
       preferenceSource:
-        "role_default" | "launch_override" | "workspace_default";
+        "role_default" | "launch_override" | "team_role" | "workspace_default";
+      preferenceSources: {
+        executorType: "role_default" | "launch_override" | "team_role" | "workspace_default";
+        model: "role_default" | "launch_override" | "team_role" | "workspace_default";
+        reasoningId: "role_default" | "launch_override" | "team_role" | "workspace_default";
+      };
     }
   > = {};
   for (const role of workflow.roles) {
@@ -2476,6 +2523,12 @@ async function resolveLaunchRoleBindings(
       throw new WorkflowLaunchFieldError(
         `role.${role.id}.model`,
         `${role.label} uses unsupported model ${preference.model} for ${expectedExecutor}.`,
+      );
+    }
+    if (!reasoningMatchesExecutor(expectedExecutor, preference.reasoningId)) {
+      throw new WorkflowLaunchFieldError(
+        `role.${role.id}.reasoningId`,
+        `${role.label} uses an unsupported reasoning level for ${expectedExecutor ?? "the selected executor"}.`,
       );
     }
     if (binding.mode === "existing") {
@@ -2506,14 +2559,29 @@ async function resolveLaunchRoleBindings(
             `role.${role.id}.model`,
             `${role.label} session uses model ${session.model}, but workflow prefers ${preference.model}. Choose or create a compatible session.`,
           );
+        if (
+          preference.reasoningId &&
+          session.reasoning_id &&
+          session.reasoning_id !== preference.reasoningId
+        )
+          throw new WorkflowLaunchFieldError(
+            `role.${role.id}.reasoningId`,
+            `${role.label} session uses a different reasoning level. Choose or create a compatible session.`,
+          );
       }
       result[role.id] = {
         sessionId,
         workspaceId,
         executorType: expectedExecutor ?? null,
         model: preference.model,
+        reasoningId: preference.reasoningId,
         preferenceMode: "preferred",
         preferenceSource: preference.source,
+        preferenceSources: {
+          executorType: preference.source,
+          model: preference.source,
+          reasoningId: preference.source,
+        },
       };
       continue;
     }
@@ -2537,7 +2605,10 @@ async function resolveLaunchRoleBindings(
             (!expectedExecutor || session.executor === expectedExecutor) &&
             (!preference.model ||
               !session.model ||
-              session.model === preference.model),
+              session.model === preference.model) &&
+            (!preference.reasoningId ||
+              !session.reasoning_id ||
+              session.reasoning_id === preference.reasoningId),
         );
       const session =
         reusable ??
@@ -2546,6 +2617,11 @@ async function resolveLaunchRoleBindings(
           executor: expectedExecutor ?? "CODEX",
           name,
           model: preference.model,
+          executor_config: {
+            executor: expectedExecutor ?? "CODEX",
+            model_id: preference.model,
+            reasoning_id: preference.reasoningId,
+          },
         }));
       if (session.workspace_id !== workspaceId)
         throw new Error(`${role.label} session belongs to another workspace.`);
@@ -2554,8 +2630,14 @@ async function resolveLaunchRoleBindings(
         workspaceId,
         executorType: expectedExecutor ?? session.executor ?? null,
         model: preference.model,
+        reasoningId: preference.reasoningId,
         preferenceMode: "preferred",
         preferenceSource: preference.source,
+        preferenceSources: {
+          executorType: preference.source,
+          model: preference.source,
+          reasoningId: preference.source,
+        },
       };
     } catch (error) {
       throw new WorkflowLaunchFieldError(
@@ -2857,12 +2939,16 @@ function normalizeRoleBindings(
             sessionId: asString(record.sessionId),
             executorType: asString(record.executorType),
             model: asString(record.model),
+            reasoningId: asString(record.reasoningId),
+            teamPreference: asRecord(record.teamPreference) as WorkflowLaunchRoleBindingRequest["teamPreference"],
           }
         : {
             mode,
             name: asString(record.name),
             executorType: asString(record.executorType),
             model: asString(record.model),
+            reasoningId: asString(record.reasoningId),
+            teamPreference: asRecord(record.teamPreference) as WorkflowLaunchRoleBindingRequest["teamPreference"],
           };
   }
   return bindings;
@@ -2909,7 +2995,16 @@ async function resolvePersistedWorkflowRuntime(
               workflow_role_executor:
                 request.executorPreference?.executorType ?? null,
               workflow_role_model: request.executorPreference?.model ?? null,
+              workflow_role_reasoning_id:
+                request.executorPreference?.reasoningId ?? null,
             },
+            executorConfig: request.executorPreference?.executorType
+              ? {
+                  executor: request.executorPreference.executorType as Executor,
+                  model_id: request.executorPreference.model,
+                  reasoning_id: request.executorPreference.reasoningId,
+                }
+              : undefined,
           },
         );
         return { queueItemRef: queued.queued_item.id };

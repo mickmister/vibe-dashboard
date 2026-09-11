@@ -2185,6 +2185,7 @@ Commands:
     --role-session role=id      Bind a workflow role to an existing VK session
     --role-executor role=type   Optional executor override for a role binding
     --role-model role=model     Optional model override for a role binding
+    --role-reasoning role=level Optional reasoning-level override for a role binding
     --caller-session <id>       Session that should receive completion response
     --no-caller-response        Do not queue a completion response back to caller
     --json                      Output as JSON
@@ -3076,11 +3077,12 @@ interface WorkflowCliParsedFlags {
   roleSessions: WorkflowCliRoleOverride[];
   roleExecutors: WorkflowCliRoleOverride[];
   roleModels: WorkflowCliRoleOverride[];
+  roleReasonings: WorkflowCliRoleOverride[];
   positionals: string[];
 }
 
 export function parseWorkflowCliFlags(args: string[]): WorkflowCliParsedFlags {
-  const result: WorkflowCliParsedFlags = { json: false, inputs: {}, beadIds: [], callerSessionId: detectWorkflowCallerSessionId(), roleSessions: [], roleExecutors: [], roleModels: [], positionals: [] };
+  const result: WorkflowCliParsedFlags = { json: false, inputs: {}, beadIds: [], callerSessionId: detectWorkflowCallerSessionId(), roleSessions: [], roleExecutors: [], roleModels: [], roleReasonings: [], positionals: [] };
   for (let i = 0; i < args.length; i++) {
     const arg = args[i] ?? '';
     const readValue = (flag: string): string => {
@@ -3099,6 +3101,7 @@ export function parseWorkflowCliFlags(args: string[]): WorkflowCliParsedFlags {
     if (arg === '--role-session' || arg.startsWith('--role-session=')) { result.roleSessions.push(parseRoleValueFlag(readValue('--role-session'), '--role-session')); continue; }
     if (arg === '--role-executor' || arg.startsWith('--role-executor=')) { result.roleExecutors.push(parseRoleValueFlag(readValue('--role-executor'), '--role-executor')); continue; }
     if (arg === '--role-model' || arg.startsWith('--role-model=')) { result.roleModels.push(parseRoleValueFlag(readValue('--role-model'), '--role-model')); continue; }
+    if (arg === '--role-reasoning' || arg.startsWith('--role-reasoning=')) { result.roleReasonings.push(parseRoleValueFlag(readValue('--role-reasoning'), '--role-reasoning')); continue; }
     if (arg === '--input' || arg.startsWith('--input=')) {
       const raw = readValue('--input');
       const eq = raw.indexOf('=');
@@ -3128,6 +3131,10 @@ function buildWorkflowCliRoleBindings(workflow: WorkflowCliSummary, flags: Workf
   for (const override of flags.roleModels) {
     assertWorkflowRoleExists(roleIds, override.roleId, '--role-model');
     bindings[override.roleId] = { ...(bindings[override.roleId] ?? {}), model: override.value };
+  }
+  for (const override of flags.roleReasonings) {
+    assertWorkflowRoleExists(roleIds, override.roleId, '--role-reasoning');
+    bindings[override.roleId] = { ...(bindings[override.roleId] ?? {}), reasoningId: override.value };
   }
   return bindings;
 }

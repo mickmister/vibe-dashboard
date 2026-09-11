@@ -36,18 +36,19 @@ describe('vibe-agent workflow CLI foundation', () => {
   it('parses repeated inputs/beads and defaults workspace from VK_WORKSPACE_ID', () => {
     process.env.VK_WORKSPACE_ID = 'workspace-env';
     const flags = parseWorkflowCliFlags(['--input', 'role=review', '--input=request=Review this', '--bead', 'bead-a', '--bead=bead-b', '--json']);
-    expect(flags).toMatchObject({ json: true, inputs: { role: 'review', request: 'Review this' }, beadIds: ['bead-a', 'bead-b'], callerSessionId: null, roleSessions: [], roleExecutors: [], roleModels: [], positionals: [] });
+    expect(flags).toMatchObject({ json: true, inputs: { role: 'review', request: 'Review this' }, beadIds: ['bead-a', 'bead-b'], callerSessionId: null, roleSessions: [], roleExecutors: [], roleModels: [], roleReasonings: [], positionals: [] });
     expect(resolveWorkflowWorkspace(flags, { required: true })).toBe('workspace-env');
   });
 
   it('parses caller callback and role/session binding flags', () => {
     process.env.VK_SESSION_ID = 'caller-env';
-    const flags = parseWorkflowCliFlags(['--role-session', 'teammate=session-review', '--role-executor=teammate=CODEX', '--role-model', 'teammate=gpt-5.1', '--caller-session', 'caller-override']);
+    const flags = parseWorkflowCliFlags(['--role-session', 'teammate=session-review', '--role-executor=teammate=CODEX', '--role-model', 'teammate=gpt-5.1', '--role-reasoning', 'teammate=high', '--caller-session', 'caller-override']);
     expect(flags).toMatchObject({
       callerSessionId: 'caller-override',
       roleSessions: [{ roleId: 'teammate', value: 'session-review' }],
       roleExecutors: [{ roleId: 'teammate', value: 'CODEX' }],
       roleModels: [{ roleId: 'teammate', value: 'gpt-5.1' }],
+      roleReasonings: [{ roleId: 'teammate', value: 'high' }],
     });
     expect(parseWorkflowCliFlags(['--no-caller-response']).callerSessionId).toBeNull();
   });
@@ -231,14 +232,14 @@ describe('vibe-agent workflow CLI foundation', () => {
       if (url.endsWith('/dashboard/api/workflows/launch-options?workspaceId=workspace-a&designId=design-ask&version=1')) return json({ options: { workspaceId: 'workspace-a', workflow: { ...workflow('design-ask', 'Ask teammate'), version: 1, roles: [{ id: 'teammate', label: 'Teammate' }] }, sessions: [] } });
       if (url.endsWith('/dashboard/api/workflows/launch')) {
         const body = JSON.parse(String(init?.body));
-        expect(body.roleBindings).toEqual({ teammate: { mode: 'existing', name: 'Teammate', sessionId: 'session-review', executorType: 'CODEX', model: 'gpt-5.1' } });
+        expect(body.roleBindings).toEqual({ teammate: { mode: 'existing', name: 'Teammate', sessionId: 'session-review', executorType: 'CODEX', model: 'gpt-5.1', reasoningId: 'high' } });
         return json({ run: { runId: 'run-roles', status: 'running', detailUrl: '/dashboard/workflows/run-roles' } }, 201);
       }
       throw new Error(`unexpected fetch ${url}`);
     });
     vi.stubGlobal('fetch', fetchMock);
     const lines = captureConsole();
-    await workflowCommand(['run', 'design-ask', '--input', 'role=review', '--input', 'request=Review', '--role-session', 'teammate=session-review', '--role-executor', 'teammate=CODEX', '--role-model=teammate=gpt-5.1', '--json']);
+    await workflowCommand(['run', 'design-ask', '--input', 'role=review', '--input', 'request=Review', '--role-session', 'teammate=session-review', '--role-executor', 'teammate=CODEX', '--role-model=teammate=gpt-5.1', '--role-reasoning=teammate=high', '--json']);
     expect(JSON.parse(lines.join('\n'))).toMatchObject({ ok: true, runId: 'run-roles' });
   });
 

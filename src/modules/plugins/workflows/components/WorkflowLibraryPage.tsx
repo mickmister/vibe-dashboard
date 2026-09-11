@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useState } from "react";
 import { useSearchParams } from "react-router";
-import { WORKFLOW_EXECUTOR_MODEL_OPTIONS, WORKFLOW_EXECUTOR_TYPES } from "@vibe-dashboard/workflow-core";
+import { WORKFLOW_EXECUTOR_MODEL_OPTIONS, WORKFLOW_EXECUTOR_REASONING_OPTIONS, WORKFLOW_EXECUTOR_TYPES } from "@vibe-dashboard/workflow-core";
 import { StandaloneDashboardPage } from "../../../../components/StandaloneDashboardPage";
 import {
   createWorkflowPromptAsset,
@@ -21,7 +21,7 @@ type LibraryEditMode =
   | { kind: "role"; source?: WorkflowRoleTemplatePickerItem };
 
 type LibraryAssetRequest = { promptAssetId?: string; skillAssetId?: string; version?: number; name: string; description?: string | null; bodyMarkdown: string };
-type LibraryRoleRequest = { roleTemplateId?: string; version?: number; name: string; description?: string | null; promptMarkdown: string; promptRefs?: WorkflowAssetAttachmentRef[]; skillRefs?: WorkflowAssetAttachmentRef[]; executorPreference?: { executorType: string; model?: string; mode?: string } | null };
+type LibraryRoleRequest = { roleTemplateId?: string; version?: number; name: string; description?: string | null; promptMarkdown: string; promptRefs?: WorkflowAssetAttachmentRef[]; skillRefs?: WorkflowAssetAttachmentRef[]; executorPreference?: { executorType: string; model?: string; reasoningId?: string; mode?: string } | null };
 
 export function WorkflowLibraryPage(): React.ReactElement {
   const [searchParams] = useSearchParams();
@@ -254,17 +254,25 @@ function RoleTemplateForm({ assets, source, onCancel, onSubmit }: { assets: Work
   const [skillRefs, setSkillRefs] = useState<WorkflowAssetAttachmentRef[]>(initialSkillRefs);
   const [executorType, setExecutorType] = useState(source?.executorPreference?.executorType ?? "");
   const [model, setModel] = useState(source?.executorPreference?.model ?? "");
+  const [reasoningId, setReasoningId] = useState(source?.executorPreference?.reasoningId ?? "");
   const models = executorType ? (WORKFLOW_EXECUTOR_MODEL_OPTIONS[executorType as keyof typeof WORKFLOW_EXECUTOR_MODEL_OPTIONS]?.models ?? []) : [];
   const extra = (
     <div className="space-y-4">
       <AssetAttachmentPicker title="Prompt assets" kind="prompt" assets={assets.prompts} selected={promptRefs} onChange={setPromptRefs} />
       <AssetAttachmentPicker title="Skill snippets" kind="skill" assets={assets.skills} selected={skillRefs} onChange={setSkillRefs} />
-      <div className="grid gap-3 md:grid-cols-2">
+      <div className="grid gap-3 md:grid-cols-3">
         <label className="block text-sm text-zinc-300">
           Default executor
-          <select className="mt-1 w-full rounded-md border border-zinc-700 bg-zinc-950 p-2 text-sm" value={executorType} onChange={(event) => { setExecutorType(event.target.value); setModel(""); }}>
+          <select className="mt-1 w-full rounded-md border border-zinc-700 bg-zinc-950 p-2 text-sm" value={executorType} onChange={(event) => { setExecutorType(event.target.value); setModel(""); setReasoningId(""); }}>
             <option value="">Workspace default</option>
             {WORKFLOW_EXECUTOR_TYPES.map((executor) => <option key={executor} value={executor}>{WORKFLOW_EXECUTOR_MODEL_OPTIONS[executor].label}</option>)}
+          </select>
+        </label>
+        <label className="block text-sm text-zinc-300">
+          Default reasoning
+          <select aria-label="Default reasoning" className="mt-1 w-full rounded-md border border-zinc-700 bg-zinc-950 p-2 text-sm" value={reasoningId} disabled={!executorType} onChange={(event) => setReasoningId(event.target.value)}>
+            <option value="">Executor default</option>
+            {(executorType ? WORKFLOW_EXECUTOR_REASONING_OPTIONS[executorType as keyof typeof WORKFLOW_EXECUTOR_REASONING_OPTIONS] : []).map((level) => <option key={level} value={level}>{level}</option>)}
           </select>
         </label>
         <label className="block text-sm text-zinc-300">
@@ -294,7 +302,7 @@ function RoleTemplateForm({ assets, source, onCancel, onSubmit }: { assets: Work
         promptMarkdown: value.body,
         promptRefs,
         skillRefs,
-        executorPreference: executorType ? { executorType, model: model || undefined, mode: "preferred" } : null,
+        executorPreference: executorType ? { executorType, model: model || undefined, reasoningId: reasoningId || undefined, mode: "preferred" } : null,
       })}
     />
   );

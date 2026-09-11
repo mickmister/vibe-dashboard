@@ -24,6 +24,7 @@ export type WorkflowExecutorType =
 export type WorkflowRoleExecutorPreferenceV1 = {
   executorType: WorkflowExecutorType;
   model?: string;
+  reasoningId?: string;
   mode?: "preferred";
 };
 
@@ -90,6 +91,21 @@ export const WORKFLOW_ROLE_MODEL_OPTIONS = Array.from(
     ),
   ),
 );
+
+export const WORKFLOW_EXECUTOR_REASONING_OPTIONS: Record<
+  WorkflowExecutorType,
+  string[]
+> = {
+  AMP: [],
+  CLAUDE_CODE: ["low", "medium", "high"],
+  CODEX: ["minimal", "low", "medium", "high", "xhigh"],
+  COPILOT: [],
+  CURSOR_AGENT: ["low", "medium", "high"],
+  DROID: [],
+  GEMINI: [],
+  OPENCODE: ["low", "medium", "high"],
+  QWEN_CODE: [],
+};
 
 export type PromptTemplateRef = {
   template: string;
@@ -2508,7 +2524,7 @@ function validateRoleExecutorPreference(
     );
     return undefined;
   }
-  assertKnownKeys(value, ["executorType", "model", "mode"], path, issues);
+  assertKnownKeys(value, ["executorType", "model", "reasoningId", "mode"], path, issues);
   const executorType = value.executorType;
   if (
     typeof executorType !== "string" ||
@@ -2558,17 +2574,45 @@ function validateRoleExecutorPreference(
       );
     }
   }
+  const reasoningId = value.reasoningId;
+  if (reasoningId !== undefined) {
+    const supported =
+      typeof executorType === "string" &&
+      Object.hasOwn(WORKFLOW_EXECUTOR_REASONING_OPTIONS, executorType)
+        ? WORKFLOW_EXECUTOR_REASONING_OPTIONS[
+            executorType as WorkflowExecutorType
+          ]
+        : [];
+    if (
+      typeof reasoningId !== "string" ||
+      !supported.includes(reasoningId.trim())
+    ) {
+      issues.push(
+        issue(
+          "WORKFLOW_CONFIG_INVALID_ACTIVE_STATE",
+          `${path}.reasoningId`,
+          `must be a supported reasoning level for ${String(executorType)}`,
+        ),
+      );
+    }
+  }
   if (
     typeof executorType !== "string" ||
     !Object.hasOwn(WORKFLOW_EXECUTOR_MODEL_OPTIONS, executorType) ||
     mode !== "preferred" ||
-    (model !== undefined && typeof model !== "string")
+    (model !== undefined && typeof model !== "string") ||
+    (reasoningId !== undefined &&
+      (typeof reasoningId !== "string" ||
+        !WORKFLOW_EXECUTOR_REASONING_OPTIONS[
+          executorType as WorkflowExecutorType
+        ]?.includes(reasoningId.trim())))
   ) {
     return undefined;
   }
   return cloneWithDefined({
     executorType: executorType as WorkflowExecutorType,
     model,
+    reasoningId,
     mode: "preferred" as const,
   });
 }
