@@ -138,6 +138,7 @@ function validateRequest(value: WorkflowPlanRequest): void {
     for (const field of Object.values(binding)) if (field !== undefined && (typeof field !== "string" || !field.trim())) throw new Error("A role setting is invalid.");
     if (!["existing", "create", "create_or_reuse"].includes(binding.mode)) throw new Error("A role session mode is required.");
     if (binding.mode === "existing" && (!binding.sessionId || binding.name)) throw new Error("An existing role requires only a session id.");
+    if (binding.mode === "existing" && (binding.executorType || binding.model || binding.reasoningId)) throw new Error("Existing role preferences require session compatibility validation and are not supported during planning yet.");
     if ((binding.mode === "create" || binding.mode === "create_or_reuse") && (!binding.name || binding.sessionId)) throw new Error("A new role requires only a session name.");
   }
   if (value.completionResponse && (!value.completionResponse.sessionId?.trim() || value.completionResponse.source !== "vibe-agent-cli")) throw new Error("Completion response settings are invalid.");

@@ -78,4 +78,9 @@ describe("digest-bound workflow planning", () => {
     await expect(h.service.launch(request(), plan.digest, principal())).resolves.toMatchObject({ status: "reused", run: { runId: "run-recovered" } });
     expect(h.launcher.launch).toHaveBeenCalledTimes(1);
   });
+  it("rejects unvalidated preferences on an existing role session", async () => {
+    const { service } = await setup();
+    await expect(service.plan({ ...request(), roleBindings: { dev: { mode: "existing", sessionId: "session-1", model: "gpt-5" } } }, principal())).rejects.toThrow("compatibility validation");
+  });
+
 });

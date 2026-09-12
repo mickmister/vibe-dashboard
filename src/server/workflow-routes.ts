@@ -90,6 +90,7 @@ import {
 } from "./workflow-webhook-inbox";
 import type { WorkflowPlanLaunchService, WorkflowPlanPrincipal, WorkflowPlanRequest } from "../modules/plugins/workflows/server/workflowPlanLaunchService";
 import type { WorkflowPlanAuthService } from "../modules/plugins/workflows/server/workflowPlanAuthorization";
+import { getConnInfo } from "@hono/node-server/conninfo";
 
 export interface RegisterWorkflowRoutesOptions {
   registry: WorkflowRegistry;
@@ -158,7 +159,7 @@ export function registerWorkflowRoutes(
   hono.post("/dashboard/api/workflows/plan/auth/session", (c) => {
     try {
       if (!options.workflowPlanAuthService) throw new Error("Workflow browser authorization is unavailable.");
-      const session = options.workflowPlanAuthService.issueBrowserSession(c.req.raw);
+      const session = options.workflowPlanAuthService.issueBrowserSession(c.req.raw, workflowAuthContext(c));
       c.header("Set-Cookie", session.cookie);
       return c.json({ csrfToken: session.csrfToken, expiresAt: session.expiresAt });
     } catch (error) { return c.json({ error: "workflow_plan_auth_failed", message: safeWorkflowRouteMessage(error) }, 403); }
@@ -167,7 +168,7 @@ export function registerWorkflowRoutes(
     if (!options.workflowPlanLaunchService) return c.json({ error: "workflow_plan_unavailable", message: "Workflow planning is not available." }, 503);
     try {
       const request = parseWorkflowPlanRequest(asRecord(await readJsonBody(c.req.raw)));
-      const principal = await requireWorkflowPlanPrincipal(options, c.req.raw, request);
+      const principal = await requireWorkflowPlanPrincipal(options, c.req.raw, request, workflowAuthContext(c));
       return c.json({ plan: await options.workflowPlanLaunchService.plan(request, principal) });
     } catch (error) {
       return c.json({ error: "workflow_plan_failed", message: safeWorkflowRouteMessage(error) }, 400);
@@ -179,7 +180,7 @@ export function registerWorkflowRoutes(
       const body = asRecord(await readJsonBody(c.req.raw));
       const request = parseWorkflowPlanRequest(asRecord(body?.request));
       const digest = asString(body?.planDigest) ?? "";
-      const principal = await requireWorkflowPlanPrincipal(options, c.req.raw, request);
+      const principal = await requireWorkflowPlanPrincipal(options, c.req.raw, request, workflowAuthContext(c));
       const result = await options.workflowPlanLaunchService.launch(request, digest, principal);
       return c.json({ result }, result.status === "launched" || result.status === "reused" ? 201 : 200);
     } catch (error) {
@@ -3580,8 +3581,14 @@ function parsePlanCompletionResponse(value: unknown): WorkflowPlanRequest["compl
   return { sessionId: asString(record.sessionId)?.trim() ?? "", source: asString(record.source) as "vibe-agent-cli" };
 }
 
-async function requireWorkflowPlanPrincipal(options: RegisterWorkflowRoutesOptions, request: Request, plan: WorkflowPlanRequest): Promise<WorkflowPlanPrincipal> {
-  if (options.workflowPlanAuthService) return options.workflowPlanAuthService.authenticate(request, plan);
+function workflowAuthContext(c: any) {
+  let peerAddress: string | undefined;
+  try { peerAddress = getConnInfo(c).remote.address; } catch { peerAddress = undefined; }
+  return { peerAddress, serverOrigin: new URL(c.req.url).origin };
+}
+
+async function requireWorkflowPlanPrincipal(options: RegisterWorkflowRoutesOptions, request: Request, plan: WorkflowPlanRequest, context: { peerAddress: string | undefined; serverOrigin: string }): Promise<WorkflowPlanPrincipal> {
+  if (options.workflowPlanAuthService) return options.workflowPlanAuthService.authenticate(request, plan, context);
   if (!options.authorizeWorkflowPlan) throw new Error("Workflow request authorization is unavailable.");
   return options.authorizeWorkflowPlan(request, plan);
 }

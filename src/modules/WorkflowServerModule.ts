@@ -86,7 +86,7 @@ serverRegistry.registerServerModule((api) => {
       async launch() { throw new Error('Native workflow start is not available.'); },
     },
   });
-  const workflowPlanAuthService = new WorkflowPlanAuthService({ cliCapabilitySecret: process.env.VK_WORKFLOW_SESSION_CAPABILITY_SECRET });
+  const workflowPlanAuthService = new WorkflowPlanAuthService({ cliCapabilityKeys: workflowCapabilityKeysFromEnvironment() });
   const declarativeWorkflowRuntime = new DeclarativeWorkflowRuntime({
     store: workflowOrchestrationStore,
     resolver: roleSessionResolver,
@@ -195,4 +195,12 @@ async function getGitRemoteAliases(repoPath: string): Promise<string[]> {
   } catch {
     return [];
   }
+}
+
+function workflowCapabilityKeysFromEnvironment() {
+  const candidates = [
+    { keyId: process.env.VK_WORKFLOW_SESSION_CAPABILITY_KEY_ID ?? "local-v1", generation: process.env.VK_WORKFLOW_SESSION_CAPABILITY_GENERATION ?? "1", secret: process.env.VK_WORKFLOW_SESSION_CAPABILITY_SECRET },
+    { keyId: process.env.VK_WORKFLOW_SESSION_CAPABILITY_PREVIOUS_KEY_ID ?? "previous", generation: process.env.VK_WORKFLOW_SESSION_CAPABILITY_PREVIOUS_GENERATION ?? "0", secret: process.env.VK_WORKFLOW_SESSION_CAPABILITY_PREVIOUS_SECRET },
+  ];
+  return candidates.filter((candidate): candidate is { keyId: string; generation: string; secret: string } => Boolean(candidate.secret)).map((candidate) => ({ keyId: candidate.keyId, generation: Number(candidate.generation), secret: candidate.secret }));
 }

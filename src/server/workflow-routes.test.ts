@@ -23,7 +23,7 @@ import { BUILT_IN_WORKFLOW_TEMPLATES } from "../modules/plugins/workflows/templa
 import { PersistedWorkflowRuntimeService } from "../modules/plugins/workflows/server/persistedWorkflowRuntime";
 import { validateWorkflowGraph } from "../modules/plugins/workflows/components/graph/workflowGraphModel";
 import type { Session } from "./vk-client";
-import { WorkflowPlanAuthService } from "../modules/plugins/workflows/server/workflowPlanAuthorization";
+import { signWorkflowCliCapability, WorkflowPlanAuthService } from "../modules/plugins/workflows/server/workflowPlanAuthorization";
 
 describe("registerWorkflowRoutes", () => {
   const dbHandles: VdDbHandle[] = [];
@@ -67,20 +67,37 @@ describe("registerWorkflowRoutes", () => {
 
   });
 
-  it("issues a bound browser session and rejects forged or cross-session CSRF", async () => {
-    const auth = new WorkflowPlanAuthService({ kernelLoopback: (request) => request.headers.get("x-test-loopback") === "yes", now: () => 1_000 });
+  it("uses the Node adapter peer address and binds browser auth to exact origin", async () => {
+    const auth = new WorkflowPlanAuthService({ now: () => 1_000 });
     const service = { plan: vi.fn(async (_request, principal) => ({ digest: "a".repeat(64), principal: principal.principalId })), launch: vi.fn() } as any;
     const app = new Hono(); registerWorkflowRoutes(app, { registry: createWorkflowRegistry(), workflowPlanLaunchService: service, workflowPlanAuthService: auth });
-    const denied = await app.request("http://localhost/dashboard/api/workflows/plan/auth/session", { method: "POST" });
+    const env = (address: string) => ({ incoming: { socket: { remoteAddress: address, remotePort: 9000, remoteFamily: "IPv4" } } });
+    const denied = await app.request("http://localhost/dashboard/api/workflows/plan/auth/session", { method: "POST", headers: { origin: "http://localhost" } }, env("10.0.0.8"));
     expect(denied.status).toBe(403);
-    const issued = await app.request("http://localhost/dashboard/api/workflows/plan/auth/session", { method: "POST", headers: { "x-test-loopback": "yes", origin: "https://localhost" } });
+    const issued = await app.request("http://localhost/dashboard/api/workflows/plan/auth/session", { method: "POST", headers: { origin: "http://localhost" } }, env("127.0.0.1"));
+    expect(issued.status).toBe(200);
     const token = (await issued.json()).csrfToken; const cookie = issued.headers.get("set-cookie")!;
     const body = JSON.stringify({ workspaceId: "ws", designId: "d", inputs: {}, roleBindings: {}, beadIds: [] });
-    expect((await app.request("http://localhost/dashboard/api/workflows/plan", { method: "POST", headers: { cookie, origin: "http://localhost", "sec-fetch-site": "same-origin", "x-vd-workflow-csrf": token, "content-type": "application/json" }, body })).status).toBe(200);
-    expect((await app.request("http://localhost/dashboard/api/workflows/plan", { method: "POST", headers: { cookie, origin: "http://localhost", "x-vd-workflow-csrf": "forged", "content-type": "application/json" }, body })).status).toBe(400);
-    const second = await app.request("http://localhost/dashboard/api/workflows/plan/auth/session", { method: "POST", headers: { "x-test-loopback": "yes", origin: "https://localhost" } });
+    const invoke = (headers: Record<string,string>, address = "127.0.0.1") => app.request("http://localhost/dashboard/api/workflows/plan", { method: "POST", headers: { cookie, origin: "http://localhost", "x-vd-workflow-csrf": token, "content-type": "application/json", ...headers }, body }, env(address));
+    expect((await invoke({})).status).toBe(200);
+    expect((await invoke({}, "10.0.0.8")).status).toBe(400);
+    expect((await invoke({ origin: "http://localhost:8080" })).status).toBe(400);
+    expect((await invoke({ "x-vd-workflow-csrf": "forged" })).status).toBe(400);
+    const second = await app.request("http://localhost/dashboard/api/workflows/plan/auth/session", { method: "POST", headers: { origin: "http://localhost" } }, env("127.0.0.1"));
     const secondToken = (await second.json()).csrfToken;
-    expect((await app.request("http://localhost/dashboard/api/workflows/plan", { method: "POST", headers: { cookie, origin: "http://localhost", "x-vd-workflow-csrf": secondToken, "content-type": "application/json" }, body })).status).toBe(400);
+    expect((await invoke({ "x-vd-workflow-csrf": secondToken })).status).toBe(400);
+  });
+
+  it("accepts only a signed scoped CLI capability at the route boundary", async () => {
+    const secret = "s".repeat(32); const now = 2_000;
+    const auth = new WorkflowPlanAuthService({ cliCapabilityKeys: [{ keyId: "key", generation: 1, secret }], now: () => now });
+    const service = { plan: vi.fn(async (_request, principal) => ({ principal: principal.principalId })), launch: vi.fn() } as any;
+    const app = new Hono(); registerWorkflowRoutes(app, { registry: createWorkflowRegistry(), workflowPlanLaunchService: service, workflowPlanAuthService: auth });
+    const capability = signWorkflowCliCapability(secret, { v: 1, aud: "vd-workflow-plan", purpose: "plan-launch", kid: "key", generation: 1, jti: "0123456789abcdef", iat: 1_000, exp: 100_000, workspaceId: "ws", sessionId: "session" });
+    const body = JSON.stringify({ workspaceId: "ws", designId: "d", inputs: {}, roleBindings: {}, beadIds: [], completionResponse: { sessionId: "session", source: "vibe-agent-cli" } });
+    const env = { incoming: { socket: { remoteAddress: "10.0.0.8", remotePort: 9000, remoteFamily: "IPv4" } } };
+    expect((await app.request("http://vd.test/dashboard/api/workflows/plan", { method: "POST", headers: { "content-type": "application/json", "x-vk-workflow-session-capability": capability }, body }, env)).status).toBe(200);
+    expect((await app.request("http://vd.test/dashboard/api/workflows/plan", { method: "POST", headers: { "content-type": "application/json", "x-vk-workflow-session-capability": `${capability}x` }, body }, env)).status).toBe(400);
   });
 
   it("TEST_CASE_M120A_1A exposes lane overview and creation without raw host paths", async () => {
