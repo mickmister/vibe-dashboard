@@ -1139,7 +1139,7 @@ export async function reissueWorkflowPlanAfterAuthorization(
   return planner(request);
 }
 
-function RunWorkflowDialog({
+export function RunWorkflowDialog({
   workspaceId,
   workflow,
   onClose,
