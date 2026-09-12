@@ -48,6 +48,7 @@ describe('workflow-e2e-docker-playwright harness', () => {
     expect(script).toContain('find /root/.cargo/git /tmp/vk-target -name "*.lock" -delete');
     expect(script).toContain('run_with_log gas-city-runtime-smoke bash scripts/smoke-gas-city-runtime.sh --skip-bridge');
     expect(script).toContain('run_with_log pinned-gas-city-compiler bash scripts/verify-pinned-gas-city-compiler.sh');
+    expect(script).toContain('run_with_log real-beads-fixture env VD_REAL_BEADS_E2E=1 npx vitest run');
     expect(script).toContain('run_with_log gc-session-vibe-build');
     expect(script).toContain('GC_EXEC_STATE_DIR=/tmp/gc-session-vibe-smoke gc-session-vibe list-running');
     expect(script).toContain('run_with_log vk-cargo-build cargo build --features qa-mode --bin server');
