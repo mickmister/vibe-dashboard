@@ -1,3 +1,4 @@
+import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import { signWorkflowCliCapability, WorkflowPlanAuthService, type WorkflowCliCapabilityPayload } from "./workflowPlanAuthorization";
 const plan = (workspaceId = "ws-1", sessionId: string | null = null): any => ({ workspaceId, completionResponse: sessionId ? { sessionId, source: "vibe-agent-cli" } : null });
@@ -62,6 +63,13 @@ describe("workflow plan authorization", () => {
     expect(() => auth.issueBrowserSession(request({ host: "127.0.0.1:7443" }), local)).toThrow("origin");
     expect(() => auth.issueBrowserSession(request({ origin: localOrigin, host: "127.0.0.1:9999" }), local)).toThrow("origin");
     for (const name of ["forwarded", "x-forwarded-for", "x-forwarded-host", "x-forwarded-proto", "x-real-ip", "x-original-url", "x-rewrite-url", "via"]) expect(() => auth.issueBrowserSession(request({ origin: localOrigin, host: "127.0.0.1:7443", [name]: "spoof" }), local)).toThrow("Proxy");
+  });
+
+  it("consumes the committed Rust fixture with reason-specific rejection", () => {
+    const fixture = JSON.parse(readFileSync(new URL("../../../../../tests/fixtures/vk-workflow-session-capabilities-v1.json", import.meta.url), "utf8"));
+    const auth = new WorkflowPlanAuthService({ cliCapabilityKey: { keyId: fixture.key.keyId, generation: fixture.key.generation, secret: fixture.key.secret }, now: () => fixture.now });
+    expect(() => auth.verifyCliCapability(fixture.valid, plan(fixture.workspaceId, fixture.sessionId))).not.toThrow();
+    for (const [name, reason] of [["audience", "audience"], ["purpose", "purpose"], ["generation", "generation"], ["expired", "expiry"], ["signature", "signature"]] as const) expect(() => auth.verifyCliCapability(fixture.invalid[name], plan(fixture.workspaceId, fixture.sessionId))).toThrow(reason);
   });
 
 });

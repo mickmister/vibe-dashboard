@@ -289,7 +289,7 @@ async function workflowPlanFetch(path: string, body: unknown, retryPlan: boolean
   let response = await fetch(path, { method: "POST", credentials: "same-origin", headers: await workflowPlanHeaders(), body: JSON.stringify(body) });
   if (response.status !== 401) return response;
   await workflowPlanHeaders(true);
-  if (!retryPlan) throw new WorkflowApiError("Workflow authorization was refreshed. Review the current plan and confirm it again.", {});
+  if (!retryPlan) throw new WorkflowPlanReauthorizationRequiredError("Workflow authorization was refreshed. Review the current plan and confirm it again.", {});
   response = await fetch(path, { method: "POST", credentials: "same-origin", headers: await workflowPlanHeaders(), body: JSON.stringify(body) });
   return response;
 }
@@ -424,6 +424,7 @@ export class WorkflowApiError extends Error {
     this.fieldErrors = fieldErrors;
   }
 }
+export class WorkflowPlanReauthorizationRequiredError extends WorkflowApiError {}
 
 export async function fetchWorkspaceWorkflowsHome(
   workspaceId?: string | null,

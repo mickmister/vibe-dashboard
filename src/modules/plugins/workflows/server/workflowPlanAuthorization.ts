@@ -54,10 +54,15 @@ export class WorkflowPlanAuthService {
     let payload: any;
     try { payload = JSON.parse(Buffer.from(encoded, "base64url").toString("utf8")); } catch { throw invalidCapability(); }
     const configuredKey = this.options.cliCapabilityKey;
-    const key = configuredKey && configuredKey.keyId === payload.kid && configuredKey.generation === payload.generation ? configuredKey : undefined;
-    if (!key || key.secret.length < 32 || !constantEqual(createHmac("sha256", key.secret).update(encoded).digest("base64url"), signature)) throw invalidCapability();
+    if (!configuredKey || configuredKey.keyId !== payload.kid || configuredKey.generation !== payload.generation) throw authError("Workflow CLI session capability key generation is invalid.");
+    if (configuredKey.secret.length < 32 || !constantEqual(createHmac("sha256", configuredKey.secret).update(encoded).digest("base64url"), signature)) throw authError("Workflow CLI session capability signature is invalid.");
     const now = this.now();
-    if (payload.v !== 1 || payload.aud !== WORKFLOW_CAPABILITY_AUDIENCE || payload.purpose !== WORKFLOW_CAPABILITY_PURPOSE || typeof payload.jti !== "string" || payload.jti.length < 16 || !Number.isFinite(payload.iat) || !Number.isFinite(payload.exp) || payload.iat > now + 30_000 || payload.exp <= now || payload.exp - payload.iat > 300_000 || payload.workspaceId !== plan.workspaceId || payload.sessionId !== plan.completionResponse?.sessionId) throw authError("Workflow CLI session capability does not authorize this request.");
+    if (payload.v !== 1) throw authError("Workflow CLI session capability version is invalid.");
+    if (payload.aud !== WORKFLOW_CAPABILITY_AUDIENCE) throw authError("Workflow CLI session capability audience is invalid.");
+    if (payload.purpose !== WORKFLOW_CAPABILITY_PURPOSE) throw authError("Workflow CLI session capability purpose is invalid.");
+    if (typeof payload.jti !== "string" || payload.jti.length < 16) throw authError("Workflow CLI session capability token identity is invalid.");
+    if (!Number.isFinite(payload.iat) || !Number.isFinite(payload.exp) || payload.iat > now + 30_000 || payload.exp <= now || payload.exp - payload.iat > 300_000) throw authError("Workflow CLI session capability expiry is invalid.");
+    if (payload.workspaceId !== plan.workspaceId || payload.sessionId !== plan.completionResponse?.sessionId) throw authError("Workflow CLI session capability does not authorize this request.");
     return { principalId: `session:${payload.sessionId}:cap:${payload.kid}:${payload.generation}:${payload.jti}`, workspaceId: payload.workspaceId, callerSessionId: payload.sessionId };
   }
   private canonicalBrowserOrigin(): string {

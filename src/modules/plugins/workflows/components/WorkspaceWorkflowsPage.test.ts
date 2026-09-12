@@ -5,6 +5,7 @@ import {
   LaunchSummary,
   WorkspaceWorkflowsHomeView,
   buildLaunchRoleBinding,
+  reissueWorkflowPlanAfterAuthorization,
 } from "./WorkspaceWorkflowsPage";
 import type { WorkspaceWorkflowsHomeModel } from "../client/workflowsHomeApi";
 
@@ -319,6 +320,13 @@ describe("WorkspaceWorkflowsHomeView", () => {
       model: "recommended",
     });
   });
+  it("reissues a plan after browser authorization changes and never returns the old digest", async () => {
+    const oldDigest = "a".repeat(64); const newDigest = "b".repeat(64);
+    const planner = async () => ({ schemaVersion: "vd.workflow-plan.v1" as const, digest: newDigest, bundleDigest: "c".repeat(64), summary: "Reissued plan", expiresAt: 2, workflow: { designId: "d", version: 1, label: "W" }, tasks: [], repositories: [] });
+    const result = await reissueWorkflowPlanAfterAuthorization({ workspaceId: "ws", designId: "d", inputs: {}, roleBindings: {}, beadIds: [] }, planner);
+    expect(result.digest).toBe(newDigest); expect(result.digest).not.toBe(oldDigest);
+  });
+
 });
 
 function fixture(): WorkspaceWorkflowsHomeModel {

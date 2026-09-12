@@ -15,6 +15,7 @@ import {
   planWorkspaceWorkflow,
   useWorkflowTemplate,
   WorkflowApiError,
+  WorkflowPlanReauthorizationRequiredError,
   type WorkflowLaunchOptions,
   type WorkflowLaunchRoleBindingRequest,
   type WorkspaceWorkflowInputSummary,
@@ -1131,6 +1132,13 @@ function workflowStatusTone(
   return "amber";
 }
 
+export async function reissueWorkflowPlanAfterAuthorization(
+  request: Parameters<typeof planWorkspaceWorkflow>[0],
+  planner: typeof planWorkspaceWorkflow = planWorkspaceWorkflow,
+): Promise<WorkflowPlanModel> {
+  return planner(request);
+}
+
 function RunWorkflowDialog({
   workspaceId,
   workflow,
@@ -1356,6 +1364,14 @@ function RunWorkflowDialog({
     if (selectedLaneId) nextErrors.form = "Lane selection is not supported by verified plans yet.";
     setFieldErrors(nextErrors);
     if (Object.keys(nextErrors).length > 0) return;
+    const request = {
+      workspaceId,
+      designId: workflow.id,
+      version: workflow.version,
+      inputs,
+      roleBindings,
+      beadIds: selectedBeads.map((bead) => bead.beadId),
+    };
     setSubmitting(true);
     try {
       setLaunchedFirstSessionId(
@@ -1363,14 +1379,6 @@ function RunWorkflowDialog({
           (binding) => binding.mode === "existing",
         )?.sessionId ?? null,
       );
-      const request = {
-        workspaceId,
-        designId: workflow.id,
-        version: workflow.version,
-        inputs,
-        roleBindings,
-        beadIds: selectedBeads.map((bead) => bead.beadId),
-      };
       if (!confirmedPlan) {
         setConfirmedPlan(await planWorkspaceWorkflow(request));
         return;
@@ -1387,7 +1395,16 @@ function RunWorkflowDialog({
       }
       setLaunched(launched.result.run);
     } catch (caught) {
-      if (caught instanceof WorkflowApiError)
+      if (caught instanceof WorkflowPlanReauthorizationRequiredError) {
+        setConfirmedPlan(null);
+        try {
+          const refreshedPlan = await reissueWorkflowPlanAfterAuthorization(request);
+          setConfirmedPlan(refreshedPlan);
+          setFieldErrors({ form: "Authorization changed. Review the reissued plan and confirm it again." });
+        } catch (refreshError) {
+          setFieldErrors({ form: refreshError instanceof Error ? refreshError.message : "A new plan is required." });
+        }
+      } else if (caught instanceof WorkflowApiError)
         setFieldErrors({ form: caught.message, ...caught.fieldErrors });
       else
         setFieldErrors({
