@@ -340,13 +340,15 @@ test.describe("Workspace Workflows tab shell", () => {
         });
       },
     );
-    await page.route("**/dashboard/api/workflows/launch", async (route) => {
+    await page.route("**/dashboard/api/workflows/plan/auth/session", async (route) => {
+      await route.fulfill({ contentType: "application/json", body: JSON.stringify({ csrfToken: "browser-plan-token", expiresAt: Date.now() + 60_000 }) });
+    });
+    await page.route("**/dashboard/api/workflows/plan", async (route) => {
       const body = route.request().postDataJSON();
       expect(body).toMatchObject({
         workspaceId: "workspace-e2e",
         designId: "design-dev-review-tester",
         inputs: { featureRequest: "Build a clean launch flow" },
-        additionalInstructions: "Keep this run small.",
         roleBindings: {
           dev: { mode: "create_or_reuse", name: "Dev" },
           review: { mode: "create_or_reuse", name: "Review" },
@@ -356,18 +358,41 @@ test.describe("Workspace Workflows tab shell", () => {
       expect(body.roleBindings.dev).not.toHaveProperty("model");
       expect(body.roleBindings.review).not.toHaveProperty("executorType");
       expect(body.roleBindings.review).not.toHaveProperty("model");
+      await route.fulfill({
+        contentType: "application/json",
+        body: JSON.stringify({
+          plan: {
+            schemaVersion: "vd.workflow-plan.v1",
+            digest: "e2e-plan-digest",
+            bundleDigest: "e2e-bundle-digest",
+            summary: "Dev Review Tester will run for Build a clean launch flow in workspace-e2e.",
+            expiresAt: Date.now() + 60_000,
+            workflow: { designId: "design-dev-review-tester", version: 1, label: "Dev Review Tester" },
+            tasks: [{ id: "featureRequest", title: "Build a clean launch flow" }],
+            repositories: [],
+          },
+        }),
+      });
+    });
+    await page.route("**/dashboard/api/workflows/plan/launch", async (route) => {
+      const body = route.request().postDataJSON();
+      expect(body.planDigest).toBe("e2e-plan-digest");
+      expect(body.request).toMatchObject({
+        workspaceId: "workspace-e2e",
+        designId: "design-dev-review-tester",
+        inputs: { featureRequest: "Build a clean launch flow" },
+      });
       launched = true;
       await route.fulfill({
         contentType: "application/json",
         status: 201,
         body: JSON.stringify({
-          run: {
+          result: { status: "launched", run: {
             runId: "run-launched",
             workspaceId: "workspace-e2e",
             status: "running",
             detailUrl: "/dashboard/workflows/run-launched",
-          },
-          home: homeFixture(true),
+          } },
         }),
       });
     });
@@ -392,13 +417,15 @@ test.describe("Workspace Workflows tab shell", () => {
     await page
       .getByRole("button", { name: "Create sessions for all roles" })
       .click();
-    await page.getByRole("button", { name: "Launch workflow" }).click();
+    await page.getByRole("button", { name: "Review plan" }).click();
     await expect(page.getByText("This field is required.")).toBeVisible();
     await page.getByLabel("featureRequest *").fill("Build a clean launch flow");
-    await page
-      .getByLabel("Additional instructions for this run")
-      .fill("Keep this run small.");
-    await page.getByRole("button", { name: "Launch workflow" }).click();
+    await page.getByRole("button", { name: "Review plan" }).click();
+    await expect(page.getByRole("heading", { name: "Review plan" })).toBeVisible();
+    await expect(page.getByLabel("Workflow plan")).toContainText("Dev Review Tester");
+    await expect(page.getByLabel("Workflow plan")).toContainText("Build a clean launch flow");
+    await expect(page.getByLabel("Workflow plan")).toContainText("e2e-plan-digest");
+    await page.getByRole("button", { name: "Confirm and start" }).click();
 
     await expect(page.getByLabel("Launch result")).toContainText(
       "Workflow launched",
