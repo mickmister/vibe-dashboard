@@ -89,7 +89,7 @@ import {
   type WorkflowWebhookWakeup,
 } from "./workflow-webhook-inbox";
 import type { WorkflowPlanLaunchService, WorkflowPlanPrincipal, WorkflowPlanRequest } from "../modules/plugins/workflows/server/workflowPlanLaunchService";
-import type { WorkflowPlanAuthService } from "../modules/plugins/workflows/server/workflowPlanAuthorization";
+import { WorkflowPlanAuthorizationError, type WorkflowPlanAuthService } from "../modules/plugins/workflows/server/workflowPlanAuthorization";
 import { getConnInfo } from "@hono/node-server/conninfo";
 
 export interface RegisterWorkflowRoutesOptions {
@@ -171,7 +171,7 @@ export function registerWorkflowRoutes(
       const principal = await requireWorkflowPlanPrincipal(options, c.req.raw, request, workflowAuthContext(c));
       return c.json({ plan: await options.workflowPlanLaunchService.plan(request, principal) });
     } catch (error) {
-      return c.json({ error: "workflow_plan_failed", message: safeWorkflowRouteMessage(error) }, 400);
+      return c.json({ error: "workflow_plan_failed", message: safeWorkflowRouteMessage(error) }, error instanceof WorkflowPlanAuthorizationError ? 401 : 400);
     }
   });
   hono.post("/dashboard/api/workflows/plan/launch", async (c) => {
@@ -184,7 +184,7 @@ export function registerWorkflowRoutes(
       const result = await options.workflowPlanLaunchService.launch(request, digest, principal);
       return c.json({ result }, result.status === "launched" || result.status === "reused" ? 201 : 200);
     } catch (error) {
-      return c.json({ error: "workflow_plan_launch_failed", message: safeWorkflowRouteMessage(error) }, 400);
+      return c.json({ error: "workflow_plan_launch_failed", message: safeWorkflowRouteMessage(error) }, error instanceof WorkflowPlanAuthorizationError ? 401 : 400);
     }
   });
 
@@ -3584,10 +3584,10 @@ function parsePlanCompletionResponse(value: unknown): WorkflowPlanRequest["compl
 function workflowAuthContext(c: any) {
   let peerAddress: string | undefined;
   try { peerAddress = getConnInfo(c).remote.address; } catch { peerAddress = undefined; }
-  return { peerAddress, serverOrigin: new URL(c.req.url).origin };
+  return { peerAddress };
 }
 
-async function requireWorkflowPlanPrincipal(options: RegisterWorkflowRoutesOptions, request: Request, plan: WorkflowPlanRequest, context: { peerAddress: string | undefined; serverOrigin: string }): Promise<WorkflowPlanPrincipal> {
+async function requireWorkflowPlanPrincipal(options: RegisterWorkflowRoutesOptions, request: Request, plan: WorkflowPlanRequest, context: { peerAddress: string | undefined }): Promise<WorkflowPlanPrincipal> {
   if (options.workflowPlanAuthService) return options.workflowPlanAuthService.authenticate(request, plan, context);
   if (!options.authorizeWorkflowPlan) throw new Error("Workflow request authorization is unavailable.");
   return options.authorizeWorkflowPlan(request, plan);

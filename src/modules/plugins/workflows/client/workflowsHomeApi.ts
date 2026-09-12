@@ -275,7 +275,8 @@ export interface WorkflowPlanModel {
   repositories: Array<{ id: string; mode: "read" | "write" }>;
 }
 let workflowPlanCsrfToken: string | null = null;
-async function workflowPlanHeaders(): Promise<Record<string, string>> {
+async function workflowPlanHeaders(force = false): Promise<Record<string, string>> {
+  if (force) workflowPlanCsrfToken = null;
   if (!workflowPlanCsrfToken) {
     const response = await fetch("/dashboard/api/workflows/plan/auth/session", { method: "POST", credentials: "same-origin" });
     const payload = await response.json().catch(() => ({})) as { csrfToken?: string; message?: string };
@@ -284,16 +285,24 @@ async function workflowPlanHeaders(): Promise<Record<string, string>> {
   }
   return { Accept: "application/json", "Content-Type": "application/json", "X-VD-Workflow-CSRF": workflowPlanCsrfToken };
 }
+async function workflowPlanFetch(path: string, body: unknown, retryPlan: boolean): Promise<Response> {
+  let response = await fetch(path, { method: "POST", credentials: "same-origin", headers: await workflowPlanHeaders(), body: JSON.stringify(body) });
+  if (response.status !== 401) return response;
+  await workflowPlanHeaders(true);
+  if (!retryPlan) throw new WorkflowApiError("Workflow authorization was refreshed. Review the current plan and confirm it again.", {});
+  response = await fetch(path, { method: "POST", credentials: "same-origin", headers: await workflowPlanHeaders(), body: JSON.stringify(body) });
+  return response;
+}
 
 export async function planWorkspaceWorkflow(request: LaunchWorkspaceWorkflowRequest): Promise<WorkflowPlanModel> {
-  const response = await fetch("/dashboard/api/workflows/plan", { method: "POST", credentials: "same-origin", headers: await workflowPlanHeaders(), body: JSON.stringify(request) });
+  const response = await workflowPlanFetch("/dashboard/api/workflows/plan", request, true);
   const payload = await response.json().catch(() => ({})) as { plan?: WorkflowPlanModel; message?: string };
   if (response.ok && payload.plan) return payload.plan;
   throw new WorkflowApiError(payload.message || "Workflow plan is not available.", {});
 }
 
 export async function launchPlannedWorkspaceWorkflow(request: LaunchWorkspaceWorkflowRequest, planDigest: string): Promise<{ result: any }> {
-  const response = await fetch("/dashboard/api/workflows/plan/launch", { method: "POST", credentials: "same-origin", headers: await workflowPlanHeaders(), body: JSON.stringify({ request, planDigest }) });
+  const response = await workflowPlanFetch("/dashboard/api/workflows/plan/launch", { request, planDigest }, false);
   const payload = await response.json().catch(() => ({})) as { result?: any; message?: string };
   if ((response.ok || response.status === 409) && payload.result) return payload as { result: any };
   throw new WorkflowApiError(payload.message || "Workflow could not start.", {});

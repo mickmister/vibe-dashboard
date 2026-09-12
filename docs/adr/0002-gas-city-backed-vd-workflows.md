@@ -557,3 +557,11 @@ Acceptance:
       compatibility, and constrained workflows (recommended).**
     - Migrate all workflow execution to GC immediately.
     - Keep both engines indefinitely with user-selectable mode.
+
+### Local workflow plan authorization V1
+
+Unsigned browser planning and launch are deliberately local-only. Deployment config supplies one canonical loopback origin (`VD_WORKFLOW_LOCAL_ORIGIN`); the Node adapter must report an IPv4, IPv6, or mapped-IPv4 loopback peer, and URL, Host, and Origin must exactly match that configured origin. Forwarding and proxy-override headers are rejected. Reverse proxies and relayed browser access are unsupported in V1.
+
+Browser authorization uses an HttpOnly SameSite session cookie plus a separately returned, session-bound CSRF secret. Reissuing authorization revokes that browser's prior cookie. In-memory browser authorization is invalidated by a VD process restart; clients may reauthorize to create a new plan, but must replan and reconfirm before launch because the principal changed.
+
+VK agent processes receive a five-minute HMAC bearer capability with a fixed audience and purpose, workspace/session scope, key ID, deployment generation, and random token ID. The token ID is included in the durable issued-plan principal, limiting replay to idempotent plan/launch operations for that capability. The local container entrypoint rotates the generation on every deployment start, invalidating earlier capabilities; process-only restart behavior follows the unchanged deployment environment. No previous-key acceptance or remote browser authority is provided in V1. Durable external-effect exactly-once remains dependent on the native provider reconciliation contract in 9cx7.21.

@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { batchLaunchWorkspaceWorkflow, fetchWorkflowBatchDetail, fetchWorkflowLaunchOptions, fetchWorkspaceWorkflowsHome, launchGasCitySourceWorkflow, launchWorkspaceWorkflow, useWorkflowTemplate } from './workflowsHomeApi';
+import { batchLaunchWorkspaceWorkflow, fetchWorkflowBatchDetail, fetchWorkflowLaunchOptions, fetchWorkspaceWorkflowsHome, launchGasCitySourceWorkflow, launchWorkspaceWorkflow, launchPlannedWorkspaceWorkflow, planWorkspaceWorkflow, useWorkflowTemplate } from './workflowsHomeApi';
 
 describe('workflows home API client', () => {
   afterEach(() => vi.restoreAllMocks());
@@ -63,4 +63,23 @@ describe('workflows home API client', () => {
     await expect(useWorkflowTemplate({ templateId: 'built-in/dev-review-tester', workspaceId: 'workspace-a', name: 'DRT copy', description: 'Edited purpose' })).resolves.toMatchObject({ version: { version: 1 } });
     expect(fetchMock).toHaveBeenCalledWith('/dashboard/api/workflow-templates/built-in%2Fdev-review-tester/use', expect.objectContaining({ method: 'POST', body: JSON.stringify({ workspaceId: 'workspace-a', name: 'DRT copy', description: 'Edited purpose', publish: true }) }));
   });
+  it('refreshes expired browser auth once and requires replanning after launch auth changes', async () => {
+    const plan = { schemaVersion: 'vd.workflow-plan.v1', digest: 'a'.repeat(64), bundleDigest: 'b'.repeat(64), summary: 'One task', expiresAt: 1000, workflow: { designId: 'd', version: 1, label: 'W' }, tasks: [], repositories: [] };
+    const fetchMock = vi.spyOn(globalThis, 'fetch')
+      .mockResolvedValueOnce(new Response(JSON.stringify({ csrfToken: 'csrf-1' })))
+      .mockResolvedValueOnce(new Response(JSON.stringify({ message: 'expired' }), { status: 401 }))
+      .mockResolvedValueOnce(new Response(JSON.stringify({ csrfToken: 'csrf-2' })))
+      .mockResolvedValueOnce(new Response(JSON.stringify({ plan })))
+      .mockResolvedValueOnce(new Response(JSON.stringify({ message: 'restarted' }), { status: 401 }))
+      .mockResolvedValueOnce(new Response(JSON.stringify({ csrfToken: 'csrf-3' })));
+    const request = { workspaceId: 'ws', designId: 'd', inputs: {}, roleBindings: {}, beadIds: [] };
+    await expect(planWorkspaceWorkflow(request)).resolves.toMatchObject({ digest: 'a'.repeat(64) });
+    await expect(launchPlannedWorkspaceWorkflow(request, plan.digest)).rejects.toThrow('Review the current plan and confirm it again');
+    expect(fetchMock.mock.calls.map((call) => call[0]).filter((url) => String(url).includes('/workflows/plan'))).toEqual([
+      '/dashboard/api/workflows/plan/auth/session', '/dashboard/api/workflows/plan', '/dashboard/api/workflows/plan/auth/session', '/dashboard/api/workflows/plan', '/dashboard/api/workflows/plan/launch', '/dashboard/api/workflows/plan/auth/session',
+    ]);
+    const retriedPlan = fetchMock.mock.calls.filter((call) => call[0] === '/dashboard/api/workflows/plan')[1];
+    expect((retriedPlan?.[1] as RequestInit).headers).toMatchObject({ 'X-VD-Workflow-CSRF': 'csrf-2' });
+  });
+
 });
