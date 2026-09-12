@@ -49,6 +49,36 @@ describe("workflow plan Node server authorization boundary", () => {
     const oldSession = await fetch(`${origin}/dashboard/api/workflows/plan`, { method: "POST", headers: { origin, cookie, "x-vd-workflow-csrf": csrfToken, "content-type": "application/json" }, body });
     expect(oldSession.status).toBe(401);
   });
+  it("keeps independent browser sessions valid while denying cross-browser plan launch", async () => {
+    const now = 1_000; const handle = await initVdDb({ path: ":memory:" }); dbs.push(handle);
+    const launcher = {
+      checkDynamic: vi.fn(async () => ({ ready: true })),
+      launch: vi.fn(async () => ({ runId: "run-browser-a", status: "running", url: "/dashboard/workflows/run-browser-a" })),
+      reconcile: vi.fn(),
+    };
+    const source = { resolve: vi.fn(async (request: any) => ({ compileInput: { workflow: { version: 1 }, inputs: request.inputs }, workflowLabel: "Workflow", tasks: [], repositories: [], securityPolicyRevision: "policy" })) };
+    const compiler = { compile: vi.fn(async (input: any) => ({ schemaVersion: "vd.execution-bundle.v1", digest: createHash("sha256").update(JSON.stringify(input)).digest("hex"), bytes: new Uint8Array(), document: {}, verificationEvidence: {} })) };
+    const service = new WorkflowPlanLaunchService({ source: source as any, compiler: compiler as any, launcher, store: new DbWorkflowPlanStore({ getDb: async () => handle.db, now: () => now, ownerId: "browser-boundary" }), now: () => now, ttlMs: 10_000 });
+    const authOptions: { browserOrigin?: string; now: () => number } = { now: () => now }; const app = new Hono();
+    registerWorkflowRoutes(app, { registry: createWorkflowRegistry(), workflowPlanLaunchService: service, workflowPlanAuthService: new WorkflowPlanAuthService(authOptions) });
+    const server = serve({ fetch: app.fetch, hostname: "127.0.0.1", port: 0 }); servers.push(server); await new Promise<void>((resolve) => server.once("listening", resolve));
+    const address = server.address(); if (!address || typeof address === "string") throw new Error("missing address"); const origin = `http://127.0.0.1:${address.port}`; authOptions.browserOrigin = origin;
+    const issue = async () => { const response = await fetch(`${origin}/dashboard/api/workflows/plan/auth/session`, { method: "POST", headers: { origin } }); return { cookie: response.headers.get("set-cookie")!, csrf: (await response.json() as any).csrfToken }; };
+    const browserA = await issue(); const request = { workspaceId: "ws", designId: "d", inputs: { task: "owned-by-a" }, roleBindings: {}, beadIds: [] };
+    const headersA = { origin, cookie: browserA.cookie, "x-vd-workflow-csrf": browserA.csrf, "content-type": "application/json" };
+    const planned = await fetch(`${origin}/dashboard/api/workflows/plan`, { method: "POST", headers: headersA, body: JSON.stringify(request) }); expect(planned.status).toBe(200); const plan = (await planned.json() as any).plan;
+    const browserB = await issue(); const headersB = { origin, cookie: browserB.cookie, "x-vd-workflow-csrf": browserB.csrf, "content-type": "application/json" };
+    const snapshot = async () => ({
+      plans: await handle.db.selectFrom("WorkflowIssuedPlan").selectAll().orderBy("planId").execute(),
+      effects: await handle.db.selectFrom("WorkflowPlanLaunchEffect").selectAll().orderBy("operationKey").execute(),
+      audit: await handle.db.selectFrom("WorkflowPlanAuditEvent").selectAll().orderBy("auditId").execute(),
+    });
+    const before = await snapshot(); const launchBody = JSON.stringify({ request, planDigest: plan.digest });
+    const denied = await fetch(`${origin}/dashboard/api/workflows/plan/launch`, { method: "POST", headers: headersB, body: launchBody }); expect(denied.status).toBe(400);
+    expect(launcher.launch).not.toHaveBeenCalled(); expect(await snapshot()).toEqual(before);
+    const launched = await fetch(`${origin}/dashboard/api/workflows/plan/launch`, { method: "POST", headers: headersA, body: launchBody }); expect(launched.status).toBe(201);
+    expect(launcher.launch).toHaveBeenCalledTimes(1);
+  });
   it("accepts real IPv6 and mapped IPv4 peers when the platform supports those sockets", async (context) => {
     const exercise = async (hostname: string, requestHost: string) => {
       const app = new Hono(); const authOptions: { browserOrigin?: string } = {};
