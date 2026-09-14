@@ -1,3 +1,4 @@
+/* eslint-disable formatjs/no-literal-string-in-object -- isolated persistence fixtures */
 import { describe, expect, it } from 'vitest';
 import { DOCKVIEW_LAYOUT_FORMAT_VERSION, PINNED_DOCKVIEW_VERSION, parseDockviewEnvelope } from './snapshotPolicy';
 
@@ -54,6 +55,7 @@ describe('canonical Dockview snapshot parser', () => {
     [{ ...valid.snapshot.grid, root: { type: 'branch', data: 'bad' } }],
     [{ ...valid.snapshot.grid, root: { type: 'leaf', data: { id: 'group-1', views: ['panel-1'] }, extra: true } }],
     [{ ...valid.snapshot.grid, root: { type: 'leaf', data: { id: '', views: ['panel-1'] } } }],
+    [{ ...valid.snapshot.grid, root: { type: 'leaf', data: { id: 'group-1', views: [] } } }],
   ])('rejects malformed or non-allowlisted grid structures: %#', (grid) => {
     expect(rejected({ ...valid, snapshot: { ...valid.snapshot, grid } })).toBe('invalid-dockview-snapshot');
   });
@@ -66,6 +68,7 @@ describe('canonical Dockview snapshot parser', () => {
     [{ 'panel-1': { ...valid.snapshot.panels['panel-1'], renderer: 'onlySometimes' } }, 'invalid-dockview-snapshot'],
     [{ 'panel-1': { ...valid.snapshot.panels['panel-1'], pinned: false } }, 'pinned-tabs-disabled'],
     [{ 'panel-1': { ...valid.snapshot.panels['panel-1'], params: { label: 'ok', token: 'secret' } } }, 'invalid-panel-params'],
+    [{ 'panel-1': { id: 'panel-1', contentComponent: 'iframe-panel' } }, 'invalid-panel-params'],
   ])('rejects malformed Panels, unknown fields, and non-allowlisted params: %#', (panels, reason) => {
     expect(rejected({ ...valid, snapshot: { ...valid.snapshot, panels } })).toBe(reason);
   });
@@ -83,6 +86,19 @@ describe('canonical Dockview snapshot parser', () => {
     const leaf = valid.snapshot.grid.root.data[0];
     const duplicateGroups = { ...valid.snapshot.grid, root: { type: 'branch', data: [leaf, leaf] } };
     expect(rejected({ ...valid, snapshot: { ...valid.snapshot, grid: duplicateGroups } })).toBe('duplicate-group-id');
+    const duplicatePanelReference = {
+      ...valid.snapshot.grid,
+      root: {
+        type: 'branch',
+        data: [
+          leaf,
+          { type: 'leaf', data: { id: 'group-2', views: ['panel-1'] } },
+        ],
+      },
+    };
+    expect(
+      rejected({ ...valid, snapshot: { ...valid.snapshot, grid: duplicatePanelReference } }),
+    ).toBe('invalid-panel-reference');
     expect(rejected({ ...valid, snapshot: { ...valid.snapshot, activeGroup: 'missing' } })).toBe('invalid-active-group');
     expect(rejected({ ...valid, snapshot: { ...valid.snapshot, panels: { ...valid.snapshot.panels, unused: { id: 'unused', contentComponent: 'contract-panel' } } } })).toBe('invalid-panel-reference');
   });

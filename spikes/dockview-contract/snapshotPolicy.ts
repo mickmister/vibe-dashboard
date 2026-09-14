@@ -1,4 +1,4 @@
-import type { SerializedDockview } from 'dockview';
+import { Orientation, type SerializedDockview } from 'dockview';
 
 export const DOCKVIEW_LAYOUT_FORMAT_VERSION = 1;
 export const PINNED_DOCKVIEW_VERSION = '8.3.1';
@@ -33,12 +33,26 @@ export type SnapshotParseResult =
 
 type JsonRecord = Record<string, unknown>;
 type CanonicalNode = {
-  type: 'leaf' | 'branch';
-  data: CanonicalGroup | CanonicalNode[];
+  type: 'leaf';
+  data: CanonicalGroup;
+  size?: number;
+  visible?: boolean;
+} | {
+  type: 'branch';
+  data: CanonicalNode[];
   size?: number;
   visible?: boolean;
 };
 type CanonicalGroup = { id: string; views: string[]; activeView?: string };
+type CanonicalPanel = {
+  id: string;
+  contentComponent: string;
+  title?: string;
+  renderer?: 'always' | 'onlyWhenVisible';
+  params?: JsonRecord;
+};
+type CanonicalGrid = SerializedDockview['grid'] & { maximizedNode?: { location: number[] } };
+type ParseContext = { groups: Map<string, CanonicalGroup>; duplicateGroup: boolean };
 
 function isRecord(value: unknown): value is JsonRecord {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
@@ -71,7 +85,7 @@ function optionalNodeFields(input: JsonRecord, target: CanonicalNode): boolean {
 
 function parseNode(
   input: unknown,
-  groups: Map<string, CanonicalGroup>,
+  context: ParseContext,
 ): CanonicalNode | undefined {
   if (!isRecord(input) || !hasOnlyKeys(input, ['type', 'data', 'size', 'visible'])) {
     return undefined;
@@ -82,7 +96,7 @@ function parseNode(
     const node: CanonicalNode = { type: 'branch', data: children };
     if (!optionalNodeFields(input, node)) return undefined;
     for (const child of input.data) {
-      const parsed = parseNode(child, groups);
+      const parsed = parseNode(child, context);
       if (!parsed) return undefined;
       children.push(parsed);
     }
@@ -92,20 +106,20 @@ function parseNode(
   if (!hasOnlyKeys(input.data, ['id', 'views', 'activeView'])) return undefined;
   if (!isIdentifier(input.data.id) || !Array.isArray(input.data.views)) return undefined;
   const views = input.data.views;
-  if (!views.every(isIdentifier)) return undefined;
+  if (views.length === 0 || !views.every(isIdentifier)) return undefined;
   const group: CanonicalGroup = { id: input.data.id, views: [...views] };
   if (input.data.activeView !== undefined) {
     if (!isIdentifier(input.data.activeView)) return undefined;
     group.activeView = input.data.activeView;
   }
-  if (groups.has(group.id)) return { type: 'leaf', data: group, size: Number.NaN };
-  groups.set(group.id, group);
+  if (context.groups.has(group.id)) context.duplicateGroup = true;
+  else context.groups.set(group.id, group);
   const node: CanonicalNode = { type: 'leaf', data: group };
   return optionalNodeFields(input, node) ? node : undefined;
 }
 
 function parseParams(component: string, panelId: string, value: unknown): JsonRecord | undefined {
-  if (value === undefined) return {};
+  if (value === undefined) return component === 'contract-panel' ? {} : undefined;
   if (!isRecord(value)) return undefined;
   if (component === 'contract-panel') {
     if (!hasOnlyKeys(value, ['label']) || (value.label !== undefined && typeof value.label !== 'string')) {
@@ -164,18 +178,12 @@ export function parseDockviewEnvelope(value: unknown): SnapshotParseResult {
   if (!isRecord(input.grid) || !hasOnlyKeys(input.grid, ['root', 'width', 'height', 'orientation', 'maximizedNode'])) {
     return { ok: false, reason: 'invalid-dockview-snapshot' };
   }
-  const groups = new Map<string, CanonicalGroup>();
-  const root = parseNode(input.grid.root, groups);
+  const context: ParseContext = { groups: new Map(), duplicateGroup: false };
+  const root = parseNode(input.grid.root, context);
   if (!root) {
     return { ok: false, reason: 'invalid-dockview-snapshot' };
   }
-  const groupIds: string[] = [];
-  const collectGroups = (node: CanonicalNode): void => {
-    if (node.type === 'leaf') groupIds.push((node.data as CanonicalGroup).id);
-    else (node.data as CanonicalNode[]).forEach(collectGroups);
-  };
-  collectGroups(root);
-  if (new Set(groupIds).size !== groupIds.length) return { ok: false, reason: 'duplicate-group-id' };
+  if (context.duplicateGroup) return { ok: false, reason: 'duplicate-group-id' };
   if (!isFiniteNonnegative(input.grid.width) || !isFiniteNonnegative(input.grid.height)) {
     return { ok: false, reason: 'invalid-dockview-snapshot' };
   }
@@ -184,7 +192,7 @@ export function parseDockviewEnvelope(value: unknown): SnapshotParseResult {
   }
 
   if (!isRecord(input.panels)) return { ok: false, reason: 'invalid-dockview-snapshot' };
-  const panels: Record<string, JsonRecord> = {};
+  const panels: Record<string, CanonicalPanel> = {};
   for (const [key, panel] of Object.entries(input.panels)) {
     if (!isIdentifier(key) || !isRecord(panel)) return { ok: false, reason: 'invalid-dockview-snapshot' };
     if ('pinned' in panel || 'isPinned' in panel) return { ok: false, reason: 'pinned-tabs-disabled' };
@@ -211,25 +219,31 @@ export function parseDockviewEnvelope(value: unknown): SnapshotParseResult {
   }
 
   const referenced = new Set<string>();
-  for (const group of groups.values()) {
+  for (const group of context.groups.values()) {
     if (group.activeView !== undefined && !group.views.includes(group.activeView)) {
       return { ok: false, reason: 'invalid-panel-reference' };
     }
     for (const id of group.views) {
-      if (!(id in panels) || referenced.has(id)) return { ok: false, reason: 'invalid-panel-reference' };
+      if (!Object.hasOwn(panels, id) || referenced.has(id)) {
+        return { ok: false, reason: 'invalid-panel-reference' };
+      }
       referenced.add(id);
     }
   }
   if (referenced.size !== Object.keys(panels).length) return { ok: false, reason: 'invalid-panel-reference' };
-  if (input.activeGroup !== undefined && (!isIdentifier(input.activeGroup) || !groups.has(input.activeGroup))) {
+  if (
+    input.activeGroup !== undefined &&
+    (!isIdentifier(input.activeGroup) || !context.groups.has(input.activeGroup))
+  ) {
     return { ok: false, reason: 'invalid-active-group' };
   }
 
-  const grid: JsonRecord = {
+  const grid: CanonicalGrid = {
     root,
     width: input.grid.width,
     height: input.grid.height,
-    orientation: input.grid.orientation,
+    orientation:
+      input.grid.orientation === 'HORIZONTAL' ? Orientation.HORIZONTAL : Orientation.VERTICAL,
   };
   if (input.grid.maximizedNode !== undefined) {
     if (!isRecord(input.grid.maximizedNode) || !hasOnlyKeys(input.grid.maximizedNode, ['location']) || !resolveLocation(root, input.grid.maximizedNode.location)) {
@@ -247,7 +261,7 @@ export function parseDockviewEnvelope(value: unknown): SnapshotParseResult {
         grid,
         panels,
         ...(input.activeGroup === undefined ? {} : { activeGroup: input.activeGroup }),
-      } as SerializedDockview,
+      },
     },
   };
 }

@@ -13,6 +13,11 @@ React binding declares React 19 support, matching this repository's React
 declare caret ranges for their internal dependency, which is too weak for a
 persisted serialization contract.
 
+The lockfile retains the pre-Dockview Better Auth 1.6.23 peer graph on
+`kysely@0.28.17`; adding Dockview does not normalize that existing graph to the
+application's direct `kysely@0.28.11` dependency. A frozen pnpm install and the
+server/database suite verify the isolated lockfile addition.
+
 Primary references:
 
 - <https://www.npmjs.com/package/dockview-core/v/8.3.1>
@@ -44,14 +49,20 @@ The isolated Vite/Playwright spike proves the following against Chromium:
 4. Native `fromJSON({})` fails synchronously with
    `dockview: root must be of type branch`. Native failure is not a sufficient
    trust boundary because it occurs after Dockview begins interpreting input.
-5. The spike's versioned envelope validator rejects malformed layouts, future
-   format versions, unknown component keys, pinned tabs, floating groups,
-   popouts, and edge groups into a quarantine boundary before calling
-   `fromJSON`; the live layout remains unchanged.
-6. `disableFloatingGroups: true` prevents Shift-dragging a tab into floating
-   state. No application command exposes `addFloatingGroup` or
-   `addPopoutGroup`; persisted floating/popout input is rejected. This is the
-   required defense in depth because public APIs still exist.
+5. The versioned parser constructs a detached `SerializedDockview` from an
+   explicit allowlist and passes only that canonical value to `fromJSON`. It
+   validates the complete supported grid/node/Panel subset, identifiers,
+   group/Panel/active-view references, maximized-node paths, and component-
+   specific lookup params. It rejects unknown fields, present floating/popout/
+   edge structures regardless of type, pinned-tab state, malformed nodes and
+   Panels, duplicate/dangling references, unknown components, and incompatible
+   versions. Adversarial browser cases leave the live layout unchanged and do
+   not increment the `fromJSON` call counter.
+6. The same deterministic Shift-drag gesture creates one floating group in an
+   enabled control Dockview and creates none with `disableFloatingGroups: true`.
+   No application command exposes `addFloatingGroup` or `addPopoutGroup`, and
+   canonical parsing rejects their persisted forms. This is the required
+   defense in depth because the public APIs still exist.
 7. Native tab semantics support arrow-key traversal. Explicit, labeled buttons
    exercise add-beside, maximize, and restore with keyboard activation, proving
    non-drag alternatives are viable.
@@ -67,6 +78,8 @@ The following remain hard implementation constraints rather than blockers:
 - persisted snapshots must carry both the application format version and exact
   Dockview version;
 - validation and quarantine must run before `fromJSON`;
+- only the parser's canonical allowlisted result may cross the `fromJSON`
+  boundary;
 - floating/popout/edge/pinned state must be rejected, not merely hidden;
 - mutation pairing is authoritative; `origin` is useful context but cannot be
   the sole test for whether an operation belongs in application history;

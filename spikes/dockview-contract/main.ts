@@ -137,7 +137,9 @@ api.onDidMaximizedGroupChange(({ isMaximized }) => {
 });
 
 function envelope(): Envelope {
-  return { formatVersion: VERSION, dockviewVersion: DOCKVIEW_VERSION, snapshot: api.toJSON() };
+  // Exercise the actual persistence boundary rather than Dockview's live object prototypes.
+  const snapshot = JSON.parse(JSON.stringify(api.toJSON())) as SerializedDockview;
+  return { formatVersion: VERSION, dockviewVersion: DOCKVIEW_VERSION, snapshot };
 }
 
 function restore(value: unknown): Rejection | undefined {
