@@ -187,7 +187,9 @@ migration ledger; do not introduce a parallel `migration_ledger` table.
 `voyages.activation_sequence` is the monotonic source for durable Panel recency.
 `voyage_panels.last_activated_sequence` is nullable and, when present, cannot
 exceed its Voyage's counter. It is presentation metadata inside the same Voyage
-aggregate, not a timestamp and not a second layout model.
+aggregate, not a timestamp and not a second layout model. History never owns,
+restores, resets, or decrements either value: the Voyage counter only advances,
+including across undo and redo.
 
 ### Typed Panel targets
 
@@ -370,12 +372,47 @@ Voyage. Each checkpoint contains the Dockview snapshot and Voyage-owned Panel
 definitions required to reverse open, close, move, maximize/restore, and
 rearrange actions, plus a cursor identifying the accepted entry.
 
+The history boundary is explicit. `voyage_history.panels_json` is a versioned
+array of structural Panel projections, not serialized `voyage_panels` database
+rows. Repository code constructs and validates each projection field by field:
+
+```ts
+type StructuralPanelHistoryRecord = {
+  id: PanelId;
+  craftWorkspaceId: WorkspaceId | null;
+  targetKind: PanelTarget["kind"];
+  targetVersion: number;
+  targetPayload: JsonObject;
+  titleMode: "automatic" | "custom";
+  customTitle: string | null;
+  closePolicy: ClosePolicy;
+};
+```
+
+These are the only Panel fields required for open/close/move restoration. The
+projection excludes `voyages.activation_sequence`,
+`voyage_panels.last_activated_sequence`, timestamps, and all other activation,
+focus, runtime, and incidental persistence metadata. Never spread or serialize a
+whole database row into `panels_json`.
+
 Undo moves the cursor backward and redo moves it forward through the coordinator.
 A new mutation after undo deletes the abandoned redo branch in the same
 transaction. Pruning removes the oldest entries beyond the configured bound while
 retaining the current entry and nearest usable predecessors. Restore, initial load,
 unchanged autosave, focus-only operations, and failed/cancelled gestures do not
 create checkpoints.
+
+Undo/redo advances the normal aggregate CAS revision but never decrements,
+restores, or otherwise rewinds the Voyage activation counter. When applying a
+historical checkpoint, merge structural fields by stable Panel ID with current
+activation metadata: every surviving Panel retains its current
+`last_activated_sequence`. A Panel structurally recreated by undo or redo starts
+with null recency even if an older checkpoint predates its deletion. Dockview
+restore callbacks remain suppressed and cannot activate the recreated Panel. Only
+a later meaningful user activation assigns the next Voyage-monotonic sequence
+through the normal serialized coordinator, as a focus-metadata write outside
+layout history. Open Code and every other MRU consumer therefore select from the
+current recency values after undo/redo, never from checkpoint-time focus state.
 
 History explicitly excludes:
 
@@ -601,7 +638,8 @@ that breakpoint, activate the Code Panel and maximize its group rather than crea
 an unusable split. Moving a sole-tab Panel may collapse its former group;
 relocation, group cleanup, sizing, focus, and its one activation update are one
 coordinator command and one layout-history checkpoint. The activation metadata
-persists in that aggregate write but does not create a second checkpoint.
+persists in that aggregate write but is excluded from the checkpoint and does not
+create a second checkpoint.
 Deduplicate repeated invocation while that command is pending.
 
 **Open maximized** resolves/reuses or creates the same Panel without relocating an
@@ -873,6 +911,11 @@ defects.
 - activation counter monotonicity, present/equal/missing sequence ordering,
   deterministic migration/schema seeding, CAS conflicts, and no history entry for
   focus-only metadata;
+- history serialization excludes the Voyage activation counter and Panel recency;
+  focus changes after a structural checkpoint do not alter its projection;
+  undo/redo never rewinds the counter; surviving Panels retain current recency;
+  undo-close recreates a Panel with null recency; and subsequent Open Code
+  selection uses current rather than historical recency;
 
 ### React integration
 
@@ -889,6 +932,9 @@ defects.
   exactly-once recording for user commands that focus programmatically,
   focus-noise coalescing, and persistence across reload/remount and
   warm-controller eviction;
+- undo/redo restoration does not activate a recreated Panel; explicit user focus
+  afterward assigns a fresh sequence through the coordinator without adding a
+  layout-history checkpoint;
 
 ### Browser/end-to-end
 
@@ -907,6 +953,10 @@ defects.
   maximize/restore, reload, undo/redo, and iframe identity continuity;
 - adjacent equivalent versus newer non-adjacent equivalent, equal/missing sequence
   tie-breaks, and concurrent/repeated activation without duplicate Code Panels;
+- focus after a structural checkpoint followed by undo and redo, proving current
+  recency survives for surviving Panels, recreated Panels remain null through
+  restore callbacks, explicit focus assigns the next sequence, and Open Code
+  selection remains deterministic throughout;
 - one global iframe budget across two warm Voyages, including background and
   pinned inactive frames plus visible over-budget behavior;
 - pre-`fromJSON` rejection of floating/popout/pinned/incompatible snapshots.
