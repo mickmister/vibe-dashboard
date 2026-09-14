@@ -85,9 +85,9 @@ and per-group active maps must not survive as a second writable layout model.
 14. Migration is one-way. The new model never dual-writes legacy state, never
     reverse-exports to it, and never uses retained raw input for rollback.
 15. An Agent Panel offers **Open beside** and **Open maximized** Code actions.
-    Within the same Voyage, they reuse the most recently active equivalent Code
-    Panel and create one only when absent. Duplication is a separate explicit
-    command.
+    Within the same Voyage, they prefer a visibly adjacent equivalent and
+    otherwise reuse the most recently active equivalent Code Panel, creating one
+    only when absent. Duplication is a separate explicit command.
 
 ## Scope and Success Criteria
 
@@ -139,7 +139,8 @@ Suggested tables (exact naming may follow the repository's Prisma conventions):
 
 ```text
 voyages
-  id, schema_version, revision, history_cursor_sequence NULL,
+  id, schema_version, revision, activation_sequence,
+  history_cursor_sequence NULL,
   name, mission, lifecycle_state,
   created_at, updated_at, last_opened_at
 
@@ -150,7 +151,7 @@ voyage_crafts
 voyage_panels
   id, voyage_id, craft_workspace_id NULL,
   target_kind, target_version, target_payload_json,
-  title_mode, custom_title NULL, close_policy,
+  title_mode, custom_title NULL, close_policy, last_activated_sequence NULL,
   created_at, updated_at
 
 voyage_layouts
@@ -182,6 +183,11 @@ a transaction invariant plus database trigger. Layout and settings singleton
 constraints, non-negative revisions/sequences, and unique per-Voyage history
 sequences are database-enforced. The existing `Migration` table remains the only
 migration ledger; do not introduce a parallel `migration_ledger` table.
+
+`voyages.activation_sequence` is the monotonic source for durable Panel recency.
+`voyage_panels.last_activated_sequence` is nullable and, when present, cannot
+exceed its Voyage's counter. It is presentation metadata inside the same Voyage
+aggregate, not a timestamp and not a second layout model.
 
 ### Typed Panel targets
 
@@ -319,6 +325,44 @@ same queue before switching Voyages, controller eviction, page teardown, or
 repository shutdown where the platform permits it. `beforeunload` is a best-effort
 last flush, never the sole durability mechanism.
 
+### Durable activation order
+
+A meaningful user activation—such as selecting a tab by pointer or keyboard,
+opening/focusing a Panel through a user command, or focusing a visible Panel—sets
+that Panel's `last_activated_sequence` to the next Voyage-monotonic activation
+sequence. The update runs through the same per-Voyage coordinator and persists
+atomically. It advances the aggregate CAS revision but does not create a layout-
+history checkpoint.
+
+The event bridge must distinguish user activation from Dockview restoration,
+`fromJSON()`, safe-layout construction, route reconciliation, and other synthetic
+callbacks; restore-generated or programmatic focus must not manufacture recency.
+When a user command programmatically focuses a Panel, the command
+records exactly one activation and suppresses the resulting Dockview callback.
+Coalesce duplicate focus/activation noise for the same Panel, and safely debounce
+rapid focus transitions through the serialized queue without allowing an older
+delayed event to overwrite the final user-active Panel or a newer aggregate
+revision.
+
+MRU selection is durable across reload and warm-controller eviction. Select the
+greatest `last_activated_sequence`; a present value sorts above a missing value,
+and equal or missing values resolve to the lexicographically smallest stable Panel
+ID. Restoration reads this ordering but never updates it. The same selector is
+the only implementation of “most-recent Panel” used by Open Code, Craft routing,
+sidebar shortcuts, and any later focus command.
+
+Initialize these fields deterministically. A new Voyage starts with
+`activation_sequence = 0`; a newly created Panel remains null unless the creating
+user command meaningfully activates it, in which case that same command assigns
+the next sequence. The one-way migration traverses source Voyage entries, legacy
+visited order, view order, and stable generated Panel IDs deterministically. It
+assigns increasing sequences only where the legacy state supplies activation
+evidence and assigns the valid legacy active selection last so it has the greatest
+value; Panels without evidence remain null and use the stable-ID tie-break. Any
+schema migration from normalized rows lacking this metadata applies the same
+saved-active evidence rule exactly once. Ordinary snapshot restore never reseeds
+or increments activation metadata.
+
 ### Undo and redo
 
 Persist a bounded, configurable linear history, initially 50 checkpoints per
@@ -410,18 +454,30 @@ Classification rules:
    initial 50/50 Dockview split where both targets resolve. Report missing pair
    members individually; never preserve the pair as a second layout model.
 4. Recognize temporary Create Workspace/action surfaces and skip them.
-5. Recognize the legacy Spaces Overview tab and map it to application homepage/
-   overview selection state, never to a Dockview Panel.
-6. Skip/delete all other non-VK Crafts and their views as approved. Do not create
+5. Treat the exact legacy homepage representations `tg_home`, `tab_overview`, and
+   `internal://spaces-overview` only as migration classifications and route-level
+   compatibility. They never create a normalized Voyage, membership, Panel,
+   layout, singleton homepage-selection, or any other normalized row.
+6. Skip a source Voyage containing only homepage representation, including its
+   Voyage occurrence, with reason `homepage-representation`. In a mixed Voyage,
+   skip and count each Overview occurrence with that same reason while migrating
+   its valid VK Craft content normally.
+7. Skip/delete all other non-VK Crafts and their views as approved. Do not create
    fake memberships, generic Voyage Panels, or a permanent legacy Craft type.
-7. Do not migrate runtime-only ephemeral plugin surface placeholders. Installed
+8. Do not migrate runtime-only ephemeral plugin surface placeholders. Installed
    plugin surfaces are reconstructed later from the current manifest/registry.
-8. Treat unresolved VK Craft IDs, view IDs, target versions, and pair members as
+9. Treat unresolved VK Craft IDs, view IDs, target versions, and pair members as
    rejected migration items; fail migration when loss violates the explicit
    classification/count contract rather than silently dropping them.
+10. Seed `activation_sequence` and `last_activated_sequence` deterministically
+    from legacy visited/active evidence in stable source occurrence/view order,
+    assigning the valid legacy active target the greatest sequence. Panels with no
+    activation evidence remain null and use the stable-ID tie-break. Restoration
+    never reseeds or advances recency.
 
 For every source Voyage, Craft occurrence, view selection, pair member, and known
-special surface, diagnostics must balance exactly:
+special surface—including every Overview occurrence—diagnostics must balance
+exactly:
 
 ```text
 source count = migrated count + intentionally skipped count + rejected count
@@ -524,17 +580,29 @@ All variants resolve the invoking Agent Panel's VK Workspace, then resolve the
 canonical Code target through the versioned trusted registry. Equivalent means
 the same Code target kind, `workspaceId`, and explicit repository/folder intent;
 expanded URLs and last-known paths do not participate. Lookup is limited to the
-current Voyage—never move a Panel out of another Voyage. When several equivalent
-Panels exist, choose the most recently active, breaking ties by stable Panel ID.
+current Voyage—never move a Panel out of another Voyage.
 
-**Open beside** is idempotent. If the selected Code Panel is already visibly
-beside the invoking Agent, activate/focus it without a layout mutation. Otherwise
-reuse and move it immediately to the Agent's right; create it only when absent.
-Use a 50/50 split when both Panels meet tested minimum widths. Below that
-breakpoint, activate the Code Panel and maximize its group rather than create an
-unusable split. Moving a sole-tab Panel may collapse its former group; relocation,
-group cleanup, sizing, and focus are one coordinator command and one history
-checkpoint. Deduplicate repeated activation while that command is pending.
+Selection order is exact:
+
+1. Find equivalent Code Panels only in the invoking Voyage.
+2. Restrict to equivalents already visible in a Dockview group immediately
+   adjacent to the invoking Agent Panel's group. If any exist, choose the greatest
+   durable `last_activated_sequence`, with the shared stable-ID tie-break.
+3. Only when none is visibly adjacent, choose the greatest durable
+   `last_activated_sequence` among all equivalent Panels in that Voyage, using the
+   same tie-break.
+4. Create a Code Panel only when no equivalent exists.
+
+**Open beside** is idempotent. Activate/focus an adjacent selection without a
+layout mutation or relocating a newer non-adjacent equivalent. Otherwise reuse
+and move the selected MRU Panel immediately to the Agent's right; create one only
+when absent. Use a 50/50 split when both Panels meet tested minimum widths. Below
+that breakpoint, activate the Code Panel and maximize its group rather than create
+an unusable split. Moving a sole-tab Panel may collapse its former group;
+relocation, group cleanup, sizing, focus, and its one activation update are one
+coordinator command and one layout-history checkpoint. The activation metadata
+persists in that aggregate write but does not create a second checkpoint.
+Deduplicate repeated invocation while that command is pending.
 
 **Open maximized** resolves/reuses or creates the same Panel without relocating an
 existing one, activates its tab/group, and uses Dockview group maximize. “Full
@@ -625,10 +693,16 @@ Preserve the current route contract:
 
 Legacy `views` tokens resolve through the migration/target registry to migrated
 Panels or deterministic open commands and then canonicalize to `panel` where
-possible. A legacy Spaces Overview target opens homepage state. Invalid or
-ambiguous legacy tokens show a non-destructive recovery outcome and must not
-mutate or autosave the Voyage layout. Compatibility fixtures cover stored URLs
-and links emitted by current VD and installed first-party plugins.
+possible. Any incoming legacy URL that focuses `tg_home`, `tab_overview`, or
+`internal://spaces-overview` canonicalizes to `/` with no Voyage, Craft, view, or
+Panel focus and performs no layout/domain mutation. This compatibility redirect
+does not write normalized homepage state or overwrite the browser-local
+`workspace-last-dashboard-url` preference. Normal startup/navigation independently
+chooses `/` or the last valid Voyage according to existing preference rules.
+
+Invalid or ambiguous legacy tokens show a non-destructive recovery outcome and
+must not mutate or autosave the Voyage layout. Compatibility fixtures cover
+stored URLs and links emitted by current VD and installed first-party plugins.
 
 ## Iframe Security
 
@@ -681,6 +755,11 @@ quarantined rather than interpreted as application pinning.
 4. Prove Open beside reuse/MRU selection, create-if-absent, pending-command
    idempotence, 50/50 placement, narrow-width fallback, and one-checkpoint undo;
    prove Open maximized serialization, reload, undo/redo, and visible Restore.
+   Selection fixtures must prove that an older adjacent equivalent beats a newer
+   non-adjacent equivalent, then prove durable MRU selection after reload and warm
+   controller eviction, equal/missing-sequence stable-ID ties, focus metadata
+   persistence without a layout-history checkpoint, and concurrent/repeated
+   activation without duplicate Panels.
    If the pinned Core version omits maximize state from its snapshot, define and
    test a small versioned application presentation field persisted through the
    same aggregate coordinator; maximize may not silently become session-only.
@@ -791,6 +870,9 @@ defects.
 - LRU behavior with configurable zero/minimum/large limits;
 - linear history cursor, redo invalidation, pruning, and gesture coalescing;
 - target registry versioning and Code equivalence without stored-path authority;
+- activation counter monotonicity, present/equal/missing sequence ordering,
+  deterministic migration/schema seeding, CAS conflicts, and no history entry for
+  focus-only metadata;
 
 ### React integration
 
@@ -803,6 +885,10 @@ defects.
 - mobile route renders one Panel without an editable Dockview instance;
 - Open Code split-button semantics, pending-command idempotence, accessible names,
   announced changes, post-attach focus, and keyboard Restore;
+- suppression of restore-generated and other synthetic activation callbacks,
+  exactly-once recording for user commands that focus programmatically,
+  focus-noise coalescing, and persistence across reload/remount and
+  warm-controller eviction;
 
 ### Browser/end-to-end
 
@@ -819,6 +905,8 @@ defects.
 - hostile/redirected/custom/plugin/forwarded iframe capability cases;
 - Agent-to-Code reuse/create, 50/50 and narrow fallback, sole-group collapse,
   maximize/restore, reload, undo/redo, and iframe identity continuity;
+- adjacent equivalent versus newer non-adjacent equivalent, equal/missing sequence
+  tie-breaks, and concurrent/repeated activation without duplicate Code Panels;
 - one global iframe budget across two warm Voyages, including background and
   pinned inactive frames plus visible over-budget behavior;
 - pre-`fromJSON` rejection of floating/popout/pinned/incompatible snapshots.
@@ -885,7 +973,8 @@ These are implementation defaults, not unresolved architecture questions:
 - default new Voyage layout: **adaptive useful work area, no mandatory overview
   Panel**;
 - iframe budget scope: **one global runtime budget; all background frames inactive**;
-- Open beside: **same-Voyage MRU reuse/move, create only when absent**;
+- Open beside: **same-Voyage adjacent-first, then durable-MRU reuse/move; create
+  only when absent**;
 - Open maximized: **Dockview group maximize, never browser Fullscreen API**.
 
 Reviewers should change these values if product testing provides evidence, but
