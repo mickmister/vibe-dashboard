@@ -9,13 +9,16 @@
 
 1. As a VD user, I can trust that rearranging a DockView workbench will preserve
    live iframe state wherever the supported contract promises it.
-2. As a keyboard user, I can invoke every M1 layout operation without dragging.
+2. As a keyboard user, I can reach and invoke essential layout controls without
+   dragging. This is secondary to proving layout, iframe, and recovery
+   correctness in M1; advanced keyboard docking is not an M1 priority.
 3. As an operator, I can reject incompatible or unsafe serialized layouts before
    Dockview instantiates them.
 4. As a developer, I have a complete target and capability registry contract
    grounded in the surfaces VD can construct today.
-5. As an Agent user, I can open Code beside or maximized predictably without
-   duplicating an existing editor accidentally.
+5. As an Agent user, I can open Code beside predictably without duplicating an
+   existing editor accidentally, or enter a temporary foreground Agent + Code
+   Split View and return to my unchanged Voyage when finished.
 
 ## Preconditions
 
@@ -81,19 +84,21 @@ Expected:
 - Rejected input is quarantined before `fromJSON()` touches the live controller.
 - Rejection leaves a safe usable fallback and an actionable reason.
 
-### TEST_CASE_M1_1D — Keyboard layout operations
+### TEST_CASE_M1_1D — Essential keyboard access (secondary)
 
 Steps:
 
 1. Navigate tabs and groups using the documented keyboard controls.
-2. Invoke every spike-owned layout command without pointer drag.
+2. Invoke the essential spike-owned layout commands without pointer drag.
 3. Restore from maximized state using the keyboard.
 
 Expected:
 
 - Focus order and active state are visible and deterministic.
 - Controls have accessible names and announce meaningful layout changes.
-- No required M1 action is pointer-only.
+- Essential actions and Restore are not pointer-only. Advanced keyboard docking
+  ergonomics may be deferred; they do not block the higher-priority lifecycle
+  and recovery proofs unless an essential action is unreachable.
 
 ### TEST_CASE_M1_2A — Iframe identity during supported layout changes
 
@@ -187,6 +192,40 @@ Expected:
 - Restore preserves the underlying topology and retained iframe identity where
   promised.
 - Each user command produces one coordinator mutation/history checkpoint.
+
+### TEST_CASE_M1_5C — Temporary foreground Split View
+
+Steps:
+
+1. From an Agent Panel inside a populated Voyage, invoke the foreground Split
+   View action.
+2. Confirm the foreground presents that Agent and its equivalent Code target
+   together without exposing unrelated Voyage Panels.
+3. Change live state in both retained surfaces, then choose Back to Voyage.
+4. Repeat after switching Voyages and after a browser reload or controller
+   eviction boundary supported by the selected design.
+
+Expected:
+
+- The foreground experience is clearly temporary and provides an obvious Back
+  to Voyage action.
+- Entering or leaving it does not rewrite, snapshot-replace, or create history
+  for the underlying Voyage layout.
+- The same-Voyage Code equivalence/reuse rules still prevent accidental
+  duplicates.
+- Returning restores the exact prior Voyage topology, active location, and
+  retained iframe identities promised by the lifecycle contract.
+- Refresh, deep-link, Back-button, and crash/restart behavior have one explicit,
+  deterministic contract; no hidden second layout authority is introduced.
+
+Error cases:
+
+- If Agent or Code cannot resolve, show recovery UI and leave the Voyage layout
+  untouched.
+- Repeated entry/exit and rapid Back actions do not leak controllers, duplicate
+  Panels, or lose the return location.
+- At constrained widths, use the tested single-surface/focus fallback rather
+  than an unusably narrow split.
 
 ## Required validation commands
 
