@@ -209,14 +209,25 @@ Expected:
 
 - The foreground experience is clearly temporary and provides an obvious Back
   to Voyage action.
-- Entering or leaving it does not rewrite, snapshot-replace, or create history
-  for the underlying Voyage layout.
+- A transient restricted Dockview controller owns only live Split View geometry:
+  its resize sash works, but closing, adding, moving, arbitrary docking,
+  floating, and popouts are disabled.
+- Entering, resizing, maximizing, switching, or leaving causes no underlying
+  Voyage Dockview mutation event, `fromJSON` call, layout write, revision change,
+  or history checkpoint.
 - The same-Voyage Code equivalence/reuse rules still prevent accidental
   duplicates.
+- Each retained runtime has exactly one attachment lease/host; its identity is
+  preserved after return. When Code was absent, one collision-safe Split-only
+  runtime is created without a Panel row and disposed exactly once on exit.
+- The invoking Voyage controller cannot be evicted while leases are active, and
+  its pin is released only after runtimes return to their original hosts.
 - Returning restores the exact prior Voyage topology, active location, and
   retained iframe identities promised by the lifecycle contract.
-- Refresh, deep-link, Back-button, and crash/restart behavior have one explicit,
-  deterministic contract; no hidden second layout authority is introduced.
+- Browser Back and visible Back are idempotent. Direct links resolve durable
+  targets without layout mutation. Refresh reconstructs Split View and explicitly
+  does not promise pre-refresh DOM identity. No hidden durable layout authority
+  is introduced.
 
 Error cases:
 
@@ -224,6 +235,9 @@ Error cases:
   untouched.
 - Repeated entry/exit and rapid Back actions do not leak controllers, duplicate
   Panels, or lose the return location.
+- Partial attachment/target failure rolls back runtime leases without snapshot
+  restoration; subscriptions, focus containment, controller pins, and transient
+  runtimes clean up exactly once.
 - At constrained widths, use the tested single-surface/focus fallback rather
   than an unusably narrow split.
 

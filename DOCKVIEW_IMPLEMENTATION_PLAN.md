@@ -88,6 +88,10 @@ and per-group active maps must not survive as a second writable layout model.
     Within the same Voyage, they prefer a visibly adjacent equivalent and
     otherwise reuse the most recently active equivalent Code Panel, creating one
     only when absent. Duplication is a separate explicit command.
+16. An Agent Panel also offers **Split View**: a temporary foreground Dockview
+    controller with a fixed, resizable Agent + Code split. Split View is not a
+    Voyage, owns no durable layout, and never mutates or restores the underlying
+    Voyage layout.
 
 ## Scope and Success Criteria
 
@@ -565,6 +569,10 @@ the pre-command in-memory snapshot if durable commit fails.
   prove a simpler renderer lifecycle safe.
 - Provide explicit acquire, attach, detach, navigate, reload, evict, and dispose
   operations with idempotent cleanup.
+- Model temporary presentation through exclusive runtime attachment leases. A
+  runtime has exactly one attachment host at a time. Split View may transfer an
+  existing Agent or Code runtime between application-owned renderer hosts, but
+  must not clone it or manipulate Dockview's private DOM.
 - Add a parent-document pointer shield during drag/resize and restore pointer
   behavior on drop, cancellation, blur, error, and teardown.
 - Maintain one browser-runtime iframe registry and one installation-configured
@@ -585,6 +593,9 @@ the pre-command in-memory snapshot if durable commit fails.
 - Keep the active and most-recent Voyage controller warm by default. Controller
   eviction flushes persistence and tears down subscriptions exactly once; its
   iframe entries remain subject to the same global LRU.
+- Pin the invoking Voyage controller while Split View holds runtime attachment
+  leases. Release attachment leases before releasing that pin on every exit,
+  error, route change, and component teardown path.
 
 ## Default Desktop and Mobile Experience
 
@@ -652,6 +663,52 @@ The split button, menu, and Restore action are keyboard-operable; accessible nam
 include the Craft when context is ambiguous. Announce the resulting layout change
 and move focus only after the Code Panel is attached successfully. No Open Code
 workflow depends on drag-and-drop.
+
+### Temporary foreground Split View
+
+**Split View** is a third Agent action, distinct from **Open beside** and **Open
+maximized**. It fills the VD workbench viewport with a transient Dockview Core
+controller containing exactly two non-closeable runtime-host Panels: Agent and
+Code. Dockview owns this temporary controller's live split geometry and resize
+sash. The initial ratio is 50/50 when both minimum widths fit; constrained widths
+show one surface at a time with an Agent/Code switcher. Optional maximize/restore
+may operate inside the transient controller. Arbitrary docking, moving, tabs,
+floating, popouts, adding Panels, and persistence are disabled.
+
+Split View is not a temporary Voyage and is not another durable layout authority.
+Its geometry is session-only. Entry, resizing, surface switching, maximizing,
+and exit do not invoke the Voyage mutation coordinator, write `layout_json`,
+advance the Voyage layout revision, create `voyage_history`, or call `fromJSON`
+against the underlying Voyage. Destroying the transient controller discards its
+geometry; it never restores a saved "before" snapshot.
+
+On entry, pin the invoking Voyage controller and acquire exclusive attachment
+leases for the invoking Agent runtime and the selected same-Voyage equivalent
+Code runtime. Attach them to stable renderer hosts owned by the transient
+controller. If no equivalent Code Panel/runtime exists, create a collision-safe,
+Split-session-only Code runtime from the trusted target resolver; create no
+durable Panel row and dispose that runtime on exit. Existing runtime Panel IDs
+remain unchanged. Underlying Voyage frames are application-inactive while the
+two foreground surfaces are visible and protected by the same global iframe
+budget.
+
+Use `?voyage=<token>&split=<agent-panel-token>` as route intent, not serialized
+layout. Entry pushes browser history. Browser Back and the visible **Back to
+Voyage** action remove `split` idempotently and return to the canonical Voyage
+route; the visible action must not depend on a prior history entry. Direct links
+restore the Voyage and resolve targets before entering. Refresh reconstructs the
+transient controller and does not promise pre-refresh iframe identity. Invalid or
+stale links render recovery UI with Back to Voyage and never mutate the Voyage.
+
+Implement entry/exit as `inactive -> entering -> active -> exiting -> inactive`
+with a transition token or abort signal. Cleanup returns retained runtimes to
+their original renderer hosts exactly once, disposes Split-only runtimes exactly
+once, removes subscriptions/focus containment, destroys the transient controller,
+releases leases, then releases the Voyage-controller pin. Partial attachment
+failure rolls back through runtime-registry operations, never snapshot restore.
+Focus enters Split View after both hosts attach and returns to the invoking Agent
+control on exit. Essential controls are keyboard-operable; advanced keyboard
+docking remains deliberately de-prioritized.
 
 ### Mobile v1
 
@@ -801,19 +858,25 @@ quarantined rather than interpreted as application pinning.
    If the pinned Core version omits maximize state from its snapshot, define and
    test a small versioned application presentation field persisted through the
    same aggregate coordinator; maximize may not silently become session-only.
-5. Inventory current built-in, VK, factory, pair, URL, plugin, React-surface, and
+5. Prototype Split View with a transient, non-persisted Dockview controller and
+   fixed resizable Agent + Code hosts. Prove exclusive runtime leases, invoking
+   controller pinning, identity-preserving detach/reattach, Split-only Code
+   disposal, responsive single-surface fallback, route/Back/refresh semantics,
+   idempotent failure cleanup, and zero underlying Voyage mutation events,
+   `fromJSON` calls, layout writes, revision changes, or history checkpoints.
+6. Inventory current built-in, VK, factory, pair, URL, plugin, React-surface, and
    ephemeral targets and implement the versioned target-registry contract tests.
-6. Test the pinned Dockview serialization version, pre-`fromJSON` quarantine, and
+7. Test the pinned Dockview serialization version, pre-`fromJSON` quarantine, and
    rejection of floating, popout, unknown-component, unsupported pinned-tab, and
    incompatible-version snapshots.
-7. Disable floating/popout paths in v1 UI and document their behavior.
-8. Prototype aggregate-CAS transactions covering membership, Panel, layout,
+8. Disable floating/popout paths in v1 UI and document their behavior.
+9. Prototype aggregate-CAS transactions covering membership, Panel, layout,
    history, serialized commands, conflicts, and atomic two-Voyage moves.
-9. Feed consistent joined `kv.db` fixtures for every supported legacy envelope and
+10. Feed consistent joined `kv.db` fixtures for every supported legacy envelope and
    classification through the timestamped migration prototype; verify balanced
    migrated/skipped/rejected counts and startup-failure atomicity. Include a fresh
    installation with neither key and a partial legacy installation with one key.
-10. Create the resolver-derived provenance capability matrix and security harness.
+11. Create the resolver-derived provenance capability matrix and security harness.
 
 **Exit:** every high-risk assumption has an automated reproduction and a recorded
 pass/fail decision. If core docking cannot preserve required iframe identity,
@@ -951,6 +1014,10 @@ defects.
 - hostile/redirected/custom/plugin/forwarded iframe capability cases;
 - Agent-to-Code reuse/create, 50/50 and narrow fallback, sole-group collapse,
   maximize/restore, reload, undo/redo, and iframe identity continuity;
+- temporary foreground Split View resizing, optional transient maximize, runtime
+  lease ownership, return-host identity, Split-only disposal, controller pinning,
+  route/Back/refresh/error cleanup, and proof that the Voyage receives no
+  mutation, `fromJSON`, revision, layout-write, or history event;
 - adjacent equivalent versus newer non-adjacent equivalent, equal/missing sequence
   tie-breaks, and concurrent/repeated activation without duplicate Code Panels;
 - focus after a structural checkpoint followed by undo and redo, proving current
@@ -1026,6 +1093,8 @@ These are implementation defaults, not unresolved architecture questions:
 - Open beside: **same-Voyage adjacent-first, then durable-MRU reuse/move; create
   only when absent**;
 - Open maximized: **Dockview group maximize, never browser Fullscreen API**.
+- Split View: **transient restricted Dockview controller, never a temporary
+  Voyage; session-only geometry and no underlying Voyage mutation**.
 
 Reviewers should change these values if product testing provides evidence, but
 their exact values do not block the architecture.
@@ -1050,6 +1119,9 @@ their exact values do not block the architecture.
       closed for unknown or unavailable targets.
 - [ ] Open beside/maximized satisfy reuse, identity, accessibility, persistence,
       history, and narrow-width contracts.
+- [ ] Split View provides a resizable temporary Agent + Code workbench, returns
+      to the unchanged Voyage, and passes lease, routing, cleanup, budget, and
+      no-mutation contracts.
 - [ ] Legacy layout state, UI, and unused dependencies are removed.
 - [ ] Unit, repository, integration, browser, accessibility, and manual checks pass.
 - [ ] One-way cutover, forward recovery, operational diagnostics, and
