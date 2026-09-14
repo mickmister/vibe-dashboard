@@ -6,7 +6,7 @@ import {
   PINNED_DOCKVIEW_VERSION as DOCKVIEW_VERSION,
   type DockviewSnapshotEnvelope as Envelope,
   type SnapshotRejection as Rejection,
-  validateEnvelope,
+  parseDockviewEnvelope,
 } from './snapshotPolicy';
 
 type Mutation = { phase: 'will' | 'did'; kind: string; origin: string };
@@ -69,6 +69,11 @@ const secondaryApi = createDockview(secondaryElement, {
 });
 secondaryApi.layout(900, 500);
 secondaryApi.addPanel({ id: 'secondary-home', component: 'contract-panel', title: 'Secondary' });
+
+const floatingControlElement = document.querySelector<HTMLElement>('#floating-control')!;
+floatingControlElement.style.cssText = 'height: 500px; width: 900px';
+const floatingControlApi = createDockview(floatingControlElement, { createComponent });
+floatingControlApi.layout(900, 500);
 
 function addFirst(): void {
   if (api.getPanel('first')) return;
@@ -136,17 +141,29 @@ function envelope(): Envelope {
 }
 
 function restore(value: unknown): Rejection | undefined {
-  const rejection = validateEnvelope(value);
-  if (rejection) {
-    quarantine.push({ reason: rejection, value });
-    return rejection;
+  const parsed = parseDockviewEnvelope(value);
+  if (!parsed.ok) {
+    quarantine.push({ reason: parsed.reason, value });
+    return parsed.reason;
   }
   fromJSONCalls += 1;
-  api.fromJSON((value as Envelope).snapshot);
+  api.fromJSON(parsed.value.snapshot);
   return undefined;
 }
 
 window.contract = {
+  enableFloatingControl: () => {
+    dockviewElement.hidden = true;
+    floatingControlElement.hidden = false;
+    if (!floatingControlApi.getPanel('floating-control-panel')) {
+      floatingControlApi.addPanel({
+        id: 'floating-control-panel',
+        component: 'contract-panel',
+        title: 'Floating control panel',
+      });
+    }
+  },
+  floatingControlSnapshot: () => floatingControlApi.toJSON(),
   disabledFeatureAttempts: () => ({
     floating: 'floating-groups-disabled' as const,
     pinned: 'pinned-tabs-disabled' as const,
@@ -180,13 +197,15 @@ window.contract = {
   },
   invalidRestoreCases: () => {
     const valid = envelope();
+    const before = JSON.stringify(valid.snapshot);
     const panel = Object.values(valid.snapshot.panels)[0];
     const cases: Record<string, unknown> = {
-      malformed: { formatVersion: VERSION, snapshot: {} },
+      malformed: { formatVersion: VERSION, dockviewVersion: DOCKVIEW_VERSION, snapshot: {} },
       future: { ...valid, formatVersion: VERSION + 1 },
       floating: { ...valid, snapshot: { ...valid.snapshot, floatingGroups: [{}] } },
+      floatingWrongType: { ...valid, snapshot: { ...valid.snapshot, floatingGroups: true } },
       edge: { ...valid, snapshot: { ...valid.snapshot, edgeGroups: {} } },
-      popout: { ...valid, snapshot: { ...valid.snapshot, popoutGroups: [{}] } },
+      popout: { ...valid, snapshot: { ...valid.snapshot, popoutGroups: 'invalid' } },
       pinned: {
         ...valid,
         snapshot: { ...valid.snapshot, panels: { first: { ...panel, pinned: true } } },
@@ -195,8 +214,22 @@ window.contract = {
         ...valid,
         snapshot: { ...valid.snapshot, panels: { first: { ...panel, contentComponent: 'unknown' } } },
       },
+      unknownField: { ...valid, snapshot: { ...valid.snapshot, futureMetadata: true } },
+      dangling: {
+        ...valid,
+        snapshot: {
+          ...valid.snapshot,
+          grid: {
+            ...valid.snapshot.grid,
+            root: { type: 'leaf', data: { id: 'group', views: ['missing'] } },
+          },
+        },
+      },
     };
-    return Object.fromEntries(Object.entries(cases).map(([key, value]) => [key, restore(value)]));
+    const rejections = Object.fromEntries(
+      Object.entries(cases).map(([key, candidate]) => [key, restore(candidate)]),
+    );
+    return { rejections, unchanged: JSON.stringify(api.toJSON()) === before };
   },
 };
 
@@ -323,7 +356,12 @@ declare global {
     };
     contract: {
       disabledFeatureAttempts(): Record<string, Rejection>;
-      invalidRestoreCases(): Record<string, Rejection | undefined>;
+      enableFloatingControl(): void;
+      floatingControlSnapshot(): SerializedDockview;
+      invalidRestoreCases(): {
+        rejections: Record<string, Rejection | undefined>;
+        unchanged: boolean;
+      };
       nativeMalformedFailure(): string;
       mutations(): Mutation[];
       quarantineCount(): number;

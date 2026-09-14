@@ -53,30 +53,33 @@ test('untrusted snapshots are rejected before fromJSON touches the live layout',
     'root must be of type branch',
   );
   await page.getByRole('button', { name: 'Add first panel' }).click();
-  const cases = await page.evaluate(() => window.contract.invalidRestoreCases());
+  const result = await page.evaluate(() => window.contract.invalidRestoreCases());
 
-  expect(cases).toEqual({
+  expect(result.rejections).toEqual({
     floating: 'floating-groups-disabled',
-    edge: 'invalid-dockview-snapshot',
+    floatingWrongType: 'floating-groups-disabled',
+    edge: 'edge-groups-disabled',
     future: 'unsupported-layout-version',
     malformed: 'invalid-dockview-snapshot',
     pinned: 'pinned-tabs-disabled',
     popout: 'popout-groups-disabled',
     unknown: 'unknown-panel-component',
+    unknownField: 'unknown-field',
+    dangling: 'invalid-panel-reference',
   });
+  expect(result.unchanged).toBe(true);
   expect(await page.evaluate(() => window.contract.disabledFeatureAttempts())).toEqual({
     floating: 'floating-groups-disabled',
     pinned: 'pinned-tabs-disabled',
     popout: 'popout-groups-disabled',
   });
   expect(await page.evaluate(() => window.contract.restoreCallCount())).toBe(0);
-  expect(await page.evaluate(() => window.contract.quarantineCount())).toBe(7);
+  expect(await page.evaluate(() => window.contract.quarantineCount())).toBe(10);
   await expect(page.getByRole('tab', { name: 'First' })).toBeVisible();
 });
 
-test('disableFloatingGroups prevents Shift-drag from creating floating state', async ({ page }) => {
-  await page.getByRole('button', { name: 'Add first panel' }).click();
-  const tab = page.getByRole('tab', { name: 'First' });
+async function shiftDragTab(page: import('playwright/test').Page, name: string) {
+  const tab = page.getByRole('tab', { name });
   const box = await tab.boundingBox();
   expect(box).not.toBeNull();
   await page.keyboard.down('Shift');
@@ -85,6 +88,19 @@ test('disableFloatingGroups prevents Shift-drag from creating floating state', a
   await page.mouse.move(box!.x + 180, box!.y + 160, { steps: 8 });
   await page.mouse.up();
   await page.keyboard.up('Shift');
+}
+
+test('the same Shift-drag floats in the control and is blocked when disabled', async ({ page }) => {
+  await page.evaluate(() => window.contract.enableFloatingControl());
+  await shiftDragTab(page, 'Floating control panel');
+  await expect
+    .poll(() => page.evaluate(() => window.contract.floatingControlSnapshot().floatingGroups?.length))
+    .toBe(1);
+
+  await page.reload();
+  await expect(page.getByTestId('ready')).toHaveText('ready');
+  await page.getByRole('button', { name: 'Add first panel' }).click();
+  await shiftDragTab(page, 'First');
 
   expect(await page.evaluate(() => window.contract.snapshot().floatingGroups ?? [])).toEqual([]);
 });

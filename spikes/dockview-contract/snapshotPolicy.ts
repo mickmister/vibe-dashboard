@@ -166,10 +166,9 @@ export function parseDockviewEnvelope(value: unknown): SnapshotParseResult {
   }
   const groups = new Map<string, CanonicalGroup>();
   const root = parseNode(input.grid.root, groups);
-  if (!root || [...groups.values()].some((group) => Number.isNaN((group as unknown as { size?: number }).size))) {
+  if (!root) {
     return { ok: false, reason: 'invalid-dockview-snapshot' };
   }
-  // parseNode uses a NaN sentinel for duplicate group IDs without widening its return type.
   const groupIds: string[] = [];
   const collectGroups = (node: CanonicalNode): void => {
     if (node.type === 'leaf') groupIds.push((node.data as CanonicalGroup).id);
