@@ -2,11 +2,14 @@
 
 ## Status
 
-**Proposed for review.** This document incorporates the completed product forms,
-the VD and VK repository audit, the prior SubVoyage prototype review, and the
-Herdr source review. It replaces the older clean-break proposal.
+**Corrected plan proposed for final review.** This document incorporates the
+completed product forms, the VD and VK repository audit, the prior SubVoyage
+prototype review, and the Herdr source review. It replaces the older clean-break
+proposal.
 
-Implementation must not begin with a wholesale UI rewrite. The first deliverable
+Product decisions are complete. Production implementation remains blocked until
+this corrected plan passes the M0 architecture review. Implementation must not
+begin with a wholesale UI rewrite. The first deliverable
 is a set of executable contract tests and technical spikes proving the risky
 Dockview, iframe, persistence, and migration assumptions.
 
@@ -44,7 +47,9 @@ VD domain state is authoritative for:
 - Panel identity, typed target, title policy, and close policy;
 - external VK identifiers and target configuration;
 - layout revisions, persisted history, recovery state, and audit timestamps;
-- iframe provenance and granted capabilities.
+- persisted target claims and the versions used to interpret them. Effective
+  iframe provenance and capabilities are never trusted from persisted data; they
+  are derived by the installed target registry at resolution time.
 
 Runtime registries are authoritative for mounted components, retained iframe DOM
 instances, subscriptions, and other non-serializable live state.
@@ -74,6 +79,15 @@ and per-group active maps must not survive as a second writable layout model.
     requirements. Persisted application-owned layout history is required.
 12. SubVoyages and nested layout semantics are deferred until the core model is
     stable.
+13. Voyages, layouts, history, recovery records, and related settings are shared
+    installation-wide for the current product. No user owner or speculative
+    tenant tables are introduced.
+14. Migration is one-way. The new model never dual-writes legacy state, never
+    reverse-exports to it, and never uses retained raw input for rollback.
+15. An Agent Panel offers **Open beside** and **Open maximized** Code actions.
+    Within the same Voyage, they reuse the most recently active equivalent Code
+    Panel and create one only when absent. Duplication is a separate explicit
+    command.
 
 ## Scope and Success Criteria
 
@@ -88,12 +102,14 @@ The first release is feature complete when:
 4. Supported Dockview mutations preserve live iframe identity and drafted state
    while the iframe remains inside the configured retention budget.
 5. Two Voyages can switch seamlessly with defaults of two warm Voyage
-   controllers and five retained inactive iframe instances; both limits are
-   configurable.
+   controllers and one global maximum of five iframe instances across them;
+   both limits are configurable and visible work is never evicted.
 6. Domain mutations, Panel definitions, layout snapshots, and history entries
    that form one operation commit in one SQLite transaction.
-7. Existing Crafts and recoverable Voyage membership migrate from the current
-   `SavedWorkspaceSession` formats without silent loss.
+7. VK-backed Crafts and recoverable Voyage membership migrate from a consistent
+   joined snapshot of the legacy `workspace` and `workspace-sessions` states.
+   Every source item is balanced as migrated, intentionally skipped, or rejected
+   with an ID and reason.
 8. Malformed layouts are quarantined, a safe layout is shown, and the replacement
    is saved only after validation or a user mutation.
 9. Canonical query routes restore a Voyage and optionally focus a Craft or Panel;
@@ -104,21 +120,27 @@ The first release is feature complete when:
     and navigates directly to their source.
 12. Iframe capability grants derive from audited target provenance, not hostname
     similarity alone.
+13. Agent-to-Code actions are deterministic, idempotent, accessible, persist as
+    ordinary mutations, and preserve the reused iframe across supported moves
+    and maximize/restore operations.
 
 ## Durable Data Model
 
 ### SQLite ownership
 
-VD owns a dedicated normalized SQLite schema. VK Workspace, session, process,
-repository, and preview IDs are external logical references validated through VK
-APIs. Do not add cross-database foreign keys or make VD depend on VK's physical
-database layout.
+Extend VD's existing Prisma schema, generated Kysely types, schema-migration
+pipeline, and configured `vd.sqlite`; do not create a second application database.
+All Voyage records and settings are installation-global. VK Workspace, session,
+process, repository, and preview IDs are external logical references validated
+through VK APIs. Do not add cross-database foreign keys or make VD depend on VK's
+physical database layout.
 
 Suggested tables (exact naming may follow the repository's Prisma conventions):
 
 ```text
 voyages
-  id, schema_version, name, mission, lifecycle_state,
+  id, schema_version, revision, history_cursor_sequence NULL,
+  name, mission, lifecycle_state,
   created_at, updated_at, last_opened_at
 
 voyage_crafts
@@ -127,16 +149,16 @@ voyage_crafts
 
 voyage_panels
   id, voyage_id, craft_workspace_id NULL,
-  target_kind, target_payload_json,
+  target_kind, target_version, target_payload_json,
   title_mode, custom_title NULL, close_policy,
   created_at, updated_at
 
 voyage_layouts
   voyage_id, format_version, dockview_version,
-  revision, snapshot_json, snapshot_hash, updated_at
+  aggregate_revision, snapshot_json, snapshot_hash, updated_at
 
 voyage_history
-  id, voyage_id, sequence, layout_revision,
+  id, voyage_id, sequence, aggregate_revision,
   panels_json, snapshot_json, created_at
 
 voyage_layout_quarantine
@@ -144,15 +166,22 @@ voyage_layout_quarantine
   rejected_snapshot_json, created_at, resolved_at NULL
 
 voyage_settings
-  singleton_key, warm_voyage_limit, retained_iframe_limit, updated_at
-
-migration_ledger
-  migration_key, source_hash, status, diagnostics_json, completed_at
+  singleton_key CHECK (singleton_key = 'installation'),
+  warm_voyage_limit, iframe_runtime_limit, history_limit, updated_at
 ```
 
 `voyage_crafts.craft_workspace_id` is deliberately not a database foreign key.
 The application should report missing VK Workspaces as stale external references
 and offer removal or relinking rather than failing SQLite integrity checks.
+
+All VD-owned child rows use real foreign keys to `voyages` with explicit deletion
+behavior. `voyage_crafts` is unique on `(voyage_id, craft_workspace_id)`.
+Craft-bound Panels must reference a membership in the same Voyage, enforced by a
+composite foreign key when Prisma/SQLite generation supports it and otherwise by
+a transaction invariant plus database trigger. Layout and settings singleton
+constraints, non-negative revisions/sequences, and unique per-Voyage history
+sequences are database-enforced. The existing `Migration` table remains the only
+migration ledger; do not introduce a parallel `migration_ledger` table.
 
 ### Typed Panel targets
 
@@ -163,20 +192,64 @@ actual current surfaces, not speculative abstractions:
 type PanelTarget =
   | { kind: 'craft-overview'; workspaceId: string }
   | { kind: 'agent-session'; workspaceId: string; sessionId: string }
-  | { kind: 'code'; workspaceId: string; repoId?: string }
+  | {
+      kind: 'code';
+      workspaceId: string;
+      repoId?: string;
+      folderIntent?: 'workspace-root' | 'repository';
+    }
   | { kind: 'changes'; workspaceId: string; repoId?: string }
   | { kind: 'beads'; workspaceId: string }
   | { kind: 'forms'; workspaceId: string; formId?: string }
   | { kind: 'terminal'; workspaceId: string; terminalId: string }
   | { kind: 'preview'; workspaceId: string; previewId: string }
   | { kind: 'internal-route'; routeId: string; params: JsonObject }
-  | { kind: 'custom-url'; url: string; provenance: UrlProvenance }
+  | { kind: 'custom-url'; url: string }
   | { kind: 'plugin-surface'; pluginId: string; surfaceId: string; params: JsonObject };
 ```
 
 The persisted Dockview Panel ID equals `voyage_panels.id`. Dockview params contain
 only a version and stable Panel lookup ID. URLs, credentials, permissions, and VK
 objects must not be copied into the opaque Dockview snapshot.
+
+Persisted paths, container references, expanded URLs, provenance labels, and
+capability classes are never authoritative. In particular, a Code target's stable
+identity is its `workspaceId` plus explicit repository/folder intent. The trusted
+resolver obtains the current workspace directory, container reference, endpoint,
+canonical URL, and iframe policy from VK and installed application configuration.
+A last-observed legacy path may appear only in migration diagnostics.
+
+### Versioned target registry
+
+Phase 0 must inventory every target created by current built-ins, workspace
+factories, URL presets, `ViewPair` expansion, registered plugins, iframe routes,
+React Craft surfaces, and ephemeral placeholders. That inventory becomes the
+versioned registry used by creation, migration, restoration, routing, and render
+dispatch:
+
+```ts
+interface PanelTargetDefinition<TPersisted, TResolved> {
+  kind: string;
+  version: number;
+  parse(value: unknown): TPersisted;
+  migrate(value: unknown, fromVersion: number): TPersisted;
+  resolve(value: TPersisted, context: TrustedResolverContext): TResolved;
+  rendererKey: StableRendererKey;
+}
+
+interface ResolvedPanelTarget {
+  canonicalLocation: string;
+  effectiveProvenance: EffectiveProvenance;
+  capabilityClass: CapabilityClass;
+  resolverVersion: number;
+}
+```
+
+Persist each target's kind and version. Unknown kinds, invalid payloads, missing
+plugins, and denied capabilities resolve to typed recovery states; they must never
+fall back to an unrestricted generic iframe. Resolver output is trusted only when
+produced by the current registry and is not written back as an authorization
+claim.
 
 ### Sharing semantics
 
@@ -193,37 +266,72 @@ objects must not be copied into the opaque Dockview snapshot.
 
 ## Persistence and History Contract
 
-### Transaction boundary
+### Aggregate revision and transaction boundary
 
-All mutations go through a server-side repository. A command that changes Panels
-and layout must, in one SQLite transaction:
+`voyages.revision` is the compare-and-swap revision for the complete mutable
+Voyage aggregate: Voyage metadata, memberships, Panels, current layout, and the
+history cursor. There is no independent layout revision that could advance out of
+step. Every write supplies `expectedRevision`, validates the complete resulting
+aggregate, writes all changed rows and the new opaque snapshot, updates history
+when applicable, increments the aggregate revision exactly once, and commits in
+one `vd.sqlite` transaction.
 
-1. validate the expected Voyage/layout revision;
-2. apply domain row changes;
-3. write the resulting opaque Dockview snapshot;
-4. append the bounded history checkpoint when applicable;
-5. increment the revision and commit.
+Stale revisions return a typed conflict and never overwrite the winner. Layout
+JSON is never structurally merged. Multi-client collaborative editing is out of
+scope.
 
-Stale revisions return a typed conflict. They never silently overwrite newer
-state. Multi-user collaborative layout merging is out of scope.
+An operation that moves membership between Voyages acquires their in-process
+coordinators in stable Voyage-ID order, checks both expected revisions, and
+updates both aggregates in one database transaction. Both revisions advance or
+neither does. Add/copy operations change only the destination aggregate.
 
-### Autosave
+### Per-Voyage serialized mutation coordinator
 
-- Capture structural mutation boundaries immediately.
-- Debounce resize/noisy layout events, initially at 300 ms.
-- Create history checkpoints at completed user-action boundaries. Coalesce an
-  entire resize or drag gesture into one checkpoint rather than adding one entry
-  for every autosave event.
-- Hash the canonical serialized snapshot and skip unchanged writes.
-- Flush before switching Voyages, page teardown, cache eviction, or repository
-  shutdown where the platform permits it.
-- Never rely on `beforeunload` as the only durability mechanism.
+Each live Voyage has exactly one coordinator containing its accepted revision,
+accepted aggregate/snapshot, optimistic aggregate/snapshot, command queue,
+gesture boundary, dirty state, save timer, and history cursor. React components,
+Dockview callbacks, routing, and sidebar actions never write persistence directly.
+
+Application commands follow one sequence:
+
+1. enqueue and deduplicate by command identity where repeat activation is unsafe;
+2. capture the accepted before-state;
+3. apply the domain and Dockview mutation in memory;
+4. capture and validate the complete after-state;
+5. persist it through aggregate CAS in one transaction;
+6. publish the accepted revision only after commit;
+7. on validation/save failure, restore the before-state without creating history.
+
+On a CAS conflict the coordinator loads and validates the winning aggregate. It
+may replay only a known deterministic command whose preconditions still hold;
+otherwise it restores the winner and asks the user to retry. It never merges
+Dockview JSON, replays raw callbacks, or continues autosaving a rejected state.
+
+Dockview-native drag and resize gestures use explicit before/after mutation
+boundaries. Record one before-state at gesture start, allow intermediate
+`onDidLayoutChange` events to update only the pending snapshot, and record one
+validated after-state at gesture completion/cancellation. A complete gesture
+creates at most one history checkpoint. Debounce noisy snapshot persistence at an
+initial 300 ms without allowing a later timer to overtake a structural command.
+
+Hash canonical serialized snapshots and skip unchanged writes. Flush through the
+same queue before switching Voyages, controller eviction, page teardown, or
+repository shutdown where the platform permits it. `beforeunload` is a best-effort
+last flush, never the sole durability mechanism.
 
 ### Undo and redo
 
-Persist a bounded, configurable history, initially 50 checkpoints per Voyage.
-Each checkpoint contains the Dockview snapshot and the Voyage-owned Panel
-definitions required to reverse open, close, move, and rearrange actions.
+Persist a bounded, configurable linear history, initially 50 checkpoints per
+Voyage. Each checkpoint contains the Dockview snapshot and Voyage-owned Panel
+definitions required to reverse open, close, move, maximize/restore, and
+rearrange actions, plus a cursor identifying the accepted entry.
+
+Undo moves the cursor backward and redo moves it forward through the coordinator.
+A new mutation after undo deletes the abandoned redo branch in the same
+transaction. Pruning removes the oldest entries beyond the configured bound while
+retaining the current entry and nearest usable predecessors. Restore, initial load,
+unchanged autosave, focus-only operations, and failed/cancelled gestures do not
+create checkpoints.
 
 History explicitly excludes:
 
@@ -233,41 +341,97 @@ History explicitly excludes:
 - iframe document state.
 
 Craft removal therefore uses a separate confirmation and short-lived “Undo
-removal” command, not the layout history stack.
+removal” command, not the layout history stack. Add, move, or remove membership
+commands do not create a partial layout-history checkpoint that could restore
+Panels without their membership; their dedicated undo restores the complete
+affected aggregate or aggregates atomically.
 
 ### Malformed layout recovery
 
-1. Parse and schema-check domain rows and the snapshot before constructing live
-   Panels.
+1. Parse and schema-check domain rows, target versions, Dockview serialization
+   version, and the complete snapshot before constructing live Panels or calling
+   Dockview `fromJSON()`.
 2. Verify unique Panel IDs, registered renderer keys, target payloads, Voyage
    ownership, and membership references.
-3. On failure, insert the rejected snapshot and reason into quarantine.
+3. Reject snapshots containing floating/popout state, unknown component keys,
+   unsupported pinned-tab serialization, or any v1-disabled layout construct.
+   On failure, insert the untouched snapshot and reason into quarantine.
 4. Build a deterministic safe layout from valid Panels or valid memberships.
 5. Show a recovery notice with retry, inspect diagnostics, reset, and restore
    previous-history options.
-6. Do not overwrite the rejected durable snapshot merely because fallback UI
+6. Call `fromJSON()` only with the validated original or generated safe snapshot.
+   Do not overwrite the rejected durable snapshot merely because fallback UI
    rendered. Commit a replacement only after an explicit recovery action or a
    valid subsequent workbench mutation.
 
 ## Migration Contract
 
-Support current persisted `SavedWorkspaceSession` v1, v2, and v3 inputs.
+Migration is a one-way startup data migration. There is no legacy rollback before
+or after cutover, no reverse exporter, no shadow authority, and no dual write.
+Retained raw input exists only for bounded audit and diagnostics and must never be
+used to resume legacy writes.
 
-Migration rules:
+Implement migration as a timestamped TypeScript entry in a SongDrive-style
+`data_migrations` registry, separate from schema migrations but recorded in the
+existing VD `Migration` ledger. Startup order is mandatory:
 
-1. Preserve every resolvable Craft/VK Workspace identity.
-2. Preserve Voyage names, ordering, selected views, and membership where the old
-   representation contains them.
-3. Coalesce duplicate occurrences of one Craft in one Voyage into one membership.
-4. Convert each occurrence's selected `viewIds` into separate Panel definitions;
-   never discard a useful duplicate view merely because membership was coalesced.
-5. Convert legacy pairs/cells/tiles into a deterministic initial Dockview layout
-   only once. Dockview owns all later topology.
-6. Record stale targets and repair decisions in migration diagnostics.
-7. Make migration idempotent using a source hash and ledger entry.
-8. Retain the untouched source payload for rollback until the release's rollback
-   window expires.
-9. Validate migrated counts and references before marking migration complete.
+1. open configured database paths and run the normal `vd.sqlite` schema migrations;
+2. before Springboard or any other legacy/new-model writer starts, begin one read
+   transaction against the configured `kv.db`;
+3. read both exact keys, `engine|module|workspace|state.persistent|workspace` and
+   `engine|module|workspace|state.persistent|workspace-sessions`, in that same
+   transaction so they form one consistent joined snapshot;
+4. snapshot the installed plugin/factory/surface registry used to classify legacy
+   targets, without treating ephemeral generated surfaces as persisted input;
+5. parse legacy session arrays, `{ sessions: [...] }`, v2 envelopes, and v3
+   envelopes together with the referenced `WorkspaceState`;
+6. construct and validate the complete normalized result in memory;
+7. in one `vd.sqlite` transaction, insert normalized rows, diagnostics/audit data,
+   and the existing `Migration` ledger record;
+8. commit only if all counts, references, constraints, and snapshots validate.
+
+If no legacy `kv.db` exists, or both keys are absent on a demonstrably fresh
+installation, initialize an empty normalized store and record that outcome. If
+only one expected key is missing from an existing legacy installation, either
+source read is inconsistent/unavailable, a source shape is invalid, a write is
+partial, or validation fails, roll back the `vd.sqlite` transaction and fail
+startup with actionable diagnostics. A ledger entry makes reruns idempotent; an
+existing successful entry prevents duplicate rows. Do not start application
+writers in a partially migrated state.
+
+Classification rules:
+
+1. Migrate only Crafts with a resolvable VK Workspace identity and preserve their
+   Voyage membership, order, titles, and valid selected views.
+2. Coalesce duplicate occurrences of one VK Craft in one Voyage into one
+   membership. Convert every valid occurrence/view selection into separate Panel
+   definitions so coalescing does not lose repeated views.
+3. Expand a legacy `ViewPair` into its valid constituent Panels and a deterministic
+   initial 50/50 Dockview split where both targets resolve. Report missing pair
+   members individually; never preserve the pair as a second layout model.
+4. Recognize temporary Create Workspace/action surfaces and skip them.
+5. Recognize the legacy Spaces Overview tab and map it to application homepage/
+   overview selection state, never to a Dockview Panel.
+6. Skip/delete all other non-VK Crafts and their views as approved. Do not create
+   fake memberships, generic Voyage Panels, or a permanent legacy Craft type.
+7. Do not migrate runtime-only ephemeral plugin surface placeholders. Installed
+   plugin surfaces are reconstructed later from the current manifest/registry.
+8. Treat unresolved VK Craft IDs, view IDs, target versions, and pair members as
+   rejected migration items; fail migration when loss violates the explicit
+   classification/count contract rather than silently dropping them.
+
+For every source Voyage, Craft occurrence, view selection, pair member, and known
+special surface, diagnostics must balance exactly:
+
+```text
+source count = migrated count + intentionally skipped count + rejected count
+```
+
+Record stable source IDs and reason codes for skipped/rejected records. Migration
+success requires balanced totals and zero unclassified items. The untouched joined
+source envelope may be copied to an access-controlled, timestamped diagnostic
+artifact, subject to retention and sensitive-data rules, but is not a backup or
+rollback mechanism.
 
 The prior SubVoyage work contributes stable selected-view references, Craft
 provenance labels, stale-reference repair, explicit focus routing, iframe identity
@@ -281,7 +445,8 @@ Suggested boundaries:
 ```text
 src/voyages/domain/*                 pure types, invariants, commands, selectors
 src/voyages/persistence/*.node.ts    SQLite repository and migrations
-src/voyages/migration/*              SavedWorkspaceSession migration
+src/store/db/data_migrations/*       timestamped startup data migrations
+src/voyages/migration/*              joined-state parsing/classification helpers
 src/voyages/history/*                checkpoint and undo/redo policy
 src/voyages/recovery/*               validation and quarantine workflow
 src/dockview/DockviewWorkbench.tsx   lifecycle and event bridge
@@ -309,11 +474,24 @@ the pre-command in-memory snapshot if durable commit fails.
   operations with idempotent cleanup.
 - Add a parent-document pointer shield during drag/resize and restore pointer
   behavior on drop, cancellation, blur, error, and teardown.
-- Never evict visible Panels.
-- Evict inactive iframe runtimes by LRU when the configurable limit is exceeded;
-  disclose that returning to an evicted iframe reloads its page-local state.
+- Maintain one browser-runtime iframe registry and one installation-configured
+  maximum total iframe budget across all warm Voyages; the warm-Voyage limit
+  never multiplies it.
+- Count every iframe. A frame is active only while its Panel is visible in the
+  foreground Voyage. Hidden tabs and every frame in a background Voyage are
+  inactive, including background frames whose Panels are application-pinned.
+- Never evict a visible Panel. Whenever total iframe count exceeds the global
+  limit, evict inactive runtimes by global LRU until within the limit or only
+  visible frames remain. Disclose that returning to an evicted iframe reloads its
+  page-local state.
+- Legacy/application `pinned` means non-closeable; it is not a runtime-retention
+  exemption and must not be confused with Dockview Enterprise pinned-tab state.
+- If visible iframe count alone exceeds the configured budget, permit and expose
+  the temporary over-budget condition rather than destroying visible work. Do not
+  retain additional inactive frames until the total returns within budget.
 - Keep the active and most-recent Voyage controller warm by default. Controller
-  eviction flushes persistence and tears down subscriptions exactly once.
+  eviction flushes persistence and tears down subscriptions exactly once; its
+  iframe entries remain subject to the same global LRU.
 
 ## Default Desktop and Mobile Experience
 
@@ -332,6 +510,42 @@ the pre-command in-memory snapshot if durable commit fails.
   Move action atomically adds the destination membership and its default Panels
   without resetting the destination layout, then removes source membership and
   Panels. Reordering within one Voyage only changes `sort_key`.
+
+### Agent Panel Open Code workflow
+
+Agent Panels expose a compact split button/menu:
+
+- primary: **Open beside**;
+- secondary: **Open maximized**;
+- optional elsewhere: **Open/focus Code**;
+- explicit separate command: **Duplicate Code Panel**.
+
+All variants resolve the invoking Agent Panel's VK Workspace, then resolve the
+canonical Code target through the versioned trusted registry. Equivalent means
+the same Code target kind, `workspaceId`, and explicit repository/folder intent;
+expanded URLs and last-known paths do not participate. Lookup is limited to the
+current Voyage—never move a Panel out of another Voyage. When several equivalent
+Panels exist, choose the most recently active, breaking ties by stable Panel ID.
+
+**Open beside** is idempotent. If the selected Code Panel is already visibly
+beside the invoking Agent, activate/focus it without a layout mutation. Otherwise
+reuse and move it immediately to the Agent's right; create it only when absent.
+Use a 50/50 split when both Panels meet tested minimum widths. Below that
+breakpoint, activate the Code Panel and maximize its group rather than create an
+unusable split. Moving a sole-tab Panel may collapse its former group; relocation,
+group cleanup, sizing, and focus are one coordinator command and one history
+checkpoint. Deduplicate repeated activation while that command is pending.
+
+**Open maximized** resolves/reuses or creates the same Panel without relocating an
+existing one, activates its tab/group, and uses Dockview group maximize. “Full
+screen” never invokes the browser Fullscreen API. A visible **Restore layout**
+action and normal maximize/restore affordance return to the underlying topology.
+Creation plus maximize is one serialized command and one history checkpoint.
+
+The split button, menu, and Restore action are keyboard-operable; accessible names
+include the Craft when context is ambiguous. Announce the resulting layout change
+and move focus only after the Code Panel is attached successfully. No Open Code
+workflow depends on drag-and-drop.
 
 ### Mobile v1
 
@@ -380,9 +594,9 @@ for `/workspaces/:workspaceId`.
 Canonical state:
 
 ```text
-/?voyage=<voyageId>
-/?voyage=<voyageId>&craft=<workspaceId>
-/?voyage=<voyageId>&panel=<panelId>
+/?voyage=<voyage-token>
+/?voyage=<voyage-token>&craft=<craft-token>
+/?voyage=<voyage-token>&panel=<panel-token>
 ```
 
 Only one focal target is required. A Voyage snapshot already records every visible
@@ -397,9 +611,24 @@ Resolution order:
    open its default Panel;
 5. otherwise restore saved focus.
 
-Preserve `/dashboard/workspaces/:workspaceId` as the existing VD/VK Workspace
-opener. Resolve supported legacy Craft/view links and redirect to the canonical
-Voyage query form. Invalid focal parameters must not mutate the saved layout.
+Preserve the current route contract:
+
+- `/` remains the canonical dashboard and `/dashboard` remains a compatible
+  entry point;
+- existing `voyage`, `craft`, and comma-separated `views` query parameters,
+  generated slugs, and collision-aware short ID tokens remain resolvable;
+- stored `workspace-last-dashboard-url` values using `/` or `/dashboard` are
+  normalized without losing supported focus intent;
+- `/dashboard/workspaces/:workspaceId` remains the existing VD/VK Workspace
+  opener used by generated links and plugins;
+- unrelated query parameters, including referrer context, survive normalization.
+
+Legacy `views` tokens resolve through the migration/target registry to migrated
+Panels or deterministic open commands and then canonicalize to `panel` where
+possible. A legacy Spaces Overview target opens homepage state. Invalid or
+ambiguous legacy tokens show a non-destructive recovery outcome and must not
+mutate or autosave the Voyage layout. Compatibility fixtures cover stored URLs
+and links emitted by current VD and installed first-party plugins.
 
 ## Iframe Security
 
@@ -424,19 +653,50 @@ Requirements:
 8. Threat-model Caddy forwarding, `port-*` hosts, supervisor routes, plugin
    origins, redirect behavior, and compromised project dev servers before GA.
 
+## Dockview Version and Disabled Features
+
+Pin one exact tested `dockview-react` Core version in `package.json` and the lock
+file. Store an application layout format version and the producing Dockview
+version with every snapshot. Upgrades require serialization compatibility fixtures
+and an explicit application migration or a fail-closed recovery path; do not rely
+on a floating semver range for persisted JSON compatibility.
+
+Floating groups and browser popouts are disabled in v1. Remove or intercept their
+UI affordances and drop zones where Dockview permits, reject command/API attempts,
+and quarantine imported snapshots containing floating/popout metadata before
+`fromJSON()`. Tests must cover direct commands, drag targets, current
+version snapshots, and older/future fixtures. Legacy `View.pinned` migrates only
+to application close policy. Unsupported Dockview pinned-tab serialization is
+quarantined rather than interpreted as application pinning.
+
 ## Implementation Phases
 
 ### Phase 0 — Contract tests and risk spikes
 
-1. Add Dockview Core in a test-only harness.
+1. Pin Dockview Core and add it in a test-only harness.
 2. Prove iframe boot ID, route, form draft, scroll, and heartbeat continuity during
-   tab changes, docking, resize, maximize, and teardown.
+   tab changes, docking, resize, moving an existing Code Panel beside its Agent,
+   sole-tab group collapse, maximize/restore, Voyage switching, and teardown.
 3. Prove Strict Mode does not double-create or double-dispose runtime entries.
-4. Disable floating/popout paths in v1 UI and document their behavior.
-5. Prototype SQLite transactions covering membership, Panel, layout, and history.
-6. Feed representative v1-v3 saved sessions through a migration prototype and
-   compare source/migrated counts.
-7. Create the provenance capability matrix and security test harness.
+4. Prove Open beside reuse/MRU selection, create-if-absent, pending-command
+   idempotence, 50/50 placement, narrow-width fallback, and one-checkpoint undo;
+   prove Open maximized serialization, reload, undo/redo, and visible Restore.
+   If the pinned Core version omits maximize state from its snapshot, define and
+   test a small versioned application presentation field persisted through the
+   same aggregate coordinator; maximize may not silently become session-only.
+5. Inventory current built-in, VK, factory, pair, URL, plugin, React-surface, and
+   ephemeral targets and implement the versioned target-registry contract tests.
+6. Test the pinned Dockview serialization version, pre-`fromJSON` quarantine, and
+   rejection of floating, popout, unknown-component, unsupported pinned-tab, and
+   incompatible-version snapshots.
+7. Disable floating/popout paths in v1 UI and document their behavior.
+8. Prototype aggregate-CAS transactions covering membership, Panel, layout,
+   history, serialized commands, conflicts, and atomic two-Voyage moves.
+9. Feed consistent joined `kv.db` fixtures for every supported legacy envelope and
+   classification through the timestamped migration prototype; verify balanced
+   migrated/skipped/rejected counts and startup-failure atomicity. Include a fresh
+   installation with neither key and a partial legacy installation with one key.
+10. Create the resolver-derived provenance capability matrix and security harness.
 
 **Exit:** every high-risk assumption has an automated reproduction and a recorded
 pass/fail decision. If core docking cannot preserve required iframe identity,
@@ -448,8 +708,9 @@ Write failing tests first for schema parsing, invariants, commands, revisions,
 transactions, history bounds, quarantine, and idempotent migration. Then implement
 the VD-owned SQLite repository and typed targets.
 
-**Exit:** repository tests prove atomic commit/rollback and migration fixtures
-preserve memberships and Panels.
+**Exit:** repository tests prove transaction rollback on failure, aggregate CAS,
+atomic two-Voyage writes, and that migration fixtures preserve all approved data
+while accounting for every intentional skip/rejection.
 
 ### Phase 2 — Dockview shell and Panel renderers
 
@@ -487,12 +748,20 @@ add/copy/move/remove, and legacy links.
 
 ### Phase 6 — Migration rollout and legacy removal
 
-Run migration in shadow/report-only mode against fixtures and production-like
-backups, enable Dockview for opted-in development, then switch the default. Remove
-legacy layout types and dependencies only after rollback and parity tests pass.
+Exercise the one-way migration against fixtures and production-like copies, then
+enable the new model. The startup migration runs once before writers and commits
+only a complete normalized result. Remove legacy layout types and dependencies
+after migration, parity, startup-failure, and forward-recovery tests pass. Retain
+raw input only under the approved diagnostic retention policy.
+
+“Remove legacy layout types” means remove them from runtime state and UI paths.
+Keep isolated, frozen legacy input DTOs/parsers inside the timestamped migration
+for installations that upgrade later; production runtime code must not import or
+write those DTOs.
 
 **Exit:** no production code writes legacy topology, migration is idempotent, and
-rollback remains documented and tested.
+forward recovery is documented and tested. No reverse exporter, legacy rollback,
+or dual-write path exists.
 
 ### Phase 7 — Hardening and release
 
@@ -511,14 +780,17 @@ defects.
 - unique Voyage membership with multiple repeated Panels;
 - exhaustive Panel target validation and safe unknown-kind failure;
 - external VK reference staleness;
-- atomic domain/layout/history transactions and rollback;
+- atomic domain/layout/history transactions and in-memory restoration on failure;
 - monotonic revisions and stale-write rejection;
 - bounded history and correct undo restoration;
 - quarantine without accidental overwrite;
-- v1/v2/v3 migration, coalescing, idempotence, and rollback payload retention;
+- legacy array/`sessions`/v2/v3 joined migration, classification balancing,
+  idempotence, startup failure, and diagnostic-only raw input retention;
 - provenance-to-capability mapping and redirect non-escalation;
 - attention priority, deduplication, and Voyage/Craft roll-up;
-- LRU behavior with configurable zero/minimum/large limits.
+- LRU behavior with configurable zero/minimum/large limits;
+- linear history cursor, redo invalidation, pruning, and gesture coalescing;
+- target registry versioning and Code equivalence without stored-path authority;
 
 ### React integration
 
@@ -528,7 +800,9 @@ defects.
 - failed durable commands restore the in-memory Dockview state;
 - close policy applies to tab button, menu, keyboard, and API paths;
 - sidebar collapse, hierarchy, focus, drag semantics, and accessible alternatives;
-- mobile route renders one Panel without an editable Dockview instance.
+- mobile route renders one Panel without an editable Dockview instance;
+- Open Code split-button semantics, pending-command idempotence, accessible names,
+  announced changes, post-attach focus, and keyboard Restore;
 
 ### Browser/end-to-end
 
@@ -542,7 +816,12 @@ defects.
 - pending approval, running agent, and form attention navigation;
 - legacy URL compatibility;
 - keyboard-only and screen-reader smoke flows;
-- hostile/redirected/custom/plugin/forwarded iframe capability cases.
+- hostile/redirected/custom/plugin/forwarded iframe capability cases;
+- Agent-to-Code reuse/create, 50/50 and narrow fallback, sole-group collapse,
+  maximize/restore, reload, undo/redo, and iframe identity continuity;
+- one global iframe budget across two warm Voyages, including background and
+  pinned inactive frames plus visible over-budget behavior;
+- pre-`fromJSON` rejection of floating/popout/pinned/incompatible snapshots.
 
 ### Required quality gates per implementation PR
 
@@ -555,23 +834,30 @@ defects.
 
 ## Rollout and Observability
 
-- Feature flag the new persistence and rendering path during development.
-- Never dual-write legacy and new layout models. Shadow migration may compare, but
-  only one model is authoritative for a user at a time.
-- Back up the legacy aggregate before first migration.
+- Feature flag the new persistence and rendering path only for pre-cutover
+  development and test environments. After a successful one-way migration, the
+  flag cannot reactivate legacy readers or writers.
+- Run schema migrations and then the timestamped one-way data migration before any
+  application writer starts. Never dual-write, reverse-export, or resume legacy
+  state. There is no legacy rollback stage.
+- Retain the joined raw legacy envelope only as a timestamped, access-controlled
+  diagnostic artifact with an explicit retention limit. It is not a backup and
+  cannot become authoritative.
 - Emit structured metrics for restore result, quarantine reason, migration counts,
   save latency/failure, revision conflicts, iframe creation/eviction/disposal,
   warm Voyage count, and attention-source freshness.
 - Do not log full custom URLs, snapshot JSON, missions, iframe content, tokens, or
   credentials.
-- Define an explicit rollback window and test rollback using the retained source
-  aggregate before enabling the migration by default.
+- A failed migration prevents startup and leaves `vd.sqlite` without partial target
+  rows or a success ledger entry. After success, incidents use normalized history,
+  quarantine, repair migrations, and other forward-recovery mechanisms only.
 
 ## Proposed Pull Request Sequence
 
 1. Dockview/iframe contract harness and go/no-go report.
 2. SQLite schema, typed domain model, repository transactions, and tests.
-3. Saved-session migration, ledger, diagnostics, and rollback fixtures.
+3. Joined-state one-way data migration, existing ledger, balanced diagnostics,
+   startup atomicity, and forward-recovery fixtures.
 4. Dockview shell, renderer registry, default layout, and recovery Panel.
 5. Iframe runtime retention, warm Voyage cache, and provenance policy.
 6. Command coordinator, autosave, conflicts, quarantine, and persisted history.
@@ -589,7 +875,7 @@ layout authorities.
 These are implementation defaults, not unresolved architecture questions:
 
 - warm Voyage limit: **2**;
-- retained inactive iframe limit: **5**;
+- global maximum total iframe budget: **5**, with visible-work protection;
 - history limit: **50** checkpoints per Voyage;
 - layout autosave debounce: **300 ms**;
 - ordinary cross-Voyage drag: **add/copy membership**;
@@ -597,7 +883,10 @@ These are implementation defaults, not unresolved architecture questions:
 - agent “needs attention”: **structured pending approval/question only**;
 - unrecognized agent state: **unknown**, never inferred from elapsed time;
 - default new Voyage layout: **adaptive useful work area, no mandatory overview
-  Panel**.
+  Panel**;
+- iframe budget scope: **one global runtime budget; all background frames inactive**;
+- Open beside: **same-Voyage MRU reuse/move, create only when absent**;
+- Open maximized: **Dockview group maximize, never browser Fullscreen API**.
 
 Reviewers should change these values if product testing provides evidence, but
 their exact values do not block the architecture.
@@ -606,17 +895,23 @@ their exact values do not block the architecture.
 
 - [ ] Dockview Core is the only desktop layout authority.
 - [ ] The VD-owned normalized SQLite schema and migrations are production-ready.
-- [ ] Existing Crafts and Voyage memberships migrate without silent loss.
+- [ ] VK Crafts and Voyage memberships migrate from one consistent joined read;
+      all skipped/rejected legacy records balance with IDs and reasons.
 - [ ] One membership supports multiple repeated typed Panels.
 - [ ] Domain, layout, and history writes are atomic and revision checked.
 - [ ] Malformed snapshots are quarantined and recoverable.
 - [ ] Persisted layout/Panel undo and redo meet the selected history boundary.
-- [ ] Two warm Voyages and configurable iframe retention behave as specified.
+- [ ] Two warm Voyages and the configurable global iframe budget behave as specified.
 - [ ] Supported layout operations preserve retained iframe identity.
 - [ ] Sidebar overview, hierarchy, attention roll-up, and Craft transfer work.
 - [ ] Canonical and compatible deep links restore and focus deterministically.
 - [ ] Mobile provides a complete single-Panel workflow.
 - [ ] Provenance-derived iframe capabilities pass the security test matrix.
+- [ ] The versioned target registry covers every current factory/surface and fails
+      closed for unknown or unavailable targets.
+- [ ] Open beside/maximized satisfy reuse, identity, accessibility, persistence,
+      history, and narrow-width contracts.
 - [ ] Legacy layout state, UI, and unused dependencies are removed.
 - [ ] Unit, repository, integration, browser, accessibility, and manual checks pass.
-- [ ] Rollback, operational diagnostics, and user/architecture docs are complete.
+- [ ] One-way cutover, forward recovery, operational diagnostics, and
+      user/architecture docs are complete.
