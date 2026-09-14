@@ -78,7 +78,15 @@ describe('canonical Dockview snapshot parser', () => {
     [{ id: 'group-1', views: ['panel-1', 'panel-1'], activeView: 'panel-1' }],
     [{ id: 'group-1', views: ['panel-1'], activeView: 'missing' }],
   ])('rejects dangling, duplicate, and invalid active-view references: %#', (group) => {
-    const grid = { ...valid.snapshot.grid, root: { type: 'leaf', data: group } };
+    const grid = {
+      ...valid.snapshot.grid,
+      root: {
+        type: 'branch',
+        data: [{ type: 'leaf', data: group, size: 900 }],
+        size: 500,
+      },
+      maximizedNode: undefined,
+    };
     expect(rejected({ ...valid, snapshot: { ...valid.snapshot, grid } })).toBe('invalid-panel-reference');
   });
 
@@ -101,5 +109,25 @@ describe('canonical Dockview snapshot parser', () => {
     ).toBe('invalid-panel-reference');
     expect(rejected({ ...valid, snapshot: { ...valid.snapshot, activeGroup: 'missing' } })).toBe('invalid-active-group');
     expect(rejected({ ...valid, snapshot: { ...valid.snapshot, panels: { ...valid.snapshot.panels, unused: { id: 'unused', contentComponent: 'contract-panel' } } } })).toBe('invalid-panel-reference');
+  });
+
+  it('requires a branch root while retaining recursive nested-branch support', () => {
+    const leaf = valid.snapshot.grid.root.data[0];
+    expect(
+      rejected({ ...valid, snapshot: { ...valid.snapshot, grid: { ...valid.snapshot.grid, root: leaf } } }),
+    ).toBe('invalid-dockview-snapshot');
+
+    const nestedEmpty = {
+      ...valid,
+      snapshot: {
+        grid: {
+          ...valid.snapshot.grid,
+          root: { type: 'branch', data: [{ type: 'branch', data: [], size: 900 }], size: 500 },
+          maximizedNode: undefined,
+        },
+        panels: {},
+      },
+    };
+    expect(parseDockviewEnvelope(nestedEmpty)).toMatchObject({ ok: true });
   });
 });

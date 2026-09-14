@@ -1,5 +1,5 @@
 /* eslint-disable formatjs/no-literal-string-in-object -- isolated test fixture labels */
-import { createDockview, type DockviewApi, type SerializedDockview } from 'dockview';
+import { createDockview, Orientation, type DockviewApi, type SerializedDockview } from 'dockview';
 import 'dockview/dist/styles/dockview.css';
 import {
   DOCKVIEW_LAYOUT_FORMAT_VERSION as VERSION,
@@ -183,6 +183,35 @@ window.contract = {
       return error instanceof Error ? error.message.toLowerCase() : String(error);
     }
   },
+  nativeNestedEmptyBranchResult: () => {
+    const nestedEmpty = {
+      grid: {
+        root: {
+          type: 'branch' as const,
+          data: [{ type: 'branch' as const, data: [], size: 900 }],
+          size: 500,
+        },
+        width: 900,
+        height: 500,
+        orientation: Orientation.HORIZONTAL,
+      },
+      panels: {},
+    };
+    const parsed = parseDockviewEnvelope({
+      formatVersion: VERSION,
+      dockviewVersion: DOCKVIEW_VERSION,
+      snapshot: nestedEmpty,
+    });
+    try {
+      api.fromJSON(nestedEmpty);
+      return { native: 'accepted', parsed: parsed.ok ? 'accepted' : parsed.reason };
+    } catch (error) {
+      return {
+        native: error instanceof Error ? error.message.toLowerCase() : String(error),
+        parsed: parsed.ok ? 'accepted' : parsed.reason,
+      };
+    }
+  },
   roundTrip: () => {
     const value = envelope();
     const maximizedBefore = api.getPanel('first')!.api.isMaximized();
@@ -201,6 +230,7 @@ window.contract = {
     const valid = envelope();
     const before = JSON.stringify(valid.snapshot);
     const panel = Object.values(valid.snapshot.panels)[0];
+    const firstGroupId = api.getPanel('first')!.group.id;
     const cases: Record<string, unknown> = {
       malformed: { formatVersion: VERSION, dockviewVersion: DOCKVIEW_VERSION, snapshot: {} },
       future: { ...valid, formatVersion: VERSION + 1 },
@@ -223,7 +253,25 @@ window.contract = {
           ...valid.snapshot,
           grid: {
             ...valid.snapshot.grid,
-            root: { type: 'leaf', data: { id: 'group', views: ['missing'] } },
+            root: {
+              type: 'branch',
+              data: [{ type: 'leaf', data: { id: 'group', views: ['missing'] }, size: 900 }],
+              size: 500,
+            },
+          },
+        },
+      },
+      rootLeaf: {
+        ...valid,
+        snapshot: {
+          ...valid.snapshot,
+          grid: {
+            ...valid.snapshot.grid,
+            root: {
+              type: 'leaf',
+              data: { id: firstGroupId, views: ['first'], activeView: 'first' },
+              size: 900,
+            },
           },
         },
       },
@@ -365,6 +413,7 @@ declare global {
         unchanged: boolean;
       };
       nativeMalformedFailure(): string;
+      nativeNestedEmptyBranchResult(): { native: string; parsed: string };
       mutations(): Mutation[];
       quarantineCount(): number;
       restoreCallCount(): number;

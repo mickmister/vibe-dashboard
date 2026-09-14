@@ -51,13 +51,17 @@ The isolated Vite/Playwright spike proves the following against Chromium:
    trust boundary because it occurs after Dockview begins interpreting input.
 5. The versioned parser constructs a detached `SerializedDockview` from an
    explicit allowlist and passes only that canonical value to `fromJSON`. It
-   validates the complete supported grid/node/Panel subset, identifiers,
+   validates the complete supported grid/node/Panel subset, including
+   Dockview's required branch root, identifiers,
    group/Panel/active-view references, maximized-node paths, and component-
    specific lookup params. It rejects unknown fields, present floating/popout/
    edge structures regardless of type, pinned-tab state, malformed nodes and
    Panels, duplicate/dangling references, unknown components, and incompatible
    versions. Adversarial browser cases leave the live layout unchanged and do
    not increment the `fromJSON` call counter.
+   Recursive child branches remain supported. A pinned-version browser control
+   confirms Dockview 8.3.1 accepts an empty nested branch, so the canonical
+   subset permits one; an empty root branch remains the valid empty layout.
 6. The same deterministic Shift-drag gesture creates one floating group in an
    enabled control Dockview and creates none with `disableFloatingGroups: true`.
    No application command exposes `addFloatingGroup` or `addPopoutGroup`, and

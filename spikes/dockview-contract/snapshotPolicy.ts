@@ -180,7 +180,7 @@ export function parseDockviewEnvelope(value: unknown): SnapshotParseResult {
   }
   const context: ParseContext = { groups: new Map(), duplicateGroup: false };
   const root = parseNode(input.grid.root, context);
-  if (!root) {
+  if (!root || root.type !== 'branch') {
     return { ok: false, reason: 'invalid-dockview-snapshot' };
   }
   if (context.duplicateGroup) return { ok: false, reason: 'duplicate-group-id' };

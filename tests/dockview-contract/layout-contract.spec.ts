@@ -66,6 +66,7 @@ test('untrusted snapshots are rejected before fromJSON touches the live layout',
     unknown: 'unknown-panel-component',
     unknownField: 'unknown-field',
     dangling: 'invalid-panel-reference',
+    rootLeaf: 'invalid-dockview-snapshot',
   });
   expect(result.unchanged).toBe(true);
   expect(await page.evaluate(() => window.contract.disabledFeatureAttempts())).toEqual({
@@ -74,8 +75,15 @@ test('untrusted snapshots are rejected before fromJSON touches the live layout',
     popout: 'popout-groups-disabled',
   });
   expect(await page.evaluate(() => window.contract.restoreCallCount())).toBe(0);
-  expect(await page.evaluate(() => window.contract.quarantineCount())).toBe(10);
+  expect(await page.evaluate(() => window.contract.quarantineCount())).toBe(11);
   await expect(page.getByRole('tab', { name: 'First' })).toBeVisible();
+});
+
+test('pinned Dockview and the parser both accept an empty nested branch', async ({ page }) => {
+  expect(await page.evaluate(() => window.contract.nativeNestedEmptyBranchResult())).toEqual({
+    native: 'accepted',
+    parsed: 'accepted',
+  });
 });
 
 async function shiftDragTab(page: import('playwright/test').Page, name: string) {
