@@ -76,3 +76,38 @@ The following remain hard implementation constraints rather than blockers:
 This spike deliberately contains no Voyage repository, mutation coordinator,
 target registry, migration, or production workbench code. Those belong to later
 milestones.
+
+## M1.2 iframe lifecycle results
+
+The harness now includes a same-origin iframe fixture instrumented with a random
+boot ID, heartbeat and event-listener counters, native input and textarea state,
+scroll position, document visibility, Dockview Panel visibility, and containing
+Voyage visibility.
+
+With `renderer: 'always'`, the same iframe document and its native state survive:
+
+- creating a neighboring split and moving the iframe Panel between groups;
+- hiding it behind another tab and showing it again;
+- maximizing and restoring its group;
+- switching away from and back to another already-mounted (“warm”) Dockview
+  controller; and
+- applying an undo/redo-shaped `fromJSON(snapshot, { reuseExistingPanels: true })`
+  restoration.
+
+The in-place restore emits one matched `will:load` / `did:load` mutation pair.
+This reinforces the M1.1 result: coordination should consume matched mutation
+boundaries; `origin` is metadata and is not sufficient on its own.
+
+Hidden does not mean inactive. While an always-rendered Panel is hidden behind a
+tab, and while its warm Voyage container is hidden, its iframe heartbeat and
+listener counters continue advancing. `document.visibilityState` also remains
+browser-page visibility rather than application Panel visibility. The production
+runtime must therefore combine Dockview's `panel.api.isVisible` with active
+Voyage state and explicitly pause cooperative work; CSS visibility alone does not
+enforce the global iframe budget.
+
+Removal/disposal followed by recreation intentionally produces a new boot ID and
+empty native form/editor/scroll state. A browser page reload does the same. Those
+are expected reload boundaries and must not be presented as state-preserving
+operations. Persisted application data may reconstruct a route or draft, but it
+cannot preserve the old iframe document identity.

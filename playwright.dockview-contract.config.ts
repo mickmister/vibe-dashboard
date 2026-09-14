@@ -12,7 +12,7 @@ export default defineConfig({
     ...devices['Desktop Chrome'],
   },
   webServer: {
-    command: `pnpm exec vite --host 127.0.0.1 --port ${port}`,
+    command: `pnpm exec vite --config vite.dockview-contract.config.ts --host 127.0.0.1 --port ${port}`,
     url: `http://127.0.0.1:${port}/spikes/dockview-contract/`,
     reuseExistingServer: false,
   },

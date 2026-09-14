@@ -1,0 +1,47 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <title>Instrumented iframe fixture</title>
+    <style>
+      #scroll { height: 100px; overflow: auto; }
+      #spacer { height: 600px; }
+    </style>
+  </head>
+  <body>
+    <input id="draft" aria-label="Draft" />
+    <textarea id="editor" aria-label="Editor"></textarea>
+    <div id="scroll"><div id="spacer">Scrollable fixture</div></div>
+    <script type="module">
+      const state = {
+        bootId: crypto.randomUUID(),
+        bootCount: 1,
+        heartbeats: 0,
+        listenerEvents: 0,
+        ready: true,
+      };
+      addEventListener('contract-heartbeat', () => state.listenerEvents++);
+      const timer = setInterval(() => {
+        state.heartbeats++;
+        dispatchEvent(new Event('contract-heartbeat'));
+      }, 40);
+      addEventListener('pagehide', () => clearInterval(timer), { once: true });
+      window.fixture = {
+        read() {
+          return {
+            ...state,
+            input: document.querySelector('#draft').value,
+            editor: document.querySelector('#editor').value,
+            scrollTop: document.querySelector('#scroll').scrollTop,
+            documentVisibility: document.visibilityState,
+          };
+        },
+        write(value) {
+          document.querySelector('#draft').value = value.input;
+          document.querySelector('#editor').value = value.editor;
+          document.querySelector('#scroll').scrollTop = value.scrollTop;
+        },
+      };
+    </script>
+  </body>
+</html>
