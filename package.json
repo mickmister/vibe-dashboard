@@ -44,6 +44,7 @@
     "plugin-instance:apply-enable:beads-web": "node --experimental-strip-types plugins/orchestrator/plugin-instance-config-cli.ts apply-enable --approved true --config-repo-dir /var/lib/vd/instance-config --plugin-id vd.beads-web",
     "test:server": "vitest run --config vitest.server.config.ts",
     "test:e2e": "playwright test",
+    "test:contract:dockview": "vitest run --config vitest.dockview-contract.config.ts && playwright test --config playwright.dockview-contract.config.ts",
     "test:e2e:vk-mocked-sandbox": "playwright test --config playwright.vk-mocked-sandbox.config.ts",
     "test:e2e:install": "playwright install chromium",
     "playwright:cli": "PLAYWRIGHT_MCP_SANDBOX=false playwright-cli",
@@ -83,6 +84,8 @@
     "better-auth": "^1.6.23",
     "better-sqlite3": "^12.6.2",
     "crossws": "^0.4.4",
+    "dockview": "8.3.1",
+    "dockview-react": "8.3.1",
     "dompurify": "^3.4.11",
     "framer-motion": "^12.34.0",
     "hono": "^4.11.9",
@@ -136,5 +139,10 @@
     "vibe-agent": "./bin/vibe-agent",
     "vk": "./bin/vk",
     "beads-form": "./bin/beads-form"
+  },
+  "pnpm": {
+    "overrides": {
+      "dockview-core": "8.3.1"
+    }
   }
 }
