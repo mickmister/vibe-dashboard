@@ -59,9 +59,12 @@ type previewResolveRequest struct {
 }
 
 type previewResolveResponse struct {
-	Status   string `json:"status"`
-	Upstream string `json:"upstream,omitempty"`
-	Message  string `json:"message,omitempty"`
+	Status             string `json:"status"`
+	Upstream           string `json:"upstream,omitempty"`
+	Message            string `json:"message,omitempty"`
+	ExecutionProcessID string `json:"executionProcessId,omitempty"`
+	WorkspaceID        string `json:"workspaceId,omitempty"`
+	PreviewSlotID      string `json:"previewSlotId,omitempty"`
 }
 
 // CaddyModule returns the Caddy module information.
@@ -121,13 +124,13 @@ func (p *PreviewResolver) ServeHTTP(w http.ResponseWriter, r *http.Request, next
 		}
 		return p.proxyPreview(w, r, match, decision.Upstream)
 	case "starting":
-		p.writePreviewStarting(w, r)
+		p.writePreviewStarting(w, r, decision)
 	case "not_found":
 		p.writePreviewUnavailable(w, r, http.StatusNotFound, firstNonEmpty(decision.Message, "Preview target was not found"))
 	case "capacity_full":
 		p.writePreviewUnavailable(w, r, http.StatusServiceUnavailable, firstNonEmpty(decision.Message, "Preview capacity is full"))
 	case "failed", "unavailable", "error":
-		p.writePreviewUnavailable(w, r, http.StatusBadGateway, firstNonEmpty(decision.Message, "Preview target is unavailable"))
+		p.writePreviewUnavailableWithDecision(w, r, http.StatusBadGateway, firstNonEmpty(decision.Message, "Preview target is unavailable"), decision)
 	default:
 		p.writePreviewUnavailable(w, r, http.StatusBadGateway, "Preview resolver returned an unknown status")
 	}
@@ -327,9 +330,10 @@ func scrubPreviewProxyHeaders(header http.Header) {
 	}
 }
 
-func (p *PreviewResolver) writePreviewStarting(w http.ResponseWriter, r *http.Request) {
+func (p *PreviewResolver) writePreviewStarting(w http.ResponseWriter, r *http.Request, decision previewResolveResponse) {
 	if isPreviewEnsureRequest(r) {
-		if p.StartupPage != "" {
+		logsURL := p.previewLogsURL(r, decision)
+		if logsURL == "" && p.StartupPage != "" {
 			if content, err := os.ReadFile(p.StartupPage); err == nil {
 				w.Header().Set("Content-Type", "text/html; charset=utf-8")
 				w.WriteHeader(http.StatusServiceUnavailable)
@@ -337,24 +341,60 @@ func (p *PreviewResolver) writePreviewStarting(w http.ResponseWriter, r *http.Re
 				return
 			}
 		}
-		p.writePreviewHTML(w, http.StatusServiceUnavailable, "Preview starting", "Preview server is starting. Refresh shortly.")
+		p.writePreviewHTML(w, http.StatusServiceUnavailable, "Preview starting", "Preview server is starting. Refresh shortly.", logsURL)
 		return
 	}
 	p.writePreviewPlain(w, http.StatusServiceUnavailable, "Preview server is starting")
 }
 
 func (p *PreviewResolver) writePreviewUnavailable(w http.ResponseWriter, r *http.Request, status int, message string) {
+	p.writePreviewUnavailableWithDecision(w, r, status, message, previewResolveResponse{})
+}
+
+func (p *PreviewResolver) writePreviewUnavailableWithDecision(w http.ResponseWriter, r *http.Request, status int, message string, decision previewResolveResponse) {
 	if isPreviewEnsureRequest(r) {
-		p.writePreviewHTML(w, status, http.StatusText(status), message)
+		p.writePreviewHTML(w, status, http.StatusText(status), message, p.previewLogsURL(r, decision))
 		return
 	}
 	p.writePreviewPlain(w, status, message)
 }
 
-func (p *PreviewResolver) writePreviewHTML(w http.ResponseWriter, status int, title string, message string) {
+func (p *PreviewResolver) writePreviewHTML(w http.ResponseWriter, status int, title string, message string, logsURL string) {
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	w.WriteHeader(status)
-	_, _ = fmt.Fprintf(w, "<!doctype html><html><head><title>%s</title></head><body><h1>%s</h1><p>%s</p></body></html>", html.EscapeString(title), html.EscapeString(title), html.EscapeString(message))
+	action := ""
+	if logsURL != "" {
+		action = fmt.Sprintf(`<p><a href="%s">Open logs in VD</a></p>`, html.EscapeString(logsURL))
+	}
+	_, _ = fmt.Fprintf(w, "<!doctype html><html><head><title>%s</title></head><body><h1>%s</h1><p>%s</p>%s</body></html>", html.EscapeString(title), html.EscapeString(title), html.EscapeString(message), action)
+}
+
+func (p *PreviewResolver) previewLogsURL(r *http.Request, decision previewResolveResponse) string {
+	if decision.WorkspaceID == "" || decision.PreviewSlotID == "" || decision.ExecutionProcessID == "" {
+		return ""
+	}
+	host := r.Host
+	if p.BaseDomain == "localhost" {
+		_, port, err := net.SplitHostPort(r.Host)
+		if err != nil || port == "" {
+			return ""
+		}
+		host = net.JoinHostPort("localhost", port)
+	} else if normalizePreviewHost(r.Host) == normalizePreviewHost(p.previewRequestedHost(r)) {
+		// Without a distinct Worker-preserved host, linking back to the preview
+		// hostname would re-enter the resolver instead of opening VD.
+		return ""
+	}
+	scheme := "http"
+	if r.TLS != nil || strings.EqualFold(r.Header.Get("X-Forwarded-Proto"), "https") {
+		scheme = "https"
+	}
+	query := url.Values{
+		"views":              {"runtime:dev.mickmister.preview-server/run-configs"},
+		"previewWorkspaceId": {decision.WorkspaceID},
+		"previewSlotId":      {decision.PreviewSlotID},
+	}
+	return (&url.URL{Scheme: scheme, Host: host, Path: "/", RawQuery: query.Encode()}).String()
 }
 
 func (p *PreviewResolver) writePreviewPlain(w http.ResponseWriter, status int, message string) {

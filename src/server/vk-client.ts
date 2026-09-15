@@ -92,6 +92,8 @@ export interface PreviewResolveResponse {
   upstream?: string | null;
   message?: string | null;
   executionProcessId?: string | null;
+  workspaceId?: string | null;
+  previewSlotId?: string | null;
 }
 
 export type RunConfigKind = 'long_running' | 'one_shot' | 'test';
@@ -101,6 +103,7 @@ export interface RunConfig {
   repo_id: string;
   slug: string;
   name: string;
+  description?: string | null;
   command: string;
   working_dir?: string | null;
   kind: RunConfigKind;
@@ -114,6 +117,7 @@ export interface UpsertRunConfig {
   repo_id: string;
   slug: string;
   name: string;
+  description?: string | null;
   command: string;
   working_dir?: string | null;
   kind: RunConfigKind;
@@ -126,6 +130,7 @@ export interface PreviewSlot {
   run_config_id: string;
   slot_slug: string;
   title: string;
+  description?: string | null;
   enabled: boolean;
   created_at: string;
   updated_at: string;
@@ -137,6 +142,7 @@ export interface UpsertPreviewSlot {
   run_config_id: string;
   slot_slug: string;
   title: string;
+  description?: string | null;
   enabled?: boolean;
 }
 
@@ -171,6 +177,7 @@ export interface WorkspaceRunConfigsResponse {
   run_configs: RunConfig[];
   preview_slots: PreviewSlot[];
   preview_url_parts: PreviewSlotUrlParts[];
+  preview_process_links?: PreviewProcessLink[];
 }
 
 export interface PreviewSlotUrlResponse extends PreviewSlotUrlParts {

@@ -33,6 +33,7 @@ export function PreviewRunConfigsPanel({
   const [runForm, setRunForm] = useState({
     slug: 'web',
     name: 'Web',
+    description: '',
     command: 'npm run dev',
     kind: 'long_running' as RunConfigKind,
   });
@@ -40,6 +41,7 @@ export function PreviewRunConfigsPanel({
     runConfigId: '',
     slotSlug: 'web',
     title: 'Web',
+    description: '',
   });
 
   const refresh = useCallback(async () => {
@@ -54,6 +56,21 @@ export function PreviewRunConfigsPanel({
     const nextRepos = await reposResponse.json() as RepoWithBranch[];
     setData(next);
     setWorkspaceRepos(nextRepos);
+    if (next.preview_process_links) {
+      const nextRunProcesses: Record<string, string> = {};
+      const nextSlotProcesses: Record<string, string> = {};
+      for (const link of next.preview_process_links) {
+        // VK returns links newest-first, so retain the newest linked slot process
+        // when multiple slots share one run config.
+        nextRunProcesses[link.run_config_id] ??= link.execution_process_id;
+        if (link.preview_slot_id) nextSlotProcesses[link.preview_slot_id] = link.execution_process_id;
+      }
+      // A supporting VK response is authoritative. Replacing rather than
+      // merging prevents removed links from leaving stale Logs actions, while
+      // an older VK that omits this field keeps panel-started process IDs.
+      setRunConfigProcessIds(nextRunProcesses);
+      setPreviewSlotProcessIds(nextSlotProcesses);
+    }
   }, [workspaceId]);
 
   useEffect(() => {
@@ -102,6 +119,12 @@ export function PreviewRunConfigsPanel({
     [runForm.slug, selectedRepoRunConfigs],
   );
   const hasSelectedRepo = Boolean(selectedRepoId);
+  const deepLinkedSlotId = typeof window === 'undefined'
+    ? null
+    : new URLSearchParams(window.location.search).get('previewSlotId');
+  const deepLinkedWorkspaceId = typeof window === 'undefined'
+    ? null
+    : new URLSearchParams(window.location.search).get('previewWorkspaceId');
 
   async function upsertRunConfig() {
     if (!selectedRepoId) {
@@ -119,6 +142,7 @@ export function PreviewRunConfigsPanel({
         repo_id: selectedRepoId,
         slug,
         name: runForm.name,
+        description: runForm.description.trim() || matchingRunConfig?.description || null,
         command: runForm.command,
         kind: runForm.kind,
         enabled: true,
@@ -151,6 +175,7 @@ export function PreviewRunConfigsPanel({
         run_config_id: slotForm.runConfigId,
         slot_slug: slotForm.slotSlug,
         title: slotForm.title,
+        description: slotForm.description.trim() || null,
         enabled: true,
       }),
     });
@@ -258,6 +283,9 @@ export function PreviewRunConfigsPanel({
 
         {error ? <Notice tone="error">{error}</Notice> : null}
         {message ? <Notice tone="info">{message}</Notice> : null}
+        {deepLinkedWorkspaceId && deepLinkedWorkspaceId !== workspaceId ? (
+          <Notice tone="error">This logs link belongs to another workspace. Open workspace {deepLinkedWorkspaceId} and try again.</Notice>
+        ) : null}
         {workspaceRepos.length === 0 ? (
           <Notice tone="info">
             No repositories are available for this workspace yet. Add or open a workspace repo before creating PreviewServer run configs or preview slots.
@@ -307,7 +335,8 @@ export function PreviewRunConfigsPanel({
               </select>
             </label>
           </div>
-          <TextArea label="Command" value={runForm.command} onChange={(command) => setRunForm((current) => ({ ...current, command }))} />
+          <TextArea label="Run config description" value={runForm.description} onChange={(description) => setRunForm((current) => ({ ...current, description }))} />
+          <TextArea label="Command" value={runForm.command} monospace onChange={(command) => setRunForm((current) => ({ ...current, command }))} />
           {matchingRunConfig ? (
             <p className="mt-2 text-xs text-neutral-500">
               Saving will update existing run config <code>{matchingRunConfig.id}</code>.
@@ -335,6 +364,7 @@ export function PreviewRunConfigsPanel({
             <TextInput label="Slot slug" value={slotForm.slotSlug} onChange={(slotSlug) => setSlotForm((current) => ({ ...current, slotSlug }))} />
             <TextInput label="Title" value={slotForm.title} onChange={(title) => setSlotForm((current) => ({ ...current, title }))} />
           </div>
+          <TextArea label="Preview slot description" value={slotForm.description} onChange={(description) => setSlotForm((current) => ({ ...current, description }))} />
           {hasSelectedRepo && selectedRepoRunConfigs.length === 0 ? (
             <p className="mt-2 text-xs text-neutral-500">Create a run config for the selected repository before creating a preview slot.</p>
           ) : null}
@@ -358,9 +388,10 @@ export function PreviewRunConfigsPanel({
           <ListEmpty items={previewSlots} label="No preview slots yet." />
           <div className="mt-3 space-y-2">
             {previewSlots.map((slot) => (
-              <div key={slot.id} className="flex flex-wrap items-center justify-between gap-3 rounded border border-neutral-800 p-3">
+              <div key={slot.id} className={`flex flex-wrap items-center justify-between gap-3 rounded border p-3 ${deepLinkedSlotId === slot.id ? 'border-blue-500 bg-blue-950/20' : 'border-neutral-800'}`}>
                 <div>
                   <div className="font-medium">{slot.title} <span className="text-neutral-500">/{slot.slot_slug}</span></div>
+                  {slot.description ? <p className="text-sm text-neutral-300">{slot.description}</p> : null}
                   <div className="text-xs text-neutral-500">repo {slot.repo_id} · run config {slot.run_config_id}</div>
                 </div>
                 <div className="flex gap-2">
@@ -382,6 +413,7 @@ export function PreviewRunConfigsPanel({
               <div key={runConfig.id} className="flex flex-wrap items-center justify-between gap-3 rounded border border-neutral-800 p-3">
                 <div>
                   <div className="font-medium">{runConfig.name} <span className="text-neutral-500">/{runConfig.slug}</span></div>
+                  {runConfig.description ? <p className="text-sm text-neutral-300">{runConfig.description}</p> : null}
                   <code className="text-xs text-neutral-400">{runConfig.command}</code>
                 </div>
                 <div className="flex gap-2">
@@ -424,11 +456,11 @@ function SelectInput({ label, value, options, disabled = false, onChange }: { la
   );
 }
 
-function TextArea({ label, value, onChange }: { label: string; value: string; onChange: (value: string) => void }) {
+function TextArea({ label, value, monospace = false, onChange }: { label: string; value: string; monospace?: boolean; onChange: (value: string) => void }) {
   return (
     <label className="mt-3 block text-sm">
       <span className="block text-neutral-300">{label}</span>
-      <textarea className="mt-1 min-h-20 w-full rounded border border-neutral-700 bg-neutral-950 p-2 font-mono text-neutral-100" value={value} onChange={(event) => onChange(event.target.value)} />
+      <textarea className={`mt-1 min-h-20 w-full rounded border border-neutral-700 bg-neutral-950 p-2 text-neutral-100${monospace ? ' font-mono' : ''}`} value={value} onChange={(event) => onChange(event.target.value)} />
     </label>
   );
 }

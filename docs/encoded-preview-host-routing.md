@@ -49,6 +49,12 @@ grammar.
    `capacity_full`, or `failed`/`unavailable`.
 7. Caddy proxies ready traffic or serves a startup/unavailable response.
 
+When VK has an authoritative preview process link, starting and process-failure
+pages include an **Open logs in VD** action. The link carries the workspace and
+preview-slot identities, never a client-selected process ID. VD reloads the
+latest server-side process link for that slot and does not fetch raw logs until
+the user explicitly clicks **Logs**.
+
 ## Hard-break compatibility contract
 
 The named-host shape is the only supported Preview URL contract for this branch.
@@ -104,6 +110,12 @@ Other statuses:
 
 The resolver owns workspace validation, preview process state, max-running-server
 capacity, and eviction policy. The Caddy module owns request parsing and proxying.
+
+Log authorization is narrower than ordinary workspace process access: VD first
+requires the requested execution process to appear in VK's latest
+`preview_process_link` data for the requested workspace, then verifies the
+process session belongs to that workspace. Missing or unrelated associations return
+a readable not-found state without opening the raw-log WebSocket.
 
 When proxying a ready preview upstream, Caddy forwards preview metadata headers:
 

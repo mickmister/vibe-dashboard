@@ -8,6 +8,7 @@ describe('PreviewRunConfigsPanel', () => {
   afterEach(() => {
     cleanup();
     vi.restoreAllMocks();
+    window.history.replaceState({}, '', '/');
   });
 
   it('selects workspace repos and uses the selected repo ID in create payloads', async () => {
@@ -68,24 +69,55 @@ describe('PreviewRunConfigsPanel', () => {
 
     const repoSelect = await screen.findByLabelText('Repository');
     fireEvent.change(repoSelect, { target: { value: 'repo-beta' } });
+    fireEvent.change(screen.getByLabelText('Run config description'), { target: { value: 'Interactive Vite review' } });
 
     fireEvent.click(screen.getByRole('button', { name: 'Save run config' }));
     await waitFor(() => {
       expect(requests).toContainEqual(expect.objectContaining({
         url: '/internal/preview/workspaces/ws1/run-configs',
         init: expect.objectContaining({ method: 'POST' }),
-        body: expect.objectContaining({ repo_id: 'repo-beta' }),
+        body: expect.objectContaining({ repo_id: 'repo-beta', description: 'Interactive Vite review' }),
       }));
     });
 
+    fireEvent.change(screen.getByLabelText('Preview slot description'), { target: { value: 'Stable primary browser URL' } });
     fireEvent.click(screen.getByRole('button', { name: 'Save preview slot' }));
     await waitFor(() => {
       expect(requests).toContainEqual(expect.objectContaining({
         url: '/internal/preview/workspaces/ws1/preview-slots',
         init: expect.objectContaining({ method: 'POST' }),
-        body: expect.objectContaining({ repo_id: 'repo-beta' }),
+        body: expect.objectContaining({ repo_id: 'repo-beta', description: 'Stable primary browser URL' }),
       }));
     });
+  });
+
+  it('shows stored descriptions so existing configs can be reused', async () => {
+    vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url === '/internal/preview/workspaces/ws-described/repos') {
+        return jsonResponse([{ id: 'repo-alpha', name: 'alpha', display_name: 'Alpha App', target_branch: 'main' }]);
+      }
+      if (url === '/internal/preview/workspaces/ws-described/run-configs') {
+        return jsonResponse({
+          run_configs: [{
+            id: 'rc-described', repo_id: 'repo-alpha', slug: 'web', name: 'Web',
+            description: 'Interactive Vite UI review', command: 'pnpm dev', kind: 'long_running',
+            enabled: true, created_at: '', updated_at: '',
+          }],
+          preview_slots: [{
+            id: 'slot-described', repo_id: 'repo-alpha', run_config_id: 'rc-described', slot_slug: 'web',
+            title: 'Web', description: 'Stable primary review URL', enabled: true, created_at: '', updated_at: '',
+          }],
+          preview_url_parts: [],
+        });
+      }
+      throw new Error(`unexpected fetch ${url}`);
+    }));
+
+    render(React.createElement(PreviewRunConfigsPanel, { workspaceId: 'ws-described' }));
+
+    expect(await screen.findByText('Interactive Vite UI review')).toBeTruthy();
+    expect(await screen.findByText('Stable primary review URL')).toBeTruthy();
   });
 
   it('updates an existing run config when saving a matching selected repo and slug', async () => {
@@ -119,6 +151,7 @@ describe('PreviewRunConfigsPanel', () => {
               repo_id: 'repo-alpha',
               slug: 'web',
               name: 'Original Web',
+              description: 'Existing browser review config',
               command: 'npm run dev',
               kind: 'long_running',
               enabled: true,
@@ -148,6 +181,7 @@ describe('PreviewRunConfigsPanel', () => {
           repo_id: 'repo-alpha',
           slug: 'web',
           name: 'Updated Web',
+          description: 'Existing browser review config',
         }),
       }));
     });
@@ -213,7 +247,7 @@ describe('PreviewRunConfigsPanel', () => {
 
     render(React.createElement(PreviewRunConfigsPanel, { workspaceId: 'ws-logs' }));
 
-    await screen.findByText('Web');
+    await screen.findAllByText('Web');
     expect(requests.some((url) => url.includes('/logs'))).toBe(false);
 
     fireEvent.click(screen.getByRole('button', { name: 'Show logs for run config Web' }));
@@ -278,6 +312,48 @@ describe('PreviewRunConfigsPanel', () => {
     expect(await screen.findByText(/preview listening/)).toBeTruthy();
     expect(await screen.findByText(/\[stderr\] warning only/)).toBeTruthy();
     expect(requests.filter((url) => url.includes('/logs'))).toHaveLength(1);
+  });
+
+  it('restores URL-started slot process linkage without eagerly loading logs', async () => {
+    const requests: string[] = [];
+    window.history.replaceState({}, '', '/?previewWorkspaceId=ws-linked&previewSlotId=slot-linked');
+    vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      requests.push(url);
+      if (url === '/internal/preview/workspaces/ws-linked/repos') {
+        return jsonResponse([{ id: 'repo-alpha', name: 'alpha', display_name: 'Alpha App', target_branch: 'main' }]);
+      }
+      if (url === '/internal/preview/workspaces/ws-linked/run-configs') {
+        return jsonResponse({
+          run_configs: [{ id: 'rc-linked', repo_id: 'repo-alpha', slug: 'web', name: 'Web', command: 'pnpm dev', kind: 'long_running', enabled: true, created_at: '', updated_at: '' }],
+          preview_slots: [{ id: 'slot-linked', repo_id: 'repo-alpha', run_config_id: 'rc-linked', slot_slug: 'web', title: 'Web', enabled: true, created_at: '', updated_at: '' }],
+          preview_url_parts: [],
+          preview_process_links: [{
+            id: 'link-linked', workspace_id: 'ws-linked', repo_id: 'repo-alpha', run_config_id: 'rc-linked',
+            preview_slot_id: 'slot-linked', execution_process_id: 'process-linked', assigned_port: 4321,
+            status_snapshot: 'starting', started_at: '', updated_at: '',
+          }, {
+            id: 'link-older', workspace_id: 'ws-linked', repo_id: 'repo-alpha', run_config_id: 'rc-linked',
+            preview_slot_id: 'slot-older', execution_process_id: 'process-older', assigned_port: 4322,
+            status_snapshot: 'failed', started_at: '', updated_at: '',
+          }],
+        });
+      }
+      if (url === '/internal/preview/workspaces/ws-linked/execution-processes/process-linked/logs?timeoutMs=1500&maxEntries=200') {
+        return jsonResponse({ logs: [{ type: 'STDOUT', content: 'started from URL\n' }] });
+      }
+      throw new Error(`unexpected fetch ${url}`);
+    }));
+
+    render(React.createElement(PreviewRunConfigsPanel, { workspaceId: 'ws-linked' }));
+
+    await screen.findAllByText('Web');
+    expect(requests.some((url) => url.includes('/logs'))).toBe(false);
+    fireEvent.click(screen.getByRole('button', { name: 'Show logs for preview slot Web' }));
+    expect(await screen.findByText(/started from URL/)).toBeTruthy();
+    fireEvent.click(screen.getByRole('button', { name: 'Show logs for run config Web' }));
+    await waitFor(() => expect(requests.filter((url) => url.includes('/logs'))).toHaveLength(2));
+    expect(requests.some((url) => url.includes('process-older'))).toBe(false);
   });
 
   it('shows readable process log errors instead of raw JSON', async () => {

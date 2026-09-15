@@ -95,6 +95,13 @@ export function registerPreviewResolverRoutes(
     const timeoutMs = parseBoundedInteger(c.req.query('timeoutMs'), 1500, 100, 10_000);
     const maxEntries = parseBoundedInteger(c.req.query('maxEntries'), 200, 1, 1_000);
     try {
+      const previewData = await vkClient.getRunConfigs!(workspaceId);
+      const linkedProcess = previewData.preview_process_links?.some(
+        (link) => link.workspace_id === workspaceId && link.execution_process_id === processId,
+      );
+      if (!linkedProcess) {
+        return c.json({ message: 'No PreviewServer logs found for this workspace process.' }, 404);
+      }
       const process = await vkClient.getExecutionProcess!(processId);
       const session = await vkClient.getSession!(process.session_id);
       if (session.workspace_id !== workspaceId) {
@@ -252,5 +259,7 @@ function normalizeResolveResponse(response: PreviewResolveResponse): PreviewReso
     upstream: response.upstream ?? undefined,
     message: response.message ?? undefined,
     executionProcessId: response.executionProcessId ?? undefined,
+    workspaceId: response.workspaceId ?? undefined,
+    previewSlotId: response.previewSlotId ?? undefined,
   };
 }

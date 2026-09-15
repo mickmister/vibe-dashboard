@@ -69,7 +69,7 @@ func TestPreviewResolverUsesRequestedHostHeaderAndEnsuresOnlyDocumentNavigations
 			t.Fatalf("decode resolver request: %v", err)
 		}
 		w.Header().Set("Content-Type", "application/json")
-		_, _ = w.Write([]byte(`{"status":"starting"}`))
+		_, _ = w.Write([]byte(`{"status":"starting","executionProcessId":"process-1","workspaceId":"workspace-1","previewSlotId":"slot-1"}`))
 	}))
 	defer resolver.Close()
 
@@ -96,6 +96,37 @@ func TestPreviewResolverUsesRequestedHostHeaderAndEnsuresOnlyDocumentNavigations
 	}
 	if rec.Code != http.StatusServiceUnavailable || !strings.Contains(rec.Body.String(), "Preview server is starting") {
 		t.Fatalf("unexpected starting response %d %q", rec.Code, rec.Body.String())
+	}
+	if !strings.Contains(rec.Body.String(), "Open logs in VD") ||
+		!strings.Contains(rec.Body.String(), "previewWorkspaceId=workspace-1") ||
+		!strings.Contains(rec.Body.String(), "previewSlotId=slot-1") {
+		t.Fatalf("expected starting page to link to authoritative slot logs, got %q", rec.Body.String())
+	}
+}
+
+func TestPreviewResolverFailureLinksToLogsWhenProcessIdentityIsAvailable(t *testing.T) {
+	resolver := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"status":"failed","message":"Process exited","executionProcessId":"process-1","workspaceId":"workspace-1","previewSlotId":"slot-1"}`))
+	}))
+	defer resolver.Close()
+
+	handler := &PreviewResolver{ResolverURL: resolver.URL, BaseDomain: "localhost", client: resolver.Client()}
+	req := httptest.NewRequest(http.MethodGet, "http://web-vibekanban-0123456789abcdef-preview.localhost:55743/", nil)
+	req.Header.Set("Sec-Fetch-Mode", "navigate")
+	rec := httptest.NewRecorder()
+
+	if err := handler.ServeHTTP(rec, req, caddyhttp.HandlerFunc(func(w http.ResponseWriter, r *http.Request) error {
+		t.Fatal("next handler should not run")
+		return nil
+	})); err != nil {
+		t.Fatalf("ServeHTTP returned error: %v", err)
+	}
+	if rec.Code != http.StatusBadGateway || !strings.Contains(rec.Body.String(), "Open logs in VD") {
+		t.Fatalf("expected failure page logs action, got %d %q", rec.Code, rec.Body.String())
+	}
+	if !strings.Contains(rec.Body.String(), `href="http://localhost:55743/?`) {
+		t.Fatalf("expected local logs link to use dashboard host, got %q", rec.Body.String())
 	}
 }
 

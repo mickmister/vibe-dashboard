@@ -19,6 +19,8 @@ describe('registerPreviewResolverRoutes', () => {
       status: 'ready' as const,
       upstream: 'http://127.0.0.1:4567',
       executionProcessId: 'process-1',
+      workspaceId: 'workspace-1',
+      previewSlotId: 'slot-1',
     }));
     const app = new Hono();
     registerPreviewResolverRoutes(app, { vkClient: { resolvePreview } });
@@ -43,6 +45,8 @@ describe('registerPreviewResolverRoutes', () => {
       status: 'ready',
       upstream: 'http://127.0.0.1:4567',
       executionProcessId: 'process-1',
+      workspaceId: 'workspace-1',
+      previewSlotId: 'slot-1',
     });
     expect(resolvePreview).toHaveBeenCalledWith(payload);
   });
@@ -146,6 +150,16 @@ describe('registerPreviewResolverRoutes', () => {
   it('rewrites generated Preview URLs to localhost subdomains for local Caddy mode', async () => {
     const client = {
       resolvePreview: vi.fn(),
+      getRunConfigs: vi.fn(async () => ({
+        run_configs: [],
+        preview_slots: [],
+        preview_url_parts: [],
+        preview_process_links: [{
+          id: 'link-1', workspace_id: 'ws1', repo_id: 'repo-1', run_config_id: 'config-1',
+          preview_slot_id: 'slot-1', execution_process_id: 'process-1', assigned_port: 4000,
+          status_snapshot: 'ready' as const, started_at: '', updated_at: '',
+        }],
+      })),
       getPreviewSlotUrl: vi.fn(async () => ({
         previewSlotId: 'slot1',
         workspaceToken: '0123456789abcdef',
@@ -176,6 +190,13 @@ describe('registerPreviewResolverRoutes', () => {
   it('fetches process logs only for processes linked to the requested workspace', async () => {
     const client = {
       resolvePreview: vi.fn(),
+      getRunConfigs: vi.fn(async () => ({
+        run_configs: [], preview_slots: [], preview_url_parts: [], preview_process_links: [{
+          id: 'link-1', workspace_id: 'ws1', repo_id: 'repo-1', run_config_id: 'config-1',
+          preview_slot_id: 'slot-1', execution_process_id: 'process-1', assigned_port: 4000,
+          status_snapshot: 'ready' as const, started_at: '', updated_at: '',
+        }],
+      })),
       getExecutionProcess: vi.fn(async () => ({
         id: 'process-1',
         session_id: 'session-1',
@@ -214,6 +235,13 @@ describe('registerPreviewResolverRoutes', () => {
   it('does not fetch logs when the process session belongs to another workspace', async () => {
     const client = {
       resolvePreview: vi.fn(),
+      getRunConfigs: vi.fn(async () => ({
+        run_configs: [], preview_slots: [], preview_url_parts: [], preview_process_links: [{
+          id: 'link-1', workspace_id: 'ws1', repo_id: 'repo-1', run_config_id: 'config-1',
+          preview_slot_id: 'slot-1', execution_process_id: 'process-1', assigned_port: 4000,
+          status_snapshot: 'ready' as const, started_at: '', updated_at: '',
+        }],
+      })),
       getExecutionProcess: vi.fn(async () => ({
         id: 'process-1',
         session_id: 'session-1',
@@ -239,6 +267,26 @@ describe('registerPreviewResolverRoutes', () => {
     await expect(response.json()).resolves.toMatchObject({
       message: 'No PreviewServer logs found for this workspace process.',
     });
+    expect(client.fetchRawExecutionLogs).not.toHaveBeenCalled();
+  });
+
+  it('does not fetch logs for an unlinked process even when its session belongs to the workspace', async () => {
+    const client = {
+      resolvePreview: vi.fn(),
+      getRunConfigs: vi.fn(async () => ({
+        run_configs: [], preview_slots: [], preview_url_parts: [], preview_process_links: [],
+      })),
+      getExecutionProcess: vi.fn(),
+      getSession: vi.fn(),
+      fetchRawExecutionLogs: vi.fn(),
+    };
+    const app = new Hono();
+    registerPreviewResolverRoutes(app, { vkClient: client });
+
+    const response = await app.request('/internal/preview/workspaces/ws1/execution-processes/process-1/logs');
+
+    expect(response.status).toBe(404);
+    expect(client.getExecutionProcess).not.toHaveBeenCalled();
     expect(client.fetchRawExecutionLogs).not.toHaveBeenCalled();
   });
 });
