@@ -30,6 +30,15 @@ describe('BeadsForm pending queue UI source', () => {
     expect(source).not.toContain('Normalized submitted response JSON');
   });
 
+  it('wires bead-backed submissions to exact-session follow-up while leaving folder preview local', async () => {
+    const source = await readFile(new URL('./BeadsFormModule.tsx', import.meta.url), 'utf8');
+
+    expect(source).toContain('notifySession: (sessionId, message) => vkClient().sendFollowUp(sessionId, message)');
+    expect(source).toContain('const result = await nodeClient().submitForm(input);');
+    expect(source).not.toMatch(/submitPreviewForm[\s\S]{0,1500}sendFollowUp/);
+    expect(source).toContain('if (submitInFlightRef.current) return;');
+  });
+
   it('initializes Markdown textarea previews through the shared selected-form paths', async () => {
     const source = await readFile(new URL('./BeadsFormModule.tsx', import.meta.url), 'utf8');
 

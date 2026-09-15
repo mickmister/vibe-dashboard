@@ -209,6 +209,7 @@ before the human answers.
 Send the direct form URL and ask them to submit. After submission:
 
 - Read/process the copied BeadsForm XML handoff. It is the default human/agent handoff format so Markdown-heavy answers stay readable; internal bead storage still preserves structured normalized JSON.
+- For bead-backed forms with a valid creating `VK_SESSION_ID`, VD persists the response first and then best-effort notifies that exact session with the lean DSL, normalized response, XML handoff, and `vibe-agent full_summary` guidance. Missing/invalid sessions and notification failures use `needs-agent-review` as the fallback; a notification warning means the answer is already saved and must not be submitted again. Folder previews never send session notifications, and aggregate sections route independently using each source bead's metadata.
 - Remove `needs-agent-review` from the bead after processing, if present.
 - When messaging another agent about the response, include:
   - the raw DSL JSON,

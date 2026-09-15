@@ -32,6 +32,95 @@ const reviewMetadata = {
 };
 
 describe('BeadsClient', () => {
+  it('persists first and notifies exactly the valid creating session without adding the fallback label', async () => {
+    const order: string[] = [];
+    const sessionId = '2e56418d-2829-4e2f-aab7-105c5aab41dc';
+    const exec = vi.fn<ExecFileLike>(async (_file, args) => {
+      if (args[0] === '--readonly') return { stdout: beadJson({ ...reviewMetadata, VK_SESSION_ID: sessionId }), stderr: '' };
+      order.push(args.includes('--metadata') ? 'persist' : 'label');
+      return { stdout: '', stderr: '' };
+    });
+    const notifySession = vi.fn(async (targetSessionId: string, message: string) => {
+      order.push('notify');
+      expect(targetSessionId).toBe(sessionId);
+      expect(message).toContain('beads-web-biu');
+      expect(message).toContain('"questions"');
+      expect(message).toContain('<beadsFormSubmission>');
+    });
+    const client = new BeadsClient({ execFile: exec, notifySession });
+
+    const result = await client.submitForm({ dir: '/repo', beadId: 'beads-web-biu', formId: 'review', values: { comment: 'LGTM' } });
+
+    expect(order).toEqual(['persist', 'notify']);
+    expect(notifySession).toHaveBeenCalledTimes(1);
+    expect(result.warnings).toEqual([]);
+  });
+
+  it.each([
+    ['absent', undefined],
+    ['invalid', 'session; unsafe'],
+  ])('uses the review-label fallback for %s creating-session metadata', async (_case, sessionId) => {
+    const notifySession = vi.fn(async (_sessionId: string, _message: string) => undefined);
+    const exec = vi.fn<ExecFileLike>(async (_file, args) => {
+      if (args[0] === '--readonly') {
+        return { stdout: beadJson({ ...reviewMetadata, ...(sessionId ? { VK_SESSION_ID: sessionId } : {}) }), stderr: '' };
+      }
+      return { stdout: '', stderr: '' };
+    });
+    const client = new BeadsClient({ execFile: exec, notifySession });
+
+    const result = await client.submitForm({ dir: '/repo', beadId: 'beads-web-biu', formId: 'review', values: { comment: 'LGTM' } });
+
+    expect(notifySession).not.toHaveBeenCalled();
+    expect(exec.mock.calls.some(([, args]) => args.includes('--add-label'))).toBe(true);
+    expect(result.warnings).toEqual([]);
+  });
+
+  it('returns saved success with a visible no-resubmit warning and fallback label when notification fails', async () => {
+    const order: string[] = [];
+    const exec = vi.fn<ExecFileLike>(async (_file, args) => {
+      if (args[0] === '--readonly') return { stdout: beadJson({ ...reviewMetadata, VK_SESSION_ID: '2e56418d-2829-4e2f-aab7-105c5aab41dc' }), stderr: '' };
+      order.push(args.includes('--metadata') ? 'persist' : 'label');
+      return { stdout: '', stderr: '' };
+    });
+    const client = new BeadsClient({
+      execFile: exec,
+      notifySession: async () => {
+        order.push('notify');
+        throw new Error('session offline');
+      },
+    });
+
+    const result = await client.submitForm({ dir: '/repo', beadId: 'beads-web-biu', formId: 'review', values: { comment: 'LGTM' } });
+
+    expect(order).toEqual(['persist', 'notify', 'label']);
+    expect(result.values).toEqual({ comment: 'LGTM', allow_code_file_changes: false });
+    expect(result.warnings.join(' ')).toContain('response was saved');
+    expect(result.warnings.join(' ')).toContain('do not submit again');
+  });
+
+  it('routes independent aggregate-source submissions to each source creator exactly once', async () => {
+    const sessionsByDir: Record<string, string> = {
+      '/repo-a': '11111111-1111-4111-8111-111111111111',
+      '/repo-b': '22222222-2222-4222-8222-222222222222',
+    };
+    const exec = vi.fn<ExecFileLike>(async (_file, args, options) => {
+      if (args[0] === '--readonly') {
+        return { stdout: beadJson({ ...reviewMetadata, VK_SESSION_ID: sessionsByDir[options.cwd] }), stderr: '' };
+      }
+      return { stdout: '', stderr: '' };
+    });
+    const notifySession = vi.fn(async (_sessionId: string, _message: string) => undefined);
+    const client = new BeadsClient({ execFile: exec, notifySession });
+
+    await client.submitForm({ dir: '/repo-a', beadId: 'beads-web-biu', formId: 'review', values: { comment: 'A' } });
+    await client.submitForm({ dir: '/repo-b', beadId: 'beads-web-biu', formId: 'review', values: { comment: 'B' } });
+
+    expect(notifySession.mock.calls.map(([sessionId]) => sessionId)).toEqual([
+      sessionsByDir['/repo-a'],
+      sessionsByDir['/repo-b'],
+    ]);
+  });
   it('reads a bead with targeted bd list metadata before falling back to show', async () => {
     const exec = vi.fn<ExecFileLike>(async () => ({ stdout: beadJson({ beadForms: { forms: [] } }), stderr: '' }));
     const client = new BeadsClient({ execFile: exec });

@@ -288,6 +288,8 @@ Open `/dashboard/forms` without query parameters to view the pending Bead-backed
 
 When a bead-backed form submit succeeds inside VD, VD invalidates its BeadsForm read cache and touches a lightweight Springboard pending queue sentinel. The `/dashboard/forms` page observes that sentinel, keeps current/cached pending results visible, and refreshes fresh pending data in the background. External CLI attach/update commands run outside the VD process and cannot reliably update that in-memory sentinel; external changes are repaired by the XDG disk cache plus the pending page's background fresh refresh when the page is opened or reloaded.
 
+Attach also records the creating `VK_SESSION_ID` when available. After VD has persisted a bead-backed response, it best-effort sends the canonical lean form DSL, normalized response, and XML handoff to that exact creating session with guidance to run `vibe-agent full_summary`. Missing or invalid session metadata retains the `needs-agent-review` label fallback. If notification fails, the response remains saved, the success view warns the user not to submit again, and VD attempts the same label fallback. Folder-preview submissions are local preview data and never notify an agent session; each aggregate section follows its own source bead's session metadata.
+
 Agents can inspect the same pending queue from a shell with JSON output:
 
 ```sh
