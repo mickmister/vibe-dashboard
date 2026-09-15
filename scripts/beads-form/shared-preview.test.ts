@@ -12,18 +12,18 @@ import {
 describe('shared BeadsForm preview server helper', () => {
   it('keeps user-facing BeadsForm preview guidance off ephemeral /tmp paths', () => {
     const repoRoot = new URL('../../', import.meta.url);
+    const pendingQueueDoc = readFileSync(new URL('packages/beads-form/PENDING_QUEUE.md', repoRoot), 'utf8');
     const docs = [
       'packages/beads-form/SKILL.md',
-      'packages/beads-form/PENDING_QUEUE.md',
       'test-plans/branches/8299-beads-web-show-m/beadsform-upcoming-milestones-detailed.md',
-    ].map((path) => readFileSync(new URL(path, repoRoot), 'utf8')).join('\n');
+    ].map((path) => readFileSync(new URL(path, repoRoot), 'utf8')).concat(pendingQueueDoc).join('\n');
 
     expect(docs).not.toMatch(/(^|[\s`"'])\/tmp\//m);
     expect(docs).toContain('.vk-mocked-sandbox/beads-form-pending-cache');
-    expect(docs).toContain(
-      'BEADS_FORM_PENDING_CACHE_DIR="/var/tmp/vibe-kanban/worktrees/8299-beads-web-show-m/vibe-kanban-vscode-web/.vk-mocked-sandbox/beads-form-pending-cache"',
+    expect(pendingQueueDoc).toContain(
+      'BEADS_FORM_PENDING_CACHE_DIR="$PWD/.vk-mocked-sandbox/beads-form-pending-cache"',
     );
-    expect(docs).not.toContain('/beads-web/.vk-mocked-sandbox/beads-form-pending-cache');
+    expect(pendingQueueDoc).not.toContain('/var/tmp/vibe-kanban/worktrees');
     expect(docs).toContain('Automated tests may continue to use operating-system temporary');
   });
 

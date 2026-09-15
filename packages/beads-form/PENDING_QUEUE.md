@@ -22,7 +22,7 @@ and development, keep cache state inside the checkout's gitignored sandbox and
 disable startup warming explicitly:
 
 ```sh
-BEADS_FORM_PENDING_CACHE_DIR="/var/tmp/vibe-kanban/worktrees/8299-beads-web-show-m/vibe-kanban-vscode-web/.vk-mocked-sandbox/beads-form-pending-cache" \
+BEADS_FORM_PENDING_CACHE_DIR="$PWD/.vk-mocked-sandbox/beads-form-pending-cache" \
 BEADS_FORM_PENDING_WARM_ON_STARTUP=0 \
 npm run dev
 ```
