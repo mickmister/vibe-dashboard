@@ -856,6 +856,7 @@ export interface WorkflowNativeGasCityRun {
   bundleDigest: string;
   requestJson: string;
   allowedActionsJson: string;
+  definitionJson:string;
   status: 'preparing' | 'materializing' | 'ready' | 'turn_pending' | 'running' | 'completed' | 'blocked';
   bundleRef: NullableString;
   workflowId: NullableString;
@@ -869,6 +870,11 @@ export interface WorkflowNativeGasCityRun {
   attempts: number;
   createdAt: number;
   updatedAt: number;
+}
+export interface WorkflowNativeGasCityEffect {
+  runId:string; kind:string; requestDigest:string; status:'pending'|'completed'|'blocked';
+  leaseOwner:NullableString; leaseExpiresAt:NullableNumber; fence:number; resultJson:NullableString;
+  lastError:NullableString; createdAt:number; updatedAt:number;
 }
 
 export interface DB {
@@ -896,6 +902,7 @@ export interface DB {
   WorkflowIssuedPlan: WorkflowIssuedPlan;
   WorkflowPlanLaunchEffect: WorkflowPlanLaunchEffect;
   WorkflowNativeGasCityRun: WorkflowNativeGasCityRun;
+  WorkflowNativeGasCityEffect: WorkflowNativeGasCityEffect;
   WorkflowPlanAuditEvent: WorkflowPlanAuditEvent;
   WorkflowWorkAreaAuditEvent: WorkflowWorkAreaAuditEvent;
   WorkflowDesign: WorkflowDesign;

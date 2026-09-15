@@ -67,6 +67,14 @@ describe("registerWorkflowRoutes", () => {
 
   });
 
+  it("scopes native run status through workflow authorization and workspace",async()=>{
+    const getRun=vi.fn(async(_runId:string,workspaceId?:string)=>workspaceId==='workspace-a'?{runId:'native-1',workspaceId,status:'running',summary:'Running'}:null);
+    const app=new Hono();registerWorkflowRoutes(app,{registry:createWorkflowRegistry(),nativeGasCityWorkflowProvider:{getRun,completeRoleTurn:vi.fn()} as any,authorizeWorkflowPlan:async(_request,plan)=>{if(plan.workspaceId!=='workspace-a')throw new Error('denied');return{principalId:'browser-a',workspaceId:plan.workspaceId,callerSessionId:null};}});
+    expect((await app.request('/dashboard/api/workflows/native-runs/native-1')).status).toBe(400);
+    expect((await app.request('/dashboard/api/workflows/native-runs/native-1?workspaceId=workspace-b')).status).toBe(401);
+    const allowed=await app.request('/dashboard/api/workflows/native-runs/native-1?workspaceId=workspace-a');expect(allowed.status).toBe(200);expect(getRun).toHaveBeenCalledWith('native-1','workspace-a');
+  });
+
   it("uses the Node adapter peer address and binds browser auth to exact origin", async () => {
     const auth = new WorkflowPlanAuthService({ browserOrigin: "http://127.0.0.1", now: () => 1_000 });
     const service = { plan: vi.fn(async (_request, principal) => ({ digest: "a".repeat(64), principal: principal.principalId })), launch: vi.fn() } as any;

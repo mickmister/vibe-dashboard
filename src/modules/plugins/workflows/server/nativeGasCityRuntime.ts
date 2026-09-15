@@ -1,7 +1,8 @@
-import { createHash } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 import { chmod, mkdir, readFile, rename, rm, writeFile } from 'node:fs/promises';
-import { dirname, join, resolve, sep } from 'node:path';
+import { join, resolve, sep } from 'node:path';
 import { execFile } from 'node:child_process';
+import { lstatSync, readFileSync, realpathSync, statSync } from 'node:fs';
 import { promisify } from 'node:util';
 import type { WorkflowRoleSessionResolver } from '../../../../server/role-session-resolver';
 import type { VibeKanbanServerClient, Executor } from '../../../../server/vk-client';
@@ -24,7 +25,8 @@ export class PackagedNativeGasCityRuntime implements NativeGasCityRuntime {
   }) {
     this.root = resolve(options.root); this.city = resolve(options.city); this.target = safeId(options.target);
     this.gc = resolve(options.gcExecutable); this.bd = resolve(options.beadsExecutable);
-    if (!this.root.startsWith(`${resolve(process.env.VD_RUNTIME_ROOT || dirname(this.root))}${sep}`) && this.root !== resolve(process.env.VD_RUNTIME_ROOT || dirname(this.root))) throw new Error('Native workflow runtime root is not server-controlled.');
+    const controlled=process.env.VD_RUNTIME_ROOT;if(!controlled)throw new Error('Native workflow runtime capability is not configured.');const canonical=realpathSync(controlled);
+    for(const candidate of [this.root,this.city]){const actual=realpathSync(candidate);if(actual!==canonical&&!actual.startsWith(`${canonical}${sep}`))throw new Error('Native workflow runtime root is not server-controlled.');if(lstatSync(candidate).isSymbolicLink()||statSync(candidate).uid!==process.getuid?.())throw new Error('Native workflow runtime ownership is invalid.');}
   }
   async health() {
     try {
@@ -32,13 +34,14 @@ export class PackagedNativeGasCityRuntime implements NativeGasCityRuntime {
       return gc.includes('1.4.1') && bd.includes('1.2.2') ? { ready: true } : { ready: false, message: 'Workflow engine version does not match the tested runtime.' };
     } catch { return { ready: false, message: 'Workflow engine is not available.' }; }
   }
+  async checkTaskReady(input:{workspaceId:string;sourceBeadId:string}){try{const out=await this.exec(this.bd,['show',safeId(input.sourceBeadId),'--json','--readonly']);const value=JSON.parse(out);const bead=Array.isArray(value)?value[0]:value;const status=String(bead?.status??'');const blocked=Array.isArray(bead?.dependencies)&&bead.dependencies.some((d:any)=>String(d?.status??'')!=='closed');return status==='open'&&!blocked?{ready:true}:{ready:false,message:'Task is not ready.'};}catch{return{ready:false,message:'Task state is unavailable.'};}}
   async ensureBundle(input: Parameters<NativeGasCityRuntime['ensureBundle']>[0]) {
     const dir = join(this.root, 'bundles', input.bundle.digest); const final = join(dir, 'bundle.json');
     await mkdir(dir, { recursive: true, mode: 0o700 });
     try { const bytes = await readFile(final); if (sha(bytes) !== input.bundle.digest) throw new Error('Installed workflow bundle does not match its confirmed digest.'); }
     catch (error: any) {
       if (error?.code !== 'ENOENT') throw error;
-      const tmp = `${final}.${process.pid}.tmp`; await writeFile(tmp, input.bundle.bytes, { mode: 0o600, flag: 'wx' }); await chmod(tmp, 0o600); await rename(tmp, final);
+      const tmp = `${final}.${process.pid}.${randomUUID()}.tmp`; await writeFile(tmp, input.bundle.bytes, { mode: 0o600, flag: 'wx' }); await chmod(tmp, 0o600); await rename(tmp, final);
     }
     const installed=JSON.parse(await readFile(final,'utf8')) as any;
     const formula = String(installed?.formula?.contents ?? '');
@@ -47,7 +50,7 @@ export class PackagedNativeGasCityRuntime implements NativeGasCityRuntime {
     const formulaDir = join(this.city, 'formulas'); await mkdir(formulaDir, { recursive: true, mode: 0o700 });
     const formulaPath = join(formulaDir, `${safeId(formulaName)}.formula.toml`); const formulaBytes = new TextEncoder().encode(formula);
     try { if (sha(await readFile(formulaPath)) !== sha(formulaBytes)) throw new Error('Installed workflow formula conflicts with the confirmed bundle.'); }
-    catch (error:any) { if(error?.code!=='ENOENT')throw error; const tmp=`${formulaPath}.${process.pid}.tmp`;await writeFile(tmp,formulaBytes,{mode:0o600,flag:'wx'});await rename(tmp,formulaPath); }
+    catch (error:any) { if(error?.code!=='ENOENT')throw error; const tmp=`${formulaPath}.${process.pid}.${randomUUID()}.tmp`;await writeFile(tmp,formulaBytes,{mode:0o600,flag:'wx'});await rename(tmp,formulaPath); }
     return { bundleRef: input.bundle.digest };
   }
   async ensureWorkflow(input: Parameters<NativeGasCityRuntime['ensureWorkflow']>[0]): Promise<NativeGasCityAuthoritativeState> {
@@ -63,14 +66,13 @@ export class PackagedNativeGasCityRuntime implements NativeGasCityRuntime {
     catch { return 'unknown' as const; }
   }
   async ensureRoleTurn(input: Parameters<NativeGasCityRuntime['ensureRoleTurn']>[0]) {
-    const team = { id: `native-${input.operationKey}`, name: 'Native workflow', agents: [{ id: input.roleId, role: input.roleId, displayName: input.roleId, executor: input.executor || 'CODEX' }] } as any;
-    const overrides = input.binding?.mode === 'existing' ? { [input.roleId]: { sessionId: input.binding.sessionId! } } : undefined;
-    const resolution = await this.options.resolver.resolve({ team, workspaceId: input.workspaceId, roleIds: [input.roleId], overrides, allowAutoCreate: true, persistBindings: true });
-    const role = resolution.results[0]; if (!resolution.ok || !role?.sessionId) throw new Error('The workflow role session could not be resolved.');
-    const queued = await this.options.vk.queueFollowUp(role.sessionId, input.prompt, { source: 'workflow', provenance: { kind: 'workflow', label: 'Native workflow role turn', workflow_run_id: input.operationKey, workflow_role_id: input.roleId }, executorConfig: input.executor ? { executor: input.executor as Executor, model_id: input.model, reasoning_id: input.reasoningId } : undefined });
-    return { sessionId: role.sessionId, queueItemRef: queued.queued_item.id };
+    let sessionId:string;
+    if(input.binding?.mode==='existing'){const session=await this.options.vk.getSession(input.binding.sessionId!);if(session.workspace_id!==input.workspaceId)throw new Error('The workflow role session is not in the selected workspace.');sessionId=session.id;}
+    else {if(!input.executor)throw new Error('A resolved executor is required to create a workflow role session.');const name=input.binding?.name??input.roleId;const team={id:`native-${input.operationKey}`,name:'Native workflow',agents:[{id:input.roleId,role:name,displayName:name,executor:input.executor}]} as any;const resolution=await this.options.resolver.resolve({team,workspaceId:input.workspaceId,roleIds:[input.roleId],allowAutoCreate:true,allowRoleNameReuse:input.binding?.mode==='create_or_reuse',persistBindings:true});const role=resolution.results[0];if(!resolution.ok||!role?.sessionId)throw new Error('The workflow role session could not be resolved.');sessionId=role.sessionId;}
+    const queued = await this.options.vk.queueFollowUp(sessionId, input.prompt, { source: 'workflow', operationKey:`native-turn:${input.operationKey}`, provenance: { kind: 'workflow', label: 'Native workflow role turn', workflow_run_id: input.operationKey, workflow_role_id: input.roleId }, executorConfig: input.executor ? { executor: input.executor as Executor, model_id: input.model, reasoning_id: input.reasoningId } : undefined });
+    return { sessionId, queueItemRef: queued.queued_item.id };
   }
-  async reconcileRoleTurn() { return 'unknown' as const; }
+  async reconcileRoleTurn() { return null; }
   async readAuthoritativeState(input: Parameters<NativeGasCityRuntime['readAuthoritativeState']>[0]):Promise<NativeGasCityAuthoritativeState> { const output=await this.exec(this.bd,['show',safeId(input.rootBeadId),'--json']);const value=JSON.parse(output);const record=Array.isArray(value)?value[0]:value;const status:NativeGasCityAuthoritativeState['status']=String(record?.status??'')==='closed'?'completed':String(record?.status??'')==='blocked'?'blocked':'running';return{workflowId:input.workflowId,rootBeadId:input.rootBeadId,sourceBeadId:input.sourceBeadId,status}; }
   async ensureTypedResult(input: Parameters<NativeGasCityRuntime['ensureTypedResult']>[0]) { const current=await this.readAuthoritativeState(input);if(current.status==='completed')return current;await this.exec(this.bd,['close',safeId(input.rootBeadId),'--reason',input.summary,'--json'],{BEADS_ACTOR:'vd-workflows'});const completed=await this.readAuthoritativeState(input);if(completed.status!=='completed')throw new Error('Authoritative workflow result was not confirmed.');return completed; }
   async ensureResultNote(input: Parameters<NativeGasCityRuntime['ensureResultNote']>[0]) { const marker=`Workflow result ${sha(input.operationKey).slice(0,16)}`;const existing=await this.exec(this.bd,['comments',safeId(input.sourceBeadId),'--json']);if(existing.includes(marker))return{noteRef:`result:${sha(input.operationKey).slice(0,24)}`};await this.exec(this.bd, ['comments', 'add', safeId(input.sourceBeadId), '--', `${marker}\n\n${input.summary}`], { BEADS_ACTOR: 'vd-workflows' });return { noteRef: `result:${sha(input.operationKey).slice(0, 24)}` }; }
@@ -78,7 +80,7 @@ export class PackagedNativeGasCityRuntime implements NativeGasCityRuntime {
     const target = input.request.completionResponse; if (!target?.sessionId) return { callbackRef: null };
     const existing=await this.options.vk.upsertWorkflowCallback({ callback_key: input.operationKey, workspace_id: input.run.workspaceId, target_session_id: target.sessionId, kind: 'workflow_completion', workflow_run_id: input.run.runId, workflow_name: 'Native workflow' }) as any;
     if(existing?.status==='delivered')return{callbackRef:typeof existing.delivered_ref==='string'?existing.delivered_ref:input.operationKey};
-    const queued = await this.options.vk.queueFollowUp(target.sessionId, `Workflow completed\n\nStatus: completed\nTask: ${input.run.sourceBeadId}\nOpen: ${input.run.url}`, { source: 'workflow', provenance: { kind: 'workflow', label: 'Workflow completion response', workflow_run_id: input.run.runId } });
+    const queued = await this.options.vk.queueFollowUp(target.sessionId, `Workflow completed\n\nStatus: completed\nTask: ${input.run.sourceBeadId}\nOpen: ${input.run.url}`, { source: 'workflow', operationKey:`native-callback:${input.operationKey}`, provenance: { kind: 'workflow', label: 'Workflow completion response', workflow_run_id: input.run.runId } });
     await this.options.vk.updateWorkflowCallbackStatus(input.operationKey, { status: 'delivered', delivered_ref: queued.queued_item.id });
     return { callbackRef: queued.queued_item.id };
   }
@@ -86,9 +88,9 @@ export class PackagedNativeGasCityRuntime implements NativeGasCityRuntime {
 }
 
 export function createProductionNativeGasCityRuntime(input: { vk: VibeKanbanServerClient; resolver: WorkflowRoleSessionResolver }): PackagedNativeGasCityRuntime | null {
-  const root = process.env.VD_GAS_CITY_NATIVE_BUNDLE_ROOT, city = process.env.VD_GAS_CITY_CITY_ROOT, target = process.env.VD_GAS_CITY_TARGET;
-  if (!root || !city || !target) return null;
-  return new PackagedNativeGasCityRuntime({ root, city, target, gcExecutable: process.env.VD_GAS_CITY_EXECUTABLE || '/usr/local/bin/gc', beadsExecutable: process.env.VD_BEADS_EXECUTABLE || '/usr/local/bin/bd', ...input });
+  const root = process.env.VD_GAS_CITY_NATIVE_BUNDLE_ROOT, city = process.env.VD_GAS_CITY_CITY_ROOT, target = process.env.VD_GAS_CITY_TARGET,manifestPath=process.env.VD_GAS_CITY_RUNTIME_MANIFEST||'/usr/local/share/vd/gas-city-runtime.json';
+  if (!root || !city || !target || !process.env.VD_RUNTIME_ROOT) return null;
+  try{const manifest=JSON.parse(readFileSync(manifestPath,'utf8'));for(const [pathKey,digestKey] of [['gasCityExecutable','gasCityExecutableSha256'],['beadsExecutable','beadsExecutableSha256']] as const){const path=realpathSync(String(manifest[pathKey]));if(sha(readFileSync(path))!==manifest[digestKey])throw new Error('digest mismatch');manifest[pathKey]=path;}return new PackagedNativeGasCityRuntime({ root, city, target, gcExecutable: manifest.gasCityExecutable, beadsExecutable: manifest.beadsExecutable, ...input });}catch{throw new Error('Verified packaged workflow runtime is unavailable.');}
 }
 function parseObject(text:string): Record<string,unknown> { const value=JSON.parse(text); if (!value || typeof value !== 'object') throw new Error('Workflow engine returned an invalid response.'); return value; }
 function nativeState(value:Record<string,unknown>, source:string):NativeGasCityAuthoritativeState { const workflowId=String(value.workflow_id ?? value.workflowId ?? value.id ?? ''); const rootBeadId=String(value.root_bead_id ?? value.rootBeadId ?? value.root ?? ''); if(!workflowId||!rootBeadId) throw new Error('Workflow engine did not return authoritative linkage.'); return {workflowId:safeId(workflowId),rootBeadId:safeId(rootBeadId),sourceBeadId:safeId(source),status:'running'}; }

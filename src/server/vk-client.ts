@@ -655,6 +655,7 @@ export class VibeKanbanServerClient {
       source?: QueueFollowUpSource;
       provenance?: QueueFollowUpProvenance;
       executorConfig?: ExecutorConfig;
+      operationKey?: string;
     } = {},
   ): Promise<QueueFollowUpResponse> {
     return this.post(`/sessions/${encodeURIComponent(sessionId)}/queue`, {
@@ -662,6 +663,7 @@ export class VibeKanbanServerClient {
       executor_config: options.executorConfig,
       source: options.source ?? "workflow",
       provenance: options.provenance,
+      operation_key: options.operationKey,
     });
   }
 

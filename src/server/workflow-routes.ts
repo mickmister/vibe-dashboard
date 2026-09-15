@@ -193,7 +193,10 @@ export function registerWorkflowRoutes(
   hono.get("/dashboard/api/workflows/health", (c) => c.json({ ok: true }));
 
   hono.get("/dashboard/api/workflows/native-runs/:runId", async (c) => {
-    const run = await options.nativeGasCityWorkflowProvider?.getRun(c.req.param("runId"));
+    const workspaceId=c.req.query('workspaceId')?.trim();if(!workspaceId)return c.json({error:'workspace_id_required',message:'Workspace is required.'},400);
+    try { await requireWorkflowPlanPrincipal(options,c.req.raw,{workspaceId,designId:'native-run-status',inputs:{},roleBindings:{},beadIds:[]},workflowAuthContext(c)); }
+    catch(error){return c.json({error:'workflow_run_access_denied',message:'Workflow run access was denied.'},401);}
+    const run = await options.nativeGasCityWorkflowProvider?.getRun(c.req.param("runId"),workspaceId);
     if (!run) return c.json({ error: "workflow_run_not_found", message: "Workflow run was not found." }, 404);
     return c.json({ run });
   });

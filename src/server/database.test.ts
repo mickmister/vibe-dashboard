@@ -63,6 +63,8 @@ describe('VD database', () => {
         '20260912060000_workflow_work_area_adoption_capability',
         '20260912070000_workflow_issued_plans',
         '20260912080000_harden_workflow_plan_launch',
+        '20260915000000_native_gas_city_runs',
+        '20260915010000_native_gas_city_effects',
       ]);
       const tables = await sql<{ name: string }>`
         SELECT name FROM sqlite_master
@@ -80,7 +82,7 @@ describe('VD database', () => {
           'WorkflowMetaRunEvent', 'WorkflowWorkArea', 'WorkflowWorkAreaRepository',
           'WorkflowWorkAreaOperation', 'WorkflowWorkAreaOperationLease', 'WorkflowWorkAreaLockDomain', 'WorkflowWorkAreaRegistryIdentity',
           'WorkflowWorkAreaRegistryAdoptionAudit', 'WorkflowWorkAreaAuditEvent',
-          'WorkflowIssuedPlan', 'WorkflowPlanLaunchEffect', 'WorkflowPlanAuditEvent', 'Migration'
+          'WorkflowIssuedPlan', 'WorkflowPlanLaunchEffect', 'WorkflowPlanAuditEvent', 'WorkflowNativeGasCityRun', 'WorkflowNativeGasCityEffect', 'Migration'
         )
       `.execute(handle.db);
       expect(tables.rows.map((table) => table.name).sort()).toEqual([
@@ -102,6 +104,8 @@ describe('VD database', () => {
         'WorkflowMetaRun',
         'WorkflowMetaRunEvent',
         'WorkflowMetaRunItem',
+        'WorkflowNativeGasCityEffect',
+        'WorkflowNativeGasCityRun',
         'WorkflowPersistedRun',
         'WorkflowPlanAuditEvent',
         'WorkflowPlanLaunchEffect',
