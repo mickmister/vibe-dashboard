@@ -15,6 +15,10 @@ describe('Gas City runtime packaging GCW-9', () => {
     for (const contents of [dockerfile, workflowDockerfile]) {
       expect(contents).toContain('ARG GASCITY_VERSION=v1.4.1');
       expect(contents).toContain('ARG BEADS_VERSION=v1.2.2');
+      expect(contents).toContain('DOLT_VERSION=v2.1.4');
+      expect(contents).toContain('tmux');
+      expect(contents).toContain('jq');
+      expect(contents).toContain('lsof');
       expect(contents).toContain('github.com/gastownhall/gascity/releases/download/${GASCITY_VERSION}');
       expect(contents).toContain('gascity_${GASCITY_VERSION#v}_checksums.txt');
       expect(contents).toContain('github.com/gastownhall/beads/releases/download/${BEADS_VERSION}');

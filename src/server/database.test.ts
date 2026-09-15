@@ -11,6 +11,9 @@ import { migration as workAreaHostIdentityMigration } from '../store/db/migratio
 import { migration as workAreaRegistryIdentityMigration } from '../store/db/migrations/20260912040000_workflow_work_area_registry_identity/migration';
 import { migration as workAreaRegistryAdoptionAuditMigration } from '../store/db/migrations/20260912050000_workflow_work_area_registry_adoption_audit/migration';
 import { migration as workAreaAdoptionCapabilityMigration } from '../store/db/migrations/20260912060000_workflow_work_area_adoption_capability/migration';
+import { migration as nativeRunsMigration } from '../store/db/migrations/20260915000000_native_gas_city_runs/migration';
+import { migration as nativeEffectsMigration } from '../store/db/migrations/20260915010000_native_gas_city_effects/migration';
+import Database from 'better-sqlite3';
 
 const tempDirs: string[] = [];
 
@@ -21,6 +24,14 @@ afterEach(() => {
 });
 
 describe('VD database', () => {
+  it('upgrades a populated native-run registry without losing identity',()=>{
+    const sqlite:any=new Database(':memory:');sqlite.exec(nativeRunsMigration);
+    sqlite.prepare(`INSERT INTO WorkflowNativeGasCityRun(operationKey,runId,workspaceId,sourceBeadId,requestDigest,bundleDigest,requestJson,allowedActionsJson,status,summary,attempts,createdAt,updatedAt) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)`).run('op','run','ws','bead','request','bundle','{}','[]','running','Running.',1,1,1);
+    sqlite.exec(nativeEffectsMigration);
+    expect(sqlite.prepare('SELECT operationKey,definitionJson FROM WorkflowNativeGasCityRun').get()).toEqual({operationKey:'op',definitionJson:'{}'});
+    sqlite.prepare(`INSERT INTO WorkflowNativeGasCityEffect(runId,kind,requestDigest,status,fence,createdAt,updatedAt) VALUES('run','bundle','digest','completed',1,1,1)`).run();
+    expect(sqlite.prepare('SELECT COUNT(*) AS count FROM WorkflowNativeGasCityEffect').get()).toEqual({count:1});sqlite.close();
+  });
   it('uses VD_DB_PATH or data/vd.sqlite without legacy external tracker fallback', () => {
     expect(getVdDbPath({ VD_DB_PATH: '/tmp/custom.sqlite' })).toBe('/tmp/custom.sqlite');
     expect(getVdDbPath({ VD_EXTERNAL_TRACKERS_DB_PATH: '/tmp/legacy.sqlite' })).toMatch(/data\/vd\.sqlite$/);

@@ -301,7 +301,7 @@ export interface QueuedMessage {
     | "cancelled";
   source: "from_user" | "workflow" | "agent" | "system";
   priority: number | bigint;
-  data: { message: string; session_command?: unknown | null; provenance?: QueueFollowUpProvenance | null };
+  data: { message: string; executor_config?: ExecutorConfig | null; session_command?: unknown | null; provenance?: QueueFollowUpProvenance | null; operation_key?: string | null };
 }
 
 export interface UpsertRunConfig {
@@ -665,6 +665,10 @@ export class VibeKanbanServerClient {
       provenance: options.provenance,
       operation_key: options.operationKey,
     });
+  }
+
+  findQueuedOperation(sessionId: string, operationKey: string): Promise<QueuedMessage | null> {
+    return this.get(`/sessions/${encodeURIComponent(sessionId)}/queue/operations/${encodeURIComponent(operationKey)}`);
   }
 
   private get<T>(path: string): Promise<T> {

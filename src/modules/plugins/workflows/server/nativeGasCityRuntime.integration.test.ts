@@ -1,4 +1,4 @@
-import { mkdtemp, mkdir, readFile, rm } from 'node:fs/promises';
+import { mkdtemp, mkdir, readFile, rm, symlink } from 'node:fs/promises';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { describe, expect, it } from 'vitest';
@@ -15,6 +15,11 @@ describe('packaged native Gas City runtime', () => {
       const bytes=new TextEncoder().encode('{"formula":{"contents":"name = \\"native-proof\\"\\n"}}\n');const digest=createHash('sha256').update(bytes).digest('hex');
       await expect(runtime.ensureBundle({operationKey:'docker-proof',bundle:{schemaVersion:'vd.execution-bundle.v1',digest,bytes,document:{},verificationEvidence:{} as any}})).resolves.toEqual({bundleRef:digest});
       expect(await readFile(join(root,'bundles',digest,'bundle.json'),'utf8')).toContain('native-proof');
+      const otherBytes=new TextEncoder().encode('{"formula":{"contents":"name = \\"native-proof\\"\\ndescription = \\"different\\"\\n"}}\n');const otherDigest=createHash('sha256').update(otherBytes).digest('hex');
+      const results=await Promise.allSettled([runtime.ensureBundle({operationKey:'collision-a',bundle:{schemaVersion:'vd.execution-bundle.v1',digest,bytes,document:{},verificationEvidence:{} as any}}),runtime.ensureBundle({operationKey:'collision-b',bundle:{schemaVersion:'vd.execution-bundle.v1',digest:otherDigest,bytes:otherBytes,document:{},verificationEvidence:{} as any}})]);
+      expect(results.filter((entry)=>entry.status==='rejected')).toHaveLength(1);
+      await rm(join(root,'bundles'),{recursive:true,force:true});await symlink('/tmp',join(root,'bundles'));
+      await expect(runtime.ensureBundle({operationKey:'swap',bundle:{schemaVersion:'vd.execution-bundle.v1',digest,bytes,document:{},verificationEvidence:{} as any}})).rejects.toThrow(/server-controlled|ownership/i);
     } finally { if(previous===undefined)delete process.env.VD_RUNTIME_ROOT;else process.env.VD_RUNTIME_ROOT=previous;await rm(base,{recursive:true,force:true}); }
   });
 });

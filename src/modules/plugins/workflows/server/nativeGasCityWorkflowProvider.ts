@@ -36,11 +36,12 @@ export interface NativeGasCityRuntime {
     reasoningId: string | null;
     binding: WorkflowPlanRequest['roleBindings'][string] | undefined;
   }): Promise<{ sessionId: string; queueItemRef: string }>;
-  reconcileRoleTurn(operationKey: string): Promise<{ sessionId: string; queueItemRef: string } | null | 'unknown'>;
+  reconcileRoleTurn(input: Parameters<NativeGasCityRuntime['ensureRoleTurn']>[0]): Promise<{ sessionId: string; queueItemRef: string } | null | 'unknown'>;
   readAuthoritativeState(input: { operationKey: string; workflowId: string; rootBeadId: string; sourceBeadId: string }): Promise<NativeGasCityAuthoritativeState>;
   ensureTypedResult(input: { operationKey: string; workflowId: string; rootBeadId: string; sourceBeadId: string; action: string; summary: string }): Promise<NativeGasCityAuthoritativeState>;
   ensureResultNote(input: { operationKey: string; sourceBeadId: string; summary: string }): Promise<{ noteRef: string }>;
   ensureTerminalCallback(input: { operationKey: string; request: WorkflowPlanRequest; run: NativeGasCityRunReadModel }): Promise<{ callbackRef: string | null }>;
+  reconcileEffect(input:{kind:string;request:any}):Promise<{outcome:'found';result:unknown}|{outcome:'absent'}|{outcome:'unknown'}>;
 }
 
 export interface NativeGasCityRunReadModel {
@@ -63,6 +64,8 @@ export class NativeGasCityWorkflowProvider implements WorkflowNativeLaunchProvid
     getDb: () => Promise<Kysely<DB>> | Kysely<DB>;
     runtime: NativeGasCityRuntime;
     now?: () => number;
+    effectLeaseMs?:number;
+    effectHeartbeatMs?:number;
   }) {}
 
   async checkDynamic(plan: WorkflowPlan): Promise<{ ready: boolean; message?: string }> {
@@ -87,14 +90,16 @@ export class NativeGasCityWorkflowProvider implements WorkflowNativeLaunchProvid
         row = await this.patch(row, { bundleRef: safeRef(installed.bundleRef) });
       }
       if (!row.workflowId) {
-        const native = await this.ensureEffect(row.runId,'workflow',{bundleRef:row.bundleRef,sourceBeadId:row.sourceBeadId},()=>this.options.runtime.ensureWorkflow({ operationKey: input.idempotencyKey, bundleRef: row.bundleRef!, sourceBeadId: row.sourceBeadId }));
+        const workflowRequest={operationKey:input.idempotencyKey,bundleRef:row.bundleRef!,sourceBeadId:row.sourceBeadId};
+        const native = await this.ensureEffect(row.runId,'workflow',workflowRequest,()=>this.options.runtime.ensureWorkflow(workflowRequest));
         assertNativeIdentity(native, row.sourceBeadId);
         row = await this.patch(row, { workflowId: safeRef(native.workflowId), rootBeadId: safeRef(native.rootBeadId), status: 'ready' });
       }
       const role = firstRole(input.bundle);
       if (!row.queueItemRef) {
         row = await this.transition(row, 'turn_pending');
-        const turn = await this.ensureEffect(row.runId,'role_turn',{roleId:role.roleId,promptDigest:digest(buildPrompt(input.bundle,row.sourceBeadId))},()=>this.ensureTurn(input, role, row));
+        const roleRequest=turnInput(input.idempotencyKey,input.request.workspaceId,input.request,role,buildPrompt(input.bundle,row.sourceBeadId));
+        const turn = await this.ensureEffect(row.runId,'role_turn',roleRequest,()=>this.ensureTurn(input, role, row));
         row = await this.patch(row, { sessionId: safeRef(turn.sessionId), queueItemRef: safeRef(turn.queueItemRef), status: 'running' });
       }
       return launchResult(row, row.attempts > 1);
@@ -115,7 +120,8 @@ export class NativeGasCityWorkflowProvider implements WorkflowNativeLaunchProvid
     if (!native) return row.status === 'preparing' ? { outcome: 'not_found' as const } : { outcome: 'unknown' as const };
     assertNativeIdentity(native, row.sourceBeadId);
     row = await this.patch(row, { workflowId: safeRef(native.workflowId), rootBeadId: safeRef(native.rootBeadId), status: native.status === 'completed' ? 'completed' : 'ready' });
-    const turn = row.queueItemRef ? { sessionId: row.sessionId!, queueItemRef: row.queueItemRef } : await this.options.runtime.reconcileRoleTurn(idempotencyKey);
+    const request=JSON.parse(row.requestJson) as WorkflowPlanRequest;const role=firstRoleFromDefinition(row.definitionJson);
+    const turn = row.queueItemRef ? { sessionId: row.sessionId!, queueItemRef: row.queueItemRef } : await this.options.runtime.reconcileRoleTurn(turnInput(idempotencyKey,row.workspaceId,request,role,buildPromptFromDefinition(row.definitionJson,row.sourceBeadId)));
     if (turn === 'unknown') return { outcome: 'unknown' as const };
     if (turn) row = await this.patch(row, { sessionId: safeRef(turn.sessionId), queueItemRef: safeRef(turn.queueItemRef), status: 'running' });
     return row.status === 'running' || row.status === 'completed' ? { outcome: 'found' as const, run: launchResult(row, true) } : { outcome: 'unknown' as const };
@@ -130,16 +136,19 @@ export class NativeGasCityWorkflowProvider implements WorkflowNativeLaunchProvid
     const initialRow=row; let current:Selectable<WorkflowNativeGasCityRun>=row;
     if (current.resultRef) return { applied: false, run: readModel(current) };
     const result = validateDecision(input.finalResponseText,JSON.parse(row.definitionJson));
-    const authoritative = await this.ensureEffect(initialRow.runId,'typed_result',{responseRef:input.responseRef,action:result.action,summary:result.summary},()=>this.options.runtime.ensureTypedResult({ operationKey: `${initialRow.operationKey}:typed-result`, workflowId: initialRow.workflowId!, rootBeadId: initialRow.rootBeadId!, sourceBeadId: initialRow.sourceBeadId, action: result.action, summary: result.summary }));
+    const resultRequest={ operationKey: `${initialRow.operationKey}:typed-result`, workflowId: initialRow.workflowId!, rootBeadId: initialRow.rootBeadId!, sourceBeadId: initialRow.sourceBeadId, action: result.action, summary: result.summary,responseRef:input.responseRef};
+    const authoritative = await this.ensureEffect(initialRow.runId,'typed_result',resultRequest,()=>this.options.runtime.ensureTypedResult(resultRequest));
     assertNativeIdentity(authoritative, initialRow.sourceBeadId);
     if (authoritative.status !== 'completed') {
       current = await this.patch(current, { status: 'blocked', summary: 'The workflow needs attention.' });
       return { applied: true, run: readModel(current) };
     }
-    const note = await this.ensureEffect(current.runId,'result_note',{summary:result.summary},()=>this.options.runtime.ensureResultNote({ operationKey: `${current.operationKey}:result-note`, sourceBeadId: current.sourceBeadId, summary: result.summary }));
+    const noteRequest={ operationKey: `${current.operationKey}:result-note`, sourceBeadId: current.sourceBeadId, summary: result.summary };
+    const note = await this.ensureEffect(current.runId,'result_note',noteRequest,()=>this.options.runtime.ensureResultNote(noteRequest));
     current = await this.patch(current, { resultRef: safeRef(input.responseRef), noteRef: safeRef(note.noteRef), summary: safeText(result.summary), status: 'completed' });
     if (!current.callbackRef) {
-      const callback = await this.ensureEffect(current.runId,'terminal_callback',{requestDigest:current.requestDigest},()=>this.options.runtime.ensureTerminalCallback({ operationKey: `${current.operationKey}:terminal-callback`, request: JSON.parse(current.requestJson) as WorkflowPlanRequest, run: readModel(current) }));
+      const callbackRequest={ operationKey: `${current.operationKey}:terminal-callback`, request: JSON.parse(current.requestJson) as WorkflowPlanRequest, run: readModel(current) };
+      const callback = await this.ensureEffect(current.runId,'terminal_callback',callbackRequest,()=>this.options.runtime.ensureTerminalCallback(callbackRequest));
       current = await this.patch(current, { callbackRef: callback.callbackRef ? safeRef(callback.callbackRef) : 'none' });
     }
     return { applied: true, run: readModel(current) };
@@ -152,19 +161,11 @@ export class NativeGasCityWorkflowProvider implements WorkflowNativeLaunchProvid
   }
 
   private async ensureTurn(input: Parameters<NativeGasCityWorkflowProvider['launch']>[0], role: ReturnType<typeof firstRole>, row: Selectable<WorkflowNativeGasCityRun>) {
-    const recovered = await this.options.runtime.reconcileRoleTurn(input.idempotencyKey);
+    const roleTurnInput=turnInput(input.idempotencyKey,input.request.workspaceId,input.request,role,buildPrompt(input.bundle,row.sourceBeadId));
+    const recovered = await this.options.runtime.reconcileRoleTurn(roleTurnInput);
     if (recovered === 'unknown') throw new Error('The earlier role turn outcome cannot be confirmed.');
     if (recovered) return recovered;
-    return this.options.runtime.ensureRoleTurn({
-      operationKey: input.idempotencyKey,
-      workspaceId: input.request.workspaceId,
-      roleId: role.roleId,
-      prompt: buildPrompt(input.bundle, row.sourceBeadId),
-      executor: role.executor,
-      model: role.model,
-      reasoningId: role.reasoningId,
-      binding: input.request.roleBindings?.[role.roleId],
-    });
+    return this.options.runtime.ensureRoleTurn(roleTurnInput);
   }
 
   private async reserve(input: Parameters<NativeGasCityWorkflowProvider['launch']>[0], requestDigest: string) {
@@ -177,18 +178,27 @@ export class NativeGasCityWorkflowProvider implements WorkflowNativeLaunchProvid
   private block(row: Selectable<WorkflowNativeGasCityRun>, summary: string) { return this.patch(row, { status: 'blocked', summary }); }
   private ensureEffect<T>(runId:string,kind:string,request:unknown,perform:()=>Promise<T>):Promise<T>{const key=`${runId}:${kind}`,requestDigest=digest(request);const active=this.inFlight.get(key);if(active){if(active.requestDigest!==requestDigest)return Promise.reject(new Error('Native workflow effect identity conflict.'));return active.promise as Promise<T>;}const promise=this.ensureEffectInternal(runId,kind,request,perform).finally(()=>this.inFlight.delete(key));this.inFlight.set(key,{requestDigest,promise});return promise;}
   private async ensureEffectInternal<T>(runId:string,kind:string,request:unknown,perform:()=>Promise<T>):Promise<T>{
-    const db=await this.db(),now=this.now(),requestDigest=digest(request),expires=now+60_000;
+    const db=await this.db(),now=this.now(),requestDigest=digest(request),leaseMs=this.options.effectLeaseMs??60_000,expires=now+leaseMs;
     await db.insertInto('WorkflowNativeGasCityEffect').values({runId,kind,requestDigest,status:'pending',leaseOwner:this.ownerId,leaseExpiresAt:expires,fence:1,resultJson:null,lastError:null,createdAt:now,updatedAt:now}).onConflict((oc)=>oc.columns(['runId','kind']).doNothing()).execute();
     let row=await db.selectFrom('WorkflowNativeGasCityEffect').selectAll().where('runId','=',runId).where('kind','=',kind).executeTakeFirstOrThrow();
     if(row.requestDigest!==requestDigest)throw new Error('Native workflow effect identity conflict.');
     if(row.status==='completed'&&row.resultJson)return JSON.parse(row.resultJson) as T;
     if(row.leaseOwner!==this.ownerId){
       if((row.leaseExpiresAt??0)>now)throw new Error('Native workflow effect is already being reconciled.');
+      const reconciliation=await this.options.runtime.reconcileEffect({kind,request});
+      if(reconciliation.outcome==='unknown')throw new Error('Native workflow effect outcome cannot be confirmed.');
+      if(reconciliation.outcome==='found'){
+        const recovered=await db.updateTable('WorkflowNativeGasCityEffect').set({status:'completed',resultJson:JSON.stringify(reconciliation.result),leaseOwner:null,leaseExpiresAt:null,updatedAt:now}).where('runId','=',runId).where('kind','=',kind).where('status','=','pending').where('fence','=',row.fence).executeTakeFirst();
+        if(Number(recovered.numUpdatedRows)!==1)throw new Error('Native workflow effect is already being reconciled.');
+        return reconciliation.result as T;
+      }
       const claimed=await db.updateTable('WorkflowNativeGasCityEffect').set({leaseOwner:this.ownerId,leaseExpiresAt:expires,fence:row.fence+1,updatedAt:now}).where('runId','=',runId).where('kind','=',kind).where('status','=','pending').where('fence','=',row.fence).where('leaseExpiresAt','<=',now).executeTakeFirst();
       if(Number(claimed.numUpdatedRows)!==1)throw new Error('Native workflow effect is already being reconciled.');
       row=await db.selectFrom('WorkflowNativeGasCityEffect').selectAll().where('runId','=',runId).where('kind','=',kind).executeTakeFirstOrThrow();
     }
-    const result=await perform();
+    let lost=false;const heartbeat=setInterval(()=>{void this.db().then((heartbeatDb)=>heartbeatDb.updateTable('WorkflowNativeGasCityEffect').set({leaseExpiresAt:this.now()+leaseMs,updatedAt:this.now()}).where('runId','=',runId).where('kind','=',kind).where('status','=','pending').where('leaseOwner','=',this.ownerId).where('fence','=',row.fence).executeTakeFirst()).then((updated)=>{if(Number(updated.numUpdatedRows)!==1)lost=true;}).catch(()=>{lost=true;});},this.options.effectHeartbeatMs??15_000);heartbeat.unref?.();
+    let result:T;try{result=await perform();}finally{clearInterval(heartbeat);}
+    if(lost)throw new Error('Native workflow effect ownership changed before completion.');
     const completed=await db.updateTable('WorkflowNativeGasCityEffect').set({status:'completed',resultJson:JSON.stringify(result),leaseOwner:null,leaseExpiresAt:null,updatedAt:this.now()}).where('runId','=',runId).where('kind','=',kind).where('status','=','pending').where('leaseOwner','=',this.ownerId).where('fence','=',row.fence).executeTakeFirst();
     if(Number(completed.numUpdatedRows)!==1)throw new Error('Native workflow effect ownership changed before completion.');
     return result;
@@ -200,6 +210,9 @@ export class NativeGasCityWorkflowProvider implements WorkflowNativeLaunchProvid
 function validateSingleTask(input: { request: WorkflowPlanRequest; plan: WorkflowPlan; bundle: CompiledGasCityExecutionBundle }) { if (input.plan.tasks.length !== 1 || input.request.beadIds.length !== 1) throw new Error('Native workflow start currently supports one task.'); const doc = input.bundle.document as any; if (!Array.isArray(doc?.formula?.intendedGraph?.nodes) || doc.formula.intendedGraph.nodes.length !== 1) throw new Error('Native workflow start currently supports one role turn.'); }
 function firstRole(bundle: CompiledGasCityExecutionBundle): { roleId: string; executor: string | null; model: string | null; reasoningId: string | null; promptAssets?: Array<{content:string}>; skillAssets?: Array<{content:string}>; baseInstructions?: string } { const roles = (bundle.document as any).roles; if (!Array.isArray(roles) || roles.length !== 1) throw new Error('Native workflow start currently supports one resolved role.'); return roles[0]; }
 function buildPrompt(bundle: CompiledGasCityExecutionBundle, beadId: string): string { const doc = bundle.document as any; const role = firstRole(bundle); const parts = [...(role.promptAssets ?? []).map((a: any) => a.content), ...(role.skillAssets ?? []).map((a: any) => a.content), role.baseInstructions].filter(Boolean); const schema = Object.values(doc.responseSchemas ?? {})[0]; return [...parts, `Task: ${safeRef(beadId)}`, typeof schema === 'string' ? schema : ''].filter(Boolean).join('\n\n'); }
+function firstRoleFromDefinition(definitionJson:string):ReturnType<typeof firstRole>{const definition=JSON.parse(definitionJson);const entry=Object.entries((definition as any).roles??{})[0] as [string,any]|undefined;if(!entry)throw new Error('The workflow role could not be restored.');const [key,role]=entry;return{roleId:role.id??role.roleId??key,executor:role.executor??null,model:role.model??null,reasoningId:role.reasoningId??null,baseInstructions:role.prompt??''};}
+function buildPromptFromDefinition(definitionJson:string,beadId:string){const role=firstRoleFromDefinition(definitionJson);return[role.baseInstructions,`Task: ${safeRef(beadId)}`].filter(Boolean).join('\n\n');}
+function turnInput(operationKey:string,workspaceId:string,request:WorkflowPlanRequest,role:ReturnType<typeof firstRole>,prompt:string){return{operationKey,workspaceId,roleId:role.roleId,prompt,executor:role.executor,model:role.model,reasoningId:role.reasoningId,binding:request.roleBindings?.[role.roleId]};}
 function validateDecision(text:string,definition:unknown):{action:string;summary:string}{
   strictXmlShape(text);const model=normalizeWorkflowDefinitionV1(definition,{workflowId:'native'});const state=Object.values(model.states).find((s)=>!s.terminal&&s.steps.some((step:any)=>step.type==='agent_turn'&&step.turnType==='decision'));if(!state||state.terminal)throw new Error('The compiled workflow has no decision contract.');const validation=new SimpleWorkflowXmlDecisionValidator().validate({actions:state.actions,responseText:text,rawXmlMaxChars:1_000_000});if(!validation.valid||!validation.action||!validation.parsed||(validation.unknownFields?.length??0)>0)throw new Error('The workflow response did not match the compiled decision contract.');const selectedAction=validation.action as string;const action=state.actions[selectedAction];if(!action)throw new Error('The workflow response selected an unsupported decision.');const target=model.states[action.targetState];if(!target||!target.terminal)throw new Error('The native workflow decision must be terminal.');const summary=validation.parsed.summary;if(typeof summary!=='string'||!summary.trim())throw new Error('The workflow response summary is required.');return{action:selectedAction,summary:safeText(summary.trim())};
 }

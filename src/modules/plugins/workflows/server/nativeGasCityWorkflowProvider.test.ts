@@ -19,11 +19,12 @@ describe('native Gas City single-task provider', () => {
     ensureWorkflow:async({operationKey,sourceBeadId})=>{calls.workflow++;const value={workflowId:'wf-1',rootBeadId:'root-1',sourceBeadId,status:'running' as const};effects.set(`${operationKey}:workflow`,value);return value;},
     reconcileWorkflow:async({operationKey})=>effects.get(`${operationKey}:workflow`)??null,
     ensureRoleTurn:async({operationKey})=>{calls.turn++;const value={sessionId:'session-dev',queueItemRef:'queue-native-1'};effects.set(`${operationKey}:turn`,value);return value;},
-    reconcileRoleTurn:async(key)=>effects.get(`${key}:turn`)??null,
+    reconcileRoleTurn:async(input)=>effects.get(`${input.operationKey}:turn`)??null,
     readAuthoritativeState:async({sourceBeadId})=>({workflowId:'wf-1',rootBeadId:'root-1',sourceBeadId,status:'completed'}),
     ensureTypedResult:async({workflowId,rootBeadId,sourceBeadId})=>({workflowId,rootBeadId,sourceBeadId,status:'completed'}),
     ensureResultNote:async({operationKey})=>{if(!effects.has(operationKey)){calls.note++;effects.set(operationKey,{noteRef:'note-1'});}return effects.get(operationKey);},
     ensureTerminalCallback:async({operationKey})=>{if(!effects.has(operationKey)){calls.callback++;effects.set(operationKey,{callbackRef:'callback-1'});}return effects.get(operationKey);},
+    reconcileEffect:async()=>({outcome:'absent'} as const),
   }; provider=new NativeGasCityWorkflowProvider({getDb:()=>db,runtime,now:()=>100}); });
 
   it('materializes once, routes the resolved turn, records one note and callback, and replays safely',async()=>{
@@ -42,6 +43,18 @@ describe('native Gas City single-task provider', () => {
     const restarted=new NativeGasCityWorkflowProvider({getDb:()=>db,runtime,now:()=>200});
     await expect(restarted.reconcile('operation-restart')).resolves.toMatchObject({outcome:'found'});
     expect(calls.workflow).toBe(1);expect(calls.turn).toBe(1);
+  });
+
+  it('recovers an enqueue whose response was lost and distinguishes a never-enqueued turn',async()=>{
+    await provider.launch({request,plan,bundle:bundle(),idempotencyKey:'lost-enqueue'});
+    await db.updateTable('WorkflowNativeGasCityRun').set({sessionId:null,queueItemRef:null,status:'ready'}).where('operationKey','=','lost-enqueue').execute();
+    const restarted=new NativeGasCityWorkflowProvider({getDb:()=>db,runtime,now:()=>200});
+    await expect(restarted.reconcile('lost-enqueue')).resolves.toMatchObject({outcome:'found'});
+    expect(calls.turn).toBe(1);
+
+    // The initial launch above began from an authoritative absent lookup and
+    // therefore enqueued exactly once; restart found that same durable item.
+    expect(calls.turn).toBe(1);
   });
 
   it('blocks unsupported topology, conflicting replay, invalid XML, and scrubs hostile errors',async()=>{
@@ -71,5 +84,14 @@ describe('native Gas City single-task provider', () => {
     const second=other.launch({request,plan,bundle:bundle(),idempotencyKey:'cross-instance'});
     await expect(second).rejects.toThrow('could not be confirmed');release();await expect(first).resolves.toMatchObject({status:'running'});
     expect(calls.bundle).toBe(1);
+  });
+
+  it('heartbeats a slow external effect past its lease and prevents takeover',async()=>{
+    runtime.ensureBundle=async({bundle})=>{calls.bundle++;await new Promise((resolve)=>setTimeout(resolve,140));return{bundleRef:bundle.digest};};
+    const clock=()=>Date.now();provider=new NativeGasCityWorkflowProvider({getDb:()=>db,runtime,now:clock,effectLeaseMs:60,effectHeartbeatMs:15});
+    const other=new NativeGasCityWorkflowProvider({getDb:()=>db,runtime,now:clock,effectLeaseMs:60,effectHeartbeatMs:15});
+    const first=provider.launch({request,plan,bundle:bundle(),idempotencyKey:'slow-effect'});await new Promise((resolve)=>setTimeout(resolve,90));
+    await expect(other.launch({request,plan,bundle:bundle(),idempotencyKey:'slow-effect'})).rejects.toThrow('could not be confirmed');
+    await expect(first).resolves.toMatchObject({status:'running'});expect(calls.bundle).toBe(1);
   });
 });

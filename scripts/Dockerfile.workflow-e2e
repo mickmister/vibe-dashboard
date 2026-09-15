@@ -1,10 +1,12 @@
 ARG PLAYWRIGHT_IMAGE=mcr.microsoft.com/playwright:v1.58.2-noble
 ARG BEADS_VERSION=v1.2.2
 ARG GASCITY_VERSION=v1.4.1
+ARG DOLT_VERSION=v2.1.4
 FROM ${PLAYWRIGHT_IMAGE}
 
 ARG BEADS_VERSION
 ARG GASCITY_VERSION
+ARG DOLT_VERSION
 
 ENV DEBIAN_FRONTEND=noninteractive
 RUN apt-get update \
@@ -21,6 +23,11 @@ RUN apt-get update \
     git \
     caddy \
     wget \
+    jq \
+    tmux \
+    lsof \
+    procps \
+    util-linux \
   && rm -rf /var/lib/apt/lists/*
 
 RUN curl --proto "=https" --tlsv1.2 -sSf https://sh.rustup.rs -o /tmp/rustup-init.sh \
@@ -34,6 +41,11 @@ RUN set -eux; \
     arm64) go_arch=arm64; tool_arch=arm64 ;; \
     *) echo "unsupported architecture: $arch" >&2; exit 1 ;; \
   esac; \
+  curl -fsSL "https://github.com/dolthub/dolt/releases/download/${DOLT_VERSION}/dolt-linux-${tool_arch}.tar.gz" -o /tmp/dolt.tar.gz; \
+  tar -xzf /tmp/dolt.tar.gz -C /tmp; \
+  install -m 0755 /tmp/dolt-linux-${tool_arch}/bin/dolt /usr/local/bin/dolt; \
+  rm -rf /tmp/dolt.tar.gz /tmp/dolt-linux-${tool_arch}; \
+  dolt version | grep -F "${DOLT_VERSION#v}"; \
   wget "https://go.dev/dl/go1.25.7.linux-${go_arch}.tar.gz"; \
   tar -C /usr/local -xzf "go1.25.7.linux-${go_arch}.tar.gz"; \
   rm "go1.25.7.linux-${go_arch}.tar.gz"; \
