@@ -1,80 +1,15 @@
 import { describe, expect, it } from 'vitest';
-import { createSplitRegistry, parseSplitIntent, rankCompatibleTargets, type SplitTarget } from './splitViewContract';
-
-const target = (overrides: Partial<SplitTarget> = {}): SplitTarget => ({
-  key: 'agent', craftId: 'craft-a', kind: 'agent', splitKeys: ['work'], runtime: { kind: 'leaseable', runtimeId: 'agent-runtime', generation: 1 }, ...overrides,
+import { createSplitRegistry, parseSplitIntent, rankCompatibleTargets, resolveSplitIntent, type SplitFixtures, type SplitTarget } from './splitViewContract';
+const target = (overrides: Partial<SplitTarget> = {}): SplitTarget => ({ key: 'agent', craftId: 'craft-a', kind: 'agent', splitKeys: ['work'], runtime: { kind: 'leaseable', runtimeId: 'agent-runtime', generation: 1 }, ...overrides });
+const fixtures = (): SplitFixtures => ({ currentVoyageId: 'voyage-a', voyages: [{ id: 'voyage-a', panels: [{ token: 'panel-token', targetKey: 'agent' }] }], crafts: [{ id: 'craft-a', voyageId: 'voyage-a', workspaceId: 'workspace-a' }], surfaces: [{ ...target(), installed: true, authorized: true }, { ...target({ key: 'code', kind: 'code', runtime: { kind: 'leaseable', runtimeId: 'code-runtime', generation: 1 } }), installed: true, authorized: true }, { ...target({ key: 'form', runtime: { kind: 'recreatable', surfaceKey: 'form', continuity: 'fresh' } }), installed: true, authorized: true }] });
+describe('production-shaped trusted Split route', () => {
+  it('parses Voyage and invoking Panel tokens plus allowlisted selectors', () => { expect(parseSplitIntent('/voyages/voyage-a/split/panel-token', '?withCraft=craft-a&withSurface=code')).toEqual({ voyageId: 'voyage-a', invokingPanelToken: 'panel-token', craftId: 'craft-a', surfaceKey: 'code' }); expect(parseSplitIntent('/voyages/voyage-a/split/panel-token', '?withSurface=code')).toMatchObject({ surfaceKey: 'code' }); const badRoutes: Array<[string, string]> = [['/voyages/x/split', '?withSurface=code'], ['/voyages/x/split/p', '?withSurface=code&url=x'], ['/voyages/../split/p', '?withSurface=code']]; for (const [path, search] of badRoutes) expect(parseSplitIntent(path, search)).toBeNull(); });
+  it('resolves only current durable records and current trusted definitions', () => { expect(resolveSplitIntent('/voyages/voyage-a/split/panel-token', '?withCraft=craft-a&withSurface=code', fixtures())).toMatchObject({ ok: true, invoking: { key: 'agent' }, selected: { key: 'code' } }); const cases: Array<[string, (f: SplitFixtures) => void]> = [['stale-voyage', (f) => { f.currentVoyageId = 'other'; }], ['invoking-panel-unavailable', (f) => { f.voyages[0]!.panels = []; }], ['craft-unavailable', (f) => { f.crafts = []; }], ['surface-unavailable', (f) => { f.surfaces[1]!.installed = false; }], ['surface-unauthorized', (f) => { f.surfaces[1]!.authorized = false; }], ['no-host', (f) => { f.surfaces[1]!.runtime = { kind: 'unsupported', reason: 'no-host' }; }]]; for (const [reason, mutate] of cases) { const value = fixtures(); mutate(value); expect(resolveSplitIntent('/voyages/voyage-a/split/panel-token', '?withCraft=craft-a&withSurface=code', value)).toEqual({ ok: false, reason }); } });
+  it('ranks same-Craft compatible targets without kind assumptions', () => { expect(rankCompatibleTargets(target(), [target({ key: 'z', craftId: 'other', runtime: { kind: 'recreatable', surfaceKey: 'z', continuity: 'fresh' } }), target({ key: 'code', kind: 'code' })]).map((item) => item.key)).toEqual(['code', 'z']); });
 });
-
-describe('Split View target and route contract', () => {
-  it('parses only allowlisted untrusted route inputs', () => {
-    expect(parseSplitIntent('?split=1&withCraft=craft-a&withSurface=code')).toEqual({ craftId: 'craft-a', surfaceKey: 'code' });
-    for (const value of ['?split=0&withCraft=craft-a&withSurface=code', '?split=1&withCraft=../x&withSurface=code', '?split=1&withCraft=a&withSurface=x&url=https://evil.test']) expect(parseSplitIntent(value)).toBeNull();
-  });
-
-  it('defaults compatible choices to same Craft without target-kind assumptions', () => {
-    const invoking = target();
-    const ranked = rankCompatibleTargets(invoking, [
-      target({ key: 'form-other', craftId: 'craft-b', kind: 'form', runtime: { kind: 'recreatable', surfaceKey: 'form', continuity: 'fresh' } }),
-      target({ key: 'code-same', kind: 'code', runtime: { kind: 'leaseable', runtimeId: 'code', generation: 2 } }),
-      target({ key: 'unsupported', runtime: { kind: 'unsupported', reason: 'no-split-renderer' } }),
-    ]);
-    expect(ranked.map((item) => item.key)).toEqual(['code-same', 'form-other']);
-  });
-});
-
-describe('exclusive runtime leases', () => {
-  it('acquires two runtimes transactionally and rolls the first back when the second fails', () => {
-    const registry = createSplitRegistry([target(), target({ key: 'busy', runtime: { kind: 'leaseable', runtimeId: 'busy', generation: 3 } })]);
-    registry.seedLease('busy', 3, 'other-host');
-    expect(registry.enter('agent', 'busy')).toEqual({ ok: false, reason: 'runtime-busy' });
-    expect(registry.observation()).toMatchObject({ activeLeases: 0, controllerPins: 0, transientControllers: 0, rollbackCount: 1 });
-    expect(registry.leaseHost('agent-runtime')).toBe('voyage-host:agent');
-  });
-
-  it('is generation checked, idempotent, budget-accounted, and preserves durable state', () => {
-    const registry = createSplitRegistry([target(), target({ key: 'code', runtime: { kind: 'leaseable', runtimeId: 'code-runtime', generation: 4 } })]);
-    const durableBefore = registry.durableObservation();
-    expect(registry.enter('agent', 'code')).toMatchObject({ ok: true });
-    expect(registry.enter('agent', 'code')).toMatchObject({ ok: true, reusedInvocation: true });
-    expect(registry.observation()).toMatchObject({ activeLeases: 2, physicalPayloads: 2, controllerPins: 1, budgetCount: 2, transientControllers: 1 });
-    registry.replaceHost('code-runtime', 5);
-    expect(registry.exit('visible-back')).toEqual({ returned: false, fallbackFocus: true });
-    expect(registry.exit('browser-back')).toEqual({ returned: false, fallbackFocus: true });
-    expect(registry.observation()).toMatchObject({ controllerPins: 0, transientControllers: 0, disposeCount: 1, detachCount: 2 });
-    expect(registry.durableObservation()).toEqual(durableBefore);
-  });
-
-  it('creates and disposes an absent split-only runtime without durable rows', () => {
-    const registry = createSplitRegistry([target(), target({ key: 'form', runtime: { kind: 'recreatable', surfaceKey: 'form', continuity: 'fresh form' } })]);
-    expect(registry.enter('agent', 'form')).toMatchObject({ ok: true });
-    expect(registry.observation()).toMatchObject({ splitOnlyRuntimeCount: 1, panelRows: 0, recencyRows: 0 });
-    registry.exit('abort'); registry.exit('abort');
-    expect(registry.observation()).toMatchObject({ splitOnlyRuntimeCount: 0, disposeCount: 1, controllerPins: 0 });
-  });
-
-  it.each([
-    [target(), target({ key: 'cross-form', craftId: 'craft-b', kind: 'form', runtime: { kind: 'recreatable', surfaceKey: 'form', continuity: 'fresh' } })],
-    [target({ key: 'form', kind: 'form', runtime: { kind: 'recreatable', surfaceKey: 'form', continuity: 'fresh' } }), target({ key: 'code', kind: 'code', runtime: { kind: 'leaseable', runtimeId: 'code', generation: 1 } })],
-    [target({ key: 'plugin', kind: 'plugin', runtime: { kind: 'leaseable', runtimeId: 'plugin', generation: 1 } }), target({ key: 'agent-two', kind: 'agent', runtime: { kind: 'leaseable', runtimeId: 'agent-two', generation: 1 } })],
-  ])('permits capability-compatible target-kind and cross-Craft pairs', (first, second) => {
-    expect(createSplitRegistry([first, second]).enter(first.key, second.key)).toEqual({ ok: true });
-  });
-
-  it('fails closed for unsupported, stale route, deletion, and plugin invalidation', () => {
-    const registry = createSplitRegistry([target(), target({ key: 'plugin', kind: 'plugin', runtime: { kind: 'leaseable', runtimeId: 'plugin-runtime', generation: 2 } }), target({ key: 'unsupported', runtime: { kind: 'unsupported', reason: 'no-runtime-host' } })]);
-    expect(registry.enter('agent', 'missing')).toEqual({ ok: false, reason: 'target-unavailable' });
-    expect(registry.enter('agent', 'unsupported')).toEqual({ ok: false, reason: 'no-runtime-host' });
-    registry.enter('agent', 'plugin'); registry.invalidateTarget('plugin');
-    expect(registry.exit('browser-back')).toEqual({ returned: false, fallbackFocus: true });
-    expect(registry.observation()).toMatchObject({ disposeCount: 1, activeLeases: 0 });
-  });
-
-  it('does not resurrect an invoking Panel or Voyage deleted while leased', () => {
-    const panelDeleted = createSplitRegistry([target(), target({ key: 'code', runtime: { kind: 'leaseable', runtimeId: 'code', generation: 1 } })]);
-    panelDeleted.enter('agent', 'code'); panelDeleted.deletePanel('agent-runtime');
-    expect(panelDeleted.exit('visible-back')).toEqual({ returned: false, fallbackFocus: true });
-    const voyageDeleted = createSplitRegistry([target(), target({ key: 'code', runtime: { kind: 'leaseable', runtimeId: 'code', generation: 1 } })]);
-    voyageDeleted.enter('agent', 'code'); voyageDeleted.invalidateVoyage('craft-a');
-    expect(voyageDeleted.exit('browser-back')).toEqual({ returned: false, fallbackFocus: true });
-  });
+describe('exclusive lifecycle', () => {
+  it('pins before identity-ordered acquisition and rolls back in reverse order', () => { const registry = createSplitRegistry([target({ key: 'z', runtime: { kind: 'leaseable', runtimeId: 'z-runtime', generation: 1 } }), target({ key: 'a', runtime: { kind: 'leaseable', runtimeId: 'a-runtime', generation: 1 } })]); registry.seedLease('z-runtime', 1, 'busy'); expect(registry.enter('z', 'a')).toEqual({ ok: false, reason: 'runtime-busy' }); expect(registry.observation()).toMatchObject({ phase: 'inactive', controllerPins: 0, rollbackCount: 1, events: ['pin', 'entering:1', 'acquire:a-runtime', 'rollback:a-runtime', 'unpin'] }); });
+  it('models overlap and Back/abort with transition tokens', () => { const registry = createSplitRegistry([target(), target({ key: 'code', runtime: { kind: 'leaseable', runtimeId: 'code', generation: 1 } })]); const pending = registry.beginEnter('agent', 'code'); expect(pending.ok).toBe(true); expect(registry.beginEnter('agent', 'code')).toEqual({ ok: false, reason: 'split-busy' }); registry.exit('browser-back'); expect(registry.completeEnter((pending as { token: number }).token, 'agent', 'code')).toEqual({ ok: false, reason: 'stale-transition' }); expect(registry.observation()).toMatchObject({ phase: 'inactive', controllerPins: 0 }); });
+  it('immediately aborts once on Panel, host, Voyage, or plugin invalidation', () => { for (const invalidate of [(r: ReturnType<typeof createSplitRegistry>) => r.deletePanel('agent-runtime'), (r: ReturnType<typeof createSplitRegistry>) => r.replaceHost('agent-runtime', 2), (r: ReturnType<typeof createSplitRegistry>) => r.invalidateVoyage('craft-a'), (r: ReturnType<typeof createSplitRegistry>) => r.invalidateTarget('agent')]) { const registry = createSplitRegistry([target(), target({ key: 'code', runtime: { kind: 'leaseable', runtimeId: 'code', generation: 1 } })]); registry.enter('agent', 'code'); invalidate(registry); expect(registry.observation()).toMatchObject({ phase: 'inactive', controllerPins: 0, transientControllers: 0 }); const disposed = registry.observation().disposeCount; registry.exit('abort'); expect(registry.observation().disposeCount).toBe(disposed); } });
+  it('disposes Split-only runtime exactly once and creates no rows', () => { const registry = createSplitRegistry([target(), target({ key: 'form', runtime: { kind: 'recreatable', surfaceKey: 'form', continuity: 'fresh' } })]); registry.enter('agent', 'form'); expect(registry.observation()).toMatchObject({ phase: 'active', splitOnlyRuntimeCount: 1, panelRows: 0, recencyRows: 0 }); registry.exit('abort'); registry.exit('abort'); expect(registry.observation()).toMatchObject({ disposeCount: 1, controllerPins: 0 }); });
 });

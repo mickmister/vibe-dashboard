@@ -6,6 +6,10 @@ function redirectGuardContract() {
     configureServer(server: { middlewares: { use(handler: (request: { url?: string }, response: { statusCode: number; setHeader(name: string, value: string): void; end(body?: string): void }, next: () => void) => void): void } }) {
       server.middlewares.use(async (request, response, next) => {
         const requestUrl = new URL(request.url ?? '/', 'http://127.0.0.1');
+        if (/^\/voyages\/[^/]+\/split\/[^/]+$/.test(requestUrl.pathname)) {
+          request.url = `/spikes/dockview-contract/split-view.html${requestUrl.search}`;
+          next(); return;
+        }
         if (requestUrl.pathname === '/contract/redirect/same') {
           response.statusCode = 302; response.setHeader('Location', '/contract/redirect/final'); response.end(); return;
         }
