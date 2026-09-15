@@ -265,6 +265,12 @@ Error cases:
 - At constrained widths, use the tested single-surface/focus fallback rather
   than an unusably narrow split.
 
+Phase 0 result: **GO**. The isolated state-machine and Chromium evidence is
+recorded in `docs/phase-0/split-view-contract-results.md`. The executable suite
+proves the restricted transient-controller, public renderer-root, runtime-lease,
+responsive geometry, native sash/maximize, route, durability, and teardown
+contracts above; it does not constitute production workbench integration.
+
 ## Required validation commands
 
 The implementer and independent tester must record the exact commands actually
