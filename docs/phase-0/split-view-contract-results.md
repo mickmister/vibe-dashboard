@@ -37,9 +37,14 @@ leases. Entering state is token-owned: pending Voyage/target/plugin identities
 and incrementally acquired leases live on the transition. Back or authoritative
 target, plugin, Voyage, or host invalidation during pending entry cancels that
 token, reverse-releases acquired leases, disposes Split-only runtimes exactly
-once, unpins, and prevents stale completion from publishing active. It pins
-before lookup and acquisition, acquires in stable runtime-identity order, and
-rolls back in reverse order if the second acquisition fails. Every lease records
+once, unpins, and prevents stale completion from publishing active. Chromium
+pauses after the first real runtime is acquired, attached to the transient left
+host, and registered as pending budget cost; Back, selected-target
+deletion/replacement, plugin removal, Voyage invalidation, and Split-only
+invoking cleanup all return or dispose that single acquired runtime before
+unpinning, with no focus publication and no stale completion. It pins before
+lookup and acquisition, acquires in stable runtime-identity order, and rolls
+back in reverse order if the second acquisition fails. Every lease records
 trusted target identity, plugin identity where applicable, and disposal
 ownership. Leaseable
 iframe targets retain their physical runtime;
@@ -54,8 +59,12 @@ and other target kinds are not rejected by hard-coded kind assumptions.
 The invoking controller is pinned and the selected two runtime registrations
 count against the global two-runtime active budget until exact teardown. The
 budget manager derives counts from retained, Split-only, and competing runtime
-registrations rather than phase constants. Concrete pressure rejects competing
-controller eviction while pinned and admits it after release. Split-only
+registrations rather than phase constants. Concrete pressure rejects admission
+of a real registered competing-controller candidate while the pending/active
+Split cost would exceed the limit and the Voyage is pinned, then admits the
+same registered candidate after Split release when the calculated cost fits the
+limit. A missing runtime registration fails closed before attachment, proving
+the budget path depends on registry state rather than constants. Split-only
 runtimes dispose once. Repeated entry,
 abort, visible Back, browser Back, and teardown are idempotent. Generation
 replacement, authoritative Panel/host deletion, Voyage replacement, or plugin
@@ -69,7 +78,9 @@ Wide mode is two groups with a real Dockview sash and 240px minimum renderer
 widths. Either side maximizes and restores. Narrow mode reconstructs the
 transient controller as one two-tab group with the invoking surface active; it
 does not CSS-hide a side. The resized ratio survives wide/narrow transitions
-within an invocation, including a transition while maximized, but a new
+within an invocation. Chromium measures the ratio before and after
+wide-to-narrow-to-wide, repeats that assertion after left-side maximize followed
+by narrow-to-wide, then exits while the right side is maximized. A new
 invocation and refresh start at 50/50. Exit while maximized follows the same
 cleanup path.
 

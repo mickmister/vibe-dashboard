@@ -1,6 +1,6 @@
 import { expect, test, type Page } from 'playwright/test';
 
-type Observation = { closed: boolean; phase: string; mode: string; ratio: number; pinned: boolean; transientMutations: number; transientMaximized: boolean; groups: number; active?: string; durableSnapshotUnchanged: boolean; durableMutations: number; forbidden: Record<string, number>; payloads: number; iframeConnected: boolean; iframeWindowStable: boolean; selectedWindowStable: boolean; focusRestored: boolean; focusAfterAttachments: boolean; durableMaximized: boolean; hostEvents: string[]; disposedPayloads: number; budgetCount: number; budgetLimit: number; budgetRegistrations: number; budgetEvictions: string[] };
+type Observation = { closed: boolean; phase: string; mode: string; ratio: number; pinned: boolean; transientMutations: number; transientMaximized: boolean; groups: number; active?: string; durableSnapshotUnchanged: boolean; durableMutations: number; forbidden: Record<string, number>; payloads: number; iframeConnected: boolean; iframeWindowStable: boolean; selectedWindowStable: boolean; focusRestored: boolean; focusAfterAttachments: boolean; durableMaximized: boolean; hostEvents: string[]; disposedPayloads: number; budgetCount: number; budgetLimit: number; budgetRegistrations: number; budgetEvictions: string[]; budgetDecisions: string[]; pendingRuntimeCount: number };
 const invoke = (page: Page, method: string, ...args: unknown[]) => page.evaluate(({ method, args }) => (window.splitContract[method] as (...values: unknown[]) => unknown)(...args), { method, args });
 const observe = (page: Page) => invoke(page, 'observe') as Promise<Observation>;
 const expectIsolated = async (page: Page) => { const state = await observe(page); expect(state.durableSnapshotUnchanged).toBe(true); expect(state.durableMutations).toBe(0); expect(state.forbidden).toEqual({ coordinator: 0, serializer: 0, fromJSON: 0, repository: 0, revision: 0, history: 0, autosave: 0 }); };
@@ -13,7 +13,7 @@ test('TEST_CASE_M1_5C leases two retained runtimes, resizes/maximizes, and retur
   const resizedRatio = after.left.width / (after.left.width + after.right.width);
   await invoke(page, 'narrow'); expect(await observe(page)).toMatchObject({ mode: 'narrow', groups: 1, active: 'left' }); await expectIsolated(page); await invoke(page, 'wide'); let wideBounds = await invoke(page, 'bounds') as { left: DOMRect; right: DOMRect }; expect(wideBounds.left.width / (wideBounds.left.width + wideBounds.right.width)).toBeCloseTo(resizedRatio, 1);
   for (const side of ['left', 'right']) { await invoke(page, 'maximize', side); expect(await observe(page)).toMatchObject({ transientMaximized: true }); await expectIsolated(page); await invoke(page, 'restore'); }
-  await invoke(page, 'maximize', 'left'); await invoke(page, 'narrow'); expect(await observe(page)).toMatchObject({ mode: 'narrow', groups: 1, active: 'left', transientMaximized: false }); await invoke(page, 'wide'); await invoke(page, 'maximize', 'right'); await page.locator('#back').click(); await expect.poll(() => observe(page)).toMatchObject({ phase: 'inactive', pinned: false, focusRestored: true, iframeWindowStable: true, selectedWindowStable: true }); state = await observe(page); expect(state.hostEvents).toEqual(expect.arrayContaining(['return:durable:code@4', 'return:durable:agent@1'])); expect((await invoke(page, 'frameState') as { bootId: string }).bootId).toBe(agentBefore.bootId); expect((await invoke(page, 'selectedFrameState') as { bootId: string }).bootId).toBe(codeBefore.bootId); await expectIsolated(page);
+  await invoke(page, 'maximize', 'left'); await invoke(page, 'narrow'); expect(await observe(page)).toMatchObject({ mode: 'narrow', groups: 1, active: 'left', transientMaximized: false }); await invoke(page, 'wide'); wideBounds = await invoke(page, 'bounds') as { left: DOMRect; right: DOMRect }; expect(wideBounds.left.width / (wideBounds.left.width + wideBounds.right.width)).toBeCloseTo(resizedRatio, 1); await invoke(page, 'maximize', 'right'); await page.locator('#back').click(); await expect.poll(() => observe(page)).toMatchObject({ phase: 'inactive', pinned: false, focusRestored: true, iframeWindowStable: true, selectedWindowStable: true }); state = await observe(page); expect(state.hostEvents).toEqual(expect.arrayContaining(['return:durable:code@4', 'return:durable:agent@1'])); expect((await invoke(page, 'frameState') as { bootId: string }).bootId).toBe(agentBefore.bootId); expect((await invoke(page, 'selectedFrameState') as { bootId: string }).bootId).toBe(codeBefore.bootId); await expectIsolated(page);
   await invoke(page, 'enter'); wideBounds = await invoke(page, 'bounds') as { left: DOMRect; right: DOMRect }; expect(wideBounds.left.width / (wideBounds.left.width + wideBounds.right.width)).toBeCloseTo(0.5, 1); await page.reload(); await expect(page.locator('#ready')).toHaveText('ready'); await expect.poll(() => observe(page)).toMatchObject({ phase: 'active', mode: 'wide' }); wideBounds = await invoke(page, 'bounds') as { left: DOMRect; right: DOMRect }; expect(wideBounds.left.width / (wideBounds.left.width + wideBounds.right.width)).toBeCloseTo(0.5, 1); await expectIsolated(page);
 });
 
@@ -23,29 +23,55 @@ test('TEST_CASE_M1_5C reconstructs trusted query and recreates/disposes absent F
 });
 
 test('TEST_CASE_M1_5C handles retained-host and authority invalidation before unpin', async ({ page }) => {
-  for (const [invalidation, query, disposeEvent] of [['selected-replace', '', 'dispose:code'], ['selected-delete', '', 'dispose:code'], ['voyage', '', 'dispose:code'], ['plugin', '?voyage=voyage-a&split=panel-agent&withSurface=review', 'dispose:plugin-review']] as const) { await open(page, query); if (!query) await invoke(page, 'enter'); expect(await invoke(page, 'attemptEviction')).toBe(false); await invoke(page, 'invalidate', invalidation); const state = await observe(page); expect(state).toMatchObject({ phase: 'inactive', pinned: false }); expect(state.hostEvents.at(-1)).toBe('unpin'); expect(state.hostEvents.indexOf(disposeEvent)).toBeLessThan(state.hostEvents.indexOf('unpin')); expect(await invoke(page, 'attemptEviction')).toBe(true); expect((await observe(page)).budgetEvictions).toEqual(['competing-controller']); const count = state.disposedPayloads; await invoke(page, 'exit'); expect((await observe(page)).disposedPayloads).toBe(count); await expectIsolated(page); }
+  for (const [invalidation, query, disposeEvent] of [['selected-replace', '', 'dispose:code'], ['selected-delete', '', 'dispose:code'], ['voyage', '', 'dispose:code'], ['plugin', '?voyage=voyage-a&split=panel-agent&withSurface=review', 'dispose:plugin-review']] as const) { await open(page, query); if (!query) await invoke(page, 'enter'); expect(await invoke(page, 'attemptEviction')).toBe(false); await invoke(page, 'invalidate', invalidation); const state = await observe(page); expect(state).toMatchObject({ phase: 'inactive', pinned: false }); expect(state.hostEvents.at(-1)).toBe('unpin'); expect(state.hostEvents.indexOf(disposeEvent)).toBeLessThan(state.hostEvents.indexOf('unpin')); expect(await invoke(page, 'attemptEviction')).toBe(true); const afterAdmission = await observe(page); expect(afterAdmission.budgetDecisions).toEqual(expect.arrayContaining(['reject:competing-controller:4/2:pinned', 'admit:competing-controller:2/2'])); expect(afterAdmission.budgetEvictions).toEqual([]); const count = state.disposedPayloads; await invoke(page, 'exit'); expect((await observe(page)).disposedPayloads).toBe(count); await expectIsolated(page); }
 });
 
-test('TEST_CASE_M1_5C cancels deferred browser acquisition before publish', async ({ page }) => {
-  for (const [query, invalidation] of [['?voyage=voyage-a&split=panel-agent&withSurface=review', 'plugin'], ['?voyage=voyage-a&split=panel-agent&withSurface=code', 'voyage']] as const) {
+test('TEST_CASE_M1_5C reverses a real pending acquisition on Back and authority invalidation', async ({ page }) => {
+  for (const [query, invalidation] of [
+    ['?voyage=voyage-a&split=panel-agent&withSurface=code', 'back'],
+    ['?voyage=voyage-a&split=panel-agent&withSurface=code', 'selected-delete'],
+    ['?voyage=voyage-a&split=panel-agent&withSurface=review', 'plugin'],
+    ['?voyage=voyage-a&split=panel-agent&withSurface=code', 'voyage'],
+    ['?voyage=voyage-a&split=panel-agent&withSurface=code', 'selected-replace'],
+  ] as const) {
     await open(page);
     expect(await invoke(page, 'beginDeferred', query)).toBe(true);
-    expect(await observe(page)).toMatchObject({ phase: 'entering', pinned: true, groups: 0, budgetCount: 0, budgetRegistrations: 4 });
-    expect(await invoke(page, 'attemptEviction')).toBe(false);
-    await invoke(page, 'invalidate', invalidation);
+    expect(await invoke(page, 'acquireFirstDeferred')).toBe(true);
     let state = await observe(page);
+    expect(state).toMatchObject({ phase: 'entering', pinned: true, groups: 2, focusAfterAttachments: false, budgetCount: 1, pendingRuntimeCount: 1, budgetRegistrations: 4 });
+    expect(state.hostEvents).toEqual(expect.arrayContaining(['detach:durable:agent', 'attach:pending:agent']));
+    expect(await invoke(page, 'attemptEviction')).toBe(false);
+    expect((await observe(page)).budgetDecisions).toEqual(expect.arrayContaining(['pending:agent:1/2', 'reject:competing-controller:3/2:pinned']));
+    if (invalidation === 'back') await page.locator('#back').click(); else await invoke(page, 'invalidate', invalidation);
+    await expect.poll(() => observe(page)).toMatchObject({ phase: 'inactive', pinned: false });
+    state = await observe(page);
     expect(state).toMatchObject({ phase: 'inactive', pinned: false, groups: 0, focusAfterAttachments: false, budgetCount: 0 });
+    expect(state.hostEvents).toEqual(expect.arrayContaining(['detach:pending:agent']));
+    if (state.hostEvents.includes('dispose:agent')) expect(invalidation).toBe('voyage');
+    else expect(state.hostEvents).toEqual(expect.arrayContaining(['return:durable:agent@1']));
     expect(await invoke(page, 'completeDeferred')).toBe(false);
     state = await observe(page);
     expect(state).toMatchObject({ phase: 'inactive', pinned: false, groups: 0, budgetCount: 0 });
     expect(await invoke(page, 'attemptEviction')).toBe(true);
+    expect((await observe(page)).budgetDecisions).toEqual(expect.arrayContaining(['admit:competing-controller:2/2']));
     await expectIsolated(page);
   }
   await open(page);
-  expect(await invoke(page, 'beginDeferred', '?voyage=voyage-a&split=panel-agent&withSurface=forms')).toBe(true);
+  await invoke(page, 'removeBudgetRegistration', 'agent');
+  expect(await invoke(page, 'beginDeferred', '?voyage=voyage-a&split=panel-agent&withSurface=code')).toBe(true);
+  expect(await invoke(page, 'acquireFirstDeferred')).toBe(false);
+  expect(await observe(page)).toMatchObject({ phase: 'inactive', pinned: false, groups: 0, budgetCount: 0 });
+  expect((await observe(page)).budgetDecisions).toEqual(expect.arrayContaining(['reject:agent:unregistered']));
+  await expectIsolated(page);
+  await open(page);
+  expect(await invoke(page, 'beginDeferred', '?voyage=voyage-a&split=panel-forms&withSurface=code')).toBe(true);
+  expect(await invoke(page, 'acquireFirstDeferred')).toBe(true);
+  expect(await observe(page)).toMatchObject({ phase: 'entering', pendingRuntimeCount: 1, budgetCount: 1, payloads: 4 });
   await page.locator('#back').click();
   await expect.poll(() => observe(page)).toMatchObject({ phase: 'inactive', pinned: false, payloads: 3, budgetCount: 0 });
+  expect((await observe(page)).hostEvents.filter((event) => event === 'dispose:forms-invoking')).toHaveLength(1);
   expect(await invoke(page, 'completeDeferred')).toBe(false);
+  expect((await observe(page)).hostEvents.filter((event) => event === 'dispose:forms-invoking')).toHaveLength(1);
   await expectIsolated(page);
 });
 
