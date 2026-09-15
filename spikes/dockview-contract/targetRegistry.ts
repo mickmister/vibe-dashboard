@@ -208,7 +208,8 @@ export type MigrationResult =
   | { outcome: 'panel'; target: PanelTarget }
   | { outcome: 'skip'; reason: 'ephemeral-plugin-placeholder' | 'homepage-representation' | 'temporary-create-workspace' }
   | { outcome: 'quarantine'; reason: string }
-  | { outcome: 'pair'; targets: PanelTarget[]; diagnostics: Array<{ viewId: string; outcome: string; reason?: string }>; topology?: { pairId: string; memberIndexes: [number, number] } };
+  | { outcome: 'pair'; reason: 'pair-cardinality'; targets: []; diagnostics: Array<{ viewId: string; outcome: 'invalid'; reason: 'pair-cardinality' }>; topology?: never }
+  | { outcome: 'pair'; reason?: never; targets: PanelTarget[]; diagnostics: Array<{ viewId: string; outcome: string; reason?: string }>; topology?: { pairId: string; memberIndexes: [number, number] } };
 
 function panelOrRecovery(target: PanelTarget, craftId: string, registry: TrustedTargetRegistry): MigrationResult {
   const resolution = resolvePanelTarget(target, { craftId }, registry);
@@ -282,7 +283,7 @@ export function classifyLegacyRepresentation(input: LegacyRepresentation, regist
   if (input.kind === 'temporary-create-workspace') return { outcome: 'skip', reason: 'temporary-create-workspace' };
   if (input.kind === 'pair') {
     const ids = input.pair.tabIds;
-    if (ids.length !== 2) return { outcome: 'pair', targets: [], diagnostics: ids.map((viewId) => ({ viewId, outcome: 'invalid', reason: 'pair-cardinality' })) };
+    if (ids.length !== 2) return { outcome: 'pair', reason: 'pair-cardinality', targets: [], diagnostics: ids.map((viewId) => ({ viewId, outcome: 'invalid', reason: 'pair-cardinality' })) };
     if (ids[0] === ids[1]) return { outcome: 'pair', targets: [], diagnostics: ids.map((viewId) => ({ viewId, outcome: 'invalid', reason: 'duplicate-member-id' })) };
     const diagnostics: Array<{ viewId: string; outcome: string; reason?: string }> = [];
     const targets: PanelTarget[] = [];

@@ -107,9 +107,12 @@ Workspace/plugin context:
   content with balanced per-outcome counts;
 - factory expanded URLs are ignored;
 - pairs consume the production `ViewPair.tabIds` and enclosing Craft View
-  collection. Exactly two distinct ordered IDs are required. Missing, malformed,
-  skipped, and unresolvable members retain ordered per-ID diagnostics; placement
-  topology exists only when both source Views and both targets resolve; and
+  collection. Exactly two distinct ordered IDs are required. Invalid cardinality
+  has the pair-level reason `pair-cardinality`, including for an empty ID list;
+  member diagnostics exist only for the IDs actually supplied and remain ordered.
+  Missing, malformed, skipped, and unresolvable members retain per-ID diagnostics;
+  placement topology exists only when both source Views and both targets resolve;
+  and
 - the migration contract runs only after the approved outer migration admits a
   VK-backed Craft. Non-VK Crafts remain skipped by that outer rule.
 

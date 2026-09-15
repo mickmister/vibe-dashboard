@@ -273,6 +273,7 @@ describe('legacy migration inventory', () => {
   });
 
   it.each([
+    [[], 'pair-cardinality'],
     [['agent'], 'pair-cardinality'],
     [['agent', 'code', 'forms'], 'pair-cardinality'],
     [['agent', 'agent'], 'duplicate-member-id'],
@@ -280,6 +281,10 @@ describe('legacy migration inventory', () => {
     const result = classifyLegacyRepresentation({ kind: 'pair', craftId: 'current', groupId: 'craft', workspaceId: 'workspace-1', pair: { id: 'pair', tabIds }, views: [{ id: 'agent', title: 'Agent', url: '/agent' }, { id: 'code', title: 'Code', url: '/code' }, { id: 'forms', title: 'Forms', url: '/forms' }] }, createRegistry());
     expect(result).not.toHaveProperty('topology');
     expect(result).toMatchObject({ diagnostics: tabIds.map((viewId) => ({ viewId, outcome: 'invalid', reason })) });
+    if (reason === 'pair-cardinality') expect(result).toMatchObject({ reason: 'pair-cardinality' });
+    if (tabIds.length === 0) {
+      expect(result).toEqual({ outcome: 'pair', reason: 'pair-cardinality', targets: [], diagnostics: [] });
+    }
   });
 
   it('diagnoses a malformed referenced View before target resolution', () => {
