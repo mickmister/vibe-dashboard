@@ -25,6 +25,44 @@ type IframeObservation = {
   voyageVisible: boolean;
 };
 
+type IframeTopology = {
+  groups: Array<{ id: string; views: string[] }>;
+  maximized: boolean;
+  primaryGroupId?: string;
+};
+
+type TeardownObservation = {
+  events: string[];
+  heartbeats: number;
+  lastHeartbeatAt: number;
+  signaled: boolean;
+};
+
+const teardownObservations = new Map<string, TeardownObservation>();
+window.addEventListener('message', (event) => {
+  if (event.origin !== location.origin || typeof event.data !== 'object' || event.data === null) return;
+  const data = event.data as Record<string, unknown>;
+  if (
+    data.source !== 'dockview-iframe-contract' ||
+    typeof data.bootId !== 'string' ||
+    typeof data.kind !== 'string' ||
+    typeof data.heartbeats !== 'number'
+  ) return;
+  const observation = teardownObservations.get(data.bootId) ?? {
+    events: [],
+    heartbeats: 0,
+    lastHeartbeatAt: performance.now(),
+    signaled: false,
+  };
+  observation.heartbeats = data.heartbeats;
+  if (data.kind === 'heartbeat') observation.lastHeartbeatAt = performance.now();
+  if (data.kind === 'pagehide' || data.kind === 'unload') {
+    observation.events.push(data.kind);
+    observation.signaled = true;
+  }
+  teardownObservations.set(data.bootId, observation);
+});
+
 const dockviewElement = document.querySelector<HTMLElement>('#dockview')!;
 dockviewElement.style.cssText = 'height: 500px; width: 900px';
 
@@ -305,6 +343,20 @@ function addIframePrimary(): void {
   });
 }
 
+function iframeTopology(): IframeTopology {
+  const primary = api.getPanel('iframe-primary');
+  return {
+    groups: api.groups.map((group) => ({
+      id: group.id,
+      views: group.panels.map((panel) => panel.id),
+    })),
+    maximized: api.hasMaximizedGroup(),
+    ...(primary ? { primaryGroupId: primary.group.id } : {}),
+  };
+}
+
+let topologyASnapshot: SerializedDockview | undefined;
+
 window.iframeContract = {
   addPrimary: addIframePrimary,
   splitPrimary() {
@@ -320,7 +372,7 @@ window.iframeContract = {
     const primary = api.getPanel('iframe-primary');
     const anchor = api.getPanel('iframe-split');
     if (primary && anchor) {
-      primary.api.moveTo({ group: anchor.group, position: 'left' });
+      primary.api.moveTo({ group: anchor.group });
     }
   },
   addCoverTab() {
@@ -349,6 +401,11 @@ window.iframeContract = {
     secondaryElement.hidden = true;
     dockviewElement.hidden = false;
   },
+  topology: iframeTopology,
+  captureTopologyA() {
+    topologyASnapshot = api.toJSON();
+    return iframeTopology();
+  },
   async state(id) {
     const iframe = document.querySelector<HTMLIFrameElement>(`[data-contract-iframe="${id}"]`);
     const fixture = (iframe?.contentWindow as FixtureWindow | undefined)?.fixture;
@@ -372,11 +429,24 @@ window.iframeContract = {
   setState(_id, state) {
     (primaryIframe()?.contentWindow as FixtureWindow | undefined)?.fixture?.write(state);
   },
-  restoreSnapshotInPlace() {
-    const snapshot = api.toJSON();
+  restoreTopologyA() {
+    if (!topologyASnapshot) throw new Error('topology A was not captured');
     const start = mutationLog.length;
-    api.fromJSON(snapshot, { reuseExistingPanels: true });
+    api.fromJSON(topologyASnapshot, { reuseExistingPanels: true });
     return { mutations: mutationLog.slice(start) };
+  },
+  teardown(bootId) {
+    const observation = teardownObservations.get(bootId);
+    if (!observation) {
+      return { events: [], heartbeats: 0, lastHeartbeatAt: 0, signaled: false, stopped: false };
+    }
+    return {
+      events: [...observation.events],
+      heartbeats: observation.heartbeats,
+      lastHeartbeatAt: observation.lastHeartbeatAt,
+      signaled: observation.signaled,
+      stopped: observation.signaled && performance.now() - observation.lastHeartbeatAt >= 160,
+    };
   },
   disposeAndRecreatePrimary() {
     const panel = api.getPanel('iframe-primary');
@@ -392,17 +462,20 @@ declare global {
     iframeContract: {
       addCoverTab(): void;
       addPrimary(): void;
+      captureTopologyA(): IframeTopology;
       disposeAndRecreatePrimary(): void;
       maximizePrimary(): void;
       movePrimary(): void;
       restoreMaximized(): void;
-      restoreSnapshotInPlace(): { mutations: Mutation[] };
+      restoreTopologyA(): { mutations: Mutation[] };
       setState(id: string, state: { editor: string; input: string; scrollTop: number }): void;
       showPrimary(): void;
       splitPrimary(): void;
       state(id: string): Promise<IframeObservation>;
       switchToPrimary(): void;
       switchToSecondary(): void;
+      teardown(bootId: string): TeardownObservation & { stopped: boolean };
+      topology(): IframeTopology;
     };
     contract: {
       disabledFeatureAttempts(): Record<string, Rejection>;

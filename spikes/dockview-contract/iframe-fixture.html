@@ -20,12 +20,25 @@
         listenerEvents: 0,
         ready: true,
       };
+      const report = (kind) => parent.postMessage({
+        source: 'dockview-iframe-contract',
+        kind,
+        bootId: state.bootId,
+        heartbeats: state.heartbeats,
+      }, location.origin);
       addEventListener('contract-heartbeat', () => state.listenerEvents++);
       const timer = setInterval(() => {
         state.heartbeats++;
         dispatchEvent(new Event('contract-heartbeat'));
+        report('heartbeat');
       }, 40);
-      addEventListener('pagehide', () => clearInterval(timer), { once: true });
+      const teardown = (event) => {
+        clearInterval(timer);
+        report(event.type);
+      };
+      addEventListener('pagehide', teardown, { once: true });
+      addEventListener('unload', teardown, { once: true });
+      report('boot');
       window.fixture = {
         read() {
           return {

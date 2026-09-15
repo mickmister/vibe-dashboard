@@ -103,15 +103,20 @@ Voyage visibility.
 
 With `renderer: 'always'`, the same iframe document and its native state survive:
 
-- creating a neighboring split and moving the iframe Panel between groups;
+- creating a verified second group, moving the iframe Panel into the other
+  group, and observing the expected Panel order there;
 - hiding it behind another tab and showing it again;
 - maximizing and restoring its group;
 - switching away from and back to another already-mounted (“warm”) Dockview
   controller; and
-- applying an undo/redo-shaped `fromJSON(snapshot, { reuseExistingPanels: true })`
-  restoration.
+- restoring snapshot A with `fromJSON(snapshotA, { reuseExistingPanels: true })`
+  after a verified structural mutation produced a distinct topology B.
 
-The in-place restore emits one matched `will:load` / `did:load` mutation pair.
+The structural restore returns the targeted topology to A while preserving boot
+ID, drafts, scroll, heartbeat, and listener state, and emits exactly one matched
+`will:load` / `did:load` mutation pair. The maximize control reports a maximized
+group with native state intact; restore reports non-maximized and retains the
+pre-maximize topology.
 This reinforces the M1.1 result: coordination should consume matched mutation
 boundaries; `origin` is metadata and is not sufficient on its own.
 
@@ -123,7 +128,9 @@ runtime must therefore combine Dockview's `panel.api.isVisible` with active
 Voyage state and explicitly pause cooperative work; CSS visibility alone does not
 enforce the global iframe budget.
 
-Removal/disposal followed by recreation intentionally produces a new boot ID and
+Removal/disposal is observed through a parent-held channel after the child is no
+longer queryable: the old iframe reports `pagehide` or `unload`, and bounded
+polling proves its heartbeat stops. Recreation then produces a new boot ID and
 empty native form/editor/scroll state. A browser page reload does the same. Those
 are expected reload boundaries and must not be presented as state-preserving
 operations. Persisted application data may reconstruct a route or draft, but it
