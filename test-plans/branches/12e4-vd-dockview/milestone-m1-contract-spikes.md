@@ -16,8 +16,8 @@
    Dockview instantiates them.
 4. As a developer, I have a complete target and capability registry contract
    grounded in the surfaces VD can construct today.
-5. As a Panel user, I can pair the current surface with another surface from the
-   same Craft—even when the second is not already a Voyage Panel—resize or
+5. As a Panel user, I can pair the current surface with a compatible surface,
+   defaulting to the same Craft—even when the second is not already a Voyage Panel—resize or
    transiently maximize it in foreground Split View, and return to my unchanged
    Voyage when finished.
 
@@ -199,8 +199,8 @@ Expected:
 Steps:
 
 1. From a Panel inside a populated Voyage, invoke **Open in Split View** and
-   choose another registered surface of the same Craft that is not currently a
-   durable Voyage Panel.
+   choose another compatible registered surface of the same Craft that is not
+   currently a durable Voyage Panel. Repeat with a permitted cross-Craft surface.
 2. Confirm the foreground presents the invoking and selected surfaces together
    without exposing unrelated Voyage Panels.
 3. Change live state in both retained surfaces, then choose Back to Voyage.
@@ -217,6 +217,10 @@ Expected:
 - A transient restricted Dockview controller owns only live Split View geometry:
   its resize sash works, but closing, adding, moving, arbitrary docking,
   floating, and popouts are disabled.
+- The trusted target definitions classify each surface as leaseable,
+  recreatable-transient with explicit state semantics, or unsupported. The picker
+  defaults to the invoking Craft, permits compatible cross-Craft choices, and
+  disables unsupported combinations with a deterministic reason.
 - Wide mode uses two resizable groups; narrow mode uses one group with two tabs
   and initially shows the invoking surface. Returning wide preserves the prior
   ratio during that invocation; exit or refresh resets it to 50/50.
@@ -226,12 +230,13 @@ Expected:
 - Entering, resizing, maximizing, switching, or leaving causes no underlying
   Voyage Dockview mutation event, `fromJSON` call, layout write, revision change,
   or history checkpoint.
-- Same-Voyage equivalence selection prevents accidental duplicate runtimes, but
+- Existing-runtime equivalence selection prevents accidental duplicate runtimes, but
   the durable Panel is never moved. An absent second surface uses a namespaced
   Split-only target/runtime without creating a Panel or recency row.
 - Each retained runtime has exactly one attachment lease/host; its identity is
-  preserved after return. When Code was absent, one collision-safe Split-only
-  runtime is created without a Panel row and disposed exactly once on exit.
+  preserved after return. When the selected second surface was absent, one
+  collision-safe Split-only runtime is created without a Panel row and disposed
+  exactly once on exit.
 - The invoking Voyage controller cannot be evicted while leases are active, and
   its pin is released only after runtimes return to their original hosts.
 - Returning restores the exact prior Voyage topology, active location, and
@@ -243,13 +248,20 @@ Expected:
 
 Error cases:
 
-- If Agent or Code cannot resolve, show recovery UI and leave the Voyage layout
+- If either invoking or selected surface cannot resolve, show recovery UI and leave the Voyage layout
   untouched.
 - Repeated entry/exit and rapid Back actions do not leak controllers, duplicate
   Panels, or lose the return location.
 - Partial attachment/target failure rolls back runtime leases without snapshot
   restoration; subscriptions, focus containment, controller pins, and transient
   runtimes clean up exactly once.
+- Removing either durable Panel, replacing its generation-bearing renderer host,
+  deleting/replacing the Voyage, or removing the target/plugin during an active
+  lease never resurrects stale state. Reattach only to the exact current host;
+  otherwise dispose/release once and return to the authoritative Voyage.
+- Renderer init/dispose and runtime attach/detach/dispose counts prove one physical
+  payload and host throughout. Hidden original-controller relayout cannot reclaim
+  it, and no private Dockview DOM is queried or moved.
 - At constrained widths, use the tested single-surface/focus fallback rather
   than an unusably narrow split.
 

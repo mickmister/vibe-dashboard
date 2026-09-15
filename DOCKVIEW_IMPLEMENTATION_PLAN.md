@@ -89,8 +89,9 @@ and per-group active maps must not survive as a second writable layout model.
     otherwise reuse the most recently active equivalent Code Panel, creating one
     only when absent. Duplication is a separate explicit command.
 16. Any supported Panel also offers **Open in Split View**: a temporary foreground
-    Dockview controller with a fixed, resizable pair, normally chosen from two
-    surfaces of the same Craft. The selected second surface need not already be a
+    Dockview controller with a fixed, resizable pair. The picker defaults to
+    surfaces of the same Craft, but any pair whose trusted definitions declare
+    compatibility is eligible. The selected second surface need not already be a
     durable Voyage Panel. Split View is not a Voyage, owns no durable layout, and
     never mutates or restores the underlying Voyage layout.
 
@@ -669,9 +670,10 @@ workflow depends on drag-and-drop.
 
 **Split View** is a general Panel action, distinct from Agent-specific **Open
 beside** and **Open maximized** Code shortcuts. The invoking Panel remains the
-first surface; a target picker defaults to other registered surfaces of the same
-Craft and may select a surface not currently represented by a durable Panel. It
-fills the VD workbench viewport with a transient Dockview Core controller
+first surface; a target picker defaults to compatible registered surfaces of the
+same Craft, but permits any pair whose current trusted target definitions declare
+Split View compatibility. It may select a surface not currently represented by
+a durable Panel. It fills the VD workbench viewport with a transient Dockview Core controller
 containing exactly two non-closeable runtime-host presentation Panels. Dockview
 owns this temporary controller's live split geometry and resize sash. The initial
 ratio is 50/50 when both minimum widths fit; constrained widths use one Dockview
@@ -686,8 +688,26 @@ browser Fullscreen. Separately, a user may maximize a single durable Panel witho
 creating Split View. Arbitrary docking, moving, closing, floating, popouts, adding
 more Panels, and persistence are disabled in the transient controller.
 
+Split View eligibility is resolver-derived rather than assumed for every
+renderer:
+
+```ts
+type SplitViewCapability =
+  | { kind: "leaseable-runtime" }
+  | { kind: "recreatable-transient-runtime"; stateContinuity: "none" | "durable-only" }
+  | { kind: "unsupported"; reason: string };
+```
+
+Registry-owned iframe payloads use exclusive physical-runtime leases.
+Application-owned React surfaces require a proven stable application root/portal
+contract before being marked leaseable. Definitions may instead opt into safe
+transient recreation with explicit state-loss semantics. Unsupported or
+incompatible choices are absent or disabled in the picker and fail closed during
+route reconstruction. Never move a Dockview-owned renderer root to claim generic
+surface support.
+
 Split View is not a temporary Voyage and is not another durable layout authority.
-Its geometry is session-only. Entry, resizing, surface switching, maximizing,
+Its geometry is invocation-only. Entry, resizing, surface switching, maximizing,
 and exit do not invoke the Voyage mutation coordinator, write `layout_json`,
 advance the Voyage layout revision, create `voyage_history`, or call `fromJSON`
 against the underlying Voyage. Destroying the transient controller discards its
@@ -707,9 +727,14 @@ owned by the transient controller. Existing durable runtime Panel IDs remain
 unchanged. Underlying Voyage frames are application-inactive while the two
 foreground surfaces are visible and protected by the same global iframe budget.
 
-Use `?voyage=<token>&split=<invoking-panel-token>&with=<target-token>` as route
-intent, not serialized layout. `with` resolves only through the trusted target
-registry and must carry no expanded URL, path, credentials, or capability claim.
+Use `?voyage=<token>&split=<invoking-panel-token>&withCraft=<craft-token>&withSurface=<surface-key>`
+as route intent, not serialized layout. The optional Craft token and stable,
+version-aware registered surface/factory key are untrusted lookup inputs; any
+allowlisted discriminator is parsed by that target definition. Resolution loads
+the current Craft and current trusted definition, then derives target payload,
+equivalence, provenance, Split View capability, and permissions. Route values
+must carry no expanded URL, path, credentials, or capability claim. Missing,
+removed, incompatible, or unauthorized definitions fail closed.
 Entry pushes browser history. Browser Back and the visible **Back to
 Voyage** action remove `split` idempotently and return to the canonical Voyage
 route; the visible action must not depend on a prior history entry. Direct links
@@ -727,6 +752,15 @@ Focus enters Split View after both hosts attach and returns to the invoking Pane
 control on exit, or a safe Voyage fallback if that control no longer exists.
 Essential controls are keyboard-operable; advanced keyboard
 docking remains deliberately de-prioritized.
+
+Return-host leases carry Voyage/controller generation, Panel identity, and
+renderer-host generation. Reattach only when the current authoritative Panel and
+exact host generation still exist. If either durable Panel, its Voyage, its
+target definition, or its return host is removed or replaced while leased, never
+recreate it and never restore an old snapshot. Dispose or release the orphaned
+runtime exactly once and navigate to the current authoritative Voyage with safe
+fallback focus. "Unchanged Voyage" means Split View itself performs no durable
+mutation; concurrent installation-global mutations remain authoritative.
 
 ### Mobile v1
 
@@ -877,15 +911,18 @@ quarantined rather than interpreted as application pinning.
    test a small versioned application presentation field persisted through the
    same aggregate coordinator; maximize may not silently become session-only.
 5. Prototype Split View with a transient, non-persisted Dockview controller and
-   two fixed resizable same-Craft surface hosts, including a second target absent
-   from the Voyage. Prove exclusive runtime leases, invoking
-   controller pinning, identity-preserving detach/reattach, Split-only Code
+   two fixed resizable capability-compatible surface hosts, including a default
+   same-Craft pair, a permitted cross-Craft pair, and a second target absent from
+   the Voyage. Prove exclusive runtime leases, invoking
+   controller pinning, identity-preserving detach/reattach, Split-only second-runtime
    disposal, responsive single-surface fallback, route/Back/refresh semantics,
    idempotent failure cleanup, and zero underlying Voyage mutation events,
    `fromJSON` calls, layout writes, revision changes, or history checkpoints.
-   Prove wide split/narrow tabs, invocation-local ratio/tab selection, transient
-   per-surface maximize/restore and exit-while-maximized, and general target kinds
-   such as Agent + Forms and Forms + Code rather than special-casing Code.
+   Prove iframe leasing, eligible application-owned React roots or safe transient
+   recreation, unsupported picker/recovery behavior, wide split/narrow tabs,
+   invocation-local ratio/tab selection, transient per-surface maximize/restore,
+   breakpoint transition and exit while maximized, and general target kinds such
+   as Agent + Forms and Forms + Code rather than special-casing Code.
 6. Inventory current built-in, VK, factory, pair, URL, plugin, React-surface, and
    ephemeral targets and implement the versioned target-registry contract tests.
 7. Test the pinned Dockview serialization version, pre-`fromJSON` quarantine, and
@@ -1143,8 +1180,9 @@ their exact values do not block the architecture.
       closed for unknown or unavailable targets.
 - [ ] Open beside/maximized satisfy reuse, identity, accessibility, persistence,
       history, and narrow-width contracts.
-- [ ] Split View provides a resizable temporary same-Craft two-surface workbench,
-      including targets absent from the Voyage and transient maximize/restore,
+- [ ] Split View provides a resizable temporary capability-compatible two-surface
+      workbench, defaulting to the invoking Craft while supporting approved
+      cross-Craft pairs, targets absent from the Voyage, and transient maximize/restore,
       returns
       to the unchanged Voyage, and passes lease, routing, cleanup, budget, and
       no-mutation contracts.
