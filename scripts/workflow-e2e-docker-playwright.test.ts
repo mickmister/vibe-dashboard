@@ -12,6 +12,7 @@ describe('workflow-e2e-docker-playwright harness', () => {
       resolve('scripts/Dockerfile.workflow-e2e'),
       'utf8',
     );
+    const packageJson = JSON.parse(readFileSync(resolve('package.json'),'utf8')) as {scripts:Record<string,string>};
 
     expect(script).toContain('docker build');
     expect(script).toContain('scripts/Dockerfile.workflow-e2e');
@@ -50,6 +51,8 @@ describe('workflow-e2e-docker-playwright harness', () => {
     expect(script).toContain('run_with_log pinned-gas-city-compiler bash scripts/verify-pinned-gas-city-compiler.sh');
     expect(script).toContain('run_with_log real-beads-fixture env VD_REAL_BEADS_E2E=1 npx vitest run');
     expect(script).toContain('run_with_log native-gas-city-runtime env VD_NATIVE_GAS_CITY_E2E=1 npx vitest run');
+    expect(script).toContain('VD_NATIVE_GAS_CITY_GATE_ONLY');
+    expect(packageJson.scripts['test:e2e:native-gas-city-docker']).toContain('VD_NATIVE_GAS_CITY_GATE_ONLY=1');
     expect(script).toContain('run_with_log gc-session-vibe-build');
     expect(script).toContain('GC_EXEC_STATE_DIR=/tmp/gc-session-vibe-smoke gc-session-vibe list-running');
     expect(script).toContain('run_with_log vk-cargo-build cargo build --features qa-mode --bin server');

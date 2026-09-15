@@ -113,6 +113,7 @@ docker exec \
   --env WORKFLOW_E2E_PLAYWRIGHT_ARGS="${WORKFLOW_E2E_PLAYWRIGHT_ARGS:-}" \
   --env VD_GAS_CITY_E2E_FIXTURE="${VD_GAS_CITY_E2E_FIXTURE:-}" \
   --env VD_GAS_CITY_E2E_FIXTURE_FILE="${container_gas_city_fixture_file}" \
+  --env VD_NATIVE_GAS_CITY_GATE_ONLY="${VD_NATIVE_GAS_CITY_GATE_ONLY:-}" \
   "${container_name}" bash -lc '
     set -euo pipefail
     run_with_log() {
@@ -165,6 +166,10 @@ docker exec \
     run_with_log real-beads-fixture env VD_REAL_BEADS_E2E=1 npx vitest run --config vitest.server.config.ts src/modules/plugins/workflows/server/realBeadsE2eRepository.test.ts
     run_with_log native-gas-city-runtime env VD_NATIVE_GAS_CITY_E2E=1 npx vitest run --config vitest.server.config.ts src/modules/plugins/workflows/server/nativeGasCityRuntime.integration.test.ts src/modules/plugins/workflows/server/nativeGasCityWorkflowProvider.test.ts
     run_with_log pinned-gas-city-compiler bash scripts/verify-pinned-gas-city-compiler.sh
+    if [[ "${VD_NATIVE_GAS_CITY_GATE_ONLY:-}" == "1" ]]; then
+      echo "ok - mandatory native Gas City progression gate"
+      exit 0
+    fi
     cd /workspace/vibe-kanban
     run_with_log vk-pnpm-install pnpm install --frozen-lockfile --child-concurrency=1 --network-concurrency=4
     mkdir -p packages/local-web/dist

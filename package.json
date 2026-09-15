@@ -68,6 +68,7 @@
     "build:beads-form": "pnpm --filter @vibe-dashboard/beads-form build",
     "coolify:qa": "node scripts/coolify-qa.mjs",
     "test:e2e:vk-workflows-docker": "bash scripts/workflow-e2e-docker-playwright.sh",
+    "test:e2e:native-gas-city-docker": "VD_NATIVE_GAS_CITY_GATE_ONLY=1 bash scripts/workflow-e2e-docker-playwright.sh",
     "test:e2e:vk-workflows": "playwright test --config playwright.vk-workflows-docker.config.ts",
     "storybook:workflow-walkthrough": "node scripts/workflow-storybook-walkthrough.cjs"
   },
