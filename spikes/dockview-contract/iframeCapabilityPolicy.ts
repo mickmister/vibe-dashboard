@@ -29,6 +29,11 @@ const SANDBOX_TOKEN: Partial<Record<CapabilityName, string>> = {
 };
 const ALLOW_TOKEN: Partial<Record<CapabilityName, string>> = { 'clipboard-read': 'clipboard-read', 'clipboard-write': 'clipboard-write', fullscreen: 'fullscreen' };
 
+function isCapabilityArray(value: unknown): value is CapabilityName[] {
+  return Array.isArray(value) && value.every((capability) =>
+    typeof capability === 'string' && (Object.hasOwn(SANDBOX_TOKEN, capability) || Object.hasOwn(ALLOW_TOKEN, capability)));
+}
+
 function httpUrl(input: string): URL | null {
   try { const url = new URL(input); return (url.protocol === 'https:' || url.protocol === 'http:') && !url.username && !url.password ? url : null; }
   catch { return null; }
@@ -37,9 +42,9 @@ function httpUrl(input: string): URL | null {
 function derivePolicy(targetKey: string, definition: TrustedCapabilityDefinition, registry: CapabilityRegistry): EffectiveIframePolicy | null {
   const resolved = httpUrl(definition.resolvedUrl);
   const applicationOrigin = httpUrl(registry.baseOrigin)?.origin;
-  if (!resolved || !applicationOrigin || !Array.isArray(definition.requested)) return null;
+  if (!resolved || !applicationOrigin || !isCapabilityArray(definition.requested)) return null;
   const ceiling = CEILINGS[definition.provenance];
-  if (!ceiling || definition.requested.some((capability) => !Object.hasOwn(SANDBOX_TOKEN, capability) && !Object.hasOwn(ALLOW_TOKEN, capability))) return null;
+  if (!ceiling) return null;
   if (definition.provenance === 'forwarded-project') {
     const match = resolved.hostname.match(/^port-(\d+)\.(.+)$/);
     const port = Number(match?.[1]);
@@ -75,12 +80,13 @@ export function resolveIframeCapabilityPolicy(input: unknown, registry: Capabili
   if (typeof input !== 'object' || input === null || !('targetKey' in input) || typeof input.targetKey !== 'string' || !input.targetKey) return { ok: false, reason: 'invalid-target' };
   const definition = registry.definitions[input.targetKey];
   if (!definition) return { ok: false, reason: 'target-unavailable' };
+  if (!isCapabilityArray(definition.requested)) return { ok: false, reason: 'invalid-definition' };
   let effectiveDefinition = definition;
   if (definition.provenance === 'installed-plugin') {
     const plugin = definition.pluginId ? registry.plugins[definition.pluginId] : undefined;
     const contribution = definition.contributionKey ? plugin?.contributions[definition.contributionKey] : undefined;
     if (!plugin) return { ok: false, reason: 'plugin-unavailable' };
-    if (!definition.pluginVersion || plugin.version !== definition.pluginVersion || !contribution) return { ok: false, reason: 'invalid-definition' };
+    if (!definition.pluginVersion || plugin.version !== definition.pluginVersion || !contribution || !isCapabilityArray(contribution.allowed)) return { ok: false, reason: 'invalid-definition' };
     effectiveDefinition = { ...definition, requested: definition.requested.filter((capability) => contribution.allowed.includes(capability)) };
   }
   const resolved = httpUrl(effectiveDefinition.resolvedUrl);

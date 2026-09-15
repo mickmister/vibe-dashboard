@@ -62,6 +62,28 @@ describe('resolver-derived iframe capability policy', () => {
     expect(resolveIframeCapabilityPolicy({ targetKey: 'plugin' }, tightened)).toMatchObject({ ok: true, policy: { sameOrigin: false, fullscreen: false } });
   });
 
+  it.each([null, 'fullscreen', { 0: 'fullscreen' }])('rejects malformed definition.requested without throwing: %j', (requested) => {
+    const malformed = { ...registry, definitions: { ...registry.definitions, plugin: { ...registry.definitions.plugin, requested } } } as unknown as CapabilityRegistry;
+    expect(() => resolveIframeCapabilityPolicy({ targetKey: 'plugin' }, malformed)).not.toThrow();
+    expect(resolveIframeCapabilityPolicy({ targetKey: 'plugin' }, malformed)).toEqual({ ok: false, reason: 'invalid-definition' });
+  });
+
+  it('rejects unknown definition.requested capability tokens', () => {
+    const malformed = { ...registry, definitions: { ...registry.definitions, plugin: { ...registry.definitions.plugin, requested: ['fullscreen', 'admin'] } } } as unknown as CapabilityRegistry;
+    expect(resolveIframeCapabilityPolicy({ targetKey: 'plugin' }, malformed)).toEqual({ ok: false, reason: 'invalid-definition' });
+  });
+
+  it.each([null, 'fullscreen', { 0: 'fullscreen' }])('rejects malformed contribution.allowed without throwing: %j', (allowed) => {
+    const malformed = { ...registry, plugins: { notes: { version: '1.2.3', contributions: { editor: { allowed } } } } } as unknown as CapabilityRegistry;
+    expect(() => resolveIframeCapabilityPolicy({ targetKey: 'plugin' }, malformed)).not.toThrow();
+    expect(resolveIframeCapabilityPolicy({ targetKey: 'plugin' }, malformed)).toEqual({ ok: false, reason: 'invalid-definition' });
+  });
+
+  it('rejects unknown contribution.allowed capability tokens', () => {
+    const malformed = { ...registry, plugins: { notes: { version: '1.2.3', contributions: { editor: { allowed: ['fullscreen', 'root-access'] } } } } } as unknown as CapabilityRegistry;
+    expect(resolveIframeCapabilityPolicy({ targetKey: 'plugin' }, malformed)).toEqual({ ok: false, reason: 'invalid-definition' });
+  });
+
   it('requires an enforceable redirect guard before ambient privileges', () => {
     const unguarded: CapabilityRegistry = { ...registry, definitions: { vk: { provenance: 'vk-built-in', resolvedUrl: 'https://vk.example.test/', requested: ['same-origin', 'clipboard-read'] } }, redirectGuards: {} };
     expect(resolveIframeCapabilityPolicy({ targetKey: 'vk' }, unguarded)).toEqual({ ok: false, reason: 'redirect-boundary-required' });

@@ -36,7 +36,10 @@ Persisted data supplies a stable lookup key only. Current trusted resolvers
 supply the URL, provenance, requested capabilities, installed-plugin state, and
 generation. Serialized `claimedProvenance` or `claimedCapabilities` fields have
 no effect. Unknown definitions, malformed URLs, missing plugins, and invalid
-messages fail closed.
+messages fail closed. Both current-definition capability requests and installed-
+contribution allowlists are runtime-validated as recognized capability arrays;
+null, non-array, or unknown-token data returns typed `invalid-definition` rather
+than being filtered permissively or throwing.
 
 | Class | Sandbox ceiling | Permissions Policy ceiling |
 | --- | --- | --- |
