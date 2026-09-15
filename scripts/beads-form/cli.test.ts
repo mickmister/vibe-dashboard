@@ -1,5 +1,5 @@
 import { execFile as execFileCallback } from 'node:child_process';
-import { mkdir, writeFile } from 'node:fs/promises';
+import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { promisify } from 'node:util';
@@ -60,6 +60,14 @@ const storedReviewForm = {
 };
 
 describe('beads-form CLI helpers', () => {
+  it('documents canonical structured choice tradeoffs instead of putting pros and cons in descriptions', async () => {
+    const onboarding = await readFile(new URL('../../skills/beads-form-agent-onboarding.md', import.meta.url), 'utf8');
+
+    expect(onboarding).not.toContain('include the pros/cons in the choice descriptions');
+    expect(onboarding).toContain('choice.prosAndCons: { pros?: string[]; cons?: string[] }');
+    expect(onboarding).toContain('Descriptions should contain only contextual prose that is not a structured pro/con.');
+  });
+
   it('runs the CLI help entrypoint under Node strip-types', async () => {
     const { stdout } = await execFileAsync(process.execPath, [
       '--experimental-strip-types',

@@ -57,12 +57,12 @@ Guidelines:
 - Treat the form as the source of truth for the thinking behind the discussion. If other agents or reviewers already gave pros, cons, risks, recommended fixes, or tradeoffs, carry those points into the form instead of summarizing them away.
 - If review agents provide concerns, blockers, or non-blocking suggestions, parse each coherent item into its own dedicated question. Do not paste one huge unorganized review blob. Preserve exact wording, pros/cons, suggested fixes, and tradeoffs where practical, and explicitly label non-blocking items as non-blocking in the question description.
 - For now, do not rely on automatic extraction tooling for other-agent messages. Use `vibe-agent full_summary` for context, then manually copy the important review/implementation text into dedicated questions so the form is self-contained.
-- Please consider pros and cons for each open point, and include the pros/cons in the choice descriptions of the questions. *Be as detailed as possible.*
+- Please consider pros and cons for each open point, and preserve concrete tradeoffs in `choice.prosAndCons: { pros?: string[]; cons?: string[] }`. Descriptions should contain only contextual prose that is not a structured pro/con. *Be as detailed as useful.*
 - Preserve exact wording for prior pros/cons or recommendation rationales when practical, especially when the human is deciding between named options. Add attribution/context in descriptions or choice text when it helps.
 - Lean toward "explain more" over excessive brevity. A form should let the human understand the in-depth reasoning, assumptions, and forks in the road without rereading the whole conversation.
 - Choice questions always use checkboxes; do not add radio controls or a radio question type. Use per-group `atMostOne` or `exactlyOne` constraints for mutually exclusive subsets; the UI explains “Select only one.” Add explicit None/Other choices when appropriate.
 - Use `is_recommended_reason` for advice and `assumedTrue: true` only for an author baseline/non-decision assumption. Neither recommendations nor assumptions precheck a box or become a submitted answer until the human clicks. Legacy `defaultValue`/`defaultChoiceId` values are deprecated assumption aliases.
-- Put tradeoffs on a choice with the canonical `prosAndCons: { pros?: string[]; cons?: string[] }` object. Entries may use safe Markdown; omit empty or unhelpful tradeoffs rather than creating separate top-level `pros`/`cons` fields.
+- Put tradeoffs on a choice with the canonical `choice.prosAndCons: { pros?: string[]; cons?: string[] }` object. Entries may use safe Markdown; omit empty or unhelpful tradeoffs rather than creating separate top-level `pros`/`cons` fields.
 - Choices may include `is_recommended_reason` when the agent recommends an option.
 - Use `allowCodeFileChanges`; if the answer returns `allow_code_file_changes=false`, do not edit files—make another form or continue discussion.
 - Keep `additional_notes` as the master notes field.
@@ -188,8 +188,9 @@ Question adders should:
   unstructured review blob.
 - Include attribution in the question description, for example
   `Source: review2 blocker on 2026-08-31`.
-- Preserve concrete pros, cons, risks, suggested fixes, and non-blocking notes
-  in the question or choice descriptions.
+- Preserve concrete pros and cons in each option's `choice.prosAndCons`; use
+  question and choice descriptions for contextual prose, risks, suggested fixes,
+  attribution, and non-blocking notes that are not structured tradeoffs.
 - Use stable question ids that include the topic, not the agent name alone.
 - Prefer appending to the canonical form over making a new form. Create a
   separate form only when the response must remain separate or the creator asks
