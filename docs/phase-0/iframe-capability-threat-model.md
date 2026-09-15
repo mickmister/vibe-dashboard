@@ -42,7 +42,7 @@ messages fail closed.
 | --- | --- | --- |
 | `vd-built-in` | scripts, same-origin, forms, modals | clipboard read/write, fullscreen |
 | `vk-built-in` | scripts, same-origin, forms, modals | clipboard read/write, fullscreen |
-| `installed-plugin` | scripts; conditionally same-origin as described below | manifest-requested fullscreen |
+| `installed-plugin` | scripts; always opaque-origin in v1 | manifest-requested fullscreen |
 | `forwarded-project` | scripts, forms | none |
 | `external-url` | scripts | none |
 
@@ -50,12 +50,14 @@ All classes deny downloads, popups, popup escape, and top navigation by user
 activation. A false value is meaningful: omission from the generated `sandbox`
 or `allow` attribute is the denial. Plugin manifests can request only within the
 VD ceiling; removal or tightening takes effect on the next trusted resolution.
-Plugin same-origin defaults off. It is granted only when the current installed
-plugin version has the exact registered frontend contribution, its current
-manifest authorizes the grant, its origin is dedicated to that plugin (not VD
-or another plugin), and its delivery uses the redirect guard below. Removal,
-version mismatch, contribution removal, shared/host origin, or policy tightening
-returns to an opaque origin on the next resolution.
+Plugin same-origin is **NO-GO for v1**, including when a manifest requests it.
+The exact current installed plugin version and registered contribution are still
+required before granting any allowed capability, and current contribution policy
+is intersected with the VD ceiling. Removal, version mismatch, contribution
+removal, or tightening fails closed. Future plugin same-origin support requires
+a separate browser-enforced navigation and per-plugin isolation design proving
+HTTP redirects plus script, link, form, and meta navigation cannot reach a
+privileged destination; an HTTP redirect walker alone is insufficient.
 
 The built-in ceilings preserve the current VK/code-server clipboard, form,
 modal, and fullscreen behavior. Forwarded project servers deliberately lose
@@ -69,12 +71,16 @@ fullscreen fallback to scripts only.
 
 `acceptsNavigation` was removed because a predicate cannot constrain a browser.
 Any target receiving same-origin or clipboard capability must instead use a
-trusted server delivery endpoint. That endpoint fetches with redirects disabled,
+trusted server/registry-selected delivery endpoint. Guard identity and
+configuration are not accepted from stored or target-definition data. The
+endpoint fetches with redirects disabled,
 walks a bounded chain, and rejects a `Location` whose origin differs from the
 resolver-authorized upstream origin before returning content. The executable
 Vite middleware is the Phase 0 model, not production integration. Chromium uses
 real 302 responses to prove a same-origin chain succeeds while trusted-to-
-untrusted and external-to-trusted chains both receive 409.
+untrusted and external-to-trusted chains both receive 409. The messaging browser
+test loads its iframe from the URL selected by that same registry-owned guard,
+rather than separately testing an unrelated endpoint.
 
 This proof covers HTTP redirect delivery, not arbitrary later script-driven
 iframe navigation. Production must not claim the latter is constrained. Classes
@@ -119,7 +125,9 @@ definitions, so plugin removal and policy tightening apply.
 `TEST_CASE_M1_4A` proves all five classes, concrete sandbox/allow ceilings,
 default denial, ignored persisted claims, plugin removal/tightening, malformed
 and host-confusing URLs, redirect non-escalation, Caddy-shaped custom URL
-non-attestation, immutable Split attachment policy, and exact postMessage
+non-attestation, v1 plugin opaque-origin behavior under HTTP redirect and
+script/link/form/meta navigation attempts, immutable Split attachment policy,
+and exact postMessage
 origin/source/schema/Panel/runtime/generation validation. Chromium receives real
 iframe-generated `MessageEvent`s before and after moving the same iframe to the
 Split host; it rejects a sibling window, a different-origin iframe, stale

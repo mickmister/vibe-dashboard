@@ -1,7 +1,12 @@
 export type CapabilityName = 'scripts' | 'same-origin' | 'forms' | 'modals' | 'downloads' | 'popups' | 'popup-escape' | 'top-navigation-by-user-activation' | 'clipboard-read' | 'clipboard-write' | 'fullscreen';
 export type Provenance = 'vd-built-in' | 'vk-built-in' | 'installed-plugin' | 'forwarded-project' | 'external-url';
-export type TrustedCapabilityDefinition = { provenance: Provenance; resolvedUrl: string; requested: CapabilityName[]; redirectBoundary?: { kind: 'guarded-proxy'; deliveryUrl: string; upstreamOrigin: string }; pluginId?: string; pluginVersion?: string; contributionKey?: string };
-export type CapabilityRegistry = { baseOrigin: string; definitions: Record<string, TrustedCapabilityDefinition>; plugins: Record<string, { version: string; dedicatedOrigin: string; contributions: Record<string, { allowSameOrigin: boolean }> }> };
+export type TrustedCapabilityDefinition = { provenance: Provenance; resolvedUrl: string; requested: CapabilityName[]; pluginId?: string; pluginVersion?: string; contributionKey?: string };
+export type CapabilityRegistry = {
+  baseOrigin: string;
+  definitions: Record<string, TrustedCapabilityDefinition>;
+  plugins: Record<string, { version: string; contributions: Record<string, { allowed: CapabilityName[] }> }>;
+  redirectGuards: Record<string, { deliveryUrl: string; upstreamOrigin: string }>;
+};
 export type EffectiveIframePolicy = {
   provenance: Provenance; resolvedUrl: string; sandbox: string; allow: string; messageOrigin: string | null;
   scripts: boolean; sameOrigin: boolean; forms: boolean; modals: boolean; downloads: boolean; popups: boolean;
@@ -13,7 +18,8 @@ export type RuntimeRegistration = { runtimeId: string; panelId: string; generati
 const CEILINGS: Record<Provenance, ReadonlySet<CapabilityName>> = {
   'vd-built-in': new Set(['scripts', 'same-origin', 'forms', 'modals', 'clipboard-read', 'clipboard-write', 'fullscreen']),
   'vk-built-in': new Set(['scripts', 'same-origin', 'forms', 'modals', 'clipboard-read', 'clipboard-write', 'fullscreen']),
-  'installed-plugin': new Set(['scripts', 'same-origin', 'fullscreen']),
+  // V1 plugins are always opaque-origin. A manifest cannot raise this ceiling.
+  'installed-plugin': new Set(['scripts', 'fullscreen']),
   'forwarded-project': new Set(['scripts', 'forms']),
   'external-url': new Set(['scripts']),
 };
@@ -28,20 +34,7 @@ function httpUrl(input: string): URL | null {
   catch { return null; }
 }
 
-function pluginSameOriginAllowed(definition: TrustedCapabilityDefinition, resolved: URL, registry: CapabilityRegistry): boolean {
-  if (!definition.pluginId || !definition.pluginVersion || !definition.contributionKey) return false;
-  const plugin = registry.plugins[definition.pluginId];
-  if (!plugin || plugin.version !== definition.pluginVersion || httpUrl(plugin.dedicatedOrigin)?.origin !== resolved.origin || httpUrl(registry.baseOrigin)?.origin === resolved.origin) return false;
-  if (Object.values(registry.plugins).some((candidate) => candidate !== plugin && httpUrl(candidate.dedicatedOrigin)?.origin === resolved.origin)) return false;
-  return plugin.contributions[definition.contributionKey]?.allowSameOrigin === true;
-}
-
-function guarded(definition: TrustedCapabilityDefinition, resolved: URL): boolean {
-  const boundary = definition.redirectBoundary;
-  return boundary?.kind === 'guarded-proxy' && httpUrl(boundary.deliveryUrl)?.href === resolved.href && httpUrl(boundary.upstreamOrigin)?.origin === boundary.upstreamOrigin;
-}
-
-function derivePolicy(definition: TrustedCapabilityDefinition, registry: CapabilityRegistry): EffectiveIframePolicy | null {
+function derivePolicy(targetKey: string, definition: TrustedCapabilityDefinition, registry: CapabilityRegistry): EffectiveIframePolicy | null {
   const resolved = httpUrl(definition.resolvedUrl);
   const applicationOrigin = httpUrl(registry.baseOrigin)?.origin;
   if (!resolved || !applicationOrigin || !Array.isArray(definition.requested)) return null;
@@ -55,18 +48,19 @@ function derivePolicy(definition: TrustedCapabilityDefinition, registry: Capabil
   const granted = new Set<CapabilityName>();
   if (ceiling.has('scripts')) granted.add('scripts');
   for (const request of definition.requested) {
-    if (definition.provenance === 'installed-plugin' && request === 'same-origin' && !pluginSameOriginAllowed(definition, resolved, registry)) continue;
     if (ceiling.has(request)) granted.add(request);
   }
   const ambient = [...granted].some((capability) => capability === 'same-origin' || capability.startsWith('clipboard-'));
-  if (ambient && !guarded(definition, resolved)) return null;
+  const guard = registry.redirectGuards[targetKey];
+  const delivery = guard && httpUrl(guard.deliveryUrl);
+  if (ambient && (!delivery || httpUrl(guard.upstreamOrigin)?.origin !== resolved.origin)) return null;
   const enabled = (name: CapabilityName) => granted.has(name);
   const sameOrigin = enabled('same-origin');
   return Object.freeze({
-    provenance: definition.provenance, resolvedUrl: resolved.href,
+    provenance: definition.provenance, resolvedUrl: ambient ? delivery!.href : resolved.href,
     sandbox: [...granted].flatMap((name) => SANDBOX_TOKEN[name] ?? []).join(' '),
     allow: [...granted].flatMap((name) => ALLOW_TOKEN[name] ?? []).join('; '),
-    messageOrigin: sameOrigin ? resolved.origin : null,
+    messageOrigin: sameOrigin ? delivery!.origin : null,
     scripts: enabled('scripts'), sameOrigin, forms: enabled('forms'), modals: enabled('modals'), downloads: enabled('downloads'),
     popups: enabled('popups'), popupEscape: enabled('popup-escape'), topNavigationByUserActivation: enabled('top-navigation-by-user-activation'),
     clipboardRead: enabled('clipboard-read'), clipboardWrite: enabled('clipboard-write'), fullscreen: enabled('fullscreen'),
@@ -81,15 +75,22 @@ export function resolveIframeCapabilityPolicy(input: unknown, registry: Capabili
   if (typeof input !== 'object' || input === null || !('targetKey' in input) || typeof input.targetKey !== 'string' || !input.targetKey) return { ok: false, reason: 'invalid-target' };
   const definition = registry.definitions[input.targetKey];
   if (!definition) return { ok: false, reason: 'target-unavailable' };
-  if (definition.provenance === 'installed-plugin' && (!definition.pluginId || !registry.plugins[definition.pluginId])) return { ok: false, reason: 'plugin-unavailable' };
-  const resolved = httpUrl(definition.resolvedUrl);
-  if (!resolved || !Array.isArray(definition.requested)) return { ok: false, reason: 'invalid-definition' };
-  const classCeiling = CEILINGS[definition.provenance];
-  const requestsAmbient = definition.requested.some((capability) => classCeiling?.has(capability) && (capability === 'clipboard-read' || capability === 'clipboard-write')) ||
-    (classCeiling?.has('same-origin') && definition.requested.includes('same-origin') && definition.provenance !== 'installed-plugin') ||
-    (definition.requested.includes('same-origin') && pluginSameOriginAllowed(definition, resolved, registry));
-  if (requestsAmbient && !guarded(definition, resolved)) return { ok: false, reason: 'redirect-boundary-required' };
-  const policy = derivePolicy(definition, registry);
+  let effectiveDefinition = definition;
+  if (definition.provenance === 'installed-plugin') {
+    const plugin = definition.pluginId ? registry.plugins[definition.pluginId] : undefined;
+    const contribution = definition.contributionKey ? plugin?.contributions[definition.contributionKey] : undefined;
+    if (!plugin) return { ok: false, reason: 'plugin-unavailable' };
+    if (!definition.pluginVersion || plugin.version !== definition.pluginVersion || !contribution) return { ok: false, reason: 'invalid-definition' };
+    effectiveDefinition = { ...definition, requested: definition.requested.filter((capability) => contribution.allowed.includes(capability)) };
+  }
+  const resolved = httpUrl(effectiveDefinition.resolvedUrl);
+  if (!resolved || !Array.isArray(effectiveDefinition.requested)) return { ok: false, reason: 'invalid-definition' };
+  const classCeiling = CEILINGS[effectiveDefinition.provenance];
+  const requestsAmbient = effectiveDefinition.requested.some((capability) => classCeiling?.has(capability) && (capability === 'clipboard-read' || capability === 'clipboard-write')) ||
+    (classCeiling?.has('same-origin') && effectiveDefinition.requested.includes('same-origin'));
+  const guard = registry.redirectGuards[input.targetKey];
+  if (requestsAmbient && (!guard || httpUrl(guard.upstreamOrigin)?.origin !== resolved.origin || !httpUrl(guard.deliveryUrl))) return { ok: false, reason: 'redirect-boundary-required' };
+  const policy = derivePolicy(input.targetKey, effectiveDefinition, registry);
   return policy ? { ok: true, policy } : { ok: false, reason: 'invalid-definition' };
 }
 
