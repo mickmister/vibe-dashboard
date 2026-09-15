@@ -16,9 +16,10 @@
    Dockview instantiates them.
 4. As a developer, I have a complete target and capability registry contract
    grounded in the surfaces VD can construct today.
-5. As an Agent user, I can open Code beside predictably without duplicating an
-   existing editor accidentally, or enter a temporary foreground Agent + Code
-   Split View and return to my unchanged Voyage when finished.
+5. As a Panel user, I can pair the current surface with another surface from the
+   same Craft—even when the second is not already a Voyage Panel—resize or
+   transiently maximize it in foreground Split View, and return to my unchanged
+   Voyage when finished.
 
 ## Preconditions
 
@@ -197,12 +198,16 @@ Expected:
 
 Steps:
 
-1. From an Agent Panel inside a populated Voyage, invoke the foreground Split
-   View action.
-2. Confirm the foreground presents that Agent and its equivalent Code target
-   together without exposing unrelated Voyage Panels.
+1. From a Panel inside a populated Voyage, invoke **Open in Split View** and
+   choose another registered surface of the same Craft that is not currently a
+   durable Voyage Panel.
+2. Confirm the foreground presents the invoking and selected surfaces together
+   without exposing unrelated Voyage Panels.
 3. Change live state in both retained surfaces, then choose Back to Voyage.
-4. Repeat after switching Voyages and after a browser reload or controller
+4. Resize the sash, maximize and restore either surface, and exit while one side
+   is maximized.
+5. Repeat with representative Agent + Forms and Forms + Code pairs, after
+   switching Voyages, and after a browser reload or controller
    eviction boundary supported by the selected design.
 
 Expected:
@@ -212,11 +217,18 @@ Expected:
 - A transient restricted Dockview controller owns only live Split View geometry:
   its resize sash works, but closing, adding, moving, arbitrary docking,
   floating, and popouts are disabled.
+- Wide mode uses two resizable groups; narrow mode uses one group with two tabs
+  and initially shows the invoking surface. Returning wide preserves the prior
+  ratio during that invocation; exit or refresh resets it to 50/50.
+- Either transient surface can maximize and visibly restore to the split; exiting
+  while maximized cleans up identically. Maximizing a single durable Panel remains
+  available without creating Split View.
 - Entering, resizing, maximizing, switching, or leaving causes no underlying
   Voyage Dockview mutation event, `fromJSON` call, layout write, revision change,
   or history checkpoint.
-- The same-Voyage Code equivalence/reuse rules still prevent accidental
-  duplicates.
+- Same-Voyage equivalence selection prevents accidental duplicate runtimes, but
+  the durable Panel is never moved. An absent second surface uses a namespaced
+  Split-only target/runtime without creating a Panel or recency row.
 - Each retained runtime has exactly one attachment lease/host; its identity is
   preserved after return. When Code was absent, one collision-safe Split-only
   runtime is created without a Panel row and disposed exactly once on exit.
