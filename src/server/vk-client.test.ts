@@ -99,6 +99,51 @@ describe('VibeKanbanServerClient', () => {
     });
   });
 
+  it('aborts a never-resolving follow-up transport after one bounded whole-operation timeout', async () => {
+    vi.useFakeTimers();
+    const signals: AbortSignal[] = [];
+    const fetchImpl = vi.fn((_url: string, init?: RequestInit) => new Promise<Response>((_resolve, reject) => {
+      const signal = init?.signal;
+      if (!signal) return;
+      signals.push(signal);
+      signal.addEventListener('abort', () => reject(signal.reason), { once: true });
+    }));
+    const client = new VibeKanbanServerClient({ baseUrl: 'http://vk.local/api', fetch: fetchImpl });
+
+    const pending = client.sendFollowUp('session-1', 'response', { timeoutMs: 250 });
+    const rejection = expect(pending).rejects.toThrow('timed out after 250ms');
+    await vi.advanceTimersByTimeAsync(250);
+
+    await rejection;
+    expect(signals).toHaveLength(1);
+    expect(signals[0]?.aborted).toBe(true);
+    vi.useRealTimers();
+  });
+
+  it('uses the same abort deadline for the session lookup and follow-up post', async () => {
+    vi.useFakeTimers();
+    const signals: AbortSignal[] = [];
+    const fetchImpl = vi.fn(async (url: string, init?: RequestInit): Promise<Response> => {
+      if (init?.signal) signals.push(init.signal);
+      if (url.endsWith('/sessions/session-1')) {
+        return jsonResponse({ success: true, data: { id: 'session-1', workspace_id: 'ws1', executor: 'CODEX' } });
+      }
+      return new Promise<Response>((_resolve, reject) => {
+        init?.signal?.addEventListener('abort', () => reject(init.signal?.reason), { once: true });
+      });
+    });
+    const client = new VibeKanbanServerClient({ baseUrl: 'http://vk.local/api', fetch: fetchImpl });
+    const pending = client.sendFollowUp('session-1', 'response', { timeoutMs: 250 });
+    const rejection = expect(pending).rejects.toThrow('timed out after 250ms');
+    await vi.advanceTimersByTimeAsync(250);
+    await rejection;
+
+    expect(signals).toHaveLength(2);
+    expect(signals[0]).toBe(signals[1]);
+    expect(signals[1]?.aborted).toBe(true);
+    vi.useRealTimers();
+  });
+
   it('fetches, stops, and checks readiness endpoints used by hotswap seams', async () => {
     const fetchImpl = vi.fn(async (url: string, init?: RequestInit) => {
       if (url === 'http://vk.local/api/execution-processes/process-1') {

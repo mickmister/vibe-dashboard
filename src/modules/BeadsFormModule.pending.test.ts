@@ -33,10 +33,13 @@ describe('BeadsForm pending queue UI source', () => {
   it('wires bead-backed submissions to exact-session follow-up while leaving folder preview local', async () => {
     const source = await readFile(new URL('./BeadsFormModule.tsx', import.meta.url), 'utf8');
 
-    expect(source).toContain('notifySession: (sessionId, message) => vkClient().sendFollowUp(sessionId, message)');
+    expect(source).toContain('notifySession: (sessionId, message) => vkClient().sendFollowUp(sessionId, message, {');
+    expect(source).toContain('timeoutMs: BEADS_FORM_NOTIFICATION_TIMEOUT_MS');
     expect(source).toContain('const result = await nodeClient().submitForm(input);');
     expect(source).not.toMatch(/submitPreviewForm[\s\S]{0,1500}sendFollowUp/);
     expect(source).toContain('if (submitInFlightRef.current) return;');
+    expect(source).toContain('submissionId: submissionIdRef.current ??= createSubmissionId()');
+    expect(source.match(/const submissionIdRef = useRef<string \| null>\(null\);/g)).toHaveLength(2);
   });
 
   it('initializes Markdown textarea previews through the shared selected-form paths', async () => {

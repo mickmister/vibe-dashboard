@@ -163,6 +163,7 @@ export type StandardBeadsForm = {
 };
 
 export type BeadsFormResponse = {
+  submissionId?: string;
   submittedBy: string;
   submittedAt: string;
   values: Record<string, unknown>;

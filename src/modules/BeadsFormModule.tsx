@@ -73,7 +73,7 @@ import {
   writePendingQueueDiskCache,
 } from '../lib/beadsFormPendingQueueCache.node';
 import { registerBeadsFormMediaRoutes } from '../server/beads-form-media-routes';
-import { VibeKanbanServerClient } from '../server/vk-client';
+import { BEADS_FORM_NOTIFICATION_TIMEOUT_MS, VibeKanbanServerClient } from '../server/vk-client';
 // @platform end
 
 type PreviewBeadsForm = BeadsFormDefinition & {
@@ -133,12 +133,14 @@ type SubmitFormInput = {
   beadId: string;
   formId: string;
   values: JsonObject;
+  submissionId: string;
 };
 
 type SubmitFormResult = {
   beadId: string;
   formId: string;
   values: JsonObject;
+  submissionId: string;
   submittedAt: string;
   submittedBy: string;
   prettySummary: string;
@@ -146,6 +148,10 @@ type SubmitFormResult = {
   reviewLabel: string;
   warnings: string[];
 };
+
+function createSubmissionId(): string {
+  return crypto.randomUUID();
+}
 
 type LoadPreviewFormsInput = {
   folder: string;
@@ -193,7 +199,9 @@ function nodeClient() {
     throw new Error('Beads client is only available on the node side of the BeadsForm module');
   }
   return createNodeBeadsClient({
-    notifySession: (sessionId, message) => vkClient().sendFollowUp(sessionId, message),
+    notifySession: (sessionId, message) => vkClient().sendFollowUp(sessionId, message, {
+      timeoutMs: BEADS_FORM_NOTIFICATION_TIMEOUT_MS,
+    }),
   });
 }
 
@@ -937,6 +945,7 @@ function AggregateBeadsFormCard({ item, submitBeadForm }: {
   const [editResponseVersion, setEditResponseVersion] = useState(0);
   const submittedLockedRef = useRef(false);
   const submitInFlightRef = useRef(false);
+  const submissionIdRef = useRef<string | null>(null);
   const formHostRef = useRef<HTMLDivElement | null>(null);
   const form = item.form;
   const domPrefix = useMemo(() => aggregateFormDomPrefix(item.ref), [item.ref]);
@@ -999,6 +1008,7 @@ function AggregateBeadsFormCard({ item, submitBeadForm }: {
   };
 
   const handleEditResponse = () => {
+    submissionIdRef.current = null;
     submittedLockedRef.current = false;
     setSubmittedLocked(false);
     setStatus({ status: 'idle' });
@@ -1026,6 +1036,7 @@ function AggregateBeadsFormCard({ item, submitBeadForm }: {
         beadId: item.ref.beadId,
         formId: form.id,
         values,
+        submissionId: submissionIdRef.current ??= createSubmissionId(),
       }));
       if (typeof window !== 'undefined' && storageKey) clearPreviewStorage(window.localStorage, storageKey);
       preserveSubmittedFormDom(formHostRef.current, result.values, {
@@ -1224,6 +1235,7 @@ function BeadsFormRoute({ actions, pendingQueueSentinel }: { actions: {
   const [editResponseVersion, setEditResponseVersion] = useState(0);
   const submittedLockedRef = useRef(false);
   const submitInFlightRef = useRef(false);
+  const submissionIdRef = useRef<string | null>(null);
   const formHostRef = useRef<HTMLDivElement | null>(null);
 
   React.useEffect(() => {
@@ -1374,6 +1386,7 @@ function BeadsFormRoute({ actions, pendingQueueSentinel }: { actions: {
   };
 
   const handleEditBeadResponse = () => {
+    submissionIdRef.current = null;
     submittedLockedRef.current = false;
     setSubmittedLocked(false);
     setSubmitResult(null);
@@ -1407,6 +1420,7 @@ function BeadsFormRoute({ actions, pendingQueueSentinel }: { actions: {
         beadId,
         formId: loaded.selected.selectedForm.id,
         values,
+        submissionId: submissionIdRef.current ??= createSubmissionId(),
       }));
       if (typeof window !== 'undefined' && beadDraftStorageKey) {
         clearPreviewStorage(window.localStorage, beadDraftStorageKey);
@@ -1666,6 +1680,7 @@ springboard.registerModule(
         return {
           beadId: input.beadId,
           formId: input.formId,
+          submissionId: result.submissionId,
           values: result.values,
           submittedAt: result.submittedAt,
           submittedBy: result.submittedBy,

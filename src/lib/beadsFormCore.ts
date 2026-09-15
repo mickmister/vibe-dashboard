@@ -14,7 +14,14 @@ export { ALLOW_CODE_FILE_CHANGES_FIELD };
 
 export type JsonObject = Record<string, unknown>;
 
+const SUBMISSION_ID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+
+export function isValidBeadsFormSubmissionId(value: unknown): value is string {
+  return typeof value === 'string' && value.length <= 64 && SUBMISSION_ID_PATTERN.test(value);
+}
+
 export type BeadsFormResponse = {
+  submissionId?: string;
   submittedBy: string;
   submittedAt: string;
   values: JsonObject;
@@ -114,6 +121,7 @@ function normalizeForm(value: unknown): BeadsFormDefinition | undefined {
 
 function isBeadsFormResponse(value: unknown): value is BeadsFormResponse {
   return isObject(value)
+    && (value.submissionId === undefined || isValidBeadsFormSubmissionId(value.submissionId))
     && typeof value.submittedBy === 'string'
     && typeof value.submittedAt === 'string'
     && isObject(value.values);

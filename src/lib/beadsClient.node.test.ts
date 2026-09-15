@@ -1,4 +1,4 @@
-import { mkdir, mkdtemp } from 'node:fs/promises';
+import { mkdir, mkdtemp, readFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { describe, expect, it, vi } from 'vitest';
@@ -30,6 +30,7 @@ const reviewMetadata = {
     forms: [storedForm()],
   },
 };
+const submissionId = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
 
 describe('BeadsClient', () => {
   it('persists first and notifies exactly the valid creating session without adding the fallback label', async () => {
@@ -49,7 +50,7 @@ describe('BeadsClient', () => {
     });
     const client = new BeadsClient({ execFile: exec, notifySession });
 
-    const result = await client.submitForm({ dir: '/repo', beadId: 'beads-web-biu', formId: 'review', values: { comment: 'LGTM' } });
+    const result = await client.submitForm({ dir: '/repo', beadId: 'beads-web-biu', formId: 'review', submissionId, values: { comment: 'LGTM' } });
 
     expect(order).toEqual(['persist', 'notify']);
     expect(notifySession).toHaveBeenCalledTimes(1);
@@ -69,7 +70,7 @@ describe('BeadsClient', () => {
     });
     const client = new BeadsClient({ execFile: exec, notifySession });
 
-    const result = await client.submitForm({ dir: '/repo', beadId: 'beads-web-biu', formId: 'review', values: { comment: 'LGTM' } });
+    const result = await client.submitForm({ dir: '/repo', beadId: 'beads-web-biu', formId: 'review', submissionId, values: { comment: 'LGTM' } });
 
     expect(notifySession).not.toHaveBeenCalled();
     expect(exec.mock.calls.some(([, args]) => args.includes('--add-label'))).toBe(true);
@@ -91,7 +92,7 @@ describe('BeadsClient', () => {
       },
     });
 
-    const result = await client.submitForm({ dir: '/repo', beadId: 'beads-web-biu', formId: 'review', values: { comment: 'LGTM' } });
+    const result = await client.submitForm({ dir: '/repo', beadId: 'beads-web-biu', formId: 'review', submissionId, values: { comment: 'LGTM' } });
 
     expect(order).toEqual(['persist', 'notify', 'label']);
     expect(result.values).toEqual({ comment: 'LGTM', allow_code_file_changes: false });
@@ -104,22 +105,69 @@ describe('BeadsClient', () => {
       '/repo-a': '11111111-1111-4111-8111-111111111111',
       '/repo-b': '22222222-2222-4222-8222-222222222222',
     };
+    const metadataByDir: Record<string, Record<string, unknown>> = Object.fromEntries(
+      Object.entries(sessionsByDir).map(([dir, session]) => [dir, { ...reviewMetadata, VK_SESSION_ID: session }]),
+    );
     const exec = vi.fn<ExecFileLike>(async (_file, args, options) => {
       if (args[0] === '--readonly') {
-        return { stdout: beadJson({ ...reviewMetadata, VK_SESSION_ID: sessionsByDir[options.cwd] }), stderr: '' };
+        return { stdout: beadJson(metadataByDir[options.cwd]), stderr: '' };
+      }
+      const metadataArg = args.find((arg) => arg.startsWith('@'));
+      if (metadataArg) {
+        metadataByDir[options.cwd] = JSON.parse(await readFile(metadataArg.slice(1), 'utf8')) as Record<string, unknown>;
       }
       return { stdout: '', stderr: '' };
     });
     const notifySession = vi.fn(async (_sessionId: string, _message: string) => undefined);
     const client = new BeadsClient({ execFile: exec, notifySession });
 
-    await client.submitForm({ dir: '/repo-a', beadId: 'beads-web-biu', formId: 'review', values: { comment: 'A' } });
-    await client.submitForm({ dir: '/repo-b', beadId: 'beads-web-biu', formId: 'review', values: { comment: 'B' } });
+    const sourceA = { dir: '/repo-a', beadId: 'beads-web-biu', formId: 'review', submissionId: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaa1', values: { comment: 'A' } };
+    const sourceB = { dir: '/repo-b', beadId: 'beads-web-biu', formId: 'review', submissionId: 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbb2', values: { comment: 'B' } };
+    await client.submitForm(sourceA);
+    await client.submitForm(sourceA);
+    await client.submitForm(sourceB);
+    await client.submitForm(sourceB);
 
     expect(notifySession.mock.calls.map(([sessionId]) => sessionId)).toEqual([
       sessionsByDir['/repo-a'],
       sessionsByDir['/repo-b'],
     ]);
+  });
+
+  it('deduplicates a lost-response retry by durable submissionId and allows a different id', async () => {
+    let metadata: Record<string, unknown> = { ...reviewMetadata, VK_SESSION_ID: '2e56418d-2829-4e2f-aab7-105c5aab41dc' };
+    let persistCount = 0;
+    const exec = vi.fn<ExecFileLike>(async (_file, args) => {
+      if (args[0] === '--readonly') return { stdout: beadJson(metadata), stderr: '' };
+      const metadataArg = args.find((arg) => arg.startsWith('@'));
+      if (metadataArg) {
+        metadata = JSON.parse(await readFile(metadataArg.slice(1), 'utf8')) as Record<string, unknown>;
+        persistCount += 1;
+      }
+      return { stdout: '', stderr: '' };
+    });
+    const notifySession = vi.fn(async (_sessionId: string, _message: string) => undefined);
+    const client = new BeadsClient({ execFile: exec, notifySession });
+
+    const input = { dir: '/repo', beadId: 'beads-web-biu', formId: 'review', submissionId, values: { comment: 'first' } };
+    const first = await client.submitForm(input);
+    const retry = await client.submitForm({ ...input, values: { comment: 'retry must not replace saved data' } });
+    await client.submitForm({ ...input, submissionId: 'cccccccc-cccc-4ccc-8ccc-cccccccccccc', values: { comment: 'second' } });
+
+    expect(retry).toMatchObject({ submittedAt: first.submittedAt, values: first.values, submissionId });
+    expect(persistCount).toBe(2);
+    expect(notifySession).toHaveBeenCalledTimes(2);
+    const responses = ((metadata.beadFormResponses as { responsesByFormId: Record<string, unknown[]> }).responsesByFormId.review);
+    expect(responses).toHaveLength(2);
+  });
+
+  it('rejects malformed or oversized submission ids before reading or mutating the bead', async () => {
+    const exec = vi.fn<ExecFileLike>();
+    const client = new BeadsClient({ execFile: exec });
+    await expect(client.submitForm({
+      dir: '/repo', beadId: 'beads-web-biu', formId: 'review', submissionId: 'unsafe; id', values: {},
+    })).rejects.toThrow('expected a UUID');
+    expect(exec).not.toHaveBeenCalled();
   });
   it('reads a bead with targeted bd list metadata before falling back to show', async () => {
     const exec = vi.fn<ExecFileLike>(async () => ({ stdout: beadJson({ beadForms: { forms: [] } }), stderr: '' }));
@@ -191,7 +239,7 @@ describe('BeadsClient', () => {
       actor: 'reviewer',
     });
 
-    const result = await client.submitForm({ dir: '/repo', beadId: 'beads-web-biu', formId: 'review', values: { comment: 'LGTM' } });
+    const result = await client.submitForm({ dir: '/repo', beadId: 'beads-web-biu', formId: 'review', submissionId, values: { comment: 'LGTM' } });
 
     expect(result.submittedAt).toBe('2026-06-29T00:00:00.000Z');
     expect(result.submittedBy).toBe('reviewer');
@@ -230,7 +278,7 @@ describe('BeadsClient', () => {
     });
     const client = new BeadsClient({ execFile: exec, now: () => new Date('2026-06-29T00:00:00Z') });
 
-    const result = await client.submitForm({ dir: '/repo', beadId: 'beads-web-biu', formId: 'review', values: { comment: 'LGTM' } });
+    const result = await client.submitForm({ dir: '/repo', beadId: 'beads-web-biu', formId: 'review', submissionId, values: { comment: 'LGTM' } });
 
     expect(result.warnings).toEqual([
       'Form response was saved, but adding label "needs-agent-review" failed: label failed',

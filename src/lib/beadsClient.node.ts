@@ -17,6 +17,7 @@ import {
   withBeadsFormsSummary,
   validateSubmittedValues,
   normalizeSubmittedValues,
+  isValidBeadsFormSubmissionId,
   type BeadLike,
   type BeadsFormDefinition,
   type JsonObject,
@@ -45,12 +46,14 @@ export type SubmitBeadsFormInput = {
   beadId: string;
   formId: string;
   values: JsonObject;
+  submissionId: string;
 };
 
 export type SubmitBeadsFormResult = {
   beadId: string;
   formId: string;
   values: JsonObject;
+  submissionId: string;
   submittedAt: string;
   submittedBy: string;
   prettySummary: string;
@@ -396,9 +399,26 @@ export class BeadsClient {
   }
 
   async submitForm(input: SubmitBeadsFormInput): Promise<SubmitBeadsFormResult> {
+    assertSubmissionId(input.submissionId);
     const bead = await this.readBead(input.dir, input.beadId);
     const form = selectBeadsForm(bead.metadata, input.formId);
     if (!form) throw new Error(`Form not found: ${input.formId}`);
+
+    const existing = form.responses?.find((response) => response.submissionId === input.submissionId);
+    if (existing) {
+      return {
+        beadId: input.beadId,
+        formId: input.formId,
+        submissionId: input.submissionId,
+        values: existing.values,
+        submittedAt: existing.submittedAt,
+        submittedBy: existing.submittedBy,
+        prettySummary: existing.prettySummary ?? buildPrettySummary(form, existing.values),
+        metadata: bead.metadata as JsonObject,
+        reviewLabel: this.reviewLabel,
+        warnings: [],
+      };
+    }
 
     const values = normalizeSubmittedValues(form, input.values);
     const validationErrors = validateSubmittedValues(form, values);
@@ -408,6 +428,7 @@ export class BeadsClient {
     const submittedAt = this.now().toISOString();
     const submittedBy = this.actor;
     const metadata = withBeadsFormsSummary(appendBeadsFormResponse(bead.metadata, form.id, {
+      submissionId: input.submissionId,
       submittedBy,
       submittedAt,
       values,
@@ -439,6 +460,7 @@ export class BeadsClient {
     return {
       beadId: input.beadId,
       formId: input.formId,
+      submissionId: input.submissionId,
       values,
       submittedAt,
       submittedBy,
@@ -488,6 +510,12 @@ export class BeadsClient {
       timeout: 30_000,
       maxBuffer: 1024 * 1024,
     });
+  }
+}
+
+function assertSubmissionId(value: unknown): asserts value is string {
+  if (!isValidBeadsFormSubmissionId(value)) {
+    throw new Error('Invalid BeadsForm submissionId; expected a UUID');
   }
 }
 
