@@ -8,11 +8,13 @@ the contracts below. This is isolated evidence, not production integration.
 
 `TEST_CASE_M1_5C` creates a durable Voyage Dockview and a separate transient,
 restricted Dockview. The transient controller owns only two empty renderer
-roots and invocation geometry. A window-global runtime layer retains two
-physical iframe payloads. Both start at public-callback-created, generation-
-bearing durable hosts, lease to transient hosts, and return to those exact
-still-valid durable hosts. Chromium proves both browsing `WindowProxy` values
-and fixture boot IDs survive the attachment.
+roots and invocation geometry. A window-global runtime layer retains Agent,
+Code, and installed-plugin iframe payloads. The selected two runtimes start at
+public-callback-created, generation-bearing durable hosts, lease to transient
+hosts, and return to those exact still-valid durable hosts. Chromium proves the
+Agent/Code browsing `WindowProxy` values and fixture boot IDs survive the
+attachment, and separately exercises a real installed-plugin target resolved
+through trusted plugin definitions.
 It queries only application-captured renderer roots, never Dockview private DOM.
 
 The durable controller remains mounted and is pinned before resolution and
@@ -28,12 +30,18 @@ Panel maximize remains a separate command that creates no Split View.
 
 ## Runtime transaction and recovery
 
-The executable registry models `inactive -> entering(token) -> active(token) ->
-exiting(token) -> inactive`, rejects overlapping and stale transitions, and
-provides generation-checked single-host leases. It pins before lookup and
-acquisition, acquires in stable runtime-identity order, and rolls back in reverse
-order if the second acquisition fails. Every lease records trusted target
-identity, plugin identity where applicable, and disposal ownership. Leaseable
+The executable registry and Chromium harness model `inactive ->
+entering(token) -> active(token) -> exiting(token) -> inactive`, reject
+overlapping and stale transitions, and provide generation-checked single-host
+leases. Entering state is token-owned: pending Voyage/target/plugin identities
+and incrementally acquired leases live on the transition. Back or authoritative
+target, plugin, Voyage, or host invalidation during pending entry cancels that
+token, reverse-releases acquired leases, disposes Split-only runtimes exactly
+once, unpins, and prevents stale completion from publishing active. It pins
+before lookup and acquisition, acquires in stable runtime-identity order, and
+rolls back in reverse order if the second acquisition fails. Every lease records
+trusted target identity, plugin identity where applicable, and disposal
+ownership. Leaseable
 iframe targets retain their physical runtime;
 recreatable React/application targets receive a collision-safe `split:` runtime
 with explicit fresh-state semantics and no durable Panel or recency row. The
@@ -43,9 +51,12 @@ unsupported targets fail with a deterministic reason. Same-Craft candidates
 rank first, while capability-compatible cross-Craft Agent, Code, Forms, plugin,
 and other target kinds are not rejected by hard-coded kind assumptions.
 
-The invoking controller is pinned and both payloads count against the global
-two-runtime budget until exact teardown. Concrete pressure rejects eviction
-while pinned and admits it after release. Split-only runtimes dispose once. Repeated entry,
+The invoking controller is pinned and the selected two runtime registrations
+count against the global two-runtime active budget until exact teardown. The
+budget manager derives counts from retained, Split-only, and competing runtime
+registrations rather than phase constants. Concrete pressure rejects competing
+controller eviction while pinned and admits it after release. Split-only
+runtimes dispose once. Repeated entry,
 abort, visible Back, browser Back, and teardown are idempotent. Generation
 replacement, authoritative Panel/host deletion, Voyage replacement, or plugin
 invalidation immediately runs detach/dispose before unpin and never recreates

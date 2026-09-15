@@ -21,4 +21,28 @@ describe('runtime lifecycle ownership', () => {
   it('pins, acquires by stable identity, and reverse-rolls back with exact transient disposal', () => { const recreatable = acquired({ targetIdentity: 'a-recreatable', runtime: { kind: 'recreatable', continuity: 'fresh' } }); const busy = acquired({ targetIdentity: 'z-leaseable', runtime: { kind: 'leaseable', runtimeId: 'z-runtime', generation: 1, hostId: 'durable:z' } }); const registry = createSplitRegistry([recreatable, busy]); registry.seedLease('z-runtime', 'other-host'); expect(registry.enter(recreatable.targetIdentity, busy.targetIdentity)).toEqual({ ok: false, reason: 'runtime-unavailable-or-busy' }); expect(registry.observation()).toMatchObject({ phase: 'inactive', controllerPins: 0, rollbackCount: 1, disposeCount: 1, events: ['pin', 'entering:1', expect.stringMatching(/^acquire:split:/), expect.stringMatching(/^rollback:split:/), expect.stringMatching(/^dispose:split:/), 'unpin'] }); registry.exit('abort'); expect(registry.observation().disposeCount).toBe(1); });
   it('immediately cleans either leaseable or recreatable member on target/plugin/Voyage invalidation', () => { const first = acquired({ targetIdentity: 'agent', pluginId: 'plugin.agent', runtime: { kind: 'leaseable', runtimeId: 'agent', generation: 1, hostId: 'durable:agent' } }); const second = acquired({ targetIdentity: 'forms', pluginId: 'plugin.forms', runtime: { kind: 'recreatable', continuity: 'fresh' } }); for (const invalidate of [(registry: ReturnType<typeof createSplitRegistry>) => registry.invalidateTarget('forms'), (registry: ReturnType<typeof createSplitRegistry>) => registry.invalidatePlugin('plugin.agent'), (registry: ReturnType<typeof createSplitRegistry>) => registry.invalidatePlugin('plugin.forms'), (registry: ReturnType<typeof createSplitRegistry>) => registry.invalidateVoyage()]) { const registry = createSplitRegistry([first, second]); registry.enter('agent', 'forms'); invalidate(registry); expect(registry.observation()).toMatchObject({ phase: 'inactive', controllerPins: 0, splitOnlyRuntimeCount: 0 }); const count = registry.observation().disposeCount; registry.exit('abort'); expect(registry.observation().disposeCount).toBe(count); } });
   it('suppresses overlapping enter and stale completion after Back', () => { const resolved = resolveSplitIntent(query(), fixtures()); if (!resolved.ok) throw new Error('fixture failed'); const registry = createSplitRegistry([resolved.invoking, resolved.selected]); const pending = registry.beginEnter(resolved.invoking.targetIdentity, resolved.selected.targetIdentity); expect(registry.beginEnter(resolved.invoking.targetIdentity, resolved.selected.targetIdentity)).toEqual({ ok: false, reason: 'split-busy' }); registry.exit('browser-back'); expect(registry.completeEnter((pending as { token: number }).token, resolved.invoking.targetIdentity, resolved.selected.targetIdentity)).toEqual({ ok: false, reason: 'stale-transition' }); });
+  it('token-owns pending identities and acquired leases during entering invalidation', () => {
+    const first = acquired({ targetIdentity: 'agent', pluginId: 'plugin.agent', runtime: { kind: 'leaseable', runtimeId: 'agent', generation: 1, hostId: 'durable:agent' } });
+    const second = acquired({ targetIdentity: 'forms', pluginId: 'plugin.forms', runtime: { kind: 'recreatable', continuity: 'fresh' } });
+    for (const [stage, invalidate] of [
+      ['target-before-acquire', (registry: ReturnType<typeof createSplitRegistry>) => registry.invalidateTarget('forms')],
+      ['plugin-before-acquire', (registry: ReturnType<typeof createSplitRegistry>) => registry.invalidatePlugin('plugin.forms')],
+      ['voyage-before-acquire', (registry: ReturnType<typeof createSplitRegistry>) => registry.invalidateVoyage()],
+      ['host-after-first-acquire', (registry: ReturnType<typeof createSplitRegistry>) => registry.replaceHost('agent', 2)],
+      ['target-after-first-acquire', (registry: ReturnType<typeof createSplitRegistry>) => registry.invalidateTarget('agent')],
+      ['plugin-after-first-acquire', (registry: ReturnType<typeof createSplitRegistry>) => registry.invalidatePlugin('plugin.agent')],
+      ['voyage-after-first-acquire', (registry: ReturnType<typeof createSplitRegistry>) => registry.invalidateVoyage()],
+    ] as const) {
+      const registry = createSplitRegistry([first, second]);
+      const pending = registry.beginEnter('agent', 'forms');
+      if (!pending.ok) throw new Error(stage);
+      if (stage.includes('after-first')) expect(registry.acquireNext(pending.token)).toEqual({ ok: true });
+      invalidate(registry);
+      expect(registry.observation()).toMatchObject({ phase: 'inactive', controllerPins: 0, splitOnlyRuntimeCount: 0 });
+      expect(registry.completeEnter(pending.token, 'agent', 'forms')).toEqual({ ok: false, reason: 'stale-transition' });
+      const count = registry.observation().disposeCount;
+      registry.exit('abort');
+      expect(registry.observation().disposeCount).toBe(count);
+    }
+  });
 });

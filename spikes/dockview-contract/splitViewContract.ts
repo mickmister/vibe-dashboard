@@ -111,7 +111,8 @@ type Lease = {
   valid: boolean;
   disposed: boolean;
 };
-type State = { phase: 'inactive' } | { phase: 'entering' | 'active' | 'exiting'; token: number; key: string; leases: Lease[] };
+type EnteringState = { phase: 'entering'; token: number; key: string; identities: [string, string]; nextIndex: number; leases: Lease[] };
+type State = { phase: 'inactive' } | EnteringState | { phase: 'active' | 'exiting'; token: number; key: string; leases: Lease[] };
 
 export function createSplitRegistry(targets: AcquirableTarget[]) {
   const definitions = new Map(targets.map((target) => [target.targetIdentity, target]));
@@ -122,43 +123,75 @@ export function createSplitRegistry(targets: AcquirableTarget[]) {
   const events: string[] = [];
 
   function dispose(lease: Lease) { if (lease.disposed) return; lease.disposed = true; leases.delete(lease.runtimeId); disposeCount += 1; events.push(`dispose:${lease.runtimeId}`); }
+  function runtimeOrder(targetIdentity: string) {
+    const target = definitions.get(targetIdentity);
+    return target?.runtime.kind === 'leaseable' ? target.runtime.runtimeId : `split:${targetIdentity}`;
+  }
+  function orderedIdentities(firstIdentity: string, secondIdentity: string): [string, string] {
+    const values = [firstIdentity, secondIdentity] as [string, string];
+    values.sort((a, b) => runtimeOrder(a).localeCompare(runtimeOrder(b)));
+    return values;
+  }
+  function rollback(rollbackLeases: Lease[]) {
+    for (const item of [...rollbackLeases].reverse()) {
+      events.push(`rollback:${item.runtimeId}`);
+      if (item.disposalOwner === 'split-invocation') dispose(item);
+      else item.host = item.originalHost;
+    }
+    rollbackCount += rollbackLeases.length ? 1 : 0;
+  }
   function finish(returned: boolean) { pins -= 1; events.push('unpin'); state = { phase: 'inactive' }; return { returned, fallbackFocus: !returned }; }
   function exit(_reason: 'visible-back' | 'browser-back' | 'abort' | 'invalidation') {
     if (state.phase === 'inactive' || state.phase === 'exiting') return { returned: false, fallbackFocus: true };
-    if (state.phase === 'entering') return finish(false);
+    if (state.phase === 'entering') { rollback(state.leases); return finish(false); }
     const active = state; state = { ...active, phase: 'exiting' }; events.push(`exiting:${active.token}`); let returned = true;
     for (const lease of [...active.leases].reverse()) { events.push(`detach:${lease.runtimeId}`); if (lease.disposalOwner === 'split-invocation' || !lease.valid) { dispose(lease); if (lease.disposalOwner === 'registry') returned = false; } else { lease.host = lease.originalHost; events.push(`return:${lease.runtimeId}`); } }
     return finish(returned);
   }
-  function invalidate(predicate: (lease: Lease) => boolean) { const affected = [...leases.values()].filter(predicate); for (const lease of affected) lease.valid = false; if (state.phase !== 'inactive' && state.leases.some((lease) => affected.includes(lease))) exit('invalidation'); }
+  function stateReferences(affectedLeases: Lease[], affectedIdentities: Set<string>, wholeVoyage = false) {
+    if (state.phase === 'inactive') return false;
+    if (wholeVoyage) return true;
+    if (state.leases.some((lease) => affectedLeases.includes(lease))) return true;
+    return state.phase === 'entering' && state.identities.some((identity) => affectedIdentities.has(identity));
+  }
+  function invalidate(predicate: (lease: Lease) => boolean, affectedIdentities = new Set<string>(), wholeVoyage = false) {
+    const affected = [...leases.values()].filter(predicate);
+    for (const lease of affected) lease.valid = false;
+    if (stateReferences(affected, affectedIdentities, wholeVoyage)) exit('invalidation');
+  }
+  function acquireNextLease(token: number) {
+    if (state.phase !== 'entering' || state.token !== token) return { ok: false as const, reason: 'stale-transition' };
+    const target = definitions.get(state.identities[state.nextIndex]!);
+    let lease: Lease | undefined;
+    if (target?.runtime.kind === 'leaseable') { const current = leases.get(target.runtime.runtimeId); if (current?.valid && current.generation === target.runtime.generation && current.host === current.originalHost) lease = current; }
+    if (target?.runtime.kind === 'recreatable') { const runtimeId = `split:${++splitSequence}:${target.targetIdentity}`; lease = { targetIdentity: target.targetIdentity, ...(target.pluginId ? { pluginId: target.pluginId } : {}), runtimeId, generation: 1, host: `split-host:${state.nextIndex}`, originalHost: '', disposalOwner: 'split-invocation', valid: true, disposed: false }; leases.set(runtimeId, lease); }
+    if (!lease) { const held = state.leases; state.leases = []; rollback(held); exit('abort'); return { ok: false as const, reason: target ? 'runtime-unavailable-or-busy' : 'target-unavailable' }; }
+    lease.host = `split-host:${state.nextIndex}`;
+    state.leases.push(lease);
+    state.nextIndex += 1;
+    events.push(`acquire:${lease.runtimeId}`);
+    return { ok: true as const };
+  }
   const api = {
     seedLease(runtimeId: string, host: string) { const lease = leases.get(runtimeId); if (lease) lease.host = host; },
-    beginEnter(firstIdentity: string, secondIdentity: string) { if (state.phase !== 'inactive') return { ok: false as const, reason: 'split-busy' }; const token = ++transitionSequence; pins += 1; events.push('pin', `entering:${token}`); state = { phase: 'entering', token, key: `${firstIdentity}\0${secondIdentity}`, leases: [] }; return { ok: true as const, token }; },
+    beginEnter(firstIdentity: string, secondIdentity: string) { if (state.phase !== 'inactive') return { ok: false as const, reason: 'split-busy' }; const token = ++transitionSequence; pins += 1; events.push('pin', `entering:${token}`); state = { phase: 'entering', token, key: `${firstIdentity}\0${secondIdentity}`, identities: orderedIdentities(firstIdentity, secondIdentity), nextIndex: 0, leases: [] }; return { ok: true as const, token }; },
+    acquireNext(token: number) { return acquireNextLease(token); },
     completeEnter(token: number, firstIdentity: string, secondIdentity: string) {
       if (state.phase !== 'entering' || state.token !== token) return { ok: false as const, reason: 'stale-transition' };
-      const selected = [definitions.get(firstIdentity), definitions.get(secondIdentity)];
-      if (selected.some((item) => !item)) { exit('abort'); return { ok: false as const, reason: 'target-unavailable' }; }
-      const ordered = (selected as AcquirableTarget[]).sort((a, b) => {
-        const left = a.runtime.kind === 'leaseable' ? a.runtime.runtimeId : `split:${a.targetIdentity}`;
-        const right = b.runtime.kind === 'leaseable' ? b.runtime.runtimeId : `split:${b.targetIdentity}`;
-        return left.localeCompare(right);
-      });
-      const acquired: Lease[] = [];
-      for (const [index, target] of ordered.entries()) {
-        let lease: Lease | undefined;
-        if (target.runtime.kind === 'leaseable') { const current = leases.get(target.runtime.runtimeId); if (current?.valid && current.generation === target.runtime.generation && current.host === current.originalHost) lease = current; }
-        if (target.runtime.kind === 'recreatable') { const runtimeId = `split:${++splitSequence}:${target.targetIdentity}`; lease = { targetIdentity: target.targetIdentity, ...(target.pluginId ? { pluginId: target.pluginId } : {}), runtimeId, generation: 1, host: `split-host:${index}`, originalHost: '', disposalOwner: 'split-invocation', valid: true, disposed: false }; leases.set(runtimeId, lease); }
-        if (!lease) { for (const item of [...acquired].reverse()) { events.push(`rollback:${item.runtimeId}`); if (item.disposalOwner === 'split-invocation') dispose(item); else item.host = item.originalHost; } rollbackCount += acquired.length ? 1 : 0; exit('abort'); return { ok: false as const, reason: 'runtime-unavailable-or-busy' }; }
-        lease.host = `split-host:${index}`; acquired.push(lease); events.push(`acquire:${lease.runtimeId}`);
+      while (state.phase === 'entering' && state.token === token && state.nextIndex < state.identities.length) {
+        const acquired = acquireNextLease(token);
+        if (!acquired.ok) return acquired;
       }
+      if (state.phase !== 'entering' || state.token !== token) return { ok: false as const, reason: 'stale-transition' };
+      const acquired = state.leases;
       state = { phase: 'active', token, key: state.key, leases: acquired }; events.push(`active:${token}`); return { ok: true as const };
     },
     enter(firstIdentity: string, secondIdentity: string) { if (state.phase === 'active' && state.key === `${firstIdentity}\0${secondIdentity}`) return { ok: true as const, reusedInvocation: true as const }; const started = api.beginEnter(firstIdentity, secondIdentity); return started.ok ? api.completeEnter(started.token, firstIdentity, secondIdentity) : started; },
     exit,
-    invalidateTarget(targetIdentity: string) { invalidate((lease) => lease.targetIdentity === targetIdentity); definitions.delete(targetIdentity); },
-    invalidatePlugin(pluginId: string) { invalidate((lease) => lease.pluginId === pluginId); for (const [key, target] of definitions) if (target.pluginId === pluginId) definitions.delete(key); },
-    invalidateVoyage() { invalidate(() => true); },
-    replaceHost(runtimeId: string, generation: number) { const lease = leases.get(runtimeId); if (lease) { lease.generation = generation; lease.valid = false; } invalidate((item) => item.runtimeId === runtimeId); },
+    invalidateTarget(targetIdentity: string) { invalidate((lease) => lease.targetIdentity === targetIdentity, new Set([targetIdentity])); definitions.delete(targetIdentity); },
+    invalidatePlugin(pluginId: string) { const identities = new Set([...definitions.values()].filter((target) => target.pluginId === pluginId).map((target) => target.targetIdentity)); invalidate((lease) => lease.pluginId === pluginId, identities); for (const [key, target] of definitions) if (target.pluginId === pluginId) definitions.delete(key); },
+    invalidateVoyage() { invalidate(() => true, new Set(definitions.keys()), true); definitions.clear(); },
+    replaceHost(runtimeId: string, generation: number) { const lease = leases.get(runtimeId); const identities = new Set(lease ? [lease.targetIdentity] : []); if (lease) { lease.generation = generation; lease.valid = false; } invalidate((item) => item.runtimeId === runtimeId, identities); },
     observation: () => ({ phase: state.phase, controllerPins: pins, activeLeases: state.phase === 'active' ? state.leases.length : 0, rollbackCount, disposeCount, events: [...events], splitOnlyRuntimeCount: [...leases.values()].filter((lease) => lease.disposalOwner === 'split-invocation').length }),
   };
   return api;
