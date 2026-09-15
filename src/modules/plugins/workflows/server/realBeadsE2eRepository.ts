@@ -1,7 +1,8 @@
 import { execFile } from "node:child_process";
 import { createHash, randomUUID } from "node:crypto";
 import { chmod, lstat, mkdir, mkdtemp, readFile, realpath, rename, rm, stat, writeFile } from "node:fs/promises";
-import { basename, isAbsolute, relative, resolve } from "node:path";
+import { tmpdir } from "node:os";
+import { isAbsolute, join, relative } from "node:path";
 import { promisify } from "node:util";
 
 const execFileAsync = promisify(execFile);
@@ -9,6 +10,8 @@ const ID = /^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/;
 const STATUSES = new Set(["open", "in_progress", "blocked", "closed"]);
 const EXPECTED_BEADS_VERSION = "1.2.2";
 const OWNER_FILE = ".vd-real-beads-owner.json";
+const BASE_OWNER_FILE = ".vd-real-beads-base.json";
+const BASE_DIRECTORY = "vd-real-beads-e2e";
 const OPERATION_WAIT_MS = 10_000;
 
 export type RealBeadsTask = { id: string; title: string; status: string; ready: boolean; dependencies: string[]; revision: string };
@@ -16,7 +19,7 @@ export type RealBeadsSnapshot = { schemaVersion: "vd.real-beads-e2e.v1"; tasks: 
 type Run = (file: string, args: string[], cwd: string, env: NodeJS.ProcessEnv) => Promise<string>;
 type Executables = { bd: string; git: string };
 type Owner = { schemaVersion: 1; ownerId: string; processId: number; createdAt: string; rootIdentity: string };
-export type RealBeadsE2eRepositoryOptions = { baseRoot?: string; executables?: Executables; run?: Run };
+export type RealBeadsE2eRepositoryOptions = { executables?: Executables; run?: Run };
 
 /** Docker-test-only owner of an isolated, real Beads repository. */
 export class RealBeadsE2eRepository {
@@ -31,7 +34,8 @@ export class RealBeadsE2eRepository {
   ) {}
 
   static async create(options: RealBeadsE2eRepositoryOptions = {}): Promise<RealBeadsE2eRepository> {
-    const baseRoot = await prepareBase(options.baseRoot ?? "/tmp/vd-real-beads-e2e");
+    rejectUnknownOptions(options, ["executables", "run"]);
+    const baseRoot = await prepareOwnedBase();
     const executables = validateExecutablePaths(options.executables ?? {
       bd: "/usr/local/bin/bd",
       git: "/usr/bin/git",
@@ -60,13 +64,14 @@ export class RealBeadsE2eRepository {
   }
 
   /** Removes only old, valid fixture roots whose creating process no longer exists. */
-  static async cleanupStale(baseRoot: string, olderThanMs: number, now = Date.now()): Promise<number> {
-    const base = await prepareBase(baseRoot);
+  static async cleanupStale(olderThanMs: number, now = Date.now()): Promise<number> {
+    if (!Number.isFinite(olderThanMs) || olderThanMs < 0) throw new Error("Fixture cleanup request is invalid.");
+    const base = await prepareOwnedBase();
     const { readdir } = await import("node:fs/promises");
     let removed = 0;
     for (const entry of await readdir(base, { withFileTypes: true })) {
       if (!entry.isDirectory() || !entry.name.startsWith("run-")) continue;
-      const root = `${base}/${basename(entry.name)}`;
+      const root = join(base, entry.name);
       try {
         const canonical = await realpath(root);
         assertContained(base, canonical);
@@ -232,33 +237,49 @@ async function replaceOperation(file: string, digest: string, state: "complete" 
   await rename(temporary, file);
 }
 
-async function prepareBase(input: string): Promise<string> {
-  if (!isAbsolute(input) || resolve(input) !== input) throw new Error("Real task fixture base is not authorized.");
-  await rejectSymlinkAncestors(input);
-  await mkdir(input, { recursive: true, mode: 0o700 });
-  await chmod(input, 0o700);
-  const canonical = await realpath(input);
-  if (canonical !== input) throw new Error("Real task fixture base is not authorized.");
-  return canonical;
-}
-
-async function rejectSymlinkAncestors(target: string): Promise<void> {
-  const parts = target.split("/").filter(Boolean);
-  let current = "/";
-  for (const part of parts) {
-    current = resolve(current, part);
-    try {
-      if ((await lstat(current)).isSymbolicLink()) throw new Error("Real task fixture base is not authorized.");
-    } catch (error: any) {
-      if (error?.code === "ENOENT") return;
-      throw error;
+async function prepareOwnedBase(): Promise<string> {
+  const canonicalTemporaryDirectory = await realpath(tmpdir());
+  const base = join(canonicalTemporaryDirectory, BASE_DIRECTORY);
+  const expectedOwner = {
+    schemaVersion: 1,
+    purpose: "vd-real-beads-e2e",
+    userId: typeof process.getuid === "function" ? process.getuid() : null,
+    temporaryDirectory: canonicalTemporaryDirectory,
+  };
+  try {
+    const link = await lstat(base);
+    if (link.isSymbolicLink() || !link.isDirectory()) throw new Error("Real task fixture base is not authorized.");
+    const canonical = await realpath(base);
+    if (canonical !== base) throw new Error("Real task fixture base is not authorized.");
+    const details = await stat(base);
+    if ((details.mode & 0o777) !== 0o700 || expectedOwner.userId !== null && details.uid !== expectedOwner.userId) {
+      throw new Error("Real task fixture base is not authorized.");
     }
+    const owner = JSON.parse(await readFile(join(base, BASE_OWNER_FILE), "utf8"));
+    if (JSON.stringify(owner) !== JSON.stringify(expectedOwner)) throw new Error("Real task fixture base is not authorized.");
+    return canonical;
+  } catch (error: any) {
+    if (error?.code !== "ENOENT") throw error;
   }
+  try {
+    await mkdir(base, { mode: 0o700 });
+  } catch (error: any) {
+    if (error?.code === "EEXIST") return prepareOwnedBase();
+    throw error;
+  }
+  await writeFile(join(base, BASE_OWNER_FILE), JSON.stringify(expectedOwner), { mode: 0o600, flag: "wx" });
+  return base;
 }
 
 function assertContained(base: string, candidate: string): void {
   const child = relative(base, candidate);
   if (!child || child.startsWith("..") || isAbsolute(child)) throw new Error("Real task fixture root is not authorized.");
+}
+
+function rejectUnknownOptions(options: object, allowed: string[]): void {
+  if (Object.keys(options).some((key) => !allowed.includes(key))) {
+    throw new Error("Real task fixture configuration is not authorized.");
+  }
 }
 
 function processExists(processId: number): boolean {
