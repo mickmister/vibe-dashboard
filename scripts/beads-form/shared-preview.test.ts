@@ -20,6 +20,10 @@ describe('shared BeadsForm preview server helper', () => {
 
     expect(docs).not.toMatch(/(^|[\s`"'])\/tmp\//m);
     expect(docs).toContain('.vk-mocked-sandbox/beads-form-pending-cache');
+    expect(docs).toContain(
+      'BEADS_FORM_PENDING_CACHE_DIR="/var/tmp/vibe-kanban/worktrees/8299-beads-web-show-m/vibe-kanban-vscode-web/.vk-mocked-sandbox/beads-form-pending-cache"',
+    );
+    expect(docs).not.toContain('/beads-web/.vk-mocked-sandbox/beads-form-pending-cache');
     expect(docs).toContain('Automated tests may continue to use operating-system temporary');
   });
 
