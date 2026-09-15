@@ -847,6 +847,30 @@ export interface WorkflowPlanAuditEvent {
   createdAt: number;
 }
 
+export interface WorkflowNativeGasCityRun {
+  operationKey: string;
+  runId: string;
+  workspaceId: string;
+  sourceBeadId: string;
+  requestDigest: string;
+  bundleDigest: string;
+  requestJson: string;
+  allowedActionsJson: string;
+  status: 'preparing' | 'materializing' | 'ready' | 'turn_pending' | 'running' | 'completed' | 'blocked';
+  bundleRef: NullableString;
+  workflowId: NullableString;
+  rootBeadId: NullableString;
+  sessionId: NullableString;
+  queueItemRef: NullableString;
+  resultRef: NullableString;
+  noteRef: NullableString;
+  callbackRef: NullableString;
+  summary: string;
+  attempts: number;
+  createdAt: number;
+  updatedAt: number;
+}
+
 export interface DB {
   BetterAuthUser: BetterAuthUser;
   BetterAuthSession: BetterAuthSession;
@@ -871,6 +895,7 @@ export interface DB {
   WorkflowWorkAreaRegistryAdoptionAudit: WorkflowWorkAreaRegistryAdoptionAudit;
   WorkflowIssuedPlan: WorkflowIssuedPlan;
   WorkflowPlanLaunchEffect: WorkflowPlanLaunchEffect;
+  WorkflowNativeGasCityRun: WorkflowNativeGasCityRun;
   WorkflowPlanAuditEvent: WorkflowPlanAuditEvent;
   WorkflowWorkAreaAuditEvent: WorkflowWorkAreaAuditEvent;
   WorkflowDesign: WorkflowDesign;

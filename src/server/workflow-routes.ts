@@ -90,6 +90,7 @@ import {
 } from "./workflow-webhook-inbox";
 import type { WorkflowPlanLaunchService, WorkflowPlanPrincipal, WorkflowPlanRequest } from "../modules/plugins/workflows/server/workflowPlanLaunchService";
 import { WorkflowPlanAuthorizationError, type WorkflowPlanAuthService } from "../modules/plugins/workflows/server/workflowPlanAuthorization";
+import type { NativeGasCityWorkflowProvider } from "../modules/plugins/workflows/server/nativeGasCityWorkflowProvider";
 import { getConnInfo } from "@hono/node-server/conninfo";
 
 export interface RegisterWorkflowRoutesOptions {
@@ -142,6 +143,7 @@ export interface RegisterWorkflowRoutesOptions {
   githubWebhookSecret?: string;
   repoAliasCache?: RepoAliasCache;
   workflowPlanLaunchService?: Pick<WorkflowPlanLaunchService, "plan" | "launch">;
+  nativeGasCityWorkflowProvider?: Pick<NativeGasCityWorkflowProvider, "completeRoleTurn" | "getRun">;
   authorizeWorkflowPlan?: (request: Request, plan: WorkflowPlanRequest) => Promise<WorkflowPlanPrincipal>;
   workflowPlanAuthService?: Pick<WorkflowPlanAuthService, "issueBrowserSession" | "authenticate">;
 }
@@ -189,6 +191,12 @@ export function registerWorkflowRoutes(
   });
 
   hono.get("/dashboard/api/workflows/health", (c) => c.json({ ok: true }));
+
+  hono.get("/dashboard/api/workflows/native-runs/:runId", async (c) => {
+    const run = await options.nativeGasCityWorkflowProvider?.getRun(c.req.param("runId"));
+    if (!run) return c.json({ error: "workflow_run_not_found", message: "Workflow run was not found." }, 404);
+    return c.json({ run });
+  });
 
   hono.get("/dashboard/api/workspace-lanes", async (c) => {
     const parentWorkspaceId =
@@ -1381,6 +1389,22 @@ export function registerWorkflowRoutes(
             designStore,
             event,
           );
+        let nativeWorkflow: unknown = null;
+        if (
+          persistedWorkflow.reason === "not_persisted_workflow_turn" &&
+          event.eventStatus === "completed" &&
+          event.queueItemId &&
+          event.executionProcessId &&
+          options.nativeGasCityWorkflowProvider &&
+          options.vkClient?.getExecutionProcessFinalMessage
+        ) {
+          const finalResponse = await options.vkClient.getExecutionProcessFinalMessage(event.executionProcessId);
+          nativeWorkflow = await options.nativeGasCityWorkflowProvider.completeRoleTurn({
+            queueItemRef: event.queueItemId,
+            responseRef: event.executionProcessId,
+            finalResponseText: finalResponse.content ?? "",
+          });
+        }
         const wakeup = await options.workflowWebhookWakeup?.trigger();
         const processed = await store.markProcessed(inserted.inbox.inboxId);
         return c.json(
@@ -1389,6 +1413,7 @@ export function registerWorkflowRoutes(
             duplicate: false,
             inbox: processed,
             persistedWorkflow,
+            nativeWorkflow,
             wakeup: {
               started: Boolean(wakeup?.started),
               queued: Boolean(wakeup?.queued),

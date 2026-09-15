@@ -29,8 +29,9 @@ import { migration as workflowWorkAreaRegistryAdoptionAuditMigration } from '../
 import { migration as workflowWorkAreaAdoptionCapabilityMigration } from '../migrations/20260912060000_workflow_work_area_adoption_capability/migration';
 import { migration as workflowIssuedPlansMigration } from '../migrations/20260912070000_workflow_issued_plans/migration';
 import { migration as hardenWorkflowPlanLaunchMigration } from '../migrations/20260912080000_harden_workflow_plan_launch/migration';
+import { migration as nativeGasCityRunsMigration } from '../migrations/20260915000000_native_gas_city_runs/migration';
 
-export const databaseVersion = 31;
+export const databaseVersion = 32;
 
 export const migrations = [
   { name: '20260702000000_external_integrations', migration: _20260702000000_external_integrations },
@@ -64,4 +65,5 @@ export const migrations = [
   { name: '20260912060000_workflow_work_area_adoption_capability', migration: workflowWorkAreaAdoptionCapabilityMigration },
   { name: '20260912070000_workflow_issued_plans', migration: workflowIssuedPlansMigration },
   { name: '20260912080000_harden_workflow_plan_launch', migration: hardenWorkflowPlanLaunchMigration },
+  { name: '20260915000000_native_gas_city_runs', migration: nativeGasCityRunsMigration },
 ] as const;

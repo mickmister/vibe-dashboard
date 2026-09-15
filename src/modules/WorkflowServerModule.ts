@@ -37,6 +37,8 @@ import { WorkflowPlanLaunchService } from './plugins/workflows/server/workflowPl
 import { DbWorkflowPlanSource } from './plugins/workflows/server/workflowPlanSource';
 import { DbWorkflowPlanStore } from './plugins/workflows/server/workflowPlanStore';
 import { WorkflowPlanAuthService } from './plugins/workflows/server/workflowPlanAuthorization';
+import { NativeGasCityWorkflowProvider } from './plugins/workflows/server/nativeGasCityWorkflowProvider';
+import { createProductionNativeGasCityRuntime } from './plugins/workflows/server/nativeGasCityRuntime';
 
 const execFileAsync = promisify(execFile);
 const reposRoot = process.env.VK_REPOS_ROOT || join(process.env.HOME || '/home/vkuser', 'repos');
@@ -68,6 +70,8 @@ serverRegistry.registerServerModule((api) => {
   const workflowDesignStore = new DbWorkflowDesignStore({ getDb: async () => (await getVdDb()).db, templates: BUILT_IN_WORKFLOW_TEMPLATES });
   const workspaceLaneStore = new DbWorkspaceLaneStore({ getDb: async () => (await getVdDb()).db });
   const workflowBeadProviders = createBdWorkflowProviders();
+  const nativeRuntime = createProductionNativeGasCityRuntime({ vk: vkClient, resolver: roleSessionResolver });
+  const nativeGasCityWorkflowProvider = nativeRuntime ? new NativeGasCityWorkflowProvider({ getDb: async () => (await getVdDb()).db, runtime: nativeRuntime }) : null;
   const workflowPlanLaunchService = new WorkflowPlanLaunchService({
     store: new DbWorkflowPlanStore({ getDb: async () => (await getVdDb()).db, ownerId: `vd-${process.pid}` }),
     compiler: gasCityExecutionBundleCompiler,
@@ -80,7 +84,7 @@ serverRegistry.registerServerModule((api) => {
       },
       repositories: async (workspaceId) => (await vkClient.getWorkspaceRepos(workspaceId)).map((repo) => ({ id: repo.id, name: repo.name, targetRevision: repo.target_branch })),
     }),
-    launcher: {
+    launcher: nativeGasCityWorkflowProvider ?? {
       async checkDynamic() { return { ready: false, message: 'Native workflow start is not available yet. The verified plan can be reviewed now.' }; },
       async reconcile() { return { outcome: 'unknown' as const }; },
       async launch() { throw new Error('Native workflow start is not available.'); },
@@ -143,6 +147,7 @@ serverRegistry.registerServerModule((api) => {
     workflowRoadmapLiveProvider: workflowBeadProviders.roadmapProvider,
     vkClient,
     workflowPlanLaunchService,
+    nativeGasCityWorkflowProvider: nativeGasCityWorkflowProvider ?? undefined,
     workflowPlanAuthService,
   });
   registerPluginAssetRoutes(api.hono, { installRoot: pluginInstallRoot });
