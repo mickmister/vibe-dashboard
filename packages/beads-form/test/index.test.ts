@@ -88,6 +88,72 @@ describe('@vibe-dashboard/beads-form', () => {
     expect(compiled.html).not.toContain('beads-form-default');
   });
 
+  it('renders optional choice pros and cons as safe accessible Markdown tradeoff lists', () => {
+    const compiled = compileBeadsForm(defineBeadsForm({
+      id: 'tradeoff_review',
+      goal: 'Compare implementation tradeoffs.',
+      title: 'Tradeoff review',
+      questions: [buildChoicesQuestion({
+        id: 'approach',
+        title: 'Approach',
+        description: 'Choose an approach.',
+        choices: [{
+          id: 'incremental',
+          label: 'Incremental delivery',
+          prosAndCons: {
+            pros: ['Ships **sooner**', 'Keeps [`main`](https://example.test/main) stable'],
+            cons: ['Requires `migration` work', '<script>alert("unsafe")</script>'],
+          },
+        }, {
+          id: 'unchanged',
+          label: 'Existing behavior',
+        }],
+      })],
+    }));
+
+    expect(compiled.html).toContain('class="beads-form-choice-tradeoffs"');
+    expect(compiled.html).toContain('aria-label="Tradeoffs for Incremental delivery"');
+    expect(compiled.html).toContain('<h5>Pros</h5>');
+    expect(compiled.html).toContain('<strong>sooner</strong>');
+    expect(compiled.html).toContain('<h5>Cons</h5>');
+    expect(compiled.html).toContain('<code>migration</code>');
+    expect(compiled.html).toContain('&lt;script&gt;alert(&quot;unsafe&quot;)&lt;/script&gt;');
+    expect(compiled.html).not.toContain('<script>');
+    expect(compiled.html.match(/class="beads-form-choice-tradeoffs"/g)).toHaveLength(1);
+  });
+
+  it('strictly validates the canonical prosAndCons choice shape while allowing empty arrays', () => {
+    const compileChoice = (prosAndCons: unknown) => () => compileBeadsForm(defineBeadsForm({
+      id: 'tradeoff_validation',
+      goal: 'Validate choice tradeoffs.',
+      title: 'Tradeoff validation',
+      questions: [buildChoicesQuestion({
+        id: 'decision',
+        title: 'Decision',
+        description: 'Choose.',
+        choices: [{ id: 'a', label: 'A', prosAndCons } as never],
+      })],
+    }));
+
+    expect(compileChoice({ pros: [], cons: [] })).not.toThrow();
+    expect(compileChoice({ pros: 'Fast' })).toThrow('prosAndCons.pros must be an array of non-empty strings');
+    expect(compileChoice({ cons: [''] })).toThrow('prosAndCons.cons must be an array of non-empty strings');
+    expect(compileChoice({ pros: ['Fast'], risks: ['Unknown'] })).toThrow('prosAndCons supports only pros and cons');
+    expect(compileChoice(null)).toThrow('prosAndCons must be an object');
+
+    expect(() => compileBeadsForm(defineBeadsForm({
+      id: 'parallel_tradeoff_fields',
+      goal: 'Reject parallel tradeoff fields.',
+      title: 'Parallel tradeoff fields',
+      questions: [buildChoicesQuestion({
+        id: 'decision',
+        title: 'Decision',
+        description: 'Choose.',
+        choices: [{ id: 'a', label: 'A', pros: ['Fast'] } as never],
+      })],
+    }))).toThrow('must use prosAndCons instead of top-level pros or cons');
+  });
+
   it('compiles grouped checkbox choices with accessible guidance and legacy assumption support', () => {
     const compiled = compileBeadsForm(defineBeadsForm({
       id: 'grouped_choice_review',

@@ -180,6 +180,51 @@ textarea {
   font-weight: 700;
 }
 
+.beadsform-root .beads-form-choice-tradeoffs {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 15rem), 1fr));
+  gap: 0.65rem;
+  width: 100%;
+  max-width: 100%;
+  margin: 0.45rem 0 0;
+}
+
+.beadsform-root .beads-form-choice-tradeoff {
+  border-left: 2px solid #3f3f46;
+  padding-left: 0.75rem;
+  min-width: 0;
+}
+
+.beadsform-root .beads-form-choice-tradeoff--pros {
+  border-left-color: #22c55e;
+}
+
+.beadsform-root .beads-form-choice-tradeoff--cons {
+  border-left-color: #f59e0b;
+}
+
+.beadsform-root .beads-form-choice-tradeoff h5 {
+  margin: 0 0 0.25rem;
+  color: #e4e4e7;
+  font-size: 0.85rem;
+  font-weight: 800;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.beadsform-root .beads-form-choice-tradeoff-list {
+  display: grid;
+  gap: 0.25rem;
+  margin: 0;
+  padding-left: 1.2rem;
+  color: #d4d4d8;
+  overflow-wrap: anywhere;
+}
+
+.beadsform-root .beads-form-choice-tradeoff-list p {
+  margin: 0;
+}
+
 .beadsform-root .beads-form-choice-group {
   display: grid;
   gap: 0.75rem;

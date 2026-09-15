@@ -84,6 +84,13 @@ describe('BeadsForm styles', () => {
     expect(css).not.toContain('input[type="radio"]');
   });
 
+  it('keeps choice tradeoff lists compact and mobile-safe beneath checkbox intent', async () => {
+    const css = await readFile(new URL('./styles.css', import.meta.url), 'utf8');
+
+    expect(css).toMatch(/\.beadsform-root \.beads-form-choice-tradeoffs\s*\{[^}]*display:\s*grid[^}]*grid-template-columns:\s*repeat\(auto-fit, minmax\(min\(100%, 15rem\), 1fr\)\)[^}]*max-width:\s*100%/s);
+    expect(css).toMatch(/\.beadsform-root \.beads-form-choice-tradeoff-list\s*\{[^}]*padding-left:\s*1\.2rem[^}]*overflow-wrap:\s*anywhere/s);
+  });
+
   it('styles compact page chrome and polished Markdown description details', async () => {
     const css = await readFile(new URL('./styles.css', import.meta.url), 'utf8');
 

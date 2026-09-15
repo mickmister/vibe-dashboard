@@ -36,6 +36,11 @@ export type ChoiceQuestionChoice = {
   defaultValue?: boolean;
   /** Marks this choice as recommended and explains why. Preferred over boolean markers so humans get the rationale. */
   is_recommended_reason?: string;
+  /** Optional author-supplied tradeoffs. Entries support the same safe Markdown subset as descriptions. */
+  prosAndCons?: {
+    pros?: string[];
+    cons?: string[];
+  };
 };
 
 export type ChoiceGroupMode = 'any' | 'atMostOne' | 'exactlyOne';
@@ -593,6 +598,7 @@ function compileChoicesQuestion(question: ChoicesQuestion, controls: BeadsFormCo
 
   const choiceHtmlById = new Map(question.choices.map((choice) => {
     assertIdentifier(choice.id, `choice.id for ${question.id}`);
+    validateChoiceProsAndCons(choice, question.id);
     const inputId = `${question.id}_${choice.id}`;
     controls.push({
       id: inputId,
@@ -615,6 +621,7 @@ function compileChoicesQuestion(question: ChoicesQuestion, controls: BeadsFormCo
     const recommendation = recommendationReason
       ? `<p class="beads-form-recommended-reason"><span class="beads-form-recommended-reason-label">Why recommended:</span> ${renderInlineMarkdown(recommendationReason)}</p>`
       : '';
+    const tradeoffs = renderChoiceProsAndCons(choice);
     const choiceNotes = compileNotesTextarea({
       id: choiceNotesName(question.id, choice.id),
       name: choiceNotesName(question.id, choice.id),
@@ -628,6 +635,7 @@ function compileChoicesQuestion(question: ChoicesQuestion, controls: BeadsFormCo
       `<label for="${attr(inputId)}"><input id="${attr(inputId)}" name="${attr(question.id)}" type="checkbox" value="${attr(choice.id)}"> ${escapeHtml(choice.label)}${assumptionBadge ? ` ${assumptionBadge}` : ''}${recommended ? ` ${recommended}` : ''}</label>`,
       choiceDescription,
       recommendation,
+      tradeoffs,
       choiceNotes,
       '</div>',
     ].join('');
@@ -657,6 +665,49 @@ function compileChoicesQuestion(question: ChoicesQuestion, controls: BeadsFormCo
     ungroupedHtml,
     questionNotes,
     '</fieldset>',
+  ].join('');
+}
+
+function validateChoiceProsAndCons(choice: ChoiceQuestionChoice, questionId: string): void {
+  const rawChoice = choice as ChoiceQuestionChoice & { pros?: unknown; cons?: unknown };
+  if (Object.prototype.hasOwnProperty.call(rawChoice, 'pros') || Object.prototype.hasOwnProperty.call(rawChoice, 'cons')) {
+    throw new Error(`choice "${choice.id}" in ${questionId} must use prosAndCons instead of top-level pros or cons`);
+  }
+  const value = choice.prosAndCons;
+  if (value === undefined) return;
+  if (typeof value !== 'object' || value === null || Array.isArray(value)) {
+    throw new Error(`choice "${choice.id}" in ${questionId} prosAndCons must be an object`);
+  }
+  const unknownKeys = Object.keys(value).filter((key) => key !== 'pros' && key !== 'cons');
+  if (unknownKeys.length > 0) {
+    throw new Error(`choice "${choice.id}" in ${questionId} prosAndCons supports only pros and cons`);
+  }
+  for (const key of ['pros', 'cons'] as const) {
+    const entries = value[key];
+    if (entries === undefined) continue;
+    if (!Array.isArray(entries) || entries.some((entry) => typeof entry !== 'string' || entry.trim().length === 0)) {
+      throw new Error(`choice "${choice.id}" in ${questionId} prosAndCons.${key} must be an array of non-empty strings`);
+    }
+  }
+}
+
+function renderChoiceProsAndCons(choice: ChoiceQuestionChoice): string {
+  const pros = choice.prosAndCons?.pros ?? [];
+  const cons = choice.prosAndCons?.cons ?? [];
+  if (pros.length === 0 && cons.length === 0) return '';
+  const renderList = (kind: 'pros' | 'cons', label: 'Pros' | 'Cons', entries: string[]) => entries.length === 0
+    ? ''
+    : [
+      `<div class="beads-form-choice-tradeoff beads-form-choice-tradeoff--${kind}">`,
+      `<h5>${label}</h5>`,
+      `<ul class="beads-form-choice-tradeoff-list">${entries.map((entry) => `<li>${renderMarkdown(entry)}</li>`).join('')}</ul>`,
+      '</div>',
+    ].join('');
+  return [
+    `<section class="beads-form-choice-tradeoffs" aria-label="Tradeoffs for ${attr(choice.label)}">`,
+    renderList('pros', 'Pros', pros),
+    renderList('cons', 'Cons', cons),
+    '</section>',
   ].join('');
 }
 

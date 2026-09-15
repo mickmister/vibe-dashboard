@@ -62,6 +62,7 @@ Guidelines:
 - Lean toward "explain more" over excessive brevity. A form should let the human understand the in-depth reasoning, assumptions, and forks in the road without rereading the whole conversation.
 - Choice questions always use checkboxes; do not add radio controls or a radio question type. Use per-group `atMostOne` or `exactlyOne` constraints for mutually exclusive subsets; the UI explains “Select only one.” Add explicit None/Other choices when appropriate.
 - Use `is_recommended_reason` for advice and `assumedTrue: true` only for an author baseline/non-decision assumption. Neither recommendations nor assumptions precheck a box or become a submitted answer until the human clicks. Legacy `defaultValue`/`defaultChoiceId` values are deprecated assumption aliases.
+- Put tradeoffs on a choice with the canonical `prosAndCons: { pros?: string[]; cons?: string[] }` object. Entries may use safe Markdown; omit empty or unhelpful tradeoffs rather than creating separate top-level `pros`/`cons` fields.
 - Choices may include `is_recommended_reason` when the agent recommends an option.
 - Use `allowCodeFileChanges`; if the answer returns `allow_code_file_changes=false`, do not edit files—make another form or continue discussion.
 - Keep `additional_notes` as the master notes field.

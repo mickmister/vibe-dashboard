@@ -86,6 +86,10 @@ const form = defineBeadsForm({
           id: 'forms_tab',
           label: 'Open in a Forms tab',
           is_recommended_reason: 'This keeps form filling close to the craft context without splitting attention.',
+          prosAndCons: {
+            pros: ['Keeps the decision next to the **agent context**.'],
+            cons: ['Uses more horizontal space in a split view.'],
+          },
         },
         { id: 'direct_route', label: 'Support a direct dashboard URL' },
       ],
@@ -121,6 +125,7 @@ const metadataPatch = buildBeadsFormMetadata([form]);
 - The renderer generates accessible HTML and the validation controls manifest at runtime. Persisted bead metadata stores the standard DSL only; generated `html`, generated `controls`, raw/custom HTML forms, and source-message blobs are not stored.
 - Bead-backed storage uses split metadata for resilience: `metadata.beadForms.forms[]` stores lean form definitions without `responses`, while `metadata.beadFormResponses.responsesByFormId[formId]` stores response arrays. Read/show/submit paths join the two at runtime, and mutations compact older inline responses into the split response field.
 - Add `is_recommended_reason: "..."` to choices the agent recommends; the UI emphasizes those options and renders the reason. Do not use a reason-less boolean recommendation marker.
+- For meaningful tradeoffs, add the single canonical `prosAndCons: { pros?: string[]; cons?: string[] }` object to a choice. Each non-empty string supports the same safe Markdown subset as descriptions. Keep entries concise and specific; omit the object or use empty arrays when there are no useful tradeoffs. Do not invent parallel `pros`/`cons` fields at choice level.
 - Choice metadata has distinct meanings: a checked box is the human's answer; `is_recommended_reason` is advice with a rationale; `assumedTrue: true` documents an author baseline/non-decision assumption but never checks the box or becomes an answer; and `choiceGroups` constrain actual clicks. The UI labels assumptions “Assumed true” and recommendations “Recommended” separately. Legacy `defaultValue: true` and `choiceGroups[].defaultChoiceId` are accepted as deprecated assumption aliases for stored forms, but they no longer precheck choices. New forms should use `assumedTrue` and explicit None/Other choices instead.
 - Descriptions support safe Markdown such as `**bold**`, `*emphasis*`, `` `code` ``, and safe links. Raw HTML in descriptions is escaped.
 - Textarea answers are plain Markdown source. The dashboard adds a compact preview control for easier authoring, but submitted/draft/restored values remain the raw Markdown text, never generated preview HTML.

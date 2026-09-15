@@ -55,7 +55,14 @@ describe('BeadsForm core', () => {
             id: 'entry_point',
             title: 'Entry point',
             description: 'Choose where this should open.',
-            choices: [{ id: 'forms_tab', label: 'Forms tab' }],
+            choices: [{
+              id: 'forms_tab',
+              label: 'Forms tab',
+              prosAndCons: {
+                pros: ['Keeps **context** visible.'],
+                cons: ['Escapes <img src=x onerror=alert(1)> safely.'],
+              },
+            }],
           }],
         }],
       },
@@ -65,6 +72,11 @@ describe('BeadsForm core', () => {
     expect(forms[0]!.html).toContain('<form>');
     expect(forms[0]!.html).toContain(`name="${ALLOW_CODE_FILE_CHANGES_FIELD}"`);
     expect(forms[0]!.html).toContain('name="entry_point"');
+    expect(forms[0]!.html).toContain('class="beads-form-choice-tradeoffs"');
+    expect(forms[0]!.html).toContain('<strong>context</strong>');
+    expect(forms[0]!.html).toContain('&lt;img src=x onerror=alert(1)&gt;');
+    expect(forms[0]!.html).not.toContain('<img src=x');
+    expect(sanitizeBeadsFormHtml(forms[0]!.html)).toContain('beads-form-choice-tradeoffs');
     expect(forms[0]!.controls?.map((control) => control.name)).toEqual([
       ALLOW_CODE_FILE_CHANGES_FIELD,
       'entry_point',
