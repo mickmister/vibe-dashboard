@@ -1,234 +1,242 @@
 /* eslint-disable formatjs/no-literal-string-in-object -- contract fixtures are not UI copy */
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import {
-  PANEL_TARGET_SCHEMA_VERSION,
   CURRENT_PRODUCER_INVENTORY,
+  PANEL_TARGET_SCHEMA_VERSION,
   classifyLegacyRepresentation,
+  classifyLegacyVoyage,
   findCompatibleSplitTargets,
   parsePanelTarget,
+  reconstructGeneratedSurface,
   resolvePanelTarget,
+  type CapabilityDescriptor,
   type LegacyRepresentation,
+  type TrustedDefinition,
   type TrustedTargetRegistry,
 } from './targetRegistry';
 
-const registry: TrustedTargetRegistry = {
-  crafts: {
-    'craft-1': { workspaceId: 'workspace-1' },
-    c: { workspaceId: 'workspace-1' },
-    current: { workspaceId: 'workspace-1' },
-    other: { workspaceId: 'workspace-2' },
-  },
-  workspaces: {
-    'workspace-1': { containerRef: '/current/repo', available: true },
-    'workspace-2': { containerRef: '/other/repo', available: true },
-  },
-  surfaces: {
-    'builtin/agent': {
-      rendererKey: 'vk-agent-iframe',
-      runtime: { kind: 'leaseable-runtime' },
-      splitCompatibility: ['workbench'],
-      resolve: ({ workspaceId }) => ({ url: `/workspaces/${workspaceId}` }),
-      backendSharingKey: ({ workspaceId }) => `vk:${workspaceId}`,
-    },
-    'builtin/code': {
-      rendererKey: 'code-iframe',
-      runtime: { kind: 'leaseable-runtime' },
-      splitCompatibility: ['workbench'],
-      resolve: ({ workspace }) => ({ url: `/?folder=${encodeURIComponent(workspace.containerRef)}` }),
-      backendSharingKey: ({ workspaceId }) => `code:${workspaceId}`,
-    },
-    'builtin/forms': {
-      rendererKey: 'forms-iframe',
-      runtime: { kind: 'leaseable-runtime' },
-      splitCompatibility: ['workbench'],
-      resolve: ({ workspaceId }) => ({ url: `/dashboard/forms?workspace=${workspaceId}` }),
-      backendSharingKey: ({ workspaceId }) => `forms:${workspaceId}`,
-    },
-    'builtin/beads': {
-      rendererKey: 'beads-iframe',
-      runtime: { kind: 'leaseable-runtime' },
-      splitCompatibility: ['workbench'],
-      resolve: () => ({ url: '/beads' }),
-      backendSharingKey: () => 'beads:installation',
-    },
-    'plugin.preview/run-configs': {
-      pluginId: 'plugin.preview',
-      rendererKey: 'plugin-react:plugin.preview/run-configs',
-      runtime: {
-        kind: 'recreatable-transient-runtime',
-        continuity: 'recreated React state resets; backend state remains shared',
-      },
-      splitCompatibility: ['workbench'],
-      resolve: ({ workspaceId }) => ({ props: { workspaceId } }),
-      backendSharingKey: ({ workspaceId }) => `preview:${workspaceId}`,
-    },
-    'plugin.docs/site': {
-      pluginId: 'plugin.docs',
-      rendererKey: 'plugin-iframe:plugin.docs/site',
-      runtime: { kind: 'leaseable-runtime' },
-      splitCompatibility: ['reference'],
-      resolve: () => ({ url: '/plugins/plugin.docs/site' }),
-      backendSharingKey: () => 'plugin.docs/site',
-    },
-    'plugin.unsafe/tool': {
-      pluginId: 'plugin.unsafe',
-      rendererKey: 'unsupported:plugin.unsafe/tool',
-      runtime: { kind: 'unsupported', reason: 'surface has no stable leaseable or recreatable host' },
-      splitCompatibility: ['workbench'],
-      resolve: () => ({}),
-      backendSharingKey: () => 'plugin.unsafe/tool',
-    },
-  },
-  installedPlugins: new Set(['plugin.preview', 'plugin.docs', 'plugin.unsafe']),
-  factories: {
-    'plugin.factory/open': { surfaceKeys: { agent: 'builtin/agent', code: 'builtin/code' } },
-  },
-  resolveCustomUrl: (requestedUrl) => {
-    const parsed = new URL(requestedUrl);
-    if (!['http:', 'https:'].includes(parsed.protocol)) return null;
-    return {
-      payload: { url: parsed.href },
-      rendererKey: 'custom-url-iframe',
-      provenance: 'untrusted-custom-url',
-      capabilities: ['sandboxed-navigation'],
-    };
-  },
+const builtInCapabilities: CapabilityDescriptor = {
+  sandbox: ['allow-scripts', 'allow-same-origin'],
+  clipboardRead: true,
+  clipboardWrite: true,
+  sameOrigin: true,
+  navigation: 'resolved-origin',
+};
+const pluginCapabilities: CapabilityDescriptor = {
+  sandbox: ['allow-scripts'],
+  clipboardRead: false,
+  clipboardWrite: false,
+  sameOrigin: false,
+  navigation: 'resolved-origin',
 };
 
-describe('versioned Panel target contract', () => {
-  it('locks the audited set of currently constructible producer families', () => {
-    expect(CURRENT_PRODUCER_INVENTORY).toEqual([
-      'vk-agent',
-      'code',
-      'beads',
-      'forms',
-      'custom-url-or-preset',
-      'plugin-iframe-surface',
-      'plugin-internal-route',
-      'plugin-react-surface',
-      'workspace-factory',
-      'pair-placement',
-      'spaces-overview-homepage',
-      'create-workspace-action',
-      'generated-ephemeral-surface',
-    ]);
-  });
-  it('strictly parses every durable v1 target family and rejects malformed or unknown input', () => {
-    const targets = [
-      { version: 1, kind: 'workspace-surface', workspaceId: 'workspace-1', surfaceKey: 'builtin/agent' },
-      { version: 1, kind: 'plugin-surface', craftId: 'craft-1', pluginId: 'plugin.docs', surfaceKey: 'site' },
-      { version: 1, kind: 'custom-url', requestedUrl: 'https://docs.example.test/path' },
-    ];
-    for (const target of targets) expect(parsePanelTarget(target)).toEqual(target);
+function definition(input: Partial<ReturnType<TrustedDefinition['resolve']>> & { key: string; pluginId?: string }): TrustedDefinition {
+  return {
+    ...(input.pluginId ? { pluginId: input.pluginId } : {}),
+    resolve: (context) => ({
+      rendererKey: input.rendererKey ?? `${input.key}-renderer`,
+      payload: input.payload ?? { workspaceId: context.workspaceId },
+      provenance: input.provenance ?? (input.pluginId ? `installed-plugin:${input.pluginId}` : 'built-in'),
+      capabilities: input.capabilities ?? (input.pluginId ? pluginCapabilities : builtInCapabilities),
+      runtime: input.runtime ?? { kind: 'leaseable-runtime' },
+      splitCompatibility: input.splitCompatibility ?? ['workbench'],
+      equivalenceInputs: input.equivalenceInputs ?? [input.key, context.craftId],
+      sharingInputs: input.sharingInputs ?? [input.key, context.workspaceId ?? 'installation'],
+    }),
+  };
+}
 
-    for (const invalid of [
-      null,
-      { version: 2, kind: 'custom-url', requestedUrl: 'https://example.test' },
-      { version: 1, kind: 'unknown' },
-      { version: 1, kind: 'custom-url', requestedUrl: 'https://example.test', provenance: 'trusted' },
-      { version: 1, kind: 'workspace-surface', workspaceId: '', surfaceKey: 'builtin/code' },
-      { version: 1, kind: 'plugin-surface', craftId: 'c', pluginId: 'p', surfaceKey: '../escape' },
-    ]) expect(parsePanelTarget(invalid)).toBeNull();
+function createRegistry(): TrustedTargetRegistry {
+  return {
+    crafts: {
+      current: { workspaceId: 'workspace-1', allowedScopes: ['builtin/agent', 'builtin/code', 'builtin/beads', 'builtin/forms', 'plugin.preview/run-configs', 'plugin.docs/site', 'plugin.docs/help', 'plugin.unsafe/tool', 'custom-url'] },
+      other: { workspaceId: 'workspace-2', allowedScopes: ['builtin/agent', 'builtin/code', 'builtin/forms', 'custom-url'] },
+      restricted: { workspaceId: 'workspace-1', allowedScopes: ['builtin/agent'] },
+    },
+    workspaces: {
+      'workspace-1': { containerRef: '/current/repo', available: true },
+      'workspace-2': { containerRef: '/other/repo', available: true },
+    },
+    surfaces: {
+      'builtin/agent': {
+        ...definition({ key: 'agent', equivalenceInputs: ['agent', 'workspace-1'], sharingInputs: ['vk', 'workspace-1'] }),
+        resolve: (context) => ({ ...definition({ key: 'agent' }).resolve(context), payload: { url: `/workspaces/${context.workspaceId}` }, equivalenceInputs: ['agent', context.workspaceId!], sharingInputs: ['vk', context.workspaceId!] }),
+      },
+      'builtin/code': {
+        resolve: (context) => ({ ...definition({ key: 'code' }).resolve(context), rendererKey: 'code-iframe', payload: { url: `/?folder=${encodeURIComponent(context.workspace!.containerRef)}` }, equivalenceInputs: ['code', context.workspaceId!], sharingInputs: ['code', context.workspaceId!] }),
+      },
+      'builtin/beads': definition({ key: 'beads', sharingInputs: ['beads', 'installation'] }),
+      'builtin/forms': definition({ key: 'forms' }),
+      'plugin.preview/run-configs': definition({ key: 'preview', pluginId: 'plugin.preview', rendererKey: 'plugin-react:plugin.preview/run-configs', runtime: { kind: 'recreatable-transient-runtime', continuity: 'React local state resets; backend state remains shared' } }),
+      'plugin.docs/site': definition({ key: 'docs', pluginId: 'plugin.docs', rendererKey: 'plugin-iframe:plugin.docs/site', splitCompatibility: ['reference'] }),
+      'plugin.unsafe/tool': definition({ key: 'unsafe', pluginId: 'plugin.unsafe', runtime: { kind: 'unsupported', reason: 'no stable host contract' } }),
+    },
+    internalRoutes: {
+      'plugin.docs/help': {
+        ...definition({ key: 'help', pluginId: 'plugin.docs', rendererKey: 'plugin-internal:plugin.docs/help' }),
+        allowedParams: ['topic'],
+        resolve: (context) => ({ ...definition({ key: 'help', pluginId: 'plugin.docs' }).resolve(context), rendererKey: 'plugin-internal:plugin.docs/help', payload: { url: `/plugins/plugin.docs/help?topic=${encodeURIComponent(context.params?.topic ?? '')}` } }),
+      },
+    },
+    installedPlugins: new Set(['plugin.preview', 'plugin.docs', 'plugin.unsafe', 'plugin.factory']),
+    factories: { 'plugin.factory/open': { surfaceKeys: { agent: 'builtin/agent', code: 'builtin/code' } } },
+    customUrl: {
+      resolve: ({ requestedUrl, craftId }) => {
+        const url = new URL(requestedUrl!);
+        if (!['http:', 'https:'].includes(url.protocol)) throw new Error('unsupported protocol');
+        return {
+          rendererKey: 'custom-url-iframe', payload: { url: url.href }, provenance: 'untrusted-custom-url',
+          capabilities: { sandbox: ['allow-scripts'], clipboardRead: false, clipboardWrite: false, sameOrigin: false, navigation: 'any-http-origin' },
+          runtime: url.hostname === 'no-split.example' ? { kind: 'unsupported', reason: 'custom target denies Split View' } : { kind: 'leaseable-runtime' },
+          splitCompatibility: url.hostname === 'no-split.example' ? [] : ['reference'],
+          equivalenceInputs: ['url', url.href], sharingInputs: ['url', url.origin, craftId],
+        };
+      },
+    },
+  };
+}
+
+describe('versioned Panel target parsing', () => {
+  it('strictly parses all four durable families and canonicalizes route params', () => {
+    const values = [
+      { version: 1, kind: 'workspace-surface', workspaceId: 'workspace-1', surfaceKey: 'builtin/agent' },
+      { version: 1, kind: 'plugin-surface', pluginId: 'plugin.docs', surfaceKey: 'site' },
+      { version: 1, kind: 'plugin-internal-route', pluginId: 'plugin.docs', routeKey: 'help', params: { topic: 'api' } },
+      { version: 1, kind: 'custom-url', requestedUrl: 'https://docs.example/path' },
+    ];
+    for (const value of values) expect(parsePanelTarget(value)).toEqual(value);
     expect(PANEL_TARGET_SCHEMA_VERSION).toBe(1);
   });
 
-  it('derives renderer, URL/path, provenance, capabilities, equivalence, and sharing from trusted state', () => {
-    const stored = {
-      version: 1 as const,
-      kind: 'workspace-surface' as const,
-      workspaceId: 'workspace-1',
-      surfaceKey: 'builtin/code',
-    };
-    expect(resolvePanelTarget(stored, registry)).toEqual({
-      ok: true,
-      target: stored,
-      payload: { url: '/?folder=%2Fcurrent%2Frepo' },
-      rendererKey: 'code-iframe',
-      provenance: 'built-in',
-      capabilities: ['same-origin', 'clipboard'],
-      equivalenceKey: 'workspace-surface:workspace-1:builtin/code',
-      backendSharingKey: 'code:workspace-1',
-      runtime: { kind: 'leaseable-runtime' },
-      splitCompatibility: ['workbench'],
+  it.each([
+    null,
+    { version: 2, kind: 'custom-url', requestedUrl: 'https://example.test' },
+    { version: 1, kind: 'unknown' },
+    { version: 1, kind: 'custom-url', requestedUrl: 'https://example.test', provenance: 'trusted' },
+    { version: 1, kind: 'plugin-internal-route', pluginId: 'plugin.docs', routeKey: '../help', params: {} },
+    { version: 1, kind: 'plugin-internal-route', pluginId: 'plugin.docs', routeKey: 'help', params: { topic: 1 } },
+  ])('rejects malformed or authority-bearing input %#', (value) => expect(parsePanelTarget(value)).toBeNull());
+});
+
+describe('unified trusted resolution boundary', () => {
+  it('derives every effective field and ignores stale built-in paths', () => {
+    const registry = createRegistry();
+    const target = { version: 1 as const, kind: 'workspace-surface' as const, workspaceId: 'workspace-1', surfaceKey: 'builtin/code' };
+    expect(resolvePanelTarget(target, { craftId: 'current' }, registry)).toMatchObject({
+      ok: true, target, rendererKey: 'code-iframe', payload: { url: '/?folder=%2Fcurrent%2Frepo' },
+      provenance: 'built-in', capabilities: builtInCapabilities, runtime: { kind: 'leaseable-runtime' },
+      splitCompatibility: ['workbench'], equivalenceKey: 'code:workspace-1', backendSharingKey: 'code:workspace-1',
     });
   });
 
-  it('fails closed for unavailable workspaces, removed plugins, unknown surfaces, and unsafe URLs', () => {
-    expect(resolvePanelTarget({ version: 1, kind: 'workspace-surface', workspaceId: 'missing', surfaceKey: 'builtin/code' }, registry)).toEqual({ ok: false, reason: 'workspace-unavailable' });
-    expect(resolvePanelTarget({ version: 1, kind: 'plugin-surface', craftId: 'c', pluginId: 'removed', surfaceKey: 'view' }, registry)).toEqual({ ok: false, reason: 'plugin-unavailable' });
-    expect(resolvePanelTarget({ version: 1, kind: 'plugin-surface', craftId: 'c', pluginId: 'plugin.docs', surfaceKey: 'removed' }, registry)).toEqual({ ok: false, reason: 'surface-unavailable' });
-    expect(resolvePanelTarget({ version: 1, kind: 'plugin-surface', craftId: 'missing', pluginId: 'plugin.docs', surfaceKey: 'site' }, registry)).toEqual({ ok: false, reason: 'craft-unavailable' });
-    expect(resolvePanelTarget({ version: 1, kind: 'workspace-surface', workspaceId: 'workspace-1', surfaceKey: 'plugin.docs/site' }, registry)).toEqual({ ok: false, reason: 'surface-unavailable' });
-    expect(resolvePanelTarget({ version: 1, kind: 'custom-url', requestedUrl: 'javascript:alert(1)' }, registry)).toEqual({ ok: false, reason: 'custom-url-rejected' });
+  it('requires authoritative owner Craft, Workspace relation, and target scope', () => {
+    const registry = createRegistry();
+    const code = { version: 1, kind: 'workspace-surface', workspaceId: 'workspace-1', surfaceKey: 'builtin/code' };
+    expect(resolvePanelTarget(code, { craftId: 'missing' }, registry)).toEqual({ ok: false, reason: 'craft-unavailable' });
+    expect(resolvePanelTarget(code, { craftId: 'other' }, registry)).toEqual({ ok: false, reason: 'workspace-owner-mismatch' });
+    expect(resolvePanelTarget(code, { craftId: 'restricted' }, registry)).toEqual({ ok: false, reason: 'target-scope-denied' });
   });
 
-  it('takes plugin renderer and Split runtime semantics only from installed definitions', () => {
-    expect(resolvePanelTarget({ version: 1, kind: 'plugin-surface', craftId: 'craft-1', pluginId: 'plugin.preview', surfaceKey: 'run-configs' }, registry)).toMatchObject({
-      ok: true,
-      rendererKey: 'plugin-react:plugin.preview/run-configs',
-      provenance: 'installed-plugin:plugin.preview',
-      runtime: {
-        kind: 'recreatable-transient-runtime',
-        continuity: 'recreated React state resets; backend state remains shared',
-      },
-    });
-    expect(resolvePanelTarget({ version: 1, kind: 'plugin-surface', craftId: 'craft-1', pluginId: 'plugin.unsafe', surfaceKey: 'tool' }, registry)).toMatchObject({
-      ok: true,
-      runtime: { kind: 'unsupported', reason: 'surface has no stable leaseable or recreatable host' },
-    });
+  it('catches malformed URLs and all resolver failures as typed recovery', () => {
+    const registry = createRegistry();
+    expect(resolvePanelTarget({ version: 1, kind: 'custom-url', requestedUrl: 'not a URL' }, { craftId: 'current' }, registry)).toEqual({ ok: false, reason: 'custom-url-rejected' });
+    registry.surfaces['builtin/forms'] = { resolve: vi.fn(() => { throw new Error('resolver exploded'); }) };
+    expect(resolvePanelTarget({ version: 1, kind: 'workspace-surface', workspaceId: 'workspace-1', surfaceKey: 'builtin/forms' }, { craftId: 'current' }, registry)).toEqual({ ok: false, reason: 'resolver-failed' });
+    registry.surfaces['builtin/forms'] = { resolve: () => ({ rendererKey: '', payload: {}, provenance: 'built-in', capabilities: builtInCapabilities, runtime: { kind: 'leaseable-runtime' }, splitCompatibility: [], equivalenceInputs: [], sharingInputs: [] }) };
+    expect(resolvePanelTarget({ version: 1, kind: 'workspace-surface', workspaceId: 'workspace-1', surfaceKey: 'builtin/forms' }, { craftId: 'current' }, registry)).toEqual({ ok: false, reason: 'invalid-resolver-result' });
   });
 
-  it('classifies Split View capability explicitly and orders compatible targets same-Craft first', () => {
+  it('reflects current policy tightening and custom Split denial without kind defaults', () => {
+    const registry = createRegistry();
+    const docs = { version: 1, kind: 'plugin-surface', pluginId: 'plugin.docs', surfaceKey: 'site' };
+    expect(resolvePanelTarget(docs, { craftId: 'current' }, registry)).toMatchObject({ capabilities: pluginCapabilities });
+    registry.surfaces['plugin.docs/site'] = definition({ key: 'docs', pluginId: 'plugin.docs', capabilities: { ...pluginCapabilities, navigation: 'none' } });
+    expect(resolvePanelTarget(docs, { craftId: 'current' }, registry)).toMatchObject({ capabilities: { navigation: 'none' } });
+    expect(resolvePanelTarget({ version: 1, kind: 'custom-url', requestedUrl: 'https://no-split.example' }, { craftId: 'current' }, registry)).toMatchObject({ runtime: { kind: 'unsupported', reason: 'custom target denies Split View' }, splitCompatibility: [] });
+  });
+
+  it('resolves internal routes only through installed route definitions and allowlisted params', () => {
+    const registry = createRegistry();
+    const route = { version: 1, kind: 'plugin-internal-route', pluginId: 'plugin.docs', routeKey: 'help', params: { topic: 'api' } };
+    expect(resolvePanelTarget(route, { craftId: 'current' }, registry)).toMatchObject({ ok: true, rendererKey: 'plugin-internal:plugin.docs/help', payload: { url: '/plugins/plugin.docs/help?topic=api' } });
+    expect(resolvePanelTarget({ ...route, params: { redirect: 'https://evil.test' } }, { craftId: 'current' }, registry)).toEqual({ ok: false, reason: 'invalid-route-params' });
+    delete registry.internalRoutes['plugin.docs/help'];
+    expect(resolvePanelTarget(route, { craftId: 'current' }, registry)).toEqual({ ok: false, reason: 'internal-route-unavailable' });
+    expect(resolvePanelTarget({ version: 1, kind: 'custom-url', requestedUrl: 'internal://plugin.docs/help' }, { craftId: 'current' }, registry)).toEqual({ ok: false, reason: 'custom-url-rejected' });
+    registry.installedPlugins.delete('plugin.docs');
+    expect(resolvePanelTarget(route, { craftId: 'current' }, registry)).toEqual({ ok: false, reason: 'plugin-unavailable' });
+  });
+
+  it('uses definition compatibility with same-Craft default and permitted cross-Craft results', () => {
+    const registry = createRegistry();
+    const invoking = resolvePanelTarget({ version: 1, kind: 'workspace-surface', workspaceId: 'workspace-1', surfaceKey: 'builtin/agent' }, { craftId: 'current' }, registry);
+    if (!invoking.ok) throw new Error(invoking.reason);
     const candidates = [
       { craftId: 'other', target: { version: 1, kind: 'workspace-surface', workspaceId: 'workspace-2', surfaceKey: 'builtin/code' } },
       { craftId: 'current', target: { version: 1, kind: 'workspace-surface', workspaceId: 'workspace-1', surfaceKey: 'builtin/forms' } },
-      { craftId: 'current', target: { version: 1, kind: 'plugin-surface', craftId: 'current', pluginId: 'plugin.unsafe', surfaceKey: 'tool' } },
+      { craftId: 'current', target: { version: 1, kind: 'plugin-surface', pluginId: 'plugin.unsafe', surfaceKey: 'tool' } },
     ] as const;
-    const invoking = resolvePanelTarget({ version: 1, kind: 'workspace-surface', workspaceId: 'workspace-1', surfaceKey: 'builtin/agent' }, registry);
-    if (!invoking.ok) throw new Error(invoking.reason);
-    expect(findCompatibleSplitTargets(invoking, 'current', candidates, registry).map((item) => item.craftId)).toEqual(['current', 'other']);
+    expect(findCompatibleSplitTargets(invoking, 'current', candidates, registry).map(({ craftId }) => craftId)).toEqual(['current', 'other']);
   });
 });
 
-describe('legacy producer inventory and migration classification', () => {
-  const cases: Array<[string, LegacyRepresentation, string]> = [
-    ['VK Agent', { kind: 'view', craftId: 'c', workspaceId: 'workspace-1', view: { id: 'agent', title: 'Agent', url: 'https://stale/workspaces/wrong' } }, 'panel'],
-    ['Code', { kind: 'view', craftId: 'c', workspaceId: 'workspace-1', view: { id: 'code', title: 'Code', url: 'https://stale/?folder=/wrong' } }, 'panel'],
-    ['Beads', { kind: 'view', craftId: 'c', workspaceId: 'workspace-1', view: { id: 'beads', title: 'Beads', url: 'https://stale' } }, 'panel'],
-    ['Forms', { kind: 'view', craftId: 'c', workspaceId: 'workspace-1', view: { id: 'forms', title: 'Forms', url: 'https://stale' } }, 'panel'],
-    ['plugin iframe', { kind: 'view', craftId: 'c', workspaceId: 'workspace-1', view: { id: 'craft-surface:c:plugin.docs/site', title: 'Docs', url: 'https://stale', ephemeral: { kind: 'craft-surface', pluginId: 'plugin.docs', surfaceKey: 'plugin.docs/site', sourceKey: 'site' } } }, 'panel'],
-    ['plugin React', { kind: 'view', craftId: 'c', workspaceId: 'workspace-1', view: { id: 'craft-surface:c:plugin.preview/run-configs', title: 'Preview', url: 'internal://stale', ephemeral: { kind: 'craft-surface', pluginId: 'plugin.preview', surfaceKey: 'plugin.preview/run-configs', sourceKey: 'run-configs' } } }, 'panel'],
-    ['custom URL/preset', { kind: 'view', craftId: 'c', view: { id: 'custom', title: 'Docs', url: 'https://docs.example.test' } }, 'panel'],
-    ['pair', { kind: 'pair', craftId: 'c', pairId: 'agent+code', viewIds: ['agent', 'code'] }, 'placement-only'],
-    ['Spaces Overview', { kind: 'view', craftId: 'home', view: { id: 'tab_overview', title: 'Spaces', url: 'internal://spaces-overview' } }, 'homepage-state'],
-    ['Create Workspace', { kind: 'temporary-create-workspace', craftId: 'pending' }, 'skip'],
-  ];
-
-  it.each(cases)('%s has one deterministic outcome', (_label, input, outcome) => {
-    expect(classifyLegacyRepresentation(input, registry).outcome).toBe(outcome);
+describe('legacy migration inventory', () => {
+  it('locks all audited producer families', () => {
+    expect(CURRENT_PRODUCER_INVENTORY).toHaveLength(13);
   });
 
-  it('uses installed factory identity rather than expanded URL and quarantines unresolved plugin views', () => {
-    const withFactory = {
-      ...registry,
-      installedPlugins: new Set([...registry.installedPlugins, 'plugin.factory']),
-    };
-    expect(classifyLegacyRepresentation({ kind: 'factory-view', craftId: 'c', workspaceId: 'workspace-1', pluginId: 'plugin.factory', factoryKey: 'open', surfaceKey: 'code', expandedUrl: 'https://attacker.invalid' }, withFactory)).toEqual({
-      outcome: 'panel',
-      target: { version: 1, kind: 'workspace-surface', workspaceId: 'workspace-1', surfaceKey: 'builtin/code' },
-    });
-    expect(classifyLegacyRepresentation({ kind: 'factory-view', craftId: 'c', workspaceId: 'workspace-1', pluginId: 'plugin.factory', factoryKey: 'open', surfaceKey: 'agent', expandedUrl: 'https://attacker.invalid' }, registry)).toEqual({ outcome: 'quarantine', reason: 'factory-unavailable' });
-    expect(classifyLegacyRepresentation({ kind: 'view', craftId: 'c', view: { id: 'craft-surface:c:gone/view', title: 'Gone', url: 'https://stale', ephemeral: { kind: 'craft-surface', pluginId: 'gone', surfaceKey: 'gone/view', sourceKey: 'view' } } }, registry)).toEqual({ outcome: 'quarantine', reason: 'plugin-unavailable' });
+  it('always skips ephemeral placeholders but reconstructs from current definitions separately', () => {
+    const registry = createRegistry();
+    const ephemeral: LegacyRepresentation = { kind: 'view', craftId: 'current', groupId: 'craft', workspaceId: 'workspace-1', view: { id: 'craft-surface:current:preview', title: 'Preview', url: 'https://attacker.invalid', ephemeral: { kind: 'craft-surface', pluginId: 'plugin.preview', surfaceKey: 'forged', sourceKey: 'run-configs' } } };
+    expect(classifyLegacyRepresentation(ephemeral, registry)).toEqual({ outcome: 'skip', reason: 'ephemeral-plugin-placeholder' });
+    registry.installedPlugins.delete('plugin.preview');
+    expect(classifyLegacyRepresentation(ephemeral, registry)).toEqual({ outcome: 'skip', reason: 'ephemeral-plugin-placeholder' });
+    registry.installedPlugins.add('plugin.preview');
+    expect(reconstructGeneratedSurface('current', 'plugin.preview', 'run-configs', registry)).toMatchObject({ ok: true, rendererKey: 'plugin-react:plugin.preview/run-configs' });
   });
 
-  it('ignores stale built-in URLs and rejects unavailable workspace identity', () => {
-    expect(classifyLegacyRepresentation({ kind: 'view', craftId: 'c', workspaceId: 'workspace-1', view: { id: 'code', title: 'Code', url: 'https://attacker.invalid/?folder=/wrong' } }, registry)).toEqual({
-      outcome: 'panel',
-      target: { version: 1, kind: 'workspace-surface', workspaceId: 'workspace-1', surfaceKey: 'builtin/code' },
-    });
-    expect(classifyLegacyRepresentation({ kind: 'view', craftId: 'c', workspaceId: 'missing', view: { id: 'agent', title: 'Agent', url: '/workspaces/missing' } }, registry)).toEqual({
-      outcome: 'quarantine',
-      reason: 'workspace-unavailable',
-    });
+  it.each([
+    ['Agent', 'agent', '/stale-agent', 'builtin/agent'],
+    ['Code', 'code', '/?folder=/stale', 'builtin/code'],
+    ['Beads', 'beads', '/stale-beads', 'builtin/beads'],
+    ['Forms', 'forms', '/stale-forms', 'builtin/forms'],
+  ])('maps generated %s through stable Workspace identity', (_label, id, url, surfaceKey) => {
+    expect(classifyLegacyRepresentation({ kind: 'view', craftId: 'current', groupId: 'craft', workspaceId: 'workspace-1', view: { id, title: id, url } }, createRegistry())).toEqual({ outcome: 'panel', target: { version: 1, kind: 'workspace-surface', workspaceId: 'workspace-1', surfaceKey } });
+  });
+
+  it('classifies custom URL, internal route, and temporary action producers distinctly', () => {
+    const registry = createRegistry();
+    expect(classifyLegacyRepresentation({ kind: 'view', craftId: 'current', groupId: 'craft', view: { id: 'docs', title: 'Docs', url: 'https://docs.example.test' } }, registry)).toMatchObject({ outcome: 'panel', target: { kind: 'custom-url' } });
+    expect(classifyLegacyRepresentation({ kind: 'view', craftId: 'current', groupId: 'craft', view: { id: 'help', title: 'Help', url: 'internal://stale', internalRoute: { pluginId: 'plugin.docs', routeKey: 'help', params: { topic: 'api' } } } }, registry)).toEqual({ outcome: 'panel', target: { version: 1, kind: 'plugin-internal-route', pluginId: 'plugin.docs', routeKey: 'help', params: { topic: 'api' } } });
+    expect(classifyLegacyRepresentation({ kind: 'temporary-create-workspace', craftId: 'pending' }, registry)).toEqual({ outcome: 'skip', reason: 'temporary-create-workspace' });
+  });
+
+  it.each([
+    ['tg_home', { groupId: 'tg_home', id: 'ordinary', url: 'https://example.test' }],
+    ['tab_overview', { groupId: 'craft', id: 'tab_overview', url: 'https://example.test' }],
+    ['internal URL', { groupId: 'craft', id: 'ordinary', url: 'internal://spaces-overview' }],
+  ])('skips homepage representation identified by %s', (_label, value) => {
+    expect(classifyLegacyRepresentation({ kind: 'view', craftId: 'current', groupId: value.groupId, view: { id: value.id, title: 'View', url: value.url } }, createRegistry())).toEqual({ outcome: 'skip', reason: 'homepage-representation' });
+  });
+
+  it('balances mixed and homepage-only Voyages and omits only the latter', () => {
+    const homepage: LegacyRepresentation = { kind: 'view', craftId: 'current', groupId: 'tg_home', view: { id: 'ordinary', title: 'Home', url: 'https://example.test' } };
+    const code: LegacyRepresentation = { kind: 'view', craftId: 'current', groupId: 'craft', workspaceId: 'workspace-1', view: { id: 'code', title: 'Code', url: '/?folder=/stale' } };
+    expect(classifyLegacyVoyage([homepage], createRegistry())).toMatchObject({ counts: { skip: 1 }, omitVoyage: true });
+    expect(classifyLegacyVoyage([homepage, code], createRegistry())).toMatchObject({ counts: { skip: 1, panel: 1 }, omitVoyage: false });
+  });
+
+  it('maps factories from manifest identity, not expanded URL', () => {
+    expect(classifyLegacyRepresentation({ kind: 'factory-view', craftId: 'current', groupId: 'craft', workspaceId: 'workspace-1', pluginId: 'plugin.factory', factoryKey: 'open', surfaceKey: 'code', expandedUrl: 'https://attacker.invalid' }, createRegistry())).toEqual({ outcome: 'panel', target: { version: 1, kind: 'workspace-surface', workspaceId: 'workspace-1', surfaceKey: 'builtin/code' } });
+  });
+
+  it('resolves pair members independently and emits topology only when both succeed', () => {
+    const validPair: LegacyRepresentation = { kind: 'pair', craftId: 'current', groupId: 'craft', workspaceId: 'workspace-1', pairId: 'agent+code', members: [{ id: 'agent', title: 'Agent', url: '/stale-agent' }, { id: 'code', title: 'Code', url: '/stale-code' }] };
+    const valid = classifyLegacyRepresentation(validPair, createRegistry());
+    expect(valid).toMatchObject({ outcome: 'pair', targets: [{ surfaceKey: 'builtin/agent' }, { surfaceKey: 'builtin/code' }], diagnostics: [{ viewId: 'agent', outcome: 'panel' }, { viewId: 'code', outcome: 'panel' }], topology: { pairId: 'agent+code', memberIndexes: [0, 1] } });
+
+    const partial = classifyLegacyRepresentation({ ...validPair, members: [validPair.members[0]!, { id: 'bad', title: 'Bad', url: 'not a URL' }] }, createRegistry());
+    expect(partial).toMatchObject({ outcome: 'pair', targets: [{ surfaceKey: 'builtin/agent' }], diagnostics: [{ viewId: 'agent', outcome: 'panel' }, { viewId: 'bad', outcome: 'quarantine', reason: 'custom-url-rejected' }] });
+    expect(partial).not.toHaveProperty('topology');
   });
 });

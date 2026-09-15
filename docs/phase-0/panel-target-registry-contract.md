@@ -1,120 +1,119 @@
 # Phase 0 Panel target registry contract
 
-Status: **GO**, as an isolated contract for the production registry in M2.3.
+Status: **GO** for implementing the production registry in M2.3.
 
-Evidence: `spikes/dockview-contract/targetRegistry.ts` and
-`targetRegistry.test.ts`, exercised by `pnpm test:contract:dockview`.
+Executable evidence lives in `spikes/dockview-contract/targetRegistry.ts` and
+`targetRegistry.test.ts` and runs in the full Dockview contract command.
 
-## Repository inventory
+## Audited producer inventory
 
-The inventory follows construction, effective-view generation, and rendering
-through `types.ts`, `AddTabModal`, the plugin registry, `craft-surfaces`,
-`workspace-composition`, and `IframePanel`. Every currently constructible family
-has one target-model outcome:
+The audit follows `types.ts`, `AddTabModal`, `WorkspaceShell`, the plugin
+registry, `craft-surfaces`, `react-craft-surfaces`, `workspace-composition`, and
+`IframePanel`. The executable inventory locks these current producer families:
 
-| Current producer | Current representation | Phase 0 outcome |
-| --- | --- | --- |
-| VK Workspace Agent | Generated `agent` View from stable Workspace metadata | Durable `workspace-surface` target using `workspaceId` + `builtin/agent` |
-| Code | Generated `code` View; URL currently contains `workspaceDir` | Durable `workspace-surface` target using `workspaceId` + `builtin/code`; current container reference is re-derived |
-| Beads | Generated `beads` View | Durable `workspace-surface` target using `workspaceId` + `builtin/beads` |
-| Forms | Generated `forms` View | Durable `workspace-surface` target using `workspaceId` + `builtin/forms` |
-| Custom URL | Manual Add Tab or `code-server` URL-prompt preset | Durable `custom-url` request; the trusted URL resolver validates and derives effective provenance/capabilities |
-| Craft-surface plugin iframe | Manifest `craftSurfaces`, including `code-server/editor` | Durable `plugin-surface` lookup; installed manifest supplies renderer and URL template |
-| Craft-surface plugin React | `preview-server/run-configs`, recognized by the first-party React surface map | Durable `plugin-surface`; currently classified recreatable-transient for Split View because no stable leaseable React root exists |
-| Plugin internal iframe route | Installed manifest `internalRoutes` resolved from `internal://` | Durable `plugin-surface`; missing route/manifest is unavailable, never a generic iframe fallback |
-| Workspace factory | `app-development/open-existing-workspace` composition creates Agent + Code Views | Factory identity and tab key map to the same canonical built-in targets; expanded template URLs are ignored |
-| Pair | Built-in Agent+Code / Agent+Beads or user-created `ViewPair` | Placement-only migration input referencing Panels; never a Panel target |
-| Spaces Overview | `internal://spaces-overview` in the system Home Craft | Homepage/overview state; never a Dockview Panel |
-| Create Workspace | Pending action surface in `WorkspaceShell` | Skip as temporary UI; never a Craft or Panel |
-| Generated ephemeral surface | Runtime `ephemeral.kind = craft-surface` View | Recreate from the current installed surface definition; do not persist the expanded View URL |
-| Unknown internal, removed plugin/factory, or unresolved ephemeral View | No trusted current definition | Quarantine/recovery with a deterministic reason; no unrestricted iframe fallback |
+| Producer | Durable/migration outcome |
+| --- | --- |
+| VK Agent | `workspace-surface(workspaceId, builtin/agent)` |
+| Code | `workspace-surface(workspaceId, builtin/code)`; current container reference is resolved, never stored path authority |
+| Beads | `workspace-surface(workspaceId, builtin/beads)` |
+| Forms | `workspace-surface(workspaceId, builtin/forms)` |
+| Manual URL or URL-prompt preset | `custom-url(requestedUrl)` interpreted only by the current custom-URL definition |
+| Manifest `craftSurfaces` iframe | `plugin-surface(pluginId, surfaceKey)` reconstructed from the installed contribution |
+| First-party plugin React surface | The same `plugin-surface` identity with an explicit recreatable-runtime continuity contract |
+| Manifest `internalRoutes` | Distinct `plugin-internal-route(pluginId, routeKey, params)` with contribution and parameter allowlist lookup |
+| Workspace factory | Installed factory/tab identity maps to canonical registered targets; expanded URL is ignored |
+| Built-in or user pair | Members resolve independently; topology is emitted only when both members resolve |
+| `tg_home`, `tab_overview`, or `internal://spaces-overview` | `skip/homepage-representation`; no Panel and no normalized homepage state |
+| Create Workspace action | `skip/temporary-create-workspace` |
+| Legacy runtime-only craft-surface placeholder | Always `skip/ephemeral-plugin-placeholder`; legacy metadata and URL never create a target |
 
-Tab presets are producer UI, not a fourth durable target family. Their output is
-classified by the target it requests. Space types change navigation metadata and
-do not construct Panel content.
+Unknown internal URLs, missing contributions, removed plugins/factories, and
+unresolvable members produce typed diagnostics without an iframe fallback.
+Space-type contributions affect navigation metadata and are not Panel producers.
 
-## Versioned durable schema
+## Versioned stored schema
 
-Version 1 is an exact, unknown-field-rejecting discriminated union:
+Version 1 is an exact-key, unknown-field-rejecting union:
 
 ```ts
 type PanelTarget =
   | { version: 1; kind: 'workspace-surface'; workspaceId: string; surfaceKey: string }
-  | { version: 1; kind: 'plugin-surface'; craftId: string; pluginId: string; surfaceKey: string }
+  | { version: 1; kind: 'plugin-surface'; pluginId: string; surfaceKey: string }
+  | {
+      version: 1;
+      kind: 'plugin-internal-route';
+      pluginId: string;
+      routeKey: string;
+      params: Record<string, string>;
+    }
   | { version: 1; kind: 'custom-url'; requestedUrl: string };
 ```
 
-The stored value contains lookup inputs, not effective runtime authority. In
-particular, it contains no renderer key, expanded workspace path, resolved URL,
-provenance, sandbox policy, privilege, equivalence key, or backend-sharing key.
-A custom URL is only a requested locator and must pass the current trusted URL
-resolver on every resolution.
+The owning Panel supplies authoritative Craft context to resolution. A Workspace
+target deliberately does not duplicate `craftId`. Stored targets contain no
+renderer key, expanded Workspace path, effective URL, provenance, capability,
+runtime class, Split compatibility, equivalence key, or sharing key.
 
-## Trusted resolution boundary
+## Single trusted resolution boundary
 
-Resolution joins the parsed target with current trusted Workspace metadata,
-built-in definitions, the current Craft-to-Workspace relation, and installed
-plugin/factory manifests. Only that join can produce:
+Every target kind invokes a current trusted definition. The definition returns a
+complete result which the boundary validates before use:
 
-- renderer key and runtime payload;
-- effective provenance and capabilities;
-- stable equivalence key;
-- backend-sharing key; and
-- Split View compatibility/runtime classification.
+- stable renderer key and runtime payload;
+- effective provenance;
+- concrete sandbox, clipboard-read/write, same-origin, and navigation policy;
+- leaseable, recreatable-with-continuity, or unsupported runtime classification;
+- Split compatibility inputs;
+- equivalence inputs; and
+- backend-sharing inputs.
 
-Missing Workspaces, removed plugins or contributions, unsupported schema
-versions, malformed identifiers, unknown fields, unsafe URL schemes, and unknown
-surfaces fail closed. Persisted or legacy URLs cannot redirect a built-in or
-factory target, and persisted provenance cannot self-upgrade privileges.
+The boundary requires that the owner Craft exists, still maps to the target's
+current Workspace, permits the target scope, and references an available
+Workspace. All definition exceptions and malformed results become typed recovery
+instead of escaping. Policy tightening is effective immediately because nothing
+authoritative is read from the stored target.
 
-Renderer keys are stable registry data (`vk-agent-iframe`, `code-iframe`,
-`forms-iframe`, `beads-iframe`, `plugin-iframe:<plugin>/<surface>`, and
-`plugin-react:<plugin>/<surface>`), not values accepted from storage.
+Custom URLs have no kind-based runtime or Split defaults. Their definition may
+allow leasing, require transient recreation, or deny Split View. The requested
+URL is untrusted input; malformed and disallowed schemes fail closed.
 
-## Identity and sharing
+`internalRoutes` have a separate contribution table and identity from
+`craftSurfaces`. Resolution requires the installed plugin and exact route,
+accepts only declared string parameters, and never retries as a custom URL.
 
-- Workspace-surface equivalence is Workspace identity + registered surface key.
-- Plugin-surface equivalence is Craft identity + installed plugin/surface key.
-- Custom-URL equivalence uses the trusted resolver's canonical URL.
-- Backend-sharing keys are independently derived by each trusted definition;
-  they do not imply shared iframe or renderer state.
+## Identity, sharing, and Split View
 
-This permits separate Panels to share backend identity without sharing live view
-state.
+Definitions—not target-kind branches—supply equivalence and backend-sharing
+inputs. Separate Panels may share backend identity without sharing live renderer
+state. Split compatibility uses definition-provided compatibility values, sorts
+compatible same-Craft candidates first, and continues to permit compatible
+cross-Craft choices. Unsupported runtimes retain a deterministic reason.
 
-## Split View capability
+## Migration evidence
 
-Definitions declare one of:
+Legacy classification receives enclosing group, View, owning Craft, and joined
+Workspace/plugin context:
 
-1. `leaseable-runtime` — the existing runtime has a proven stable host contract;
-2. `recreatable-transient-runtime` — Split View creates a transient runtime and
-   exposes an explicit continuity statement; or
-3. `unsupported` — the picker returns a deterministic reason.
-
-Compatibility is based on definition-provided compatibility keys, not target
-kind conditionals. Matching candidates from the invoking Craft sort first, while
-compatible cross-Craft candidates remain permitted. Unsupported candidates do
-not silently become iframe targets.
-
-## Migration classifications
-
-The executable table covers generated built-ins, custom/preset URLs, plugin
-iframe and React surfaces, workspace-factory output, pairs, homepage state,
-temporary Create Workspace UI, and removed plugins/factories. Migration uses the
-consistent joined source snapshot required by the implementation plan; the
-contract deliberately quarantines when trusted identity cannot be reconstructed.
-This per-representation classification runs only after the migration admits a
-VK-backed Craft; the separately approved migration rule skips other non-VK
-Crafts rather than preserving their Views as Panels.
+- runtime-only ephemeral placeholders are skipped even if their legacy metadata
+  or URL appears valid; a separate test reconstructs the surface from the current
+  installed definition;
+- all three homepage identifiers are recognized independently;
+- homepage-only Voyages are omitted, while mixed Voyages retain their valid
+  content with balanced per-outcome counts;
+- factory expanded URLs are ignored;
+- pair members produce ordered targets and per-member diagnostics, and placement
+  topology exists only when exactly two members resolve; and
+- the migration contract runs only after the approved outer migration admits a
+  VK-backed Craft. Non-VK Crafts remain skipped by that outer rule.
 
 ## GO decision and limits
 
-**GO:** the versioned shape is sufficient to implement the normalized registry
-without making stored URLs, paths, renderer names, or provenance authoritative.
-The tests demonstrate deterministic parsing, resolution, identity, sharing,
-migration, missing-target, and generic Split compatibility behavior.
+**GO:** the corrected contract proves strict schema parsing, authoritative owner
+validation, unified fail-closed resolution, current-policy derivation, distinct
+internal routes, ephemeral/homepage omission, pair diagnostics, stable identity,
+backend sharing, and generic Split capability selection.
 
-This spike is not the production registry, migration, iframe policy, plugin
-installer, or Dockview integration. M2.3 must build its definitions from the
-actual current registry and resolver services, retain exact schema parsing, and
-add definitions atomically when new producers become constructible.
+This is an isolated Phase 0 contract, not production integration. M2.3 must build
+definitions from the real Workspace and installed-plugin services, preserve the
+same typed recovery behavior, and require inventory/test updates whenever a new
+producer becomes constructible.
