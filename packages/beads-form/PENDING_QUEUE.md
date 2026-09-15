@@ -15,6 +15,26 @@ The pending queue uses persisted cached-first reads plus bounded, read-only scan
 
 Serve memory cache first, then disk cache, then run a fresh scan if no cache exists. If cached data is served, the client triggers a fresh read in the background and keeps cached content visible; if the fresh result differs, the UI shows an update notice. Stable/production servers warm `BEADS_FORM_PENDING_PARENT_DIR` in the background on startup without blocking startup. Vite/dev servers do not scan every repo on restart by default; set `BEADS_FORM_PENDING_WARM_ON_STARTUP=1` only when intentional.
 
+## Preview and development cache policy
+
+Stable/production runs keep the XDG disk-cache default. For interactive preview
+and development, keep cache state inside the checkout's gitignored sandbox and
+disable startup warming explicitly:
+
+```sh
+BEADS_FORM_PENDING_CACHE_DIR="/var/tmp/vibe-kanban/worktrees/8299-beads-web-show-m/beads-web/.vk-mocked-sandbox/beads-form-pending-cache" \
+BEADS_FORM_PENDING_WARM_ON_STARTUP=0 \
+npm run dev
+```
+
+`BEADS_FORM_PENDING_CACHE_DIR` is the supported cache-location override; point
+it at a disposable, repo-local directory when isolation is desired. There is no
+separate no-cache flag. Removing that gitignored directory resets preview cache
+state. Automated tests may continue to use operating-system temporary
+directories when the test owns and cleans them up; do not use those directories
+for browser-visible previews, logs, forms, or artifacts that must survive a
+container restart.
+
 Fresh scans only inspect first-level directories under the configured parent dir, skip hidden directories, prefilter to child repos with a local `.beads` folder, cap the scan at 80 candidate repos by default, and run at most five repo `bd` commands at a time. The queue calls `bd --readonly list --json --all --limit 0 --has-metadata-key beadFormsSummary`; it does not query legacy `beadForms`/`beadsWeb` keys, and it does not bulk `bd show` matching beads. Attach/submit maintain `beadFormsSummary.pendingFormIds`; a form is pending when the summary lists the form id in `pendingFormIds`. Valid standard DSL forms with stale generated `html`/`controls` fields are compiled from DSL and displayed; raw/custom HTML-only legacy forms are skipped for queue discovery.
 
 This avoids corrupting or migrating bead DBs unexpectedly, does not depend on `.beads` being local to the worktree, and keeps failures isolated per repo. Follow-ups can add manual repo roots, configurable limits, polling with backoff, or a real bd-native event API if one becomes available.

@@ -45,7 +45,7 @@ For browser-visible work, use the existing preview server if it is already
 running on port `55123`, or start it only when needed:
 
 ```sh
-npm run dev:beads-form-preview -- --folder /tmp/beads-form-preview --host http://localhost:55123 --port 55123 --server-port 55124
+BEADS_FORM_PENDING_CACHE_DIR="$PWD/.vk-mocked-sandbox/beads-form-pending-cache" BEADS_FORM_PENDING_WARM_ON_STARTUP=0 npm run dev:beads-form-preview -- --folder "$PWD/.vk-mocked-sandbox/beads-form-preview" --host http://localhost:55123 --port 55123 --server-port 55124
 ```
 
 Prefer URLs with the public tunnel when sharing:

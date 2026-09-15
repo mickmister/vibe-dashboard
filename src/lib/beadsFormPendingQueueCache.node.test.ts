@@ -9,6 +9,7 @@ import {
   BEADS_FORM_PENDING_CACHE_DIR_ENV,
   BEADS_FORM_PENDING_PARENT_DIR_ENV,
   normalizePendingQueueInput,
+  pendingQueueCacheDir,
   pendingQueueCachePath,
   readPendingQueueDiskCache,
   shouldWarmPendingQueueOnStartup,
@@ -22,6 +23,15 @@ afterEach(async () => {
 });
 
 describe('beadsFormPendingQueueCache.node', () => {
+  it('uses stable XDG storage by default and honors a repo-local preview override', () => {
+    expect(pendingQueueCacheDir({ XDG_CACHE_HOME: '/home/test/.cache' }))
+      .toBe('/home/test/.cache/vibe-dashboard/beads-form-pending');
+
+    expect(pendingQueueCacheDir({
+      [BEADS_FORM_PENDING_CACHE_DIR_ENV]: '/workspace/.vk-mocked-sandbox/beads-form-pending-cache',
+    })).toBe('/workspace/.vk-mocked-sandbox/beads-form-pending-cache');
+  });
+
   it('uses ~/repos by default and allows BEADS_FORM_PENDING_PARENT_DIR override', () => {
     const defaultInput = normalizePendingQueueInput({}, {});
     expect(defaultInput.reposRoot).toMatch(/\/repos$/);

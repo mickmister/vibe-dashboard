@@ -136,7 +136,7 @@ Use folder mode for low-friction testing before attaching forms to beads.
 1. Create a folder for form JSON files, for example:
 
    ```sh
-   mkdir -p /tmp/beads-form-preview
+   mkdir -p "$PWD/.vk-mocked-sandbox/beads-form-preview"
    ```
 
 2. Write one standard form per `.json` file. You can either generate JSON from a TypeScript script that imports these helpers, or write the standard JSON shape directly:
@@ -168,7 +168,9 @@ Use folder mode for low-friction testing before attaching forms to beads.
    In this repo, the easiest local way to run the folder preview is:
 
    ```sh
-   npm run dev:beads-form-preview -- --folder /tmp/beads-form-preview
+   BEADS_FORM_PENDING_CACHE_DIR="$PWD/.vk-mocked-sandbox/beads-form-pending-cache" \
+   BEADS_FORM_PENDING_WARM_ON_STARTUP=0 \
+   npm run dev:beads-form-preview -- --folder "$PWD/.vk-mocked-sandbox/beads-form-preview"
    ```
 
    The command validates the folder, starts the existing Springboard/Vite dev server, and prints the exact preview URL with the folder path encoded. It sets `BEADS_FORM_DISABLE_HMR=1` by default so Vite does not push HMR/full-reload updates into an open form; manual browser refresh still loads the latest code. Set `BEADS_FORM_DISABLE_HMR=0` only when you want normal dev-server auto-reload behavior.
@@ -277,7 +279,7 @@ Aggregate URL params must be ordered as exact repeated `dir`, then `bead`, then 
 
 ## Pending form queue
 
-Open `/dashboard/forms` without query parameters to view the pending Bead-backed form queue. The queue scans a bounded set of first-level repos under `~/repos` by default; set `BEADS_FORM_PENDING_PARENT_DIR=/path/to/all-repos` on the VD server to change the default. Results are cached in memory and persisted under `${XDG_CACHE_HOME:-~/.cache}/vibe-dashboard/beads-form-pending` so stale cached data can be served immediately after a stable-server restart while a fresh read runs in the background. The scanner first filters to immediate child repos with a local `.beads` folder, then runs read-only `bd` commands at most five repos at a time. It only queries the `beadFormsSummary` pending-answer index for this page; attach/submit should keep that summary current. Production can warm the configured parent dir on startup; Vite/dev does not scan every repo on each restart unless explicitly opted in with `BEADS_FORM_PENDING_WARM_ON_STARTUP=1`. See `packages/beads-form/PENDING_QUEUE.md` for realtime/update tradeoffs and safety limits.
+Open `/dashboard/forms` without query parameters to view the pending Bead-backed form queue. The queue scans a bounded set of first-level repos under `~/repos` by default; set `BEADS_FORM_PENDING_PARENT_DIR=/path/to/all-repos` on the VD server to change the default. Results are cached in memory and persisted under `${XDG_CACHE_HOME:-~/.cache}/vibe-dashboard/beads-form-pending` so stale cached data can be served immediately after a stable-server restart while a fresh read runs in the background. Preview/dev runs should override this with a stable gitignored repo-local directory such as `BEADS_FORM_PENDING_CACHE_DIR="$PWD/.vk-mocked-sandbox/beads-form-pending-cache"` and set `BEADS_FORM_PENDING_WARM_ON_STARTUP=0`. The scanner first filters to immediate child repos with a local `.beads` folder, then runs read-only `bd` commands at most five repos at a time. It only queries the `beadFormsSummary` pending-answer index for this page; attach/submit should keep that summary current. Production can warm the configured parent dir on startup; Vite/dev does not scan every repo on each restart unless explicitly opted in with `BEADS_FORM_PENDING_WARM_ON_STARTUP=1`. See `packages/beads-form/PENDING_QUEUE.md` for realtime/update tradeoffs and safety limits.
 
 When a bead-backed form submit succeeds inside VD, VD invalidates its BeadsForm read cache and touches a lightweight Springboard pending queue sentinel. The `/dashboard/forms` page observes that sentinel, keeps current/cached pending results visible, and refreshes fresh pending data in the background. External CLI attach/update commands run outside the VD process and cannot reliably update that in-memory sentinel; external changes are repaired by the XDG disk cache plus the pending page's background fresh refresh when the page is opened or reloaded.
 
@@ -307,8 +309,9 @@ Defaults:
 - Stable checkout: `/var/tmp/beadsform-preview-stable/vibe-kanban-vscode-web`
 - Branch: `vk/8299-beads-web-show-m`
 - tmux session: `beadsform-shared-preview-55123`
-- Preview folder: `/tmp/beads-form-preview`
+- Preview folder: `<checkout>/.vk-mocked-sandbox/beads-form-preview`
 - Parent-dir queue: `/var/tmp/vibe-kanban/worktrees`
-- Log: `/tmp/beadsform-shared-preview-55123.log`
+- Log: `<checkout>/.vk-mocked-sandbox/logs/beadsform-shared-preview-55123.log`
+- Pending cache: `<checkout>/.vk-mocked-sandbox/beads-form-pending-cache`, with startup warming disabled
 
 The command stops the tmux session, syncs the stable checkout to `origin/<branch>`, runs `pnpm install --frozen-lockfile`, and starts `npm run dev:beads-form-preview` with browser auto-reload disabled. Use `--print-only` to show the planned commands without changing the running server. Do not use or delete the stable checkout for review worktrees.

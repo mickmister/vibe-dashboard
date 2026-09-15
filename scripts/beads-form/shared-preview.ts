@@ -13,6 +13,7 @@ export type SharedPreviewOptions = {
   serverPort?: string;
   host?: string;
   logPath?: string;
+  cacheDir?: string;
   printOnly?: boolean;
 };
 
@@ -26,11 +27,9 @@ const DEFAULT_CHECKOUT_DIR = '/var/tmp/beadsform-preview-stable/vibe-kanban-vsco
 const DEFAULT_BRANCH = 'vk/8299-beads-web-show-m';
 const DEFAULT_REPO_URL = 'https://github.com/mickmister/vibe-dashboard.git';
 const DEFAULT_SESSION = 'beadsform-shared-preview-55123';
-const DEFAULT_FORMS_DIR = '/tmp/beads-form-preview';
 const DEFAULT_PARENT_DIR = '/var/tmp/vibe-kanban/worktrees';
 const DEFAULT_PORT = '55123';
 const DEFAULT_SERVER_PORT = '55124';
-const DEFAULT_LOG_PATH = '/tmp/beadsform-shared-preview-55123.log';
 
 export function parseSharedPreviewArgs(argv: string[]): SharedPreviewOptions {
   const options: SharedPreviewOptions = {};
@@ -60,6 +59,8 @@ export function parseSharedPreviewArgs(argv: string[]): SharedPreviewOptions {
     else if (arg?.startsWith('--host=')) options.host = arg.slice('--host='.length);
     else if (arg === '--log') options.logPath = next();
     else if (arg?.startsWith('--log=')) options.logPath = arg.slice('--log='.length);
+    else if (arg === '--cache-dir') options.cacheDir = next();
+    else if (arg?.startsWith('--cache-dir=')) options.cacheDir = arg.slice('--cache-dir='.length);
     else if (arg === '--print-only') options.printOnly = true;
     else if (arg && !arg.startsWith('-') && !options.formsDir) options.formsDir = arg;
   }
@@ -70,9 +71,11 @@ export function resolveSharedPreviewConfig(options: SharedPreviewOptions, env: N
   const port = options.port ?? env.BEADS_FORM_PREVIEW_PORT ?? DEFAULT_PORT;
   const host = stripTrailingSlash(options.host ?? env.BEADS_FORM_PREVIEW_HOST ?? `http://localhost:${port}`);
   const checkoutDir = resolve(options.checkoutDir ?? env.BEADS_FORM_PREVIEW_CHECKOUT ?? DEFAULT_CHECKOUT_DIR);
-  const formsDir = resolve(options.formsDir ?? env.FORMS_DIR ?? DEFAULT_FORMS_DIR);
+  const sandboxDir = resolve(checkoutDir, '.vk-mocked-sandbox');
+  const formsDir = resolve(options.formsDir ?? env.FORMS_DIR ?? resolve(sandboxDir, 'beads-form-preview'));
   const parentDir = resolve(options.parentDir ?? env.BEADS_FORM_PREVIEW_PARENT_DIR ?? DEFAULT_PARENT_DIR);
-  const logPath = resolve(options.logPath ?? env.BEADS_FORM_PREVIEW_LOG ?? DEFAULT_LOG_PATH);
+  const logPath = resolve(options.logPath ?? env.BEADS_FORM_PREVIEW_LOG ?? resolve(sandboxDir, 'logs', 'beadsform-shared-preview-55123.log'));
+  const cacheDir = resolve(options.cacheDir ?? env.BEADS_FORM_PENDING_CACHE_DIR ?? resolve(sandboxDir, 'beads-form-pending-cache'));
   return {
     checkoutDir,
     branch: options.branch ?? env.BEADS_FORM_PREVIEW_BRANCH ?? DEFAULT_BRANCH,
@@ -84,6 +87,7 @@ export function resolveSharedPreviewConfig(options: SharedPreviewOptions, env: N
     serverPort: options.serverPort ?? env.BEADS_FORM_PREVIEW_SERVER_PORT ?? DEFAULT_SERVER_PORT,
     host,
     logPath,
+    cacheDir,
     printOnly: options.printOnly ?? false,
     previewUrl: `${host}/dashboard/forms/preview?${new URLSearchParams({ folder: formsDir }).toString()}`,
     parentDirUrl: `${host}/dashboard/forms?${new URLSearchParams({ parentDir }).toString()}`,
@@ -93,7 +97,7 @@ export function resolveSharedPreviewConfig(options: SharedPreviewOptions, env: N
 export function buildTmuxStartCommand(config: SharedPreviewConfig): string {
   return [
     `cd ${shQuote(config.checkoutDir)}`,
-    `BEADS_FORM_DISABLE_HMR=1 npm run dev:beads-form-preview -- --folder ${shQuote(config.formsDir)} --port ${shQuote(config.port)} --server-port ${shQuote(config.serverPort)} --host ${shQuote(config.host)} > ${shQuote(config.logPath)} 2>&1`,
+    `BEADS_FORM_DISABLE_HMR=1 BEADS_FORM_PENDING_CACHE_DIR=${shQuote(config.cacheDir)} BEADS_FORM_PENDING_WARM_ON_STARTUP=0 npm run dev:beads-form-preview -- --folder ${shQuote(config.formsDir)} --port ${shQuote(config.port)} --server-port ${shQuote(config.serverPort)} --host ${shQuote(config.host)} > ${shQuote(config.logPath)} 2>&1`,
   ].join(' && ');
 }
 
@@ -112,6 +116,7 @@ export function plannedSharedPreviewCommands(config: SharedPreviewConfig): strin
     `tmux kill-session -t ${shQuote(config.session)} || true`,
     ...sync,
     `pnpm --dir ${shQuote(config.checkoutDir)} install --frozen-lockfile`,
+    `mkdir -p ${shQuote(config.formsDir)} ${shQuote(config.cacheDir)} ${shQuote(dirname(config.logPath))}`,
     `tmux new-session -d -s ${shQuote(config.session)} -- sh -lc ${shQuote(buildTmuxStartCommand(config))}`,
   ];
 }
@@ -147,6 +152,9 @@ function restartSharedPreview(config: SharedPreviewConfig): void {
   run('tmux', ['kill-session', '-t', config.session], { ignoreFailure: true });
   syncCheckout(config);
   run('pnpm', ['install', '--frozen-lockfile'], { cwd: config.checkoutDir });
+  mkdirSync(config.formsDir, { recursive: true });
+  mkdirSync(config.cacheDir, { recursive: true });
+  mkdirSync(dirname(config.logPath), { recursive: true });
   const command = buildTmuxStartCommand(config);
   run('tmux', ['new-session', '-d', '-s', config.session, '--', 'sh', '-lc', command]);
 }
@@ -157,9 +165,11 @@ function printConfig(config: SharedPreviewConfig): void {
   console.log(`Branch:          ${config.branch}`);
   console.log(`tmux session:    ${config.session}`);
   console.log(`Log:             ${config.logPath}`);
+  console.log(`Pending cache:   ${config.cacheDir}`);
   console.log(`Preview URL:     ${config.previewUrl}`);
   console.log(`Parent-dir URL:  ${config.parentDirUrl}`);
   console.log('Browser auto-reload: disabled (BEADS_FORM_DISABLE_HMR=1)');
+  console.log('Pending startup warm: disabled (BEADS_FORM_PENDING_WARM_ON_STARTUP=0)');
 }
 
 function main(): void {
