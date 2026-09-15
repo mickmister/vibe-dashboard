@@ -1,4 +1,4 @@
-import { lstat, mkdir, mkdtemp, readFile, readdir, realpath, rename, rm, symlink, writeFile } from "node:fs/promises";
+import { chmod, chown, copyFile, lstat, mkdir, mkdtemp, readFile, readdir, realpath, rename, rm, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
@@ -44,7 +44,92 @@ async function pathState(path: string): Promise<unknown> {
   }
 }
 
+async function fixedBase(): Promise<string> {
+  return join(await realpath(tmpdir()), "vd-real-beads-e2e");
+}
+
+async function isolateFixedBase(effect: (base: string) => Promise<void>): Promise<void> {
+  const base = await fixedBase();
+  const backup = `${base}.test-backup-${process.pid}-${Date.now()}`;
+  let hadBase = true;
+  try {
+    await rename(base, backup);
+  } catch (error: any) {
+    if (error?.code !== "ENOENT") throw error;
+    hadBase = false;
+  }
+  try {
+    await effect(base);
+  } finally {
+    await rm(base, { recursive: true, force: true });
+    if (hadBase) await rename(backup, base);
+  }
+}
+
 describe("real Beads E2E repository contract", () => {
+  it("initializes the fixed base concurrently and fails closed after a mkdir-only crash", async () => {
+    await isolateFixedBase(async (base) => {
+      const runner = fakeRunner();
+      const [first, second] = await Promise.all([
+        RealBeadsE2eRepository.create({ executables: executablePaths, run: runner.run }),
+        RealBeadsE2eRepository.create({ executables: executablePaths, run: runner.run }),
+      ]);
+      expect((first as any).baseIdentity).toBe((second as any).baseIdentity);
+      await first.teardown();
+      await second.teardown();
+      const marker = JSON.parse(await readFile(join(base, ".vd-real-beads-base.json"), "utf8"));
+      expect(marker).toMatchObject({ namespace: "vd.real-beads-e2e.base.v1" });
+    });
+
+    await isolateFixedBase(async (base) => {
+      await mkdir(base, { mode: 0o700 });
+      const before = await pathState(base);
+      await expect(RealBeadsE2eRepository.create({ executables: executablePaths, run: fakeRunner().run }))
+        .rejects.toThrow("initialization could not be verified");
+      expect(await pathState(base)).toEqual(before);
+      await expect(lstat(join(base, ".vd-real-beads-base.json"))).rejects.toMatchObject({ code: "ENOENT" });
+    });
+  });
+
+  it("rejects copied/replaced bases and malformed ownership markers", async () => {
+    const created = await createFake("base-tampering");
+    await created.fixture.teardown();
+    const base = created.baseRoot;
+    const original = `${base}.original-${process.pid}`;
+    await rename(base, original);
+    try {
+      await mkdir(base, { mode: 0o700 });
+      await copyFile(join(original, ".vd-real-beads-base.json"), join(base, ".vd-real-beads-base.json"));
+      await chmod(join(base, ".vd-real-beads-base.json"), 0o600);
+      await expect(RealBeadsE2eRepository.create({ executables: executablePaths, run: fakeRunner().run }))
+        .rejects.toThrow("base is not authorized");
+    } finally {
+      await rm(base, { recursive: true });
+      await rename(original, base);
+    }
+
+    const marker = join(base, ".vd-real-beads-base.json");
+    const markerBackup = `${marker}.backup`;
+    await rename(marker, markerBackup);
+    await symlink(markerBackup, marker);
+    await expect(RealBeadsE2eRepository.create({ executables: executablePaths, run: fakeRunner().run }))
+      .rejects.toThrow("base is not authorized");
+    await rm(marker);
+    await rename(markerBackup, marker);
+
+    await chmod(marker, 0o644);
+    await expect(RealBeadsE2eRepository.create({ executables: executablePaths, run: fakeRunner().run }))
+      .rejects.toThrow("base is not authorized");
+    await chmod(marker, 0o600);
+
+    if (typeof process.getuid === "function" && process.getuid() === 0) {
+      await chown(marker, 1, 1);
+      await expect(RealBeadsE2eRepository.create({ executables: executablePaths, run: fakeRunner().run }))
+        .rejects.toThrow("base is not authorized");
+      await chown(marker, 0, 0);
+    }
+  });
+
   it("rejects caller-selected bases before mutating any target", async () => {
     const unrelated = await mkdtemp(join(await realpath(tmpdir()), "dvuk-unrelated-"));
     await writeFile(join(unrelated, "sentinel.txt"), "unchanged", { mode: 0o600 });

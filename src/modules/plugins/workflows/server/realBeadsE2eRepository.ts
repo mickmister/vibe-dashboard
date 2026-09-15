@@ -12,6 +12,8 @@ const EXPECTED_BEADS_VERSION = "1.2.2";
 const OWNER_FILE = ".vd-real-beads-owner.json";
 const BASE_OWNER_FILE = ".vd-real-beads-base.json";
 const BASE_DIRECTORY = "vd-real-beads-e2e";
+const BASE_NAMESPACE = "vd.real-beads-e2e.base.v1";
+const BASE_INITIALIZATION_WAIT_MS = 1_000;
 const OPERATION_WAIT_MS = 10_000;
 
 export type RealBeadsTask = { id: string; title: string; status: string; ready: boolean; dependencies: string[]; revision: string };
@@ -19,12 +21,22 @@ export type RealBeadsSnapshot = { schemaVersion: "vd.real-beads-e2e.v1"; tasks: 
 type Run = (file: string, args: string[], cwd: string, env: NodeJS.ProcessEnv) => Promise<string>;
 type Executables = { bd: string; git: string };
 type Owner = { schemaVersion: 1; ownerId: string; processId: number; createdAt: string; rootIdentity: string };
+type BaseOwner = {
+  schemaVersion: 1;
+  namespace: typeof BASE_NAMESPACE;
+  identity: string;
+  temporaryDirectory: string;
+  userId: number | null;
+  device: string;
+  inode: string;
+};
 export type RealBeadsE2eRepositoryOptions = { executables?: Executables; run?: Run };
 
 /** Docker-test-only owner of an isolated, real Beads repository. */
 export class RealBeadsE2eRepository {
   private constructor(
     private readonly baseRoot: string,
+    private readonly baseIdentity: string,
     private readonly root: string,
     private readonly owner: Owner,
     private readonly rootDevice: bigint,
@@ -35,14 +47,17 @@ export class RealBeadsE2eRepository {
 
   static async create(options: RealBeadsE2eRepositoryOptions = {}): Promise<RealBeadsE2eRepository> {
     rejectUnknownOptions(options, ["executables", "run"]);
-    const baseRoot = await prepareOwnedBase();
+    const baseOwner = await prepareOwnedBase();
+    const baseRoot = await canonicalBasePath();
     const executables = validateExecutablePaths(options.executables ?? {
       bd: "/usr/local/bin/bd",
       git: "/usr/bin/git",
     });
     const run = options.run ?? runCommand;
     await verifyBeadsVersion(executables.bd, run, baseRoot);
+    await verifyOwnedBase(baseRoot, baseOwner.identity);
     const root = await mkdtemp(`${baseRoot}/run-`);
+    await verifyOwnedBase(baseRoot, baseOwner.identity);
     await chmod(root, 0o700);
     const rootStats = await stat(root, { bigint: true });
     const owner: Owner = {
@@ -53,7 +68,7 @@ export class RealBeadsE2eRepository {
       rootIdentity: `${rootStats.dev}:${rootStats.ino}`,
     };
     await writeFile(`${root}/${OWNER_FILE}`, JSON.stringify(owner), { mode: 0o600, flag: "wx" });
-    const fixture = new RealBeadsE2eRepository(baseRoot, root, owner, rootStats.dev, rootStats.ino, executables, run);
+    const fixture = new RealBeadsE2eRepository(baseRoot, baseOwner.identity, root, owner, rootStats.dev, rootStats.ino, executables, run);
     try {
       await fixture.initialize();
       return fixture;
@@ -66,7 +81,8 @@ export class RealBeadsE2eRepository {
   /** Removes only old, valid fixture roots whose creating process no longer exists. */
   static async cleanupStale(olderThanMs: number, now = Date.now()): Promise<number> {
     if (!Number.isFinite(olderThanMs) || olderThanMs < 0) throw new Error("Fixture cleanup request is invalid.");
-    const base = await prepareOwnedBase();
+    const baseOwner = await prepareOwnedBase();
+    const base = await canonicalBasePath();
     const { readdir } = await import("node:fs/promises");
     let removed = 0;
     for (const entry of await readdir(base, { withFileTypes: true })) {
@@ -80,6 +96,7 @@ export class RealBeadsE2eRepository {
         const rootStats = await stat(root, { bigint: true });
         if (owner.rootIdentity !== `${rootStats.dev}:${rootStats.ino}`) continue;
         if (now - Date.parse(owner.createdAt) < olderThanMs || processExists(owner.processId)) continue;
+        await verifyOwnedBase(base, baseOwner.identity);
         const deleting = `${root}.deleting-${owner.ownerId}`;
         await rename(root, deleting);
         const deletingCanonical = await realpath(deleting);
@@ -87,6 +104,7 @@ export class RealBeadsE2eRepository {
         const deletingStats = await stat(deleting, { bigint: true });
         const deletingOwner = JSON.parse(await readFile(`${deleting}/${OWNER_FILE}`, "utf8")) as Owner;
         if (deletingOwner.ownerId !== owner.ownerId || deletingOwner.rootIdentity !== `${deletingStats.dev}:${deletingStats.ino}`) continue;
+        await verifyOwnedBase(base, baseOwner.identity);
         await rm(deleting, { recursive: true, force: false });
         removed += 1;
       } catch {
@@ -98,7 +116,7 @@ export class RealBeadsE2eRepository {
 
   /** Reopens the same test-owned repository to prove restart persistence. */
   restart(): RealBeadsE2eRepository {
-    return new RealBeadsE2eRepository(this.baseRoot, this.root, this.owner, this.rootDevice, this.rootInode, this.executables, this.run);
+    return new RealBeadsE2eRepository(this.baseRoot, this.baseIdentity, this.root, this.owner, this.rootDevice, this.rootInode, this.executables, this.run);
   }
 
   async teardown(): Promise<void> {
@@ -155,7 +173,9 @@ export class RealBeadsE2eRepository {
   }
 
   private async initialize(): Promise<void> {
+    await this.assertOwnedRoot();
     await mkdir(`${this.root}/home`, { mode: 0o700 });
+    await this.assertOwnedRoot();
     await mkdir(`${this.root}/tmp`, { mode: 0o700 });
     await this.command("git", ["init", "--quiet"]);
     await this.command("bd", ["init", "--prefix", "native", "--non-interactive", "--quiet"]);
@@ -217,7 +237,9 @@ export class RealBeadsE2eRepository {
   }
 
   private async assertOwnedPath(candidate: string): Promise<void> {
+    const baseOwner = await verifyOwnedBase(this.baseRoot, this.baseIdentity);
     const base = await realpath(this.baseRoot);
+    if (baseOwner.identity !== this.baseIdentity) throw new Error("Real task fixture base is not authorized.");
     const root = await realpath(candidate);
     assertContained(base, root);
     const rootLink = await lstat(candidate);
@@ -237,38 +259,80 @@ async function replaceOperation(file: string, digest: string, state: "complete" 
   await rename(temporary, file);
 }
 
-async function prepareOwnedBase(): Promise<string> {
+async function canonicalBasePath(): Promise<string> {
+  return join(await realpath(tmpdir()), BASE_DIRECTORY);
+}
+
+/** Read-only proof that the fixed base and its marker still identify the same directory. */
+async function verifyOwnedBase(base: string, expectedIdentity?: string): Promise<BaseOwner> {
   const canonicalTemporaryDirectory = await realpath(tmpdir());
-  const base = join(canonicalTemporaryDirectory, BASE_DIRECTORY);
-  const expectedOwner = {
-    schemaVersion: 1,
-    purpose: "vd-real-beads-e2e",
-    userId: typeof process.getuid === "function" ? process.getuid() : null,
-    temporaryDirectory: canonicalTemporaryDirectory,
-  };
+  const expectedBase = join(canonicalTemporaryDirectory, BASE_DIRECTORY);
+  if (base !== expectedBase) throw new Error("Real task fixture base is not authorized.");
+  const baseLink = await lstat(base);
+  if (baseLink.isSymbolicLink() || !baseLink.isDirectory()) throw new Error("Real task fixture base is not authorized.");
+  if (await realpath(base) !== expectedBase) throw new Error("Real task fixture base is not authorized.");
+  const baseStats = await stat(base, { bigint: true });
+  const expectedUserId = typeof process.getuid === "function" ? BigInt(process.getuid()) : null;
+  if ((baseStats.mode & 0o777n) !== 0o700n || expectedUserId !== null && baseStats.uid !== expectedUserId) {
+    throw new Error("Real task fixture base is not authorized.");
+  }
+  const markerPath = join(base, BASE_OWNER_FILE);
+  const markerLink = await lstat(markerPath);
+  if (markerLink.isSymbolicLink() || !markerLink.isFile()) throw new Error("Real task fixture base is not authorized.");
+  const markerStats = await stat(markerPath, { bigint: true });
+  if ((markerStats.mode & 0o777n) !== 0o600n || expectedUserId !== null && markerStats.uid !== expectedUserId) {
+    throw new Error("Real task fixture base is not authorized.");
+  }
+  const owner = JSON.parse(await readFile(markerPath, "utf8")) as BaseOwner;
+  if (
+    owner.schemaVersion !== 1 || owner.namespace !== BASE_NAMESPACE ||
+    owner.temporaryDirectory !== canonicalTemporaryDirectory || owner.userId !== (expectedUserId === null ? null : Number(expectedUserId)) ||
+    owner.device !== String(baseStats.dev) || owner.inode !== String(baseStats.ino) ||
+    !/^[0-9a-f-]{36}$/i.test(owner.identity) || expectedIdentity !== undefined && owner.identity !== expectedIdentity
+  ) {
+    throw new Error("Real task fixture base is not authorized.");
+  }
+  return owner;
+}
+
+async function prepareOwnedBase(): Promise<BaseOwner> {
+  const base = await canonicalBasePath();
   try {
-    const link = await lstat(base);
-    if (link.isSymbolicLink() || !link.isDirectory()) throw new Error("Real task fixture base is not authorized.");
-    const canonical = await realpath(base);
-    if (canonical !== base) throw new Error("Real task fixture base is not authorized.");
-    const details = await stat(base);
-    if ((details.mode & 0o777) !== 0o700 || expectedOwner.userId !== null && details.uid !== expectedOwner.userId) {
-      throw new Error("Real task fixture base is not authorized.");
-    }
-    const owner = JSON.parse(await readFile(join(base, BASE_OWNER_FILE), "utf8"));
-    if (JSON.stringify(owner) !== JSON.stringify(expectedOwner)) throw new Error("Real task fixture base is not authorized.");
-    return canonical;
+    return await verifyOwnedBase(base);
   } catch (error: any) {
     if (error?.code !== "ENOENT") throw error;
   }
+  let created = false;
   try {
     await mkdir(base, { mode: 0o700 });
+    created = true;
   } catch (error: any) {
-    if (error?.code === "EEXIST") return prepareOwnedBase();
-    throw error;
+    if (error?.code !== "EEXIST") throw error;
   }
-  await writeFile(join(base, BASE_OWNER_FILE), JSON.stringify(expectedOwner), { mode: 0o600, flag: "wx" });
-  return base;
+  if (created) {
+    const details = await stat(base, { bigint: true });
+    const owner: BaseOwner = {
+      schemaVersion: 1,
+      namespace: BASE_NAMESPACE,
+      identity: randomUUID(),
+      temporaryDirectory: await realpath(tmpdir()),
+      userId: typeof process.getuid === "function" ? process.getuid() : null,
+      device: String(details.dev),
+      inode: String(details.ino),
+    };
+    await writeFile(join(base, BASE_OWNER_FILE), JSON.stringify(owner), { mode: 0o600, flag: "wx" });
+    return verifyOwnedBase(base, owner.identity);
+  }
+  const deadline = Date.now() + BASE_INITIALIZATION_WAIT_MS;
+  while (Date.now() < deadline) {
+    try {
+      return await verifyOwnedBase(base);
+    } catch (error: any) {
+      if (error?.code !== "ENOENT") throw error;
+      await new Promise((resolveWait) => setTimeout(resolveWait, 10));
+    }
+  }
+  throw new Error("Real task fixture base initialization could not be verified.");
 }
 
 function assertContained(base: string, candidate: string): void {
