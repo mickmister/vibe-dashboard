@@ -7,7 +7,6 @@ export type BeadsFormControlType =
   | 'month'
   | 'number'
   | 'password'
-  | 'radio'
   | 'range'
   | 'search'
   | 'select'
@@ -31,7 +30,9 @@ export type ChoiceQuestionChoice = {
   id: string;
   label: string;
   description?: string;
-  /** Preselects this choice while still marking it as an author-provided default in the UI. */
+  /** Author context indicating the ordinary/non-decision baseline. Never preselects an answer. */
+  assumedTrue?: boolean;
+  /** @deprecated Use assumedTrue. Legacy true values are treated as author context and never preselect an answer. */
   defaultValue?: boolean;
   /** Marks this choice as recommended and explains why. Preferred over boolean markers so humans get the rationale. */
   is_recommended_reason?: string;
@@ -45,6 +46,7 @@ export type ChoiceGroup = {
   description?: string;
   choiceIds: string[];
   mode: ChoiceGroupMode;
+  /** @deprecated Mark that choice assumedTrue instead. Never preselects an answer. */
   defaultChoiceId?: string;
 };
 
@@ -607,8 +609,8 @@ function compileChoicesQuestion(question: ChoicesQuestion, controls: BeadsFormCo
     const recommended = recommendationReason
       ? '<span class="beads-form-recommended" aria-label="Recommended choice">Recommended</span>'
       : '';
-    const defaultBadge = isInitiallyChecked(question, choice)
-      ? '<span class="beads-form-default" aria-label="Default selected choice">Default</span>'
+    const assumptionBadge = isAssumedTrue(question, choice)
+      ? '<span class="beads-form-assumption" aria-label="Author assumption, not selected">Assumed true</span>'
       : '';
     const recommendation = recommendationReason
       ? `<p class="beads-form-recommended-reason"><span class="beads-form-recommended-reason-label">Why recommended:</span> ${renderInlineMarkdown(recommendationReason)}</p>`
@@ -623,7 +625,7 @@ function compileChoicesQuestion(question: ChoicesQuestion, controls: BeadsFormCo
 
     const html = [
       '<div class="beads-form-choice">',
-      `<label for="${attr(inputId)}"><input id="${attr(inputId)}" name="${attr(question.id)}" type="checkbox" value="${attr(choice.id)}"${isInitiallyChecked(question, choice) ? ' checked' : ''}> ${escapeHtml(choice.label)}${defaultBadge ? ` ${defaultBadge}` : ''}${recommended ? ` ${recommended}` : ''}</label>`,
+      `<label for="${attr(inputId)}"><input id="${attr(inputId)}" name="${attr(question.id)}" type="checkbox" value="${attr(choice.id)}"> ${escapeHtml(choice.label)}${assumptionBadge ? ` ${assumptionBadge}` : ''}${recommended ? ` ${recommended}` : ''}</label>`,
       choiceDescription,
       recommendation,
       choiceNotes,
@@ -683,14 +685,11 @@ function validateChoiceGroups(question: ChoicesQuestion): void {
       throw new Error(`choice group "${group.id}" defaultChoiceId "${group.defaultChoiceId}" must reference a choice in the group`);
     }
     if (group.mode === 'any') continue;
-    const defaultTrueChoices = group.choiceIds.filter((choiceId) => choicesById.get(choiceId)?.defaultValue === true);
-    if (defaultTrueChoices.length > 1) throw new Error(`choice group "${group.id}" cannot have multiple defaultValue:true choices`);
-    if (group.defaultChoiceId && defaultTrueChoices.length === 1 && defaultTrueChoices[0] !== group.defaultChoiceId) {
-      throw new Error(`choice group "${group.id}" defaultChoiceId conflicts with defaultValue:true choice "${defaultTrueChoices[0]}"`);
-    }
-    if (group.mode === 'exactlyOne' && !group.defaultChoiceId && defaultTrueChoices.length !== 1) {
-      throw new Error(`choice group "${group.id}" must define defaultChoiceId or exactly one defaultValue:true choice`);
-    }
+    const assumedChoices = group.choiceIds.filter((choiceId) => {
+      const choice = choicesById.get(choiceId);
+      return choice?.assumedTrue === true || choice?.defaultValue === true || group.defaultChoiceId === choiceId;
+    });
+    if (new Set(assumedChoices).size > 1) throw new Error(`choice group "${group.id}" cannot have multiple assumed-true choices`);
   }
 }
 
@@ -703,6 +702,8 @@ function renderChoiceGroup(
   const description = group.description?.trim();
   const titleId = `${question.id}_${group.id}_choice_group_title`;
   const descriptionId = `${question.id}_${group.id}_choice_group_description`;
+  const guidanceId = `${question.id}_${group.id}_choice_group_guidance`;
+  const constrained = group.mode === 'atMostOne' || group.mode === 'exactlyOne';
   const config = escapeHtml(JSON.stringify({
     questionId: question.id,
     id: group.id,
@@ -710,23 +711,24 @@ function renderChoiceGroup(
     choiceIds: group.choiceIds,
     ...(group.defaultChoiceId ? { defaultChoiceId: group.defaultChoiceId } : {}),
   }));
+  const describedBy = [description ? descriptionId : '', constrained ? guidanceId : ''].filter(Boolean).join(' ');
   const accessibility = title
-    ? ` role="group" aria-labelledby="${attr(titleId)}"${description ? ` aria-describedby="${attr(descriptionId)}"` : ''}`
-    : ` role="group"${description ? ` aria-describedby="${attr(descriptionId)}"` : ''}`;
+    ? ` role="group" aria-labelledby="${attr(titleId)}"${describedBy ? ` aria-describedby="${attr(describedBy)}"` : ''}`
+    : ` role="group"${describedBy ? ` aria-describedby="${attr(describedBy)}"` : ''}`;
   return [
     `<div class="beads-form-choice-group beads-form-choice-group--${attr(group.mode)}"${accessibility}>`,
     `<input type="hidden" name="__beadsform_choice_group_${attr(question.id)}_${attr(group.id)}" value="${config}">`,
     title ? `<h4 id="${attr(titleId)}">${escapeHtml(title)}</h4>` : '',
     description ? `<div id="${attr(descriptionId)}">${renderMarkdown(description)}</div>` : '',
+    constrained ? `<p id="${attr(guidanceId)}" class="beads-form-choice-group-guidance">Select only one.</p>` : '',
     ...group.choiceIds.map((choiceId) => choiceHtmlById.get(choiceId) ?? ''),
     '</div>',
   ].join('');
 }
 
-function isInitiallyChecked(question: ChoicesQuestion, choice: ChoiceQuestionChoice): boolean {
+function isAssumedTrue(question: ChoicesQuestion, choice: ChoiceQuestionChoice): boolean {
   const group = (question.choiceGroups ?? []).find((candidate) => candidate.choiceIds.includes(choice.id));
-  if (group?.defaultChoiceId) return group.defaultChoiceId === choice.id;
-  return choice.defaultValue === true;
+  return choice.assumedTrue === true || choice.defaultValue === true || group?.defaultChoiceId === choice.id;
 }
 
 function compileTextQuestion(question: TextQuestion, controls: BeadsFormControl[]): string {

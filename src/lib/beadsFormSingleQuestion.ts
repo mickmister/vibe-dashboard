@@ -428,7 +428,7 @@ function reviewRowsForChoices(question: HTMLFieldSetElement, choices: HTMLElemen
   const selected: string[] = [];
   const rows: string[] = [];
   for (const choice of choices) {
-    const checkbox = choice.querySelector<HTMLInputElement>('input[type="checkbox"], input[type="radio"]');
+    const checkbox = choice.querySelector<HTMLInputElement>('input[type="checkbox"]');
     const label = choiceLabel(choice);
     if (checkbox?.checked) selected.push(label);
     for (const note of Array.from(choice.querySelectorAll<HTMLTextAreaElement>('textarea'))) {
@@ -450,7 +450,7 @@ function choiceLabel(choice: HTMLElement): string {
   const label = choice.querySelector('label');
   if (!label) return 'choice';
   const copy = label.cloneNode(true) as HTMLElement;
-  for (const badge of Array.from(copy.querySelectorAll('.beads-form-default, .beads-form-recommended'))) {
+  for (const badge of Array.from(copy.querySelectorAll('.beads-form-assumption, .beads-form-recommended'))) {
     badge.remove();
   }
   return copy.textContent?.replace(/\s+/g, ' ').trim() || 'choice';
@@ -461,7 +461,7 @@ function isQuestionNotesControl(control: HTMLInputElement | HTMLTextAreaElement 
 }
 
 function controlReviewValue(control: HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement): string {
-  if (control instanceof HTMLInputElement && (control.type === 'checkbox' || control.type === 'radio')) {
+  if (control instanceof HTMLInputElement && control.type === 'checkbox') {
     return control.checked ? labelForControl(control) || control.value : '';
   }
   if (control instanceof HTMLSelectElement) {

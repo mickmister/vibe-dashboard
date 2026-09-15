@@ -5,7 +5,6 @@ type ChoiceGroupConfig = {
   id: string;
   mode: 'any' | 'atMostOne' | 'exactlyOne';
   choiceIds: string[];
-  defaultChoiceId?: string;
 };
 
 const GROUP_CONFIG_PREFIX = '__beadsform_choice_group_';
@@ -30,6 +29,7 @@ export function initializeChoiceGroups(host: ParentNode): ChoiceGroupCleanup {
       return () => checkbox.removeEventListener('change', listener);
     });
     cleanups.push(...listeners);
+    cleanups.push(() => checkboxes[0]?.setCustomValidity(''));
   }
   return () => {
     cleanups.forEach((cleanup) => cleanup());
@@ -51,7 +51,6 @@ function parseConfig(value: string): ChoiceGroupConfig | undefined {
       id: parsed.id,
       mode: parsed.mode as ChoiceGroupConfig['mode'],
       choiceIds: parsed.choiceIds,
-      ...(typeof parsed.defaultChoiceId === 'string' ? { defaultChoiceId: parsed.defaultChoiceId } : {}),
     };
   } catch {
     return undefined;
@@ -67,6 +66,7 @@ function enforceGroup(
     checkboxes.forEach((checkbox) => {
       if (checkbox !== changed) checkbox.checked = false;
     });
+    updateValidity(config, checkboxes);
     return;
   }
 
@@ -76,13 +76,19 @@ function enforceGroup(
     checkboxes.forEach((checkbox) => {
       checkbox.checked = checkbox === keep;
     });
+    updateValidity(config, checkboxes);
     return;
   }
 
-  if (config.mode === 'exactlyOne' && checked.length === 0) {
-    const fallback = checkboxes.find((checkbox) => checkbox.value === config.defaultChoiceId) ?? checkboxes[0];
-    if (fallback) fallback.checked = true;
+  if (changed && config.mode === 'exactlyOne' && checked.length === 0) {
+    changed.checked = true;
   }
+  updateValidity(config, checkboxes);
+}
+
+function updateValidity(config: ChoiceGroupConfig, checkboxes: HTMLInputElement[]): void {
+  const valid = config.mode !== 'exactlyOne' || checkboxes.some((checkbox) => checkbox.checked);
+  checkboxes[0]?.setCustomValidity(valid ? '' : 'Select only one choice.');
 }
 
 function cssString(value: string): string {

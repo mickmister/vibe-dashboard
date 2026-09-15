@@ -34,7 +34,7 @@ describe('BeadsForm checkbox choice groups', () => {
     expect([now!.checked, later!.checked, addTests!.checked, addDocs!.checked]).toEqual([false, true, true, true]);
   });
 
-  it('starts exactly-one groups at defaultChoiceId and restores a different draft choice over the default', () => {
+  it('starts exactly-one groups unselected, requires an explicit choice, and restores a draft choice', () => {
     document.body.innerHTML = `
       <form>
         <input type="hidden" name="__beadsform_choice_group_scope_risk" value="${groupConfig({
@@ -46,17 +46,24 @@ describe('BeadsForm checkbox choice groups', () => {
         })}">
         <input name="scope" type="checkbox" value="low">
         <input name="scope" type="checkbox" value="high">
-        <input name="scope" type="checkbox" value="none" checked>
+        <input name="scope" type="checkbox" value="none">
       </form>
     `;
     const form = document.querySelector('form')!;
     initializeChoiceGroups(document.body);
     const [low, high, none] = Array.from(document.querySelectorAll<HTMLInputElement>('input[type="checkbox"]'));
-    expect([low!.checked, high!.checked, none!.checked]).toEqual([false, false, true]);
+    expect([low!.checked, high!.checked, none!.checked]).toEqual([false, false, false]);
+    expect(low!.validationMessage).toBe('Select only one choice.');
+
+    low!.click();
+    expect([low!.checked, high!.checked, none!.checked]).toEqual([true, false, false]);
+    low!.click();
+    expect([low!.checked, high!.checked, none!.checked]).toEqual([true, false, false]);
 
     applyValuesToForm(form, { scope: { low: false, high: true, none: false } });
     initializeChoiceGroups(document.body);
 
     expect([low!.checked, high!.checked, none!.checked]).toEqual([false, true, false]);
+    expect(low!.validationMessage).toBe('');
   });
 });

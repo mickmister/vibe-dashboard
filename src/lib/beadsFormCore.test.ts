@@ -358,7 +358,7 @@ describe('BeadsForm core', () => {
     });
   });
 
-  it('keeps choice default provenance out of normalized plain boolean JSON', () => {
+  it('keeps choice assumptions out of normalized plain boolean JSON until selected', () => {
     const form = {
       questions: [{
         type: 'choices' as const,
@@ -366,7 +366,7 @@ describe('BeadsForm core', () => {
         title: 'Priority',
         description: 'Choose priorities.',
         choices: [
-          { id: 'storage', label: 'Storage', defaultValue: true },
+          { id: 'storage', label: 'Storage', assumedTrue: true },
           { id: 'visual_polish', label: 'Visual polish', defaultValue: false },
           { id: 'copy_result', label: 'Copy result' },
         ],
@@ -374,10 +374,10 @@ describe('BeadsForm core', () => {
     };
 
     expect(normalizeSubmittedValues(form, {
-      priority: ['storage', 'copy_result'],
+      priority: ['copy_result'],
     })).toEqual({
       priority: {
-        storage: true,
+        storage: false,
         visual_polish: false,
         copy_result: true,
       },
@@ -414,7 +414,7 @@ describe('BeadsForm core', () => {
         later: false,
         low: false,
         high: false,
-        none: true,
+        none: false,
         tests: true,
       },
     });
@@ -550,7 +550,7 @@ describe('BeadsForm core', () => {
 
 
 
-  it('validates grouped checkbox and radio submissions by control name', () => {
+  it('validates grouped checkbox submissions by control name', () => {
     const form = {
       id: 'decisions',
       title: 'Decisions',
@@ -558,8 +558,8 @@ describe('BeadsForm core', () => {
       controls: [
         { id: 'security_strict', name: 'security', type: 'checkbox' as const, required: true },
         { id: 'security_links', name: 'security', type: 'checkbox' as const },
-        { id: 'route_query', name: 'route_shape', type: 'radio' as const, required: true },
-        { id: 'route_scoped', name: 'route_shape', type: 'radio' as const },
+        { id: 'route_query', name: 'route_shape', type: 'checkbox' as const, required: true },
+        { id: 'route_scoped', name: 'route_shape', type: 'checkbox' as const },
       ],
     };
 
@@ -582,6 +582,30 @@ describe('BeadsForm core', () => {
       'Submitted field "security_strict" is not declared in controls[]',
       'Required field "security" is missing',
     ]);
+  });
+
+  it('validates constrained choice groups without inventing an answer', () => {
+    const form = {
+      id: 'constraint_review',
+      title: 'Constraint review',
+      html: '<form></form>',
+      controls: [
+        { id: 'route_query', name: 'route_shape', type: 'checkbox' as const },
+        { id: 'route_scoped', name: 'route_shape', type: 'checkbox' as const },
+      ],
+      questions: [{
+        type: 'choices' as const,
+        id: 'route_shape',
+        title: 'Route shape',
+        description: 'Select one.',
+        choices: [{ id: 'query', label: 'Query' }, { id: 'scoped', label: 'Scoped' }],
+        choiceGroups: [{ id: 'route', mode: 'exactlyOne' as const, choiceIds: ['query', 'scoped'] }],
+      }],
+    };
+
+    expect(validateSubmittedValues(form, { route_shape: { query: false, scoped: false } }))
+      .toContain('Choice group "route" must select exactly one choice');
+    expect(validateSubmittedValues(form, { route_shape: { query: true, scoped: false } })).toEqual([]);
   });
 
   it('builds a pretty summary', () => {

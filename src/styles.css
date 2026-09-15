@@ -135,19 +135,17 @@ textarea {
   margin: 0.75rem 0;
 }
 
-.beadsform-root label:has(input[type="checkbox"]),
-.beadsform-root label:has(input[type="radio"]) {
+.beadsform-root label:has(input[type="checkbox"]) {
   display: block;
   line-height: 1.5;
 }
 
-.beadsform-root input[type="checkbox"],
-.beadsform-root input[type="radio"] {
+.beadsform-root input[type="checkbox"] {
   margin-right: 0.5rem;
 }
 
 .beadsform-root .beads-form-recommended,
-.beadsform-root .beads-form-default {
+.beadsform-root .beads-form-assumption {
   display: inline-block;
   margin-left: 0.35rem;
   border-radius: 999px;
@@ -160,9 +158,16 @@ textarea {
   text-transform: uppercase;
 }
 
-.beadsform-root .beads-form-default {
+.beadsform-root .beads-form-assumption {
   background: #dbeafe;
   color: #1d4ed8;
+}
+
+.beadsform-root .beads-form-choice-group-guidance {
+  margin: 0;
+  color: #d4d4d8;
+  font-size: 0.9rem;
+  font-weight: 650;
 }
 
 .beadsform-root .beads-form-recommended-reason {

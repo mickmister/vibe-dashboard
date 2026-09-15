@@ -339,12 +339,6 @@ function normalizeChoiceQuestionValue(question: ChoicesQuestion, value: unknown)
     if (selectedInGroup.length > 1) {
       for (const choiceId of selectedInGroup.slice(1)) next[choiceId] = false;
     }
-    if (group.mode === 'exactlyOne' && selectedInGroup.length === 0) {
-      const fallback = group.defaultChoiceId
-        ?? group.choiceIds.find((choiceId) => question.choices.find((choice) => choice.id === choiceId)?.defaultValue === true)
-        ?? group.choiceIds[0];
-      if (fallback) next[fallback] = true;
-    }
   }
   return next;
 }
@@ -454,7 +448,13 @@ export function buildAgentResultMessage(args: {
 }
 
 export function validateSubmittedValues(
-  form: { id?: string; title?: string; html?: string; controls?: BeadsFormControl[] },
+  form: {
+    id?: string;
+    title?: string;
+    html?: string;
+    controls?: BeadsFormControl[];
+    questions?: StandardBeadsForm['questions'];
+  },
   values: JsonObject,
 ): string[] {
   const controls = form.controls ?? [];
@@ -481,13 +481,34 @@ export function validateSubmittedValues(
       errors.push(`Required field "${name}" is missing`);
     }
   }
+  for (const question of form.questions ?? []) {
+    if (question.type !== 'choices') continue;
+    const selected = selectedChoiceIds(values[question.id]);
+    for (const group of question.choiceGroups ?? []) {
+      if (group.mode === 'any') continue;
+      const selectedCount = group.choiceIds.filter((choiceId) => selected.has(choiceId)).length;
+      if (selectedCount > 1) {
+        errors.push(`Choice group "${group.id}" must select only one choice`);
+      } else if (group.mode === 'exactlyOne' && selectedCount === 0) {
+        errors.push(`Choice group "${group.id}" must select exactly one choice`);
+      }
+    }
+  }
   return errors;
+}
+
+function selectedChoiceIds(value: unknown): Set<string> {
+  if (Array.isArray(value)) return new Set(value.map(String));
+  if (isObject(value)) {
+    return new Set(Object.entries(value).filter(([, selected]) => selected === true).map(([choiceId]) => choiceId));
+  }
+  return value === undefined || value === '' ? new Set() : new Set([String(value)]);
 }
 
 function hasSubmittedValue(value: unknown, controls: BeadsFormControl[]): boolean {
   if (value === undefined || value === '') return false;
   if (Array.isArray(value)) return value.length > 0;
-  if (isObject(value) && controls.some((control) => control.type === 'checkbox' || control.type === 'radio')) {
+  if (isObject(value) && controls.some((control) => control.type === 'checkbox')) {
     return Object.values(value).some((selected) => selected === true);
   }
   return true;

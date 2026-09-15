@@ -60,7 +60,8 @@ Guidelines:
 - Please consider pros and cons for each open point, and include the pros/cons in the choice descriptions of the questions. *Be as detailed as possible.*
 - Preserve exact wording for prior pros/cons or recommendation rationales when practical, especially when the human is deciding between named options. Add attribution/context in descriptions or choice text when it helps.
 - Lean toward "explain more" over excessive brevity. A form should let the human understand the in-depth reasoning, assumptions, and forks in the road without rereading the whole conversation.
-- Choice questions are always multi-select checkboxes in the current public DSL; do not add radio/single-select options.
+- Choice questions always use checkboxes; do not add radio controls or a radio question type. Use per-group `atMostOne` or `exactlyOne` constraints for mutually exclusive subsets; the UI explains “Select only one.” Add explicit None/Other choices when appropriate.
+- Use `is_recommended_reason` for advice and `assumedTrue: true` only for an author baseline/non-decision assumption. Neither recommendations nor assumptions precheck a box or become a submitted answer until the human clicks. Legacy `defaultValue`/`defaultChoiceId` values are deprecated assumption aliases.
 - Choices may include `is_recommended_reason` when the agent recommends an option.
 - Use `allowCodeFileChanges`; if the answer returns `allow_code_file_changes=false`, do not edit files—make another form or continue discussion.
 - Keep `additional_notes` as the master notes field.

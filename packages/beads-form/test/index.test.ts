@@ -53,7 +53,7 @@ describe('@vibe-dashboard/beads-form', () => {
     ]);
   });
 
-  it('renders default true choices prechecked with a distinct default badge', () => {
+  it('renders assumptions as author context without prechecking or a default badge', () => {
     const compiled = compileBeadsForm(defineBeadsForm({
       id: 'default_choice_review',
       goal: 'Verify choice defaults are visible without changing JSON shape.',
@@ -67,7 +67,7 @@ describe('@vibe-dashboard/beads-form', () => {
             {
               id: 'storage',
               label: 'Storage resilience',
-              defaultValue: true,
+              assumedTrue: true,
               is_recommended_reason: 'Already blocking review.',
             },
             {
@@ -80,14 +80,15 @@ describe('@vibe-dashboard/beads-form', () => {
       ],
     }));
 
-    expect(compiled.html).toContain('name="priority" type="checkbox" value="storage" checked');
-    expect(compiled.html).toContain('<span class="beads-form-default" aria-label="Default selected choice">Default</span>');
+    expect(compiled.html).toContain('name="priority" type="checkbox" value="storage"');
+    expect(compiled.html).not.toContain('value="storage" checked');
+    expect(compiled.html).toContain('<span class="beads-form-assumption" aria-label="Author assumption, not selected">Assumed true</span>');
     expect(compiled.html).toContain('<span class="beads-form-recommended" aria-label="Recommended choice">Recommended</span>');
     expect(compiled.html).not.toContain('value="visual_polish" checked');
-    expect(compiled.html.match(/class="beads-form-default"/g)).toHaveLength(1);
+    expect(compiled.html).not.toContain('beads-form-default');
   });
 
-  it('compiles grouped checkbox choices with per-group metadata and default choice support', () => {
+  it('compiles grouped checkbox choices with accessible guidance and legacy assumption support', () => {
     const compiled = compileBeadsForm(defineBeadsForm({
       id: 'grouped_choice_review',
       goal: 'Choose grouped options without radio buttons.',
@@ -127,12 +128,13 @@ describe('@vibe-dashboard/beads-form', () => {
 
     expect(compiled.html).toContain('class="beads-form-choice-group beads-form-choice-group--exactlyOne"');
     expect(compiled.html).toContain('aria-labelledby="implementation_scope_risk_level_choice_group_title"');
-    expect(compiled.html).toContain('aria-describedby="implementation_scope_risk_level_choice_group_description"');
+    expect(compiled.html).toContain('aria-describedby="implementation_scope_risk_level_choice_group_description implementation_scope_risk_level_choice_group_guidance"');
     expect(compiled.html).toContain('Choose exactly one risk level.');
     expect(compiled.html).toContain('type="hidden" name="__beadsform_choice_group_implementation_scope_risk_level"');
     expect(compiled.html).toContain('&quot;mode&quot;:&quot;exactlyOne&quot;');
-    expect(compiled.html).toContain('name="implementation_scope" type="checkbox" value="no_preference" checked');
-    expect(compiled.html).toContain('No preference <span class="beads-form-default" aria-label="Default selected choice">Default</span>');
+    expect(compiled.html).not.toContain('value="no_preference" checked');
+    expect(compiled.html).toContain('No preference <span class="beads-form-assumption" aria-label="Author assumption, not selected">Assumed true</span>');
+    expect(compiled.html.match(/Select only one\./g)).toHaveLength(2);
     expect(compiled.html).toContain('class="beads-form-choice-group beads-form-choice-group--atMostOne"');
     expect(compiled.html).toContain('name="implementation_scope" type="checkbox" value="add_tests"');
     expect(compiled.html).not.toContain('type="radio"');
@@ -169,7 +171,7 @@ describe('@vibe-dashboard/beads-form', () => {
         ...baseQuestion,
         choiceGroups: [{ id: 'mode', mode: 'exactlyOne', choiceIds: ['a', 'b'] }],
       }],
-    }))).toThrow('must define defaultChoiceId or exactly one defaultValue:true choice');
+    }))).not.toThrow();
 
     expect(() => compileBeadsForm(defineBeadsForm({
       ...base,
@@ -181,7 +183,7 @@ describe('@vibe-dashboard/beads-form', () => {
         ],
         choiceGroups: [{ id: 'mode', mode: 'atMostOne', choiceIds: ['a', 'b'] }],
       }],
-    }))).toThrow('cannot have multiple defaultValue:true choices');
+    }))).toThrow('cannot have multiple assumed-true choices');
   });
 
   it('treats stale note and multiple-choice flags as always enabled for compatibility', () => {

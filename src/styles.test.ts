@@ -75,6 +75,15 @@ describe('BeadsForm styles', () => {
     expect(css).toMatch(/\.beadsform-root \.beads-form-recommended-reason-label\s*\{[^}]*font-weight:\s*700/s);
   });
 
+  it('styles assumption context and constrained checkbox guidance without radio selectors', async () => {
+    const css = await readFile(new URL('./styles.css', import.meta.url), 'utf8');
+
+    expect(css).toMatch(/\.beadsform-root \.beads-form-assumption\s*\{[^}]*background:\s*#dbeafe/s);
+    expect(css).toMatch(/\.beadsform-root \.beads-form-choice-group-guidance\s*\{[^}]*font-weight:\s*650/s);
+    expect(css).not.toContain('.beads-form-default');
+    expect(css).not.toContain('input[type="radio"]');
+  });
+
   it('styles compact page chrome and polished Markdown description details', async () => {
     const css = await readFile(new URL('./styles.css', import.meta.url), 'utf8');
 

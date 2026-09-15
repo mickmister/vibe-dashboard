@@ -47,14 +47,16 @@ describe('BeadsForm submit success helpers', () => {
 
   it('copies XML with plain normalized booleans and no choice provenance metadata', () => {
     const text = submittedResultHandoffXml({
-      priority: { storage: true, visual_polish: false },
+      priority: { assumed_baseline: false, storage: true, visual_polish: false },
     });
 
     expect(text).toContain('<choiceGroup id="priority">');
+    expect(text).toContain('<choice id="assumed_baseline" selected="false" />');
     expect(text).toContain('<choice id="storage" selected="true" />');
     expect(text).toContain('<choice id="visual_polish" selected="false" />');
     expect(text).not.toContain('__beadsform_provenance');
     expect(text).not.toContain('source=');
+    expect(text).not.toContain('assumedTrue');
   });
 
   it('copies BeadsForm XML handoff after successful persistence', async () => {
