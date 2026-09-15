@@ -18,7 +18,7 @@ describe('native Gas City single-task provider', () => {
     ensureBundle:async({operationKey,bundle})=>{calls.bundle++; const value={bundleRef:bundle.digest};effects.set(`${operationKey}:bundle`,value);return value;},
     ensureWorkflow:async({operationKey,sourceBeadId})=>{calls.workflow++;const value={workflowId:'wf-1',rootBeadId:'root-1',sourceBeadId,status:'running' as const};effects.set(`${operationKey}:workflow`,value);return value;},
     reconcileWorkflow:async({operationKey})=>effects.get(`${operationKey}:workflow`)??null,
-    ensureRoleTurn:async({operationKey})=>{calls.turn++;const value={sessionId:'session-dev',queueItemRef:'queue-native-1'};effects.set(`${operationKey}:turn`,value);return value;},
+    ensureRoleTurn:async({operationKey})=>{calls.turn++;const value={sessionId:'session-dev',queueItemRef:operationKey==='never-enqueued'?'queue-native-2':'queue-native-1'};effects.set(`${operationKey}:turn`,value);return value;},
     reconcileRoleTurn:async(input)=>effects.get(`${input.operationKey}:turn`)??null,
     readAuthoritativeState:async({sourceBeadId})=>({workflowId:'wf-1',rootBeadId:'root-1',sourceBeadId,status:'completed'}),
     ensureTypedResult:async({workflowId,rootBeadId,sourceBeadId})=>({workflowId,rootBeadId,sourceBeadId,status:'completed'}),
@@ -55,6 +55,19 @@ describe('native Gas City single-task provider', () => {
     // The initial launch above began from an authoritative absent lookup and
     // therefore enqueued exactly once; restart found that same durable item.
     expect(calls.turn).toBe(1);
+
+    await db.insertInto('WorkflowNativeGasCityRun').values({operationKey:'never-enqueued',runId:'native_never',workspaceId:'ws-1',sourceBeadId:'bead-1',requestDigest:'request',bundleDigest:bundle().digest,requestJson:JSON.stringify(request),allowedActionsJson:'["done"]',definitionJson:JSON.stringify(bundle().document.workflow.definition),status:'ready',bundleRef:bundle().digest,workflowId:'wf-1',rootBeadId:'root-1',sessionId:null,queueItemRef:null,resultRef:null,noteRef:null,callbackRef:null,summary:'Ready.',attempts:1,createdAt:1,updatedAt:1}).execute();
+    await expect(restarted.reconcile('never-enqueued')).resolves.toMatchObject({outcome:'found'});
+    expect(calls.turn).toBe(2);
+  });
+
+  it('resumes only the terminal callback after a crash following durable result persistence',async()=>{
+    await provider.launch({request,plan,bundle:bundle(),idempotencyKey:'callback-crash'});
+    await db.updateTable('WorkflowNativeGasCityRun').set({resultRef:'response-1',noteRef:'note-1',status:'completed',callbackRef:null}).where('operationKey','=','callback-crash').execute();
+    const replay=await provider.completeRoleTurn({queueItemRef:'queue-native-1',responseRef:'response-1',finalResponseText:'<decision action="done"><summary>Task completed safely.</summary></decision>'});
+    expect(replay).toMatchObject({applied:false,run:{status:'completed'}});expect(calls.note).toBe(0);expect(calls.callback).toBe(1);
+    await provider.completeRoleTurn({queueItemRef:'queue-native-1',responseRef:'response-1',finalResponseText:'<decision action="done"><summary>Task completed safely.</summary></decision>'});
+    expect(calls.callback).toBe(1);
   });
 
   it('blocks unsupported topology, conflicting replay, invalid XML, and scrubs hostile errors',async()=>{

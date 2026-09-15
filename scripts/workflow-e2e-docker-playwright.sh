@@ -164,12 +164,6 @@ docker exec \
     run_with_log gc-session-vibe-build bash -lc "cd packages/gc-session-vibe && CGO_ENABLED=0 GOBIN=/usr/local/bin go install ./cmd/gc-session-vibe && GC_EXEC_STATE_DIR=/tmp/gc-session-vibe-smoke gc-session-vibe list-running >/dev/null && rm -rf /tmp/gc-session-vibe-smoke"
     run_with_log vd-pnpm-install pnpm install --frozen-lockfile --child-concurrency=1 --network-concurrency=4
     run_with_log real-beads-fixture env VD_REAL_BEADS_E2E=1 npx vitest run --config vitest.server.config.ts src/modules/plugins/workflows/server/realBeadsE2eRepository.test.ts
-    run_with_log native-gas-city-runtime env VD_NATIVE_GAS_CITY_E2E=1 npx vitest run --config vitest.server.config.ts src/modules/plugins/workflows/server/nativeGasCityRuntime.integration.test.ts src/modules/plugins/workflows/server/nativeGasCityWorkflowProvider.test.ts
-    run_with_log pinned-gas-city-compiler bash scripts/verify-pinned-gas-city-compiler.sh
-    if [[ "${VD_NATIVE_GAS_CITY_GATE_ONLY:-}" == "1" ]]; then
-      echo "ok - mandatory native Gas City progression gate"
-      exit 0
-    fi
     cd /workspace/vibe-kanban
     run_with_log vk-pnpm-install pnpm install --frozen-lockfile --child-concurrency=1 --network-concurrency=4
     mkdir -p packages/local-web/dist
@@ -177,6 +171,12 @@ docker exec \
     find /root/.cargo/git /tmp/vk-target -name "*.lock" -delete 2>/dev/null || true
     run_with_log vk-cargo-build cargo build --features qa-mode --bin server
     cd /workspace/vibe-kanban-vscode-web
+    run_with_log native-gas-city-runtime env VD_NATIVE_GAS_CITY_E2E=1 VD_NATIVE_GAS_CITY_VK_BINARY=/tmp/vk-target/debug/server npx vitest run --config vitest.server.config.ts src/modules/plugins/workflows/server/nativeGasCityRuntime.integration.test.ts src/modules/plugins/workflows/server/nativeGasCityWorkflowProvider.test.ts
+    run_with_log pinned-gas-city-compiler bash scripts/verify-pinned-gas-city-compiler.sh
+    if [[ "${VD_NATIVE_GAS_CITY_GATE_ONLY:-}" == "1" ]]; then
+      echo "ok - mandatory native Gas City progression gate"
+      exit 0
+    fi
     run_with_log playwright npx playwright test --config playwright.vk-workflows-docker.config.ts --output=/tmp/workflow-e2e-logs/playwright-test-results ${WORKFLOW_E2E_PLAYWRIGHT_ARGS}
   '
 

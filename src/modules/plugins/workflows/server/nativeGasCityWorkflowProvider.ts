@@ -115,14 +115,18 @@ export class NativeGasCityWorkflowProvider implements WorkflowNativeLaunchProvid
     let row = await db.selectFrom('WorkflowNativeGasCityRun').selectAll().where('operationKey', '=', idempotencyKey).executeTakeFirst();
     if (!row) return { outcome: 'not_found' as const };
     if (row.status === 'running' || row.status === 'completed') return { outcome: 'found' as const, run: launchResult(row, true) };
-    const native = await this.options.runtime.reconcileWorkflow({ operationKey: idempotencyKey, bundleRef: row.bundleRef, sourceBeadId: row.sourceBeadId });
+    const native = row.workflowId&&row.rootBeadId
+      ? await this.options.runtime.readAuthoritativeState({operationKey:idempotencyKey,workflowId:row.workflowId,rootBeadId:row.rootBeadId,sourceBeadId:row.sourceBeadId})
+      : await this.options.runtime.reconcileWorkflow({ operationKey: idempotencyKey, bundleRef: row.bundleRef, sourceBeadId: row.sourceBeadId });
     if (native === 'unknown') return { outcome: 'unknown' as const };
     if (!native) return row.status === 'preparing' ? { outcome: 'not_found' as const } : { outcome: 'unknown' as const };
     assertNativeIdentity(native, row.sourceBeadId);
     row = await this.patch(row, { workflowId: safeRef(native.workflowId), rootBeadId: safeRef(native.rootBeadId), status: native.status === 'completed' ? 'completed' : 'ready' });
     const request=JSON.parse(row.requestJson) as WorkflowPlanRequest;const role=firstRoleFromDefinition(row.definitionJson);
-    const turn = row.queueItemRef ? { sessionId: row.sessionId!, queueItemRef: row.queueItemRef } : await this.options.runtime.reconcileRoleTurn(turnInput(idempotencyKey,row.workspaceId,request,role,buildPromptFromDefinition(row.definitionJson,row.sourceBeadId)));
+    const roleRequest=turnInput(idempotencyKey,row.workspaceId,request,role,buildPromptFromDefinition(row.definitionJson,row.sourceBeadId));
+    let turn = row.queueItemRef ? { sessionId: row.sessionId!, queueItemRef: row.queueItemRef } : await this.options.runtime.reconcileRoleTurn(roleRequest);
     if (turn === 'unknown') return { outcome: 'unknown' as const };
+    if (!turn) turn=await this.ensureEffect(row.runId,'role_turn',roleRequest,()=>this.options.runtime.ensureRoleTurn(roleRequest));
     if (turn) row = await this.patch(row, { sessionId: safeRef(turn.sessionId), queueItemRef: safeRef(turn.queueItemRef), status: 'running' });
     return row.status === 'running' || row.status === 'completed' ? { outcome: 'found' as const, run: launchResult(row, true) } : { outcome: 'unknown' as const };
   }
@@ -134,7 +138,7 @@ export class NativeGasCityWorkflowProvider implements WorkflowNativeLaunchProvid
     let row = await db.selectFrom('WorkflowNativeGasCityRun').selectAll().where('queueItemRef', '=', input.queueItemRef).executeTakeFirst();
     if (!row) return null;
     const initialRow=row; let current:Selectable<WorkflowNativeGasCityRun>=row;
-    if (current.resultRef) return { applied: false, run: readModel(current) };
+    if (current.resultRef) {current=await this.ensureCallback(current);return { applied: false, run: readModel(current) };}
     const result = validateDecision(input.finalResponseText,JSON.parse(row.definitionJson));
     const resultRequest={ operationKey: `${initialRow.operationKey}:typed-result`, workflowId: initialRow.workflowId!, rootBeadId: initialRow.rootBeadId!, sourceBeadId: initialRow.sourceBeadId, action: result.action, summary: result.summary,responseRef:input.responseRef};
     const authoritative = await this.ensureEffect(initialRow.runId,'typed_result',resultRequest,()=>this.options.runtime.ensureTypedResult(resultRequest));
@@ -146,11 +150,7 @@ export class NativeGasCityWorkflowProvider implements WorkflowNativeLaunchProvid
     const noteRequest={ operationKey: `${current.operationKey}:result-note`, sourceBeadId: current.sourceBeadId, summary: result.summary };
     const note = await this.ensureEffect(current.runId,'result_note',noteRequest,()=>this.options.runtime.ensureResultNote(noteRequest));
     current = await this.patch(current, { resultRef: safeRef(input.responseRef), noteRef: safeRef(note.noteRef), summary: safeText(result.summary), status: 'completed' });
-    if (!current.callbackRef) {
-      const callbackRequest={ operationKey: `${current.operationKey}:terminal-callback`, request: JSON.parse(current.requestJson) as WorkflowPlanRequest, run: readModel(current) };
-      const callback = await this.ensureEffect(current.runId,'terminal_callback',callbackRequest,()=>this.options.runtime.ensureTerminalCallback(callbackRequest));
-      current = await this.patch(current, { callbackRef: callback.callbackRef ? safeRef(callback.callbackRef) : 'none' });
-    }
+    current=await this.ensureCallback(current);
     return { applied: true, run: readModel(current) };
   }
 
@@ -167,6 +167,7 @@ export class NativeGasCityWorkflowProvider implements WorkflowNativeLaunchProvid
     if (recovered) return recovered;
     return this.options.runtime.ensureRoleTurn(roleTurnInput);
   }
+  private async ensureCallback(current:Selectable<WorkflowNativeGasCityRun>){if(current.callbackRef)return current;const callbackRequest={operationKey:`${current.operationKey}:terminal-callback`,request:JSON.parse(current.requestJson) as WorkflowPlanRequest,run:readModel(current)};const callback=await this.ensureEffect(current.runId,'terminal_callback',callbackRequest,()=>this.options.runtime.ensureTerminalCallback(callbackRequest));return this.patch(current,{callbackRef:callback.callbackRef?safeRef(callback.callbackRef):'none'});}
 
   private async reserve(input: Parameters<NativeGasCityWorkflowProvider['launch']>[0], requestDigest: string) {
     const db = await this.db(); const now = this.now(); const runId = `native_${input.idempotencyKey.slice(0, 24)}`;

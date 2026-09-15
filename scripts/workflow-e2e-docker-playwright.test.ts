@@ -50,7 +50,7 @@ describe('workflow-e2e-docker-playwright harness', () => {
     expect(script).toContain('run_with_log gas-city-runtime-smoke bash scripts/smoke-gas-city-runtime.sh --skip-bridge');
     expect(script).toContain('run_with_log pinned-gas-city-compiler bash scripts/verify-pinned-gas-city-compiler.sh');
     expect(script).toContain('run_with_log real-beads-fixture env VD_REAL_BEADS_E2E=1 npx vitest run');
-    expect(script).toContain('run_with_log native-gas-city-runtime env VD_NATIVE_GAS_CITY_E2E=1 npx vitest run');
+    expect(script).toContain('run_with_log native-gas-city-runtime env VD_NATIVE_GAS_CITY_E2E=1 VD_NATIVE_GAS_CITY_VK_BINARY=/tmp/vk-target/debug/server npx vitest run');
     expect(script).toContain('VD_NATIVE_GAS_CITY_GATE_ONLY');
     expect(packageJson.scripts['test:e2e:native-gas-city-docker']).toContain('VD_NATIVE_GAS_CITY_GATE_ONLY=1');
     expect(script).toContain('run_with_log gc-session-vibe-build');
