@@ -1,93 +1,62 @@
 /* eslint-disable formatjs/no-literal-string-in-object -- isolated contract fixture labels */
 import { createDockview, type DockviewApi } from 'dockview';
 import 'dockview/dist/styles/dockview.css';
+import { createSplitApplication, type DurablePortName, type SplitOperation } from './splitApplication';
 import { resolveSplitIntent, type SplitFixtures } from './splitViewContract';
+import type { TrustedDefinition, TrustedTargetRegistry } from './targetRegistry';
 
 type RootMap = Map<string, HTMLElement>;
+type PayloadRuntime = { id: string; payload: HTMLElement; window?: Window | null; originalComponent: 'agent' | 'code'; generation: number; valid: boolean; splitOnly: boolean; disposed: boolean };
 const durableElement = document.querySelector<HTMLElement>('#durable')!;
 const transientElement = document.querySelector<HTMLElement>('#transient')!;
 const runtimeLayer = document.querySelector<HTMLElement>('#runtime-layer')!;
-durableElement.style.cssText = 'height:420px;width:900px;position:relative';
-transientElement.style.cssText = 'height:420px;width:900px;position:relative';
-runtimeLayer.style.cssText = 'position:fixed;inset:0;pointer-events:none;z-index:20';
-
-function components(roots: RootMap) {
-  return ({ name }: { name: string }) => {
-    const element = document.createElement('div'); element.tabIndex = -1; element.dataset.rendererRoot = name; element.style.cssText = 'height:100%;min-width:240px;background:#eef'; roots.set(name, element);
-    return { element, minimumWidth: 240, init() {}, dispose() { roots.delete(name); } };
-  };
-}
-function restrictedTab() {
-  const element = document.createElement('span');
-  return { element, init(parameters: { title: string }) { element.textContent = parameters.title; } };
-}
+durableElement.style.cssText = 'height:420px;width:900px;position:relative'; transientElement.style.cssText = 'height:420px;width:900px;position:relative'; runtimeLayer.style.cssText = 'position:fixed;inset:0;pointer-events:none;z-index:20';
+function components(roots: RootMap) { return ({ name }: { name: string }) => { const element = document.createElement('div'); element.tabIndex = -1; element.dataset.rendererRoot = name; element.style.cssText = 'height:100%;min-width:240px;background:#eef'; roots.set(name, element); return { element, minimumWidth: 240, init() {}, dispose() { roots.delete(name); } }; }; }
+function restrictedTab() { const element = document.createElement('span'); return { element, init(parameters: { title: string }) { element.textContent = parameters.title; } }; }
 const durableRoots: RootMap = new Map(); const transientRoots: RootMap = new Map();
-const durable = createDockview(durableElement, { createComponent: components(durableRoots), disableFloatingGroups: true }); durable.layout(900, 420);
-durable.addPanel({ id: 'agent', component: 'agent', title: 'Agent' }); durable.addPanel({ id: 'code', component: 'code', title: 'Code', position: { direction: 'right', referencePanel: 'agent' } });
-durable.getPanel('agent')!.api.setActive();
+const durable = createDockview(durableElement, { createComponent: components(durableRoots), disableFloatingGroups: true }); durable.layout(900, 420); durable.addPanel({ id: 'agent', component: 'agent', title: 'Agent' }); durable.addPanel({ id: 'code', component: 'code', title: 'Code', position: { direction: 'right', referencePanel: 'agent' } }); durable.getPanel('agent')!.api.setActive();
 let durableMutations = 0; durable.onWillMutateLayout(() => durableMutations += 1);
-const durableStructure = () => JSON.stringify(durable.groups.map((group) => ({ id: group.id, panels: group.panels.map((panel) => panel.id), active: group.activePanel?.id })));
-const initialDurableStructure = durableStructure();
-let transient: DockviewApi | undefined; let transientMutations = 0; let mode: 'wide' | 'narrow' = 'wide'; let ratio = 0.5; let invocation = 0; let phase: 'inactive' | 'entering' | 'active' | 'exiting' = 'inactive'; let pinned = false; let historyEntries = 0; let focusFallbacks = 0; let transitionToken = 0;
+const durableStructure = () => JSON.stringify(durable.groups.map((group) => ({ id: group.id, panels: group.panels.map((panel) => panel.id), active: group.activePanel?.id }))); const initialDurableStructure = durableStructure();
 
-const forbiddenCounts = { coordinator: 0, toJSON: 0, fromJSON: 0, repositoryWrite: 0, revision: 0, history: 0, autosave: 0 };
-const forbidden = Object.fromEntries(Object.keys(forbiddenCounts).map((key) => [key, () => { forbiddenCounts[key as keyof typeof forbiddenCounts] += 1; }])) as Record<keyof typeof forbiddenCounts, () => void>;
-void forbidden; // injected production-boundary substitutes; Split View must never invoke them.
-const hostEvents: string[] = []; let durableHostGeneration = 1; let durableHostValid = true; let disposedPayloads = 0;
-const budget = { limit: 1, pinned: new Set<string>(), evictions: [] as string[], attempt(controller: string) { if (this.pinned.has(controller)) return false; this.evictions.push(controller); return true; } };
+function iframe(id: string) { const element = document.createElement('iframe'); element.src = `/spikes/dockview-contract/iframe-fixture.html?split-runtime=${id}`; element.dataset.runtimePayload = id; element.style.cssText = 'position:fixed;border:0;pointer-events:auto'; runtimeLayer.append(element); return element; }
+const agentFrame = iframe('agent'); const codeFrame = iframe('code');
+const runtimes = new Map<string, PayloadRuntime>([
+  ['agent', { id: 'agent', payload: agentFrame, window: agentFrame.contentWindow, originalComponent: 'agent', generation: 1, valid: true, splitOnly: false, disposed: false }],
+  ['code', { id: 'code', payload: codeFrame, window: codeFrame.contentWindow, originalComponent: 'code', generation: 4, valid: true, splitOnly: false, disposed: false }],
+]);
+const attachments = new Map<string, HTMLElement>([['agent', durableRoots.get('agent')!], ['code', durableRoots.get('code')!]]); const hostEvents = ['attach:durable:agent@1', 'attach:durable:code@4'];
+let transient: DockviewApi | undefined; let transientMutations = 0; let mode: 'wide' | 'narrow' = 'wide'; let ratio = 0.5; let invocation = 0; let phase: 'inactive' | 'entering' | 'active' | 'exiting' = 'inactive'; let pinned = false; let transitionToken = 0; let historyEntries = 0; let focusFallbacks = 0; let invokingRuntimeId = 'agent'; let selectedRuntimeId = 'code'; let disposedPayloads = 0; let focusAfterAttachments = false;
+const budget = { limit: 2, pinned: new Set<string>(), evictions: [] as string[], attempt() { if (this.pinned.has('durable-voyage')) return false; this.evictions.push('durable-voyage'); return true; } };
+const forbiddenCounts = { coordinator: 0, serializer: 0, fromJSON: 0, repository: 0, revision: 0, history: 0, autosave: 0 };
+const durablePorts = Object.fromEntries(Object.keys(forbiddenCounts).map((name) => [name, () => { forbiddenCounts[name as DurablePortName] += 1; throw new Error(`forbidden:${name}`); }])) as unknown as Parameters<typeof createSplitApplication>[0]['durable'];
 
-const frame = document.createElement('iframe'); frame.src = '/spikes/dockview-contract/iframe-fixture.html?split-runtime=1'; frame.dataset.runtimePayload = 'agent'; frame.style.cssText = 'position:fixed;border:0;pointer-events:auto'; runtimeLayer.append(frame);
-const initialFrameWindow = frame.contentWindow;
-const appPayload = document.createElement('div'); appPayload.dataset.runtimePayload = 'application'; appPayload.textContent = 'Application runtime'; appPayload.style.cssText = 'position:fixed;background:#efe;pointer-events:none'; runtimeLayer.append(appPayload);
-let attachedRoot: HTMLElement | undefined = durableRoots.get('agent'); let attachedHost = 'durable:agent@1'; hostEvents.push(`attach:${attachedHost}`);
-function placePayloads() {
-  const first = attachedRoot; const second = transientRoots.get('right');
-  for (const [payload, root] of [[frame, first], [appPayload, second]] as const) {
-    if (!root || (payload === appPayload && phase === 'inactive')) { payload.hidden = true; continue; }
-    const rect = root.getBoundingClientRect(); payload.hidden = false; payload.style.left = `${rect.left}px`; payload.style.top = `${rect.top}px`; payload.style.width = `${rect.width}px`; payload.style.height = `${rect.height}px`;
-  }
-  requestAnimationFrame(placePayloads);
-}
-requestAnimationFrame(placePayloads);
+function placePayloads() { for (const runtime of runtimes.values()) { const root = attachments.get(runtime.id); if (!root || runtime.disposed) { runtime.payload.hidden = true; continue; } const rect = root.getBoundingClientRect(); runtime.payload.hidden = false; runtime.payload.style.left = `${rect.left}px`; runtime.payload.style.top = `${rect.top}px`; runtime.payload.style.width = `${rect.width}px`; runtime.payload.style.height = `${rect.height}px`; } requestAnimationFrame(placePayloads); } requestAnimationFrame(placePayloads);
+function addTopology(nextMode: 'wide' | 'narrow') { transient!.clear(); mode = nextMode; transient!.addPanel({ id: 'left', component: 'left', tabComponent: 'restricted', title: 'Invoking' }); transient!.addPanel({ id: 'right', component: 'right', tabComponent: 'restricted', title: 'Selected', position: nextMode === 'wide' ? { direction: 'right', referencePanel: 'left' } : { referencePanel: 'left' } }); if (nextMode === 'narrow') transient!.getPanel('left')!.api.setActive(); transient!.layout(nextMode === 'wide' ? 900 : 480, 420); if (nextMode === 'wide') transient!.getPanel('left')!.group.api.setSize({ width: 900 * ratio }); attachments.set(invokingRuntimeId, transientRoots.get('left')!); attachments.set(selectedRuntimeId, transientRoots.get('right')!); }
+function makeSplitOnly(role: 'invoking' | 'selected') { const id = `forms-${role}`; const payload = document.createElement('div'); payload.dataset.runtimePayload = id; payload.textContent = 'Forms runtime'; payload.style.cssText = 'position:fixed;background:#efe;pointer-events:none'; runtimeLayer.append(payload); runtimes.set(id, { id, payload, originalComponent: 'code', generation: 1, valid: true, splitOnly: true, disposed: false }); return id; }
+function disposeRuntime(runtime: PayloadRuntime) { if (runtime.disposed) return; runtime.disposed = true; attachments.delete(runtime.id); runtime.payload.remove(); disposedPayloads += 1; hostEvents.push(`dispose:${runtime.id}`); }
 
-function addTopology(nextMode: 'wide' | 'narrow') {
-  transient!.clear(); mode = nextMode;
-  transient!.addPanel({ id: 'left', component: 'left', tabComponent: 'restricted', title: 'Invoking' });
-  transient!.addPanel({ id: 'right', component: 'right', tabComponent: 'restricted', title: 'Selected', position: nextMode === 'wide' ? { direction: 'right', referencePanel: 'left' } : { referencePanel: 'left' } });
-  if (nextMode === 'narrow') transient!.getPanel('left')!.api.setActive();
-  transient!.layout(nextMode === 'wide' ? 900 : 480, 420); attachedRoot = transientRoots.get('left');
-  if (nextMode === 'wide') transient!.getPanel('left')!.group.api.setSize({ width: 900 * ratio });
-}
-function enter(push = true, resolve: () => boolean = () => true) {
-  if (phase !== 'inactive') return; phase = 'entering'; transitionToken += 1; pinned = true; budget.pinned.add('durable-voyage'); hostEvents.push(`pin:${transitionToken}`); invocation += 1; ratio = 0.5; transientMutations = 0;
-  if (!resolve()) { pinned = false; budget.pinned.delete('durable-voyage'); hostEvents.push('unpin'); phase = 'inactive'; return; }
-  durableElement.style.visibility = 'hidden'; transientElement.hidden = false;
-  transient = createDockview(transientElement, { createComponent: components(transientRoots), createTabComponent: restrictedTab, disableDnd: true, disableFloatingGroups: true }); transient.onWillMutateLayout(() => transientMutations += 1); addTopology('wide');
-  hostEvents.push(`detach:${attachedHost}`); attachedRoot = transientRoots.get('left'); attachedHost = `transient:left@${transitionToken}`; hostEvents.push(`attach:${attachedHost}`); phase = 'active';
-  if (push) { history.pushState({ split: true }, '', '/voyages/voyage-a/split/panel-token?withCraft=craft-a&withSurface=code'); historyEntries += 1; }
-}
-function exit() { if (phase === 'inactive' || phase === 'exiting') return; phase = 'exiting'; hostEvents.push(`detach:${attachedHost}`); const root = durableRoots.get('agent'); if (durableHostValid && root?.isConnected) { attachedRoot = root; attachedHost = `durable:agent@${durableHostGeneration}`; hostEvents.push(`return:${attachedHost}`); } else { attachedRoot = undefined; frame.remove(); disposedPayloads += 1; hostEvents.push('dispose:agent-runtime'); }
-  transient?.dispose(); transient = undefined; transientRoots.clear(); transientElement.hidden = true; durableElement.style.visibility = 'visible'; pinned = false; budget.pinned.delete('durable-voyage'); hostEvents.push('unpin'); phase = 'inactive'; if (root?.isConnected && durableHostValid) root.focus(); else { (document.querySelector('#back') as HTMLElement).focus(); focusFallbacks += 1; } }
-document.querySelector('#back')!.addEventListener('click', () => { if (history.state?.split) history.back(); else { history.replaceState(null, '', location.pathname); exit(); } }); addEventListener('popstate', exit);
+function enter(push = true, resolve = () => trustedResolution('?voyage=voyage-a&split=panel-agent&withSurface=code')) { if (phase !== 'inactive') return; phase = 'entering'; transitionToken += 1; pinned = true; budget.pinned.add('durable-voyage'); hostEvents.push(`pin:${transitionToken}`); const resolution = resolve(); if (!resolution?.ok) { pinned = false; budget.pinned.delete('durable-voyage'); hostEvents.push('unpin'); phase = 'inactive'; return; } invocation += 1; ratio = 0.5; transientMutations = 0; invokingRuntimeId = resolution.invoking.runtime.kind === 'recreatable' ? makeSplitOnly('invoking') : resolution.invoking.resolved.equivalenceKey.startsWith('code:') ? 'code' : 'agent'; selectedRuntimeId = resolution.selected.runtime.kind === 'recreatable' ? makeSplitOnly('selected') : resolution.selected.resolved.equivalenceKey.startsWith('agent:') ? 'agent' : 'code'; durableElement.style.visibility = 'hidden'; transientElement.hidden = false; transient = createDockview(transientElement, { createComponent: components(transientRoots), createTabComponent: restrictedTab, disableDnd: true, disableFloatingGroups: true }); transient.onWillMutateLayout(() => transientMutations += 1); addTopology('wide'); for (const id of [invokingRuntimeId, selectedRuntimeId]) hostEvents.push(`detach:durable:${id}`, `attach:transient:${id}@${transitionToken}`); transientRoots.get('left')!.focus(); focusAfterAttachments = document.activeElement === transientRoots.get('left'); hostEvents.push('focus:split'); phase = 'active'; if (push) { history.pushState({ split: true }, '', location.search || '?voyage=voyage-a&split=panel-agent&withSurface=code'); historyEntries += 1; } }
+function exit() { if (phase === 'inactive' || phase === 'exiting') return; phase = 'exiting'; for (const id of [selectedRuntimeId, invokingRuntimeId]) { const runtime = runtimes.get(id); if (!runtime) continue; hostEvents.push(`detach:transient:${id}`); if (runtime.splitOnly || !runtime.valid) disposeRuntime(runtime); else { const root = durableRoots.get(runtime.originalComponent); if (root?.isConnected) { attachments.set(id, root); hostEvents.push(`return:durable:${id}@${runtime.generation}`); } else disposeRuntime(runtime); } } transient?.dispose(); transient = undefined; transientRoots.clear(); transientElement.hidden = true; durableElement.style.visibility = 'visible'; pinned = false; budget.pinned.delete('durable-voyage'); hostEvents.push('unpin'); phase = 'inactive'; const invoking = runtimes.get(invokingRuntimeId); const root = invoking && !invoking.splitOnly ? durableRoots.get(invoking.originalComponent) : undefined; if (root?.isConnected && invoking?.valid) root.focus(); else { document.querySelector<HTMLElement>('#back')!.focus(); focusFallbacks += 1; } }
+function invalidate(kind: 'selected-replace' | 'selected-delete' | 'voyage' | 'plugin') { if (kind === 'voyage') for (const runtime of runtimes.values()) runtime.valid = false; else { const runtime = runtimes.get(selectedRuntimeId); if (runtime) { runtime.valid = false; if (kind === 'selected-replace') runtime.generation += 1; } } exit(); }
+function narrow() { if (transient && mode === 'wide') { const groups = transient.groups; ratio = groups[0]!.api.width / groups.reduce((sum, group) => sum + group.api.width, 0); addTopology('narrow'); } }
+function wide() { if (transient && mode === 'narrow') addTopology('wide'); }
+function maximize(side: 'left' | 'right') { transient?.getPanel(side)?.api.maximize(); }
+function restore() { transient?.exitMaximizedGroup(); }
+let requestedInvalidation: 'selected-replace' | 'selected-delete' | 'voyage' | 'plugin' = 'plugin';
+const splitPorts: Record<SplitOperation, () => unknown> = { enter, resize: () => undefined, 'maximize-left': () => maximize('left'), 'maximize-right': () => maximize('right'), restore, narrow, wide, invalidate: () => invalidate(requestedInvalidation), exit };
+const application = createSplitApplication({ durable: durablePorts, split: splitPorts });
+
+function targetRegistry(): TrustedTargetRegistry { const definition = (key: string, recreatable = false): TrustedDefinition => ({ resolve: (context) => ({ rendererKey: `fixture:${key}`, payload: {}, provenance: 'built-in', capabilities: { sandbox: [], clipboardRead: false, clipboardWrite: false, sameOrigin: false, navigation: 'none' }, runtime: recreatable ? { kind: 'recreatable-transient-runtime', continuity: 'fresh' } : { kind: 'leaseable-runtime' }, splitCompatibility: ['workbench'], equivalenceInputs: [key, context.workspaceId!], sharingInputs: [key, context.workspaceId!] }) }); return { crafts: { 'craft-a': { workspaceId: 'workspace-a', allowedScopes: ['builtin/agent', 'builtin/code', 'builtin/forms'] }, 'craft-b': { workspaceId: 'workspace-b', allowedScopes: ['builtin/code', 'builtin/forms'] } }, workspaces: { 'workspace-a': { available: true, containerRef: '/a' }, 'workspace-b': { available: true, containerRef: '/b' } }, surfaces: { 'builtin/agent': definition('agent'), 'builtin/code': definition('code'), 'builtin/forms': definition('forms', true) }, internalRoutes: {}, installedPlugins: new Set(), factories: {}, customUrl: definition('url') }; }
+const trustedFixtures: SplitFixtures = { currentVoyageToken: 'voyage-a', panels: [{ token: 'panel-agent', voyageToken: 'voyage-a', craftId: 'craft-a', target: { version: 1, kind: 'workspace-surface', workspaceId: 'workspace-a', surfaceKey: 'builtin/agent' } }, { token: 'panel-forms', voyageToken: 'voyage-a', craftId: 'craft-a', target: { version: 1, kind: 'workspace-surface', workspaceId: 'workspace-a', surfaceKey: 'builtin/forms' } }], voyageCraftIds: ['craft-a', 'craft-b'], candidates: [{ craftId: 'craft-a', surfaceKey: 'code', target: { version: 1, kind: 'workspace-surface', workspaceId: 'workspace-a', surfaceKey: 'builtin/code' } }, { craftId: 'craft-a', surfaceKey: 'forms', target: { version: 1, kind: 'workspace-surface', workspaceId: 'workspace-a', surfaceKey: 'builtin/forms' } }, { craftId: 'craft-b', surfaceKey: 'code', target: { version: 1, kind: 'workspace-surface', workspaceId: 'workspace-b', surfaceKey: 'builtin/code' } }, { craftId: 'craft-b', surfaceKey: 'forms', target: { version: 1, kind: 'workspace-surface', workspaceId: 'workspace-b', surfaceKey: 'builtin/forms' } }], targetRegistry: targetRegistry(), runtimes: [{ targetIdentity: 'craft-a\0agent:workspace-a', runtimeId: 'agent', generation: 1, hostId: 'durable:agent' }, { targetIdentity: 'craft-a\0code:workspace-a', runtimeId: 'code', generation: 4, hostId: 'durable:code' }, { targetIdentity: 'craft-b\0code:workspace-b', runtimeId: 'code', generation: 4, hostId: 'durable:code' }] };
+function trustedResolution(search = location.search) { return resolveSplitIntent(search, trustedFixtures); }
+document.querySelector('#back')!.addEventListener('click', () => { if (history.state?.split) history.back(); else { history.replaceState(null, '', location.pathname); application.dispatch('exit'); } }); addEventListener('popstate', () => application.dispatch('exit'));
 
 window.splitContract = {
-  enter,
-  exit,
-  narrow: () => { if (transient && mode === 'wide') { const groups = transient.groups; ratio = groups[0]!.api.width / groups.reduce((sum, group) => sum + group.api.width, 0); addTopology('narrow'); } },
-  wide: () => { if (transient && mode === 'narrow') addTopology('wide'); },
-  maximize: (side: 'left' | 'right') => transient?.getPanel(side)?.api.maximize(),
-  restore: () => transient?.exitMaximizedGroup(),
-  maximizeDurable: () => durable.getPanel('agent')!.api.maximize(),
-  restoreDurable: () => durable.exitMaximizedGroup(),
-  bounds: () => ({ left: transientRoots.get('left')?.getBoundingClientRect().toJSON(), right: transientRoots.get('right')?.getBoundingClientRect().toJSON() }),
-  observe: () => ({ closed: phase === 'inactive', phase, mode, ratio, invocation, pinned, historyEntries, transientMutations, transientMaximized: Boolean(transient?.getPanel('left')?.api.isMaximized() || transient?.getPanel('right')?.api.isMaximized()), groups: transient?.groups.length ?? 0, active: transient?.activePanel?.id, durableSnapshotUnchanged: durableStructure() === initialDurableStructure, durableMutations, forbidden: { ...forbiddenCounts }, toJSONCalls: forbiddenCounts.toJSON, fromJSONCalls: forbiddenCounts.fromJSON, revisions: forbiddenCounts.revision, writes: forbiddenCounts.repositoryWrite, history: forbiddenCounts.history, payloads: document.querySelectorAll('[data-runtime-payload]').length, iframeConnected: frame.isConnected, iframeWindowStable: frame.contentWindow === initialFrameWindow, focusFallbacks, focusRestored: document.activeElement === durableRoots.get('agent'), durableMaximized: durable.getPanel('agent')!.api.isMaximized(), attachedHost, hostEvents: [...hostEvents], disposedPayloads, budgetEvictions: [...budget.evictions] }),
-  attemptEviction: () => budget.attempt('durable-voyage'),
-  invalidateHost: (kind: 'replace' | 'delete') => { durableHostValid = false; if (kind === 'replace') durableHostGeneration += 1; exit(); },
-  relayoutDurable: () => durable.layout(760, 420),
-  frameState: () => (frame.contentWindow as Window & { fixture?: { read(): unknown } }).fixture?.read(),
+  enter: () => application.dispatch('enter'), exit: () => application.dispatch('exit'), narrow: () => application.dispatch('narrow'), wide: () => application.dispatch('wide'), maximize: (side: 'left' | 'right') => application.dispatch(side === 'left' ? 'maximize-left' : 'maximize-right'), restore: () => application.dispatch('restore'),
+  maximizeDurable: () => durable.getPanel('agent')!.api.maximize(), restoreDurable: () => durable.exitMaximizedGroup(), bounds: () => ({ left: transientRoots.get('left')?.getBoundingClientRect().toJSON(), right: transientRoots.get('right')?.getBoundingClientRect().toJSON() }),
+  observe: () => ({ closed: phase === 'inactive', phase, mode, ratio, invocation, pinned, historyEntries, transientMutations, transientMaximized: Boolean(transient?.getPanel('left')?.api.isMaximized() || transient?.getPanel('right')?.api.isMaximized()), groups: transient?.groups.length ?? 0, active: transient?.activePanel?.id, durableSnapshotUnchanged: durableStructure() === initialDurableStructure, durableMutations, forbidden: { ...forbiddenCounts }, payloads: document.querySelectorAll('[data-runtime-payload]').length, iframeConnected: agentFrame.isConnected, iframeWindowStable: agentFrame.contentWindow === runtimes.get('agent')?.window, selectedWindowStable: codeFrame.contentWindow === runtimes.get('code')?.window, focusFallbacks, focusRestored: document.activeElement === durableRoots.get('agent') || document.activeElement === durableRoots.get('code'), focusAfterAttachments, durableMaximized: durable.getPanel('agent')!.api.isMaximized(), hostEvents: [...hostEvents], disposedPayloads, budgetCount: phase === 'active' ? 2 : 0, budgetLimit: budget.limit, budgetEvictions: [...budget.evictions] }),
+  attemptEviction: () => budget.attempt(), invalidate: (kind: 'selected-replace' | 'selected-delete' | 'voyage' | 'plugin') => { requestedInvalidation = kind; return application.dispatch('invalidate'); }, relayoutDurable: () => durable.layout(760, 420), frameState: () => (agentFrame.contentWindow as Window & { fixture?: { read(): unknown } }).fixture?.read(), selectedFrameState: () => (codeFrame.contentWindow as Window & { fixture?: { read(): unknown } }).fixture?.read(),
 };
 document.querySelector('#ready')!.textContent = 'ready';
-const trustedFixtures: SplitFixtures = { currentVoyageId: 'voyage-a', voyages: [{ id: 'voyage-a', panels: [{ token: 'panel-token', targetKey: 'agent' }] }], crafts: [{ id: 'craft-a', voyageId: 'voyage-a', workspaceId: 'workspace-a' }], surfaces: [{ key: 'agent', craftId: 'craft-a', kind: 'agent', splitKeys: ['work'], runtime: { kind: 'leaseable', runtimeId: 'agent-runtime', generation: 1 }, installed: true, authorized: true }, { key: 'code', craftId: 'craft-a', kind: 'code', splitKeys: ['work'], runtime: { kind: 'leaseable', runtimeId: 'code-runtime', generation: 1 }, installed: true, authorized: true }] };
-if (location.pathname.startsWith('/voyages/')) enter(false, () => resolveSplitIntent(location.pathname, location.search, trustedFixtures).ok);
-
+if (location.search.includes('voyage=')) enter(false, () => trustedResolution());
 declare global { interface Window { splitContract: Record<string, (...args: never[]) => unknown> } }
