@@ -161,6 +161,74 @@ describe('BeadsClient', () => {
     expect(responses).toHaveLength(2);
   });
 
+  it('serializes concurrent same-id retries into one persistence and one notification', async () => {
+    let metadata: Record<string, unknown> = { ...reviewMetadata, VK_SESSION_ID: '2e56418d-2829-4e2f-aab7-105c5aab41dc' };
+    let updates = 0;
+    const exec = vi.fn<ExecFileLike>(async (_file, args) => {
+      if (args[0] === '--readonly') return { stdout: beadJson(metadata), stderr: '' };
+      const metadataArg = args.find((arg) => arg.startsWith('@'));
+      if (metadataArg) {
+        await new Promise((resolve) => setTimeout(resolve, 5));
+        metadata = JSON.parse(await readFile(metadataArg.slice(1), 'utf8')) as Record<string, unknown>;
+        updates += 1;
+      }
+      return { stdout: '', stderr: '' };
+    });
+    const notifySession = vi.fn(async () => undefined);
+    const client = new BeadsClient({ execFile: exec, notifySession });
+    const input = { dir: '/repo-concurrent-same', beadId: 'beads-web-biu', formId: 'review', submissionId, values: { comment: 'once' } };
+
+    const [first, second] = await Promise.all([client.submitForm(input), client.submitForm(input)]);
+
+    expect(second).toMatchObject({ submissionId, values: first.values, submittedAt: first.submittedAt });
+    expect(updates).toBe(1);
+    expect(notifySession).toHaveBeenCalledTimes(1);
+    expect((metadata.beadFormResponses as { responsesByFormId: { review: unknown[] } }).responsesByFormId.review).toHaveLength(1);
+  });
+
+  it('serializes concurrent different ids without losing either response', async () => {
+    let metadata: Record<string, unknown> = { ...reviewMetadata, VK_SESSION_ID: '2e56418d-2829-4e2f-aab7-105c5aab41dc' };
+    const exec = vi.fn<ExecFileLike>(async (_file, args) => {
+      if (args[0] === '--readonly') return { stdout: beadJson(metadata), stderr: '' };
+      const metadataArg = args.find((arg) => arg.startsWith('@'));
+      if (metadataArg) metadata = JSON.parse(await readFile(metadataArg.slice(1), 'utf8')) as Record<string, unknown>;
+      return { stdout: '', stderr: '' };
+    });
+    const notifySession = vi.fn(async () => undefined);
+    const client = new BeadsClient({ execFile: exec, notifySession });
+
+    await Promise.all([
+      client.submitForm({ dir: '/repo-concurrent-different', beadId: 'beads-web-biu', formId: 'review', submissionId: '11111111-1111-4111-8111-111111111111', values: { comment: 'one' } }),
+      client.submitForm({ dir: '/repo-concurrent-different', beadId: 'beads-web-biu', formId: 'review', submissionId: '22222222-2222-4222-8222-222222222222', values: { comment: 'two' } }),
+    ]);
+
+    const responses = (metadata.beadFormResponses as { responsesByFormId: { review: Array<{ values: { comment: string } }> } }).responsesByFormId.review;
+    expect(responses.map((response) => response.values.comment)).toEqual(['one', 'two']);
+    expect(notifySession).toHaveBeenCalledTimes(2);
+  });
+
+  it('releases the keyed lock after persistence and notification failures', async () => {
+    let metadata: Record<string, unknown> = { ...reviewMetadata, VK_SESSION_ID: '2e56418d-2829-4e2f-aab7-105c5aab41dc' };
+    let failPersistence = true;
+    const exec = vi.fn<ExecFileLike>(async (_file, args) => {
+      if (args[0] === '--readonly') return { stdout: beadJson(metadata), stderr: '' };
+      const metadataArg = args.find((arg) => arg.startsWith('@'));
+      if (metadataArg && failPersistence) { failPersistence = false; throw new Error('disk failed'); }
+      if (metadataArg) metadata = JSON.parse(await readFile(metadataArg.slice(1), 'utf8')) as Record<string, unknown>;
+      return { stdout: '', stderr: '' };
+    });
+    let failNotification = true;
+    const notifySession = vi.fn(async () => {
+      if (failNotification) { failNotification = false; throw new Error('notify timeout'); }
+    });
+    const client = new BeadsClient({ execFile: exec, notifySession });
+
+    await expect(client.submitForm({ dir: '/repo-lock-cleanup', beadId: 'beads-web-biu', formId: 'review', submissionId: '11111111-1111-4111-8111-111111111111', values: { comment: 'fails' } })).rejects.toThrow('disk failed');
+    const warned = await client.submitForm({ dir: '/repo-lock-cleanup', beadId: 'beads-web-biu', formId: 'review', submissionId: '22222222-2222-4222-8222-222222222222', values: { comment: 'saved with warning' } });
+    expect(warned.warnings.join(' ')).toContain('do not submit again');
+    await expect(client.submitForm({ dir: '/repo-lock-cleanup', beadId: 'beads-web-biu', formId: 'review', submissionId: '33333333-3333-4333-8333-333333333333', values: { comment: 'later' } })).resolves.toMatchObject({ submissionId: '33333333-3333-4333-8333-333333333333' });
+  });
+
   it('rejects malformed or oversized submission ids before reading or mutating the bead', async () => {
     const exec = vi.fn<ExecFileLike>();
     const client = new BeadsClient({ execFile: exec });

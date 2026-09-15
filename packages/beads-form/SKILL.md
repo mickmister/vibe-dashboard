@@ -290,6 +290,8 @@ When a bead-backed form submit succeeds inside VD, VD invalidates its BeadsForm 
 
 Attach also records the creating `VK_SESSION_ID` when available. After VD has persisted a bead-backed response, it best-effort sends the canonical lean form DSL, normalized response, and XML handoff to that exact creating session with guidance to run `vibe-agent full_summary`. Missing or invalid session metadata retains the `needs-agent-review` label fallback. If notification fails, the response remains saved, the success view warns the user not to submit again, and VD attempts the same label fallback. Folder-preview submissions are local preview data and never notify an agent session; each aggregate section follows its own source bead's session metadata.
 
+VD gives every direct or aggregate submit a stable UUID `submissionId`, persists it with the response, and reuses it when an RPC is retried after a lost result. Within one VD server process, the complete read/dedupe/write/notification sequence is serialized per canonical repo and bead, so same-ID retries notify once and concurrent different answers cannot overwrite each other; unrelated beads remain concurrent. Every VD bead-backed submit action uses this client path. This lock is intentionally process-local: external CLI mutations or multiple VD server processes require the underlying bead store's normal coordination and should not be treated as covered by this in-memory queue.
+
 Agents can inspect the same pending queue from a shell with JSON output:
 
 ```sh

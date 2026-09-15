@@ -4,7 +4,7 @@ import { execFile } from 'node:child_process';
 import { access, readdir, realpath } from 'node:fs/promises';
 import { mkdtemp, writeFile, rm } from 'node:fs/promises';
 import { homedir, tmpdir } from 'node:os';
-import { basename, join } from 'node:path';
+import { basename, join, resolve } from 'node:path';
 import { promisify } from 'node:util';
 
 import {
@@ -23,8 +23,10 @@ import {
   type JsonObject,
 } from './beadsFormCore.ts';
 import { buildBeadsFormSessionNotification, isValidBeadsFormSessionId } from './beadsFormSessionNotification.ts';
+import { KeyedAsyncQueue } from './keyedAsyncQueue.ts';
 
 const execFileAsync = promisify(execFile);
+const submitMutationQueue = new KeyedAsyncQueue();
 
 export type ExecFileLike = (
   file: string,
@@ -400,6 +402,11 @@ export class BeadsClient {
 
   async submitForm(input: SubmitBeadsFormInput): Promise<SubmitBeadsFormResult> {
     assertSubmissionId(input.submissionId);
+    const repo = await canonicalRepoPath(input.dir);
+    return submitMutationQueue.run(`${repo}\0${input.beadId}`, () => this.submitFormLocked(input));
+  }
+
+  private async submitFormLocked(input: SubmitBeadsFormInput): Promise<SubmitBeadsFormResult> {
     const bead = await this.readBead(input.dir, input.beadId);
     const form = selectBeadsForm(bead.metadata, input.formId);
     if (!form) throw new Error(`Form not found: ${input.formId}`);
@@ -510,6 +517,15 @@ export class BeadsClient {
       timeout: 30_000,
       maxBuffer: 1024 * 1024,
     });
+  }
+}
+
+async function canonicalRepoPath(dir: string): Promise<string> {
+  const absolute = resolve(dir);
+  try {
+    return await realpath(absolute);
+  } catch {
+    return absolute;
   }
 }
 
