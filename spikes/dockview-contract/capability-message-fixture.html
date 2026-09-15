@@ -1,0 +1,18 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>Capability message fixture</title>
+<script>
+  const query = new URLSearchParams(location.search);
+  const envelope = (mode = 'valid') => ({
+    schemaVersion: 1,
+    type: mode === 'unknown-type' ? 'runtime-admin' : 'runtime-ready',
+    panelId: 'panel-1',
+    runtimeId: 'runtime-1',
+    generation: mode === 'stale' ? 8 : 9,
+    payload: mode === 'malformed-payload' ? { protocolVersion: 1, privilege: 'admin' } : { protocolVersion: 1 },
+  });
+  addEventListener('message', (event) => {
+    if (event.data?.command === 'emit') parent.postMessage(envelope(event.data.mode), '*');
+  });
+  parent.postMessage({ fixtureReady: query.get('name') ?? 'frame' }, '*');
+</script>

@@ -42,7 +42,7 @@ messages fail closed.
 | --- | --- | --- |
 | `vd-built-in` | scripts, same-origin, forms, modals | clipboard read/write, fullscreen |
 | `vk-built-in` | scripts, same-origin, forms, modals | clipboard read/write, fullscreen |
-| `installed-plugin` | scripts; manifest-requested same-origin | manifest-requested fullscreen |
+| `installed-plugin` | scripts; conditionally same-origin as described below | manifest-requested fullscreen |
 | `forwarded-project` | scripts, forms | none |
 | `external-url` | scripts | none |
 
@@ -50,8 +50,12 @@ All classes deny downloads, popups, popup escape, and top navigation by user
 activation. A false value is meaningful: omission from the generated `sandbox`
 or `allow` attribute is the denial. Plugin manifests can request only within the
 VD ceiling; removal or tightening takes effect on the next trusted resolution.
-Production must retain the existing prohibition on combining scripts and
-same-origin for host-origin plugin assets.
+Plugin same-origin defaults off. It is granted only when the current installed
+plugin version has the exact registered frontend contribution, its current
+manifest authorizes the grant, its origin is dedicated to that plugin (not VD
+or another plugin), and its delivery uses the redirect guard below. Removal,
+version mismatch, contribution removal, shared/host origin, or policy tightening
+returns to an opaque origin on the next resolution.
 
 The built-in ceilings preserve the current VK/code-server clipboard, form,
 modal, and fullscreen behavior. Forwarded project servers deliberately lose
@@ -61,11 +65,23 @@ a narrower explicit grant. This is a visible compatibility impact, not a silent
 change. External URLs likewise tighten from the current forms/popups/modals and
 fullscreen fallback to scripts only.
 
-## Navigation, host confusion, and Caddy threats
+## HTTP redirect enforcement, host confusion, and Caddy threats
 
-Trusted classes may navigate only within their resolver-returned origin.
-External URLs may follow HTTP(S) redirects, but retain the external provenance
-and capabilities even when the destination resembles VD. Malformed schemes,
+`acceptsNavigation` was removed because a predicate cannot constrain a browser.
+Any target receiving same-origin or clipboard capability must instead use a
+trusted server delivery endpoint. That endpoint fetches with redirects disabled,
+walks a bounded chain, and rejects a `Location` whose origin differs from the
+resolver-authorized upstream origin before returning content. The executable
+Vite middleware is the Phase 0 model, not production integration. Chromium uses
+real 302 responses to prove a same-origin chain succeeds while trusted-to-
+untrusted and external-to-trusted chains both receive 409.
+
+This proof covers HTTP redirect delivery, not arbitrary later script-driven
+iframe navigation. Production must not claim the latter is constrained. Classes
+without the guarded delivery boundary receive only the sandbox-safe unbounded
+ceilings in the table: forwarded content gets scripts/forms, and external content
+gets scripts. Neither gets same-origin, clipboard, downloads, popups, modal,
+top-navigation, or fullscreen capabilities. Malformed schemes,
 userinfo URLs, sibling-domain confusion (`vd.example.test.evil.test`), and
 `port-*` lookalikes never become trusted. A forwarded target is privileged only
 through its stable Workspace/route registry entry, not because its URL matches
@@ -82,7 +98,9 @@ Accepted messages require all of:
 
 - exact resolver-derived origin and exact `event.source` window;
 - exact version-1 schema with no unknown keys;
-- an allowlisted message type;
+- an allowlisted message type with an exact payload schema (`runtime-ready` is
+  `{ protocolVersion: 1 }`; `runtime-state` is a non-negative integer heartbeat
+  plus `active`/`inactive` visibility), including nested unknown-field rejection;
 - matching Panel ID, runtime ID, and target generation; and
 - an object payload.
 
@@ -102,10 +120,12 @@ definitions, so plugin removal and policy tightening apply.
 default denial, ignored persisted claims, plugin removal/tightening, malformed
 and host-confusing URLs, redirect non-escalation, Caddy-shaped custom URL
 non-attestation, immutable Split attachment policy, and exact postMessage
-origin/source/schema/Panel/runtime/generation validation. Chromium additionally
-uses a real iframe `WindowProxy`, rejects a sibling source, and proves the
-single runtime element keeps the identical effective policy when attached to a
-Split host. Runtime continuity itself remains the separate M1.5 lease proof.
+origin/source/schema/Panel/runtime/generation validation. Chromium receives real
+iframe-generated `MessageEvent`s before and after moving the same iframe to the
+Split host; it rejects a sibling window, a different-origin iframe, stale
+generation, unknown type, and malformed nested payload. It also proves the one
+runtime element retains the identical policy under its lease. Runtime continuity
+itself remains the separate M1.5 lease proof.
 
 **GO:** implement this resolver boundary in M2.3 and replace the base-domain
 grant before enabling concurrent Dockview iframe use. The listed forwarded and

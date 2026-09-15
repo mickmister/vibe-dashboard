@@ -1,69 +1,42 @@
 import { expect, test } from 'playwright/test';
 
-test('TEST_CASE_M1_4A authenticates real messages across Split attachment and recreation', async ({ page }) => {
+test('TEST_CASE_M1_4A redirect guard rejects cross-origin chains in both directions', async ({ page, request }) => {
+  await page.goto('/spikes/dockview-contract/');
+  const origin = new URL(page.url()).origin; const port = new URL(page.url()).port;
+  const guard = (target: string) => `${origin}/contract/guard?target=${encodeURIComponent(target)}`;
+  const same = await request.get(guard(`${origin}/contract/redirect/same`));
+  expect([same.status(), await same.text()]).toEqual([200, 'guarded-final']);
+  const outward = await request.get(guard(`${origin}/contract/redirect/cross?port=${port}`));
+  expect([outward.status(), await outward.text()]).toEqual([409, 'cross-origin-redirect-rejected']);
+  const inward = await request.get(guard(`http://localhost:${port}/contract/redirect/cross?port=${port}&to=trusted`));
+  expect(inward.status()).toBe(409);
+});
+
+test('TEST_CASE_M1_4A validates actual iframe messages across Split attachment', async ({ page }) => {
   await page.goto('/spikes/dockview-contract/');
   const result = await page.evaluate(async () => {
-    const policyModule = await import('/spikes/dockview-contract/iframeCapabilityPolicy.ts');
-    const envelope = (generation: number) => ({ schemaVersion: 1, type: 'runtime-ready', runtimeId: 'runtime-1', panelId: 'panel-1', generation, payload: {} });
-    const source = `<!doctype html><script>addEventListener('message',event=>{if(event.data?.emit)parent.postMessage(event.data.emit,'*')})<\/script>`;
-    const waitForLoad = (frame: HTMLIFrameElement) => new Promise<void>((resolve, reject) => {
-      const timeout = setTimeout(() => reject(new Error('iframe load timed out')), 2_000);
-      frame.addEventListener('load', () => { clearTimeout(timeout); resolve(); }, { once: true });
-    });
-    const nextMessage = (frame: HTMLIFrameElement, payload: object) => new Promise<MessageEvent>((resolve, reject) => {
-      const timeout = setTimeout(() => { removeEventListener('message', receive); reject(new Error('postMessage timed out')); }, 2_000);
-      const receive = (event: MessageEvent) => {
-        if (event.data?.runtimeId !== 'runtime-1') return;
-        clearTimeout(timeout); removeEventListener('message', receive); resolve(event);
-      };
-      addEventListener('message', receive);
-      frame.contentWindow!.postMessage({ emit: payload }, '*');
-    });
-    const makeFrame = async (slot: string) => {
-      const frame = document.createElement('iframe');
-      frame.slot = slot;
-      frame.srcdoc = source;
-      const loaded = waitForLoad(frame);
-      attachment.append(frame);
-      await loaded;
-      return frame;
+    const modulePath = '/spikes/dockview-contract/iframeCapabilityPolicy.ts'; const policyModule = await import(modulePath);
+    const attachment = document.createElement('div'); const shadow = attachment.attachShadow({ mode: 'open' });
+    shadow.innerHTML = '<section><slot name="voyage"></slot></section><section><slot name="split"></slot></section>'; document.body.append(attachment);
+    const makeFrame = async (name: string, hostname = location.hostname) => {
+      const frame = document.createElement('iframe'); frame.slot = 'voyage'; frame.dataset.capabilityRuntime = name;
+      const ready = new Promise<void>((resolve) => addEventListener('message', function listener(event) { if (event.source === frame.contentWindow && event.data?.fixtureReady === name) { removeEventListener('message', listener); resolve(); } }));
+      frame.src = `${location.protocol}//${hostname}:${location.port}/spikes/dockview-contract/capability-message-fixture.html?name=${name}`; attachment.append(frame); await ready; return frame;
     };
-
-    // Slot reassignment changes the application-owned host attachment without
-    // reparenting the registry-owned iframe or replacing its WindowProxy.
-    const attachment = document.createElement('div');
-    const shadow = attachment.attachShadow({ mode: 'open' });
-    shadow.innerHTML = '<section id="voyage"><slot name="voyage"></slot></section><section id="split"><slot name="split"></slot></section>';
-    document.body.append(attachment);
-    const registered = await makeFrame('voyage');
-    const sibling = await makeFrame('voyage');
-    const registeredWindow = registered.contentWindow!;
-    const registry = {
-      baseOrigin: location.origin,
-      definitions: { vk: { provenance: 'vk-built-in', resolvedUrl: location.href, requested: ['same-origin'] } },
-      installedPlugins: new Set<string>(),
-    };
-    const resolved = policyModule.resolveIframeCapabilityPolicy({ targetKey: 'vk' }, registry);
-    if (!resolved.ok) throw new Error(resolved.reason);
-    const registration = { runtimeId: 'runtime-1', panelId: 'panel-1', generation: 9, sourceWindow: registeredWindow, policy: resolved.policy };
-
-    const acceptedBefore = policyModule.validateRuntimeMessage(await nextMessage(registered, envelope(9)), registration).ok;
-    const siblingRejected = !policyModule.validateRuntimeMessage(await nextMessage(sibling, envelope(9)), registration).ok;
-    registered.slot = 'split';
-    await new Promise(requestAnimationFrame);
-    const retainedWindow = registered.contentWindow === registeredWindow;
-    const acceptedAfter = policyModule.validateRuntimeMessage(await nextMessage(registered, envelope(9)), registration).ok;
-    const lease = policyModule.applyRuntimeLease(registration, 'split-host');
-
-    const oldEvent = await nextMessage(registered, envelope(9));
-    registered.remove();
-    const recreated = await makeFrame('split');
-    const recreatedRegistration = { ...registration, generation: 10, sourceWindow: recreated.contentWindow! };
-    const oldSourceRejected = !policyModule.validateRuntimeMessage(oldEvent, recreatedRegistration).ok;
-    const staleGenerationRejected = !policyModule.validateRuntimeMessage(await nextMessage(recreated, envelope(9)), recreatedRegistration).ok;
-    const recreatedAccepted = policyModule.validateRuntimeMessage(await nextMessage(recreated, envelope(10)), recreatedRegistration).ok;
-
-    return { acceptedBefore, siblingRejected, retainedWindow, acceptedAfter, policyIdentity: lease.registration.policy === registration.policy, oldSourceRejected, staleGenerationRejected, recreatedAccepted };
+    const primary = await makeFrame('primary'); const sibling = await makeFrame('sibling'); const wrongOrigin = await makeFrame('wrong-origin', 'localhost');
+    const registry = { baseOrigin: location.origin, definitions: { vk: { provenance: 'vk-built-in', resolvedUrl: location.href, requested: ['same-origin'], redirectBoundary: { kind: 'guarded-proxy', deliveryUrl: location.href, upstreamOrigin: location.origin } } }, plugins: {} };
+    const resolved = policyModule.resolveIframeCapabilityPolicy({ targetKey: 'vk' }, registry); if (!resolved.ok) throw new Error(resolved.reason);
+    const originalWindow = primary.contentWindow!; const registration = { runtimeId: 'runtime-1', panelId: 'panel-1', generation: 9, sourceWindow: originalWindow, policy: resolved.policy };
+    const emit = (source: HTMLIFrameElement, mode = 'valid') => new Promise<boolean>((resolve, reject) => {
+      const timeout = setTimeout(() => { removeEventListener('message', listener); reject(new Error('postMessage timeout')); }, 2_000);
+      function listener(event: MessageEvent) { if (event.source !== source.contentWindow || !event.data?.schemaVersion) return; clearTimeout(timeout); removeEventListener('message', listener); resolve(policyModule.validateRuntimeMessage(event, registration).ok); }
+      addEventListener('message', listener); source.contentWindow!.postMessage({ command: 'emit', mode }, '*');
+    });
+    const before = await emit(primary); const siblingRejected = !(await emit(sibling)); const wrongOriginRejected = !(await emit(wrongOrigin));
+    const staleRejected = !(await emit(primary, 'stale')); const unknownRejected = !(await emit(primary, 'unknown-type')); const malformedRejected = !(await emit(primary, 'malformed-payload'));
+    primary.slot = 'split'; await new Promise(requestAnimationFrame); const lease = policyModule.applyRuntimeLease(registration, 'split-host');
+    const after = await emit(primary);
+    return { before, after, siblingRejected, wrongOriginRejected, staleRejected, unknownRejected, malformedRejected, retainedWindow: primary.contentWindow === originalWindow, onePhysicalFrame: document.querySelectorAll('iframe[data-capability-runtime="primary"]').length === 1, policyIdentity: lease.registration.policy === registration.policy };
   });
-  expect(result).toEqual({ acceptedBefore: true, siblingRejected: true, retainedWindow: true, acceptedAfter: true, policyIdentity: true, oldSourceRejected: true, staleGenerationRejected: true, recreatedAccepted: true });
+  expect(result).toEqual({ before: true, after: true, siblingRejected: true, wrongOriginRejected: true, staleRejected: true, unknownRejected: true, malformedRejected: true, retainedWindow: true, onePhysicalFrame: true, policyIdentity: true });
 });

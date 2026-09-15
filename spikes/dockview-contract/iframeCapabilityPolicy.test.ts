@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { applyRuntimeLease, resolveIframeCapabilityPolicy, validateRuntimeMessage, type CapabilityRegistry, type RuntimeRegistration } from './iframeCapabilityPolicy';
+import { applyRuntimeLease, resolveIframeCapabilityPolicy, validateRuntimeMessage, type CapabilityRegistry, type RuntimeRegistration, type TrustedCapabilityDefinition } from './iframeCapabilityPolicy';
 
 const registry: CapabilityRegistry = {
   baseOrigin: 'https://vd.example.test',
@@ -49,14 +49,14 @@ describe('resolver-derived iframe capability policy', () => {
   });
 
   it('grants plugin same-origin only for the exact current isolated contribution', () => {
-    const privileged = { provenance: 'installed-plugin', pluginId: 'notes', pluginVersion: '1.2.3', contributionKey: 'editor', resolvedUrl: 'https://plugins.example.test/notes/', requested: ['same-origin'], redirectBoundary: { kind: 'guarded-proxy', deliveryUrl: 'https://plugins.example.test/notes/', upstreamOrigin: 'https://plugins.example.test' } } as const;
+    const privileged: TrustedCapabilityDefinition = { provenance: 'installed-plugin', pluginId: 'notes', pluginVersion: '1.2.3', contributionKey: 'editor', resolvedUrl: 'https://plugins.example.test/notes/', requested: ['same-origin'], redirectBoundary: { kind: 'guarded-proxy', deliveryUrl: 'https://plugins.example.test/notes/', upstreamOrigin: 'https://plugins.example.test' } };
     expect(resolveIframeCapabilityPolicy({ targetKey: 'plugin' }, { ...registry, definitions: { plugin: privileged } })).toMatchObject({ ok: true, policy: { sameOrigin: true, navigationEnforcement: 'trusted-redirect-guard' } });
     for (const definition of [{ ...privileged, pluginVersion: 'old' }, { ...privileged, contributionKey: 'removed' }, { ...privileged, resolvedUrl: 'https://vd.example.test/plugin/' }]) {
       expect(resolveIframeCapabilityPolicy({ targetKey: 'plugin' }, { ...registry, definitions: { plugin: definition } })).toMatchObject({ ok: true, policy: { sameOrigin: false } });
     }
     const sharedOrigin: CapabilityRegistry = { ...registry, definitions: { plugin: privileged }, plugins: { ...registry.plugins, other: { version: '1', dedicatedOrigin: 'https://plugins.example.test', contributions: {} } } };
     expect(resolveIframeCapabilityPolicy({ targetKey: 'plugin' }, sharedOrigin)).toMatchObject({ ok: true, policy: { sameOrigin: false } });
-    const tightenedManifest: CapabilityRegistry = { ...registry, definitions: { plugin: privileged }, plugins: { notes: { ...registry.plugins.notes, contributions: { editor: { allowSameOrigin: false } } } } };
+    const tightenedManifest: CapabilityRegistry = { ...registry, definitions: { plugin: privileged }, plugins: { notes: { version: '1.2.3', dedicatedOrigin: 'https://plugins.example.test', contributions: { editor: { allowSameOrigin: false } } } } };
     expect(resolveIframeCapabilityPolicy({ targetKey: 'plugin' }, tightenedManifest)).toMatchObject({ ok: true, policy: { sameOrigin: false } });
   });
 
@@ -109,6 +109,7 @@ describe('postMessage boundary', () => {
     const registration: RuntimeRegistration = { runtimeId: 'runtime-1', panelId: 'panel-1', generation: 7, sourceWindow, policy: resolved.policy };
     const data = { schemaVersion: 1, type: 'runtime-ready', runtimeId: 'runtime-1', panelId: 'panel-1', generation: 7, payload: { protocolVersion: 1 } };
     expect(validateRuntimeMessage({ origin: 'https://vk.example.test', source: sourceWindow, data }, registration)).toMatchObject({ ok: true });
+    expect(validateRuntimeMessage({ origin: 'https://vk.example.test', source: sourceWindow, data: { ...data, type: 'runtime-state', payload: { visibility: 'inactive', heartbeat: 12 } } }, registration)).toMatchObject({ ok: true, payload: { visibility: 'inactive', heartbeat: 12 } });
     for (const event of [
       { origin: 'https://evil.test', source: sourceWindow, data }, { origin: 'https://vk.example.test', source: {}, data },
       { origin: 'https://vk.example.test', source: sourceWindow, data: { ...data, schemaVersion: 2 } }, { origin: 'https://vk.example.test', source: sourceWindow, data: { ...data, panelId: 'other' } },
