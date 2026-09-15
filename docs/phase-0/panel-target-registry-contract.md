@@ -20,9 +20,9 @@ registry, `craft-surfaces`, `react-craft-surfaces`, `workspace-composition`, and
 | Manual URL or URL-prompt preset | `custom-url(requestedUrl)` interpreted only by the current custom-URL definition |
 | Manifest `craftSurfaces` iframe | `plugin-surface(pluginId, surfaceKey)` reconstructed from the installed contribution |
 | First-party plugin React surface | The same `plugin-surface` identity with an explicit recreatable-runtime continuity contract |
-| Manifest `internalRoutes` | Distinct `plugin-internal-route(pluginId, routeKey, params)` with contribution and parameter allowlist lookup |
+| Manifest `internalRoutes` | Parse the persisted `internal://plugins/<plugin>/<path>` View URL, then create distinct `plugin-internal-route(pluginId, routeKey, params)` identity through contribution/path matching and parameter allowlisting |
 | Workspace factory | Installed factory/tab identity maps to canonical registered targets; expanded URL is ignored |
-| Built-in or user pair | Members resolve independently; topology is emitted only when both members resolve |
+| Built-in or user pair | Read production `ViewPair.tabIds` against the enclosing Craft Views; topology is emitted only when two distinct referenced Views and both targets resolve |
 | `tg_home`, `tab_overview`, or `internal://spaces-overview` | `skip/homepage-representation`; no Panel and no normalized homepage state |
 | Create Workspace action | `skip/temporary-create-workspace` |
 | Legacy runtime-only craft-surface placeholder | Always `skip/ephemeral-plugin-placeholder`; legacy metadata and URL never create a target |
@@ -78,8 +78,13 @@ allow leasing, require transient recreation, or deny Split View. The requested
 URL is untrusted input; malformed and disallowed schemes fail closed.
 
 `internalRoutes` have a separate contribution table and identity from
-`craftSurfaces`. Resolution requires the installed plugin and exact route,
-accepts only declared string parameters, and never retries as a custom URL.
+`craftSurfaces`. Migration begins with the real persisted View URL and applies
+the same `internal://plugins/` plugin-ID decoding, leading-slash normalization,
+backslash rejection, and `..` segment rejection as the current runtime parser.
+It matches exactly one installed contribution by plugin ID and normalized path,
+then stores only the stable route key and validated, non-duplicate allowlisted
+parameters. Malformed, ambiguous, removed, and unmatched routes are quarantined
+and never retried as custom URLs.
 
 ## Identity, sharing, and Split View
 
@@ -101,17 +106,20 @@ Workspace/plugin context:
 - homepage-only Voyages are omitted, while mixed Voyages retain their valid
   content with balanced per-outcome counts;
 - factory expanded URLs are ignored;
-- pair members produce ordered targets and per-member diagnostics, and placement
-  topology exists only when exactly two members resolve; and
+- pairs consume the production `ViewPair.tabIds` and enclosing Craft View
+  collection. Exactly two distinct ordered IDs are required. Missing, malformed,
+  skipped, and unresolvable members retain ordered per-ID diagnostics; placement
+  topology exists only when both source Views and both targets resolve; and
 - the migration contract runs only after the approved outer migration admits a
   VK-backed Craft. Non-VK Crafts remain skipped by that outer rule.
 
 ## GO decision and limits
 
 **GO:** the corrected contract proves strict schema parsing, authoritative owner
-validation, unified fail-closed resolution, current-policy derivation, distinct
-internal routes, ephemeral/homepage omission, pair diagnostics, stable identity,
-backend sharing, and generic Split capability selection.
+validation, unified fail-closed resolution, current-policy derivation,
+production-shaped internal-route and pair migration, ephemeral/homepage omission,
+pair diagnostics, stable identity, backend sharing, and generic Split capability
+selection.
 
 This is an isolated Phase 0 contract, not production integration. M2.3 must build
 definitions from the real Workspace and installed-plugin services, preserve the

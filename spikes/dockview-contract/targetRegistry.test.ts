@@ -74,6 +74,8 @@ function createRegistry(): TrustedTargetRegistry {
     internalRoutes: {
       'plugin.docs/help': {
         ...definition({ key: 'help', pluginId: 'plugin.docs', rendererKey: 'plugin-internal:plugin.docs/help' }),
+        routeKey: 'help',
+        routePath: '/help',
         allowedParams: ['topic'],
         resolve: (context) => ({ ...definition({ key: 'help', pluginId: 'plugin.docs' }).resolve(context), rendererKey: 'plugin-internal:plugin.docs/help', payload: { url: `/plugins/plugin.docs/help?topic=${encodeURIComponent(context.params?.topic ?? '')}` } }),
       },
@@ -207,8 +209,28 @@ describe('legacy migration inventory', () => {
   it('classifies custom URL, internal route, and temporary action producers distinctly', () => {
     const registry = createRegistry();
     expect(classifyLegacyRepresentation({ kind: 'view', craftId: 'current', groupId: 'craft', view: { id: 'docs', title: 'Docs', url: 'https://docs.example.test' } }, registry)).toMatchObject({ outcome: 'panel', target: { kind: 'custom-url' } });
-    expect(classifyLegacyRepresentation({ kind: 'view', craftId: 'current', groupId: 'craft', view: { id: 'help', title: 'Help', url: 'internal://stale', internalRoute: { pluginId: 'plugin.docs', routeKey: 'help', params: { topic: 'api' } } } }, registry)).toEqual({ outcome: 'panel', target: { version: 1, kind: 'plugin-internal-route', pluginId: 'plugin.docs', routeKey: 'help', params: { topic: 'api' } } });
+    expect(classifyLegacyRepresentation({ kind: 'view', craftId: 'current', groupId: 'craft', view: { id: 'help', title: 'Help', url: 'internal://plugins/plugin.docs/help?topic=api' } }, registry)).toEqual({ outcome: 'panel', target: { version: 1, kind: 'plugin-internal-route', pluginId: 'plugin.docs', routeKey: 'help', params: { topic: 'api' } } });
     expect(classifyLegacyRepresentation({ kind: 'temporary-create-workspace', craftId: 'pending' }, registry)).toEqual({ outcome: 'skip', reason: 'temporary-create-workspace' });
+  });
+
+  it('derives internal route identity from real persisted View URLs with production normalization', () => {
+    const registry = createRegistry();
+    const classify = (url: string, currentRegistry = registry) => classifyLegacyRepresentation({ kind: 'view', craftId: 'current', groupId: 'craft', view: { id: 'help', title: 'Help', url, pinned: true } }, currentRegistry);
+    expect(classify('internal://plugins/plugin%2Edocs/help?topic=API%20design')).toEqual({ outcome: 'panel', target: { version: 1, kind: 'plugin-internal-route', pluginId: 'plugin.docs', routeKey: 'help', params: { topic: 'API design' } } });
+    expect(classify('internal://plugins/plugin.docs/../help')).toEqual({ outcome: 'quarantine', reason: 'malformed-internal-route' });
+    expect(classify('internal://plugins/plugin.docs/help?topic=one&topic=two')).toEqual({ outcome: 'quarantine', reason: 'malformed-internal-route-params' });
+    expect(classify('internal://plugins/plugin.docs/help?topic=%E0%A4%A')).toEqual({ outcome: 'quarantine', reason: 'malformed-internal-route-params' });
+    expect(classify('internal://plugins/plugin.docs/help?topic=one?topic=two')).toEqual({ outcome: 'quarantine', reason: 'malformed-internal-route' });
+    expect(classify('internal://plugins/plugin.docs/help?redirect=evil')).toEqual({ outcome: 'quarantine', reason: 'invalid-route-params' });
+    expect(classify('internal://plugins/removed/help')).toEqual({ outcome: 'quarantine', reason: 'plugin-unavailable' });
+    expect(classify('internal://plugins/plugin.docs/missing')).toEqual({ outcome: 'quarantine', reason: 'internal-route-unavailable' });
+    expect(classify('internal://unknown')).toEqual({ outcome: 'quarantine', reason: 'unmatched-internal-route' });
+
+    registry.internalRoutes['plugin.docs/help-copy'] = {
+      ...registry.internalRoutes['plugin.docs/help']!,
+      routeKey: 'help-copy',
+    };
+    expect(classify('internal://plugins/plugin.docs/help')).toEqual({ outcome: 'quarantine', reason: 'ambiguous-internal-route' });
   });
 
   it.each([
@@ -230,13 +252,39 @@ describe('legacy migration inventory', () => {
     expect(classifyLegacyRepresentation({ kind: 'factory-view', craftId: 'current', groupId: 'craft', workspaceId: 'workspace-1', pluginId: 'plugin.factory', factoryKey: 'open', surfaceKey: 'code', expandedUrl: 'https://attacker.invalid' }, createRegistry())).toEqual({ outcome: 'panel', target: { version: 1, kind: 'workspace-surface', workspaceId: 'workspace-1', surfaceKey: 'builtin/code' } });
   });
 
-  it('resolves pair members independently and emits topology only when both succeed', () => {
-    const validPair: LegacyRepresentation = { kind: 'pair', craftId: 'current', groupId: 'craft', workspaceId: 'workspace-1', pairId: 'agent+code', members: [{ id: 'agent', title: 'Agent', url: '/stale-agent' }, { id: 'code', title: 'Code', url: '/stale-code' }] };
+  it('resolves production-shaped pair tabIds independently and emits topology only when both succeed', () => {
+    const views = [{ id: 'agent', title: 'Agent', url: '/stale-agent' }, { id: 'code', title: 'Code', url: '/stale-code' }];
+    const validPair: LegacyRepresentation = { kind: 'pair', craftId: 'current', groupId: 'craft', workspaceId: 'workspace-1', pair: { id: 'agent+code', tabIds: ['agent', 'code'] }, views };
     const valid = classifyLegacyRepresentation(validPair, createRegistry());
     expect(valid).toMatchObject({ outcome: 'pair', targets: [{ surfaceKey: 'builtin/agent' }, { surfaceKey: 'builtin/code' }], diagnostics: [{ viewId: 'agent', outcome: 'panel' }, { viewId: 'code', outcome: 'panel' }], topology: { pairId: 'agent+code', memberIndexes: [0, 1] } });
 
-    const partial = classifyLegacyRepresentation({ ...validPair, members: [validPair.members[0]!, { id: 'bad', title: 'Bad', url: 'not a URL' }] }, createRegistry());
+    const partial = classifyLegacyRepresentation({ ...validPair, pair: { id: 'partial', tabIds: ['agent', 'bad'] }, views: [...views, { id: 'bad', title: 'Bad', url: 'not a URL' }] }, createRegistry());
     expect(partial).toMatchObject({ outcome: 'pair', targets: [{ surfaceKey: 'builtin/agent' }], diagnostics: [{ viewId: 'agent', outcome: 'panel' }, { viewId: 'bad', outcome: 'quarantine', reason: 'custom-url-rejected' }] });
     expect(partial).not.toHaveProperty('topology');
+  });
+
+  it('diagnoses missing first and second pair references in original order', () => {
+    const registry = createRegistry();
+    const views = [{ id: 'agent', title: 'Agent', url: '/agent' }];
+    const classify = (tabIds: string[]) => classifyLegacyRepresentation({ kind: 'pair', craftId: 'current', groupId: 'craft', workspaceId: 'workspace-1', pair: { id: 'pair', tabIds }, views }, registry);
+    expect(classify(['missing', 'agent'])).toMatchObject({ diagnostics: [{ viewId: 'missing', outcome: 'missing', reason: 'missing-view' }, { viewId: 'agent', outcome: 'panel' }] });
+    expect(classify(['agent', 'missing'])).toMatchObject({ diagnostics: [{ viewId: 'agent', outcome: 'panel' }, { viewId: 'missing', outcome: 'missing', reason: 'missing-view' }] });
+    expect(classify(['missing', 'agent'])).not.toHaveProperty('topology');
+  });
+
+  it.each([
+    [['agent'], 'pair-cardinality'],
+    [['agent', 'code', 'forms'], 'pair-cardinality'],
+    [['agent', 'agent'], 'duplicate-member-id'],
+  ])('rejects invalid pair IDs %j', (tabIds, reason) => {
+    const result = classifyLegacyRepresentation({ kind: 'pair', craftId: 'current', groupId: 'craft', workspaceId: 'workspace-1', pair: { id: 'pair', tabIds }, views: [{ id: 'agent', title: 'Agent', url: '/agent' }, { id: 'code', title: 'Code', url: '/code' }, { id: 'forms', title: 'Forms', url: '/forms' }] }, createRegistry());
+    expect(result).not.toHaveProperty('topology');
+    expect(result).toMatchObject({ diagnostics: tabIds.map((viewId) => ({ viewId, outcome: 'invalid', reason })) });
+  });
+
+  it('diagnoses a malformed referenced View before target resolution', () => {
+    const result = classifyLegacyRepresentation({ kind: 'pair', craftId: 'current', groupId: 'craft', workspaceId: 'workspace-1', pair: { id: 'pair', tabIds: ['agent', 'broken'] }, views: [{ id: 'agent', title: 'Agent', url: '/agent' }, { id: 'broken', title: 42, url: '/broken' }] as unknown as Array<{ id: string; title: string; url: string }> }, createRegistry());
+    expect(result).toMatchObject({ diagnostics: [{ viewId: 'agent', outcome: 'panel' }, { viewId: 'broken', outcome: 'malformed', reason: 'malformed-view' }] });
+    expect(result).not.toHaveProperty('topology');
   });
 });

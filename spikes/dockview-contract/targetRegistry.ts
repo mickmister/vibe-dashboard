@@ -50,6 +50,8 @@ type ResolveContext = {
 
 export type TrustedDefinition = {
   pluginId?: string;
+  routeKey?: string;
+  routePath?: string;
   allowedParams?: string[];
   resolve(context: ResolveContext): TrustedDefinitionResult;
 };
@@ -194,12 +196,12 @@ export type LegacyView = {
   id: string;
   title: string;
   url: string;
+  pinned?: boolean;
   ephemeral?: { kind: 'craft-surface'; pluginId: string; surfaceKey: string; sourceKey: string };
-  internalRoute?: { pluginId: string; routeKey: string; params: Record<string, string> };
 };
 export type LegacyRepresentation =
   | { kind: 'view'; craftId: string; groupId: string; workspaceId?: string; view: LegacyView }
-  | { kind: 'pair'; craftId: string; groupId: string; pairId: string; members: LegacyView[]; workspaceId?: string }
+  | { kind: 'pair'; craftId: string; groupId: string; pair: { id: string; tabIds: string[] }; views: LegacyView[]; workspaceId?: string }
   | { kind: 'temporary-create-workspace'; craftId: string }
   | { kind: 'factory-view'; craftId: string; groupId: string; workspaceId: string; pluginId: string; factoryKey: string; surfaceKey: string; expandedUrl: string };
 export type MigrationResult =
@@ -213,13 +215,92 @@ function panelOrRecovery(target: PanelTarget, craftId: string, registry: Trusted
   return resolution.ok ? { outcome: 'panel', target } : { outcome: 'quarantine', reason: resolution.reason };
 }
 
+function parseInternalRouteUrl(url: string):
+  | { ok: true; pluginId: string; routePath: string; params: Record<string, string> }
+  | { ok: false; reason: string } {
+  if (
+    !url.startsWith('internal://plugins/') ||
+    url.includes('#') ||
+    url.indexOf('?') !== url.lastIndexOf('?')
+  ) return { ok: false, reason: 'malformed-internal-route' };
+  const [base, rawQuery] = url.split('?', 2);
+  const rest = base!.slice('internal://plugins/'.length);
+  const slashIndex = rest.indexOf('/');
+  const encodedPluginId = slashIndex === -1 ? rest : rest.slice(0, slashIndex);
+  if (!encodedPluginId) return { ok: false, reason: 'malformed-internal-route' };
+  let pluginId: string;
+  try {
+    pluginId = decodeURIComponent(encodedPluginId);
+  } catch {
+    return { ok: false, reason: 'malformed-internal-route' };
+  }
+  const routePath = slashIndex === -1 ? '/' : `/${rest.slice(slashIndex + 1)}`;
+  if (routePath.includes('\\') || routePath.split('/').some((part) => part === '..')) return { ok: false, reason: 'malformed-internal-route' };
+  const params: Record<string, string> = {};
+  if (rawQuery) {
+    for (const pair of rawQuery.split('&')) {
+      const separator = pair.indexOf('=');
+      if (separator <= 0) return { ok: false, reason: 'malformed-internal-route-params' };
+      try {
+        const key = decodeURIComponent(pair.slice(0, separator).replaceAll('+', ' '));
+        const value = decodeURIComponent(pair.slice(separator + 1).replaceAll('+', ' '));
+        if (!validKey(key) || key in params) return { ok: false, reason: 'malformed-internal-route-params' };
+        params[key] = value;
+      } catch {
+        return { ok: false, reason: 'malformed-internal-route-params' };
+      }
+    }
+  }
+  return { ok: true, pluginId, routePath, params };
+}
+
+function classifyInternalRouteView(
+  input: Extract<LegacyRepresentation, { kind: 'view' }>,
+  registry: TrustedTargetRegistry,
+): MigrationResult {
+  const parsed = parseInternalRouteUrl(input.view.url);
+  if (!parsed.ok) return { outcome: 'quarantine', reason: parsed.reason };
+  if (!registry.installedPlugins.has(parsed.pluginId)) return { outcome: 'quarantine', reason: 'plugin-unavailable' };
+  const matches = Object.values(registry.internalRoutes).filter((definition) =>
+    definition.pluginId === parsed.pluginId && definition.routePath === parsed.routePath);
+  if (matches.length !== 1) return { outcome: 'quarantine', reason: matches.length > 1 ? 'ambiguous-internal-route' : 'internal-route-unavailable' };
+  const routeKey = matches[0]!.routeKey;
+  if (!routeKey) return { outcome: 'quarantine', reason: 'internal-route-unavailable' };
+  return panelOrRecovery({ version: 1, kind: 'plugin-internal-route', pluginId: parsed.pluginId, routeKey, params: parsed.params }, input.craftId, registry);
+}
+
+function isLegacyView(value: unknown): value is LegacyView {
+  if (!isObject(value) || typeof value.id !== 'string' || typeof value.title !== 'string' || typeof value.url !== 'string') return false;
+  if (value.pinned !== undefined && typeof value.pinned !== 'boolean') return false;
+  if (value.ephemeral === undefined) return true;
+  return isObject(value.ephemeral) && value.ephemeral.kind === 'craft-surface' &&
+    typeof value.ephemeral.pluginId === 'string' && typeof value.ephemeral.surfaceKey === 'string' &&
+    typeof value.ephemeral.sourceKey === 'string';
+}
+
 export function classifyLegacyRepresentation(input: LegacyRepresentation, registry: TrustedTargetRegistry): MigrationResult {
   if (input.kind === 'temporary-create-workspace') return { outcome: 'skip', reason: 'temporary-create-workspace' };
   if (input.kind === 'pair') {
-    const memberResults = input.members.map((view) => classifyLegacyRepresentation({ kind: 'view', craftId: input.craftId, groupId: input.groupId, workspaceId: input.workspaceId, view }, registry));
-    const targets = memberResults.flatMap((result) => result.outcome === 'panel' ? [result.target] : []);
-    const diagnostics = memberResults.map((result, index) => ({ viewId: input.members[index]!.id, outcome: result.outcome, ...(result.outcome === 'quarantine' || result.outcome === 'skip' ? { reason: result.reason } : {}) }));
-    return { outcome: 'pair', targets, diagnostics, ...(targets.length === 2 && input.members.length === 2 ? { topology: { pairId: input.pairId, memberIndexes: [0, 1] as [number, number] } } : {}) };
+    const ids = input.pair.tabIds;
+    if (ids.length !== 2) return { outcome: 'pair', targets: [], diagnostics: ids.map((viewId) => ({ viewId, outcome: 'invalid', reason: 'pair-cardinality' })) };
+    if (ids[0] === ids[1]) return { outcome: 'pair', targets: [], diagnostics: ids.map((viewId) => ({ viewId, outcome: 'invalid', reason: 'duplicate-member-id' })) };
+    const diagnostics: Array<{ viewId: string; outcome: string; reason?: string }> = [];
+    const targets: PanelTarget[] = [];
+    for (const viewId of ids) {
+      const rawView: unknown = input.views.find((view) => isObject(view) && view.id === viewId);
+      if (rawView === undefined) {
+        diagnostics.push({ viewId, outcome: 'missing', reason: 'missing-view' });
+        continue;
+      }
+      if (!isLegacyView(rawView)) {
+        diagnostics.push({ viewId, outcome: 'malformed', reason: 'malformed-view' });
+        continue;
+      }
+      const result = classifyLegacyRepresentation({ kind: 'view', craftId: input.craftId, groupId: input.groupId, workspaceId: input.workspaceId, view: rawView }, registry);
+      diagnostics.push({ viewId, outcome: result.outcome, ...(result.outcome === 'quarantine' || result.outcome === 'skip' ? { reason: result.reason } : {}) });
+      if (result.outcome === 'panel') targets.push(result.target);
+    }
+    return { outcome: 'pair', targets, diagnostics, ...(targets.length === 2 ? { topology: { pairId: input.pair.id, memberIndexes: [0, 1] as [number, number] } } : {}) };
   }
   if (input.kind === 'factory-view') {
     const factory = registry.factories[`${input.pluginId}/${input.factoryKey}`];
@@ -229,15 +310,8 @@ export function classifyLegacyRepresentation(input: LegacyRepresentation, regist
   }
   if (input.view.ephemeral?.kind === 'craft-surface') return { outcome: 'skip', reason: 'ephemeral-plugin-placeholder' };
   if (input.groupId === 'tg_home' || input.view.id === 'tab_overview' || input.view.url === 'internal://spaces-overview') return { outcome: 'skip', reason: 'homepage-representation' };
-  if (input.view.internalRoute) {
-    return panelOrRecovery({
-      version: 1,
-      kind: 'plugin-internal-route',
-      pluginId: input.view.internalRoute.pluginId,
-      routeKey: input.view.internalRoute.routeKey,
-      params: input.view.internalRoute.params,
-    }, input.craftId, registry);
-  }
+  if (input.view.url.startsWith('internal://plugins/')) return classifyInternalRouteView(input, registry);
+  if (input.view.url.startsWith('internal://')) return { outcome: 'quarantine', reason: 'unmatched-internal-route' };
   if (input.workspaceId && ['agent', 'code', 'beads', 'forms'].includes(input.view.id)) return panelOrRecovery({ version: 1, kind: 'workspace-surface', workspaceId: input.workspaceId, surfaceKey: `builtin/${input.view.id}` }, input.craftId, registry);
   return panelOrRecovery({ version: 1, kind: 'custom-url', requestedUrl: input.view.url }, input.craftId, registry);
 }
