@@ -4,21 +4,21 @@ Vibe Dashboard preview hosts use a first-level encoded hostname so Cloudflare TL
 and wildcard routing only need to cover `*.vibedashboard.dev`:
 
 ```text
-{workspaceToken}-{repoSlug}-{slotSlug}-{customerSlug}.vibedashboard.dev
+{slotSlug}-{repoSlug}-{workspaceToken}-{customerSlug}.vibedashboard.dev
 ```
 
 Example:
 
 ```text
-0123456789abcdef-vibekanban-web-mickmister.vibedashboard.dev
+web-vibekanban-0123456789abcdef-mickmister.vibedashboard.dev
 ```
 
 The encoded data must fit in the first DNS label, so V1 uses fixed separators
 and dashless lowercase alphanumeric slugs:
 
-- `workspaceToken`: exactly 16 lowercase hexadecimal characters (`[a-f0-9]{16}`).
-- `repoSlug`: 1–18 lowercase alphanumeric characters.
 - `slotSlug`: 1–10 lowercase alphanumeric characters.
+- `repoSlug`: 1–18 lowercase alphanumeric characters.
+- `workspaceToken`: exactly 16 lowercase hexadecimal characters (`[a-f0-9]{16}`).
 - `customerSlug`: 1–16 lowercase alphanumeric characters.
 
 The full first-label budget is `16 + 18 + 10 + 16 + 3 separators = 63`
@@ -31,7 +31,7 @@ must set that variable explicitly.
 
 This compact first-label pattern is reserved under `PREVIEW_BASE_DOMAIN`.
 Customer hostnames that merely contain dashes are not preview hosts unless the
-first label satisfies the full `workspaceToken-repoSlug-slotSlug-customerSlug`
+first label satisfies the full `slotSlug-repoSlug-workspaceToken-customerSlug`
 grammar.
 
 ## Runtime request flow
@@ -74,7 +74,7 @@ Backend and Worker code must be deployed with the same grammar:
 
 ```json
 {
-  "host": "0123456789abcdef-vibekanban-web-mickmister.vibedashboard.dev",
+  "host": "web-vibekanban-0123456789abcdef-mickmister.vibedashboard.dev",
   "workspaceToken": "0123456789abcdef",
   "repoSlug": "vibekanban",
   "slotSlug": "web",
@@ -135,7 +135,7 @@ replaced with stronger attestation before release.
 
 Worker request to Caddy:
 
-- `X-Vibe-Requested-Host: {workspaceToken}-{repoSlug}-{slotSlug}-{customerSlug}.vibedashboard.dev`
+- `X-Vibe-Requested-Host: {slotSlug}-{repoSlug}-{workspaceToken}-{customerSlug}.vibedashboard.dev`
 
 Advanced deployments may override the requested-host header name with
 `PREVIEW_REQUESTED_HOST_HEADER` or the equivalent Caddyfile option

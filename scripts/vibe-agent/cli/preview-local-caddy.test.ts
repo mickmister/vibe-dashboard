@@ -34,12 +34,12 @@ describe('preview-local-caddy', () => {
     expect(
       buildLocalPreviewUrl(
         {
-          host: '0123456789abcdef-vibekanban-web-preview.localhost',
+          host: 'web-vibekanban-0123456789abcdef-preview.localhost',
         },
         55743,
       ),
     ).toBe(
-      'http://0123456789abcdef-vibekanban-web-preview.localhost:55743/',
+      'http://web-vibekanban-0123456789abcdef-preview.localhost:55743/',
     );
   });
 

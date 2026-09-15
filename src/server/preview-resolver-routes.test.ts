@@ -24,7 +24,7 @@ describe('registerPreviewResolverRoutes', () => {
     registerPreviewResolverRoutes(app, { vkClient: { resolvePreview } });
 
     const payload: PreviewResolveRequest = {
-      host: '0123456789abcdef-vibekanban-web-mickmister.vibedashboard.dev',
+      host: 'web-vibekanban-0123456789abcdef-mickmister.vibedashboard.dev',
       workspaceToken: '0123456789abcdef',
       repoSlug: 'vibekanban',
       slotSlug: 'web',
@@ -93,8 +93,8 @@ describe('registerPreviewResolverRoutes', () => {
         repoSlug: 'vibekanban',
         slotSlug: 'web',
         customerSlug: 'mickmister',
-        host: '0123456789abcdef-vibekanban-web-mickmister.vibedashboard.dev',
-        url: 'https://0123456789abcdef-vibekanban-web-mickmister.vibedashboard.dev/',
+        host: 'web-vibekanban-0123456789abcdef-mickmister.vibedashboard.dev',
+        url: 'https://web-vibekanban-0123456789abcdef-mickmister.vibedashboard.dev/',
       })),
     };
     const app = new Hono();
@@ -136,7 +136,7 @@ describe('registerPreviewResolverRoutes', () => {
       baseDomain: 'vibedashboard.dev',
     });
     await expect(urlResponse.json()).resolves.toMatchObject({
-      url: 'https://0123456789abcdef-vibekanban-web-mickmister.vibedashboard.dev/',
+      url: 'https://web-vibekanban-0123456789abcdef-mickmister.vibedashboard.dev/',
     });
     await expect(reposResponse.json()).resolves.toEqual([
       { id: 'repo1', name: 'vibe-kanban', display_name: 'Vibe Kanban', target_branch: 'feature/x' },
@@ -152,8 +152,8 @@ describe('registerPreviewResolverRoutes', () => {
         repoSlug: 'vibekanban',
         slotSlug: 'web',
         customerSlug: 'preview',
-        host: '0123456789abcdef-vibekanban-web-preview.localhost',
-        url: 'https://0123456789abcdef-vibekanban-web-preview.localhost/',
+        host: 'web-vibekanban-0123456789abcdef-preview.localhost',
+        url: 'https://web-vibekanban-0123456789abcdef-preview.localhost/',
       })),
     };
     const app = new Hono();
@@ -168,8 +168,8 @@ describe('registerPreviewResolverRoutes', () => {
       baseDomain: 'localhost',
     });
     await expect(response.json()).resolves.toMatchObject({
-      host: '0123456789abcdef-vibekanban-web-preview.localhost',
-      url: 'http://0123456789abcdef-vibekanban-web-preview.localhost:55743/',
+      host: 'web-vibekanban-0123456789abcdef-preview.localhost',
+      url: 'http://web-vibekanban-0123456789abcdef-preview.localhost:55743/',
     });
   });
 

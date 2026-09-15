@@ -25,7 +25,7 @@ import (
 const defaultPreviewResolverTimeout = 2 * time.Second
 const defaultTrustedRequestedHostHeader = "X-Vibe-Requested-Host"
 
-var encodedPreviewLabelPattern = regexp.MustCompile(`^([a-f0-9]{16})-([a-z0-9]{1,18})-([a-z0-9]{1,10})-([a-z0-9]{1,16})$`)
+var encodedPreviewLabelPattern = regexp.MustCompile(`^([a-z0-9]{1,10})-([a-z0-9]{1,18})-([a-f0-9]{16})-([a-z0-9]{1,16})$`)
 
 // PreviewResolver routes encoded preview hostnames through a local resolver API.
 type PreviewResolver struct {
@@ -233,9 +233,9 @@ func parseEncodedPreviewHost(host string, baseDomain string) (previewHostMatch, 
 	}
 	return previewHostMatch{
 		Host:           host,
-		WorkspaceToken: matches[1],
+		WorkspaceToken: matches[3],
 		RepoSlug:       matches[2],
-		SlotSlug:       matches[3],
+		SlotSlug:       matches[1],
 		CustomerSlug:   matches[4],
 	}, true
 }
