@@ -110,6 +110,10 @@ startup_step_begin "sync seeded repository"
 /usr/local/bin/sync-seeded-repo.sh || true
 startup_step_end
 
+startup_step_begin "install Vibe Dashboard agent skills"
+/usr/local/bin/install-vibe-dashboard-agent-skills.sh
+startup_step_end
+
 startup_debug_path_summary /home/vkuser/repos/vibe-kanban-vscode-web
 startup_log "Skipping recursive repository permission repair; repository files are created as vkuser"
 

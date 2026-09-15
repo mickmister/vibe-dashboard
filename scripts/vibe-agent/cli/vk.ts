@@ -285,6 +285,7 @@ function printRunConfig(runConfig: RunConfig) {
   console.log(`Repo:        ${runConfig.repo_id}`);
   console.log(`Slug:        ${runConfig.slug}`);
   console.log(`Name:        ${runConfig.name}`);
+  if (runConfig.description) console.log(`Description: ${runConfig.description}`);
   console.log(`Kind:        ${runConfig.kind}`);
   console.log(`Enabled:     ${runConfig.enabled}`);
   console.log(`Command:     ${runConfig.command}`);
@@ -297,6 +298,7 @@ function printPreviewSlot(slot: PreviewSlot) {
   console.log(`Run Config:   ${slot.run_config_id}`);
   console.log(`Slot Slug:    ${slot.slot_slug}`);
   console.log(`Title:        ${slot.title}`);
+  if (slot.description) console.log(`Description:  ${slot.description}`);
   console.log(`Enabled:      ${slot.enabled}`);
 }
 
@@ -744,14 +746,14 @@ async function commandPreviewUrl(positional: string[], flags: FlagMap) {
     case 'upsert-run-config': {
       const workspaceId = requireWorkspaceId(
         positional[1],
-        'Usage: vk preview-url upsert-run-config <workspace-id> --repo <repo-id> --slug <slug> --name <name> --command "script" [--id <run-config-id>] [--kind long_running|one_shot|test] [--disabled] [--json]',
+        'Usage: vk preview-url upsert-run-config <workspace-id> --repo <repo-id> --slug <slug> --name <name> --command "script" [--description <text>] [--id <run-config-id>] [--kind long_running|one_shot|test] [--disabled] [--json]',
       );
       const repoId = getFlagString(flags, 'repo') ?? getFlagString(flags, 'repo-id');
       const slug = getFlagString(flags, 'slug') ?? positional[2];
       const name = getFlagString(flags, 'name') ?? slug;
       const command = getFlagString(flags, 'command') ?? getFlagString(flags, 'script') ?? positional.slice(3).join(' ').trim();
       if (!repoId || !slug || !name || !command) {
-        console.error('Usage: vk preview-url upsert-run-config <workspace-id> --repo <repo-id> --slug <slug> --name <name> --command "script" [--id <run-config-id>] [--kind long_running|one_shot|test] [--disabled] [--json]');
+        console.error('Usage: vk preview-url upsert-run-config <workspace-id> --repo <repo-id> --slug <slug> --name <name> --command "script" [--description <text>] [--id <run-config-id>] [--kind long_running|one_shot|test] [--disabled] [--json]');
         process.exit(1);
       }
       const runConfig = await service.upsertRunConfig(workspaceId, {
@@ -759,6 +761,7 @@ async function commandPreviewUrl(positional: string[], flags: FlagMap) {
         repo_id: repoId,
         slug,
         name,
+        description: getFlagString(flags, 'description') ?? null,
         command,
         kind: parseRunConfigKind(getFlagString(flags, 'kind')),
         enabled: enabledFlag(flags),
@@ -778,14 +781,14 @@ async function commandPreviewUrl(positional: string[], flags: FlagMap) {
     case 'upsert-slot': {
       const workspaceId = requireWorkspaceId(
         positional[1],
-        'Usage: vk preview-url upsert-slot <workspace-id> --repo <repo-id> --run-config <run-config-id> --slot <slot-slug> --title <title> [--id <preview-slot-id>] [--disabled] [--json]',
+        'Usage: vk preview-url upsert-slot <workspace-id> --repo <repo-id> --run-config <run-config-id> --slot <slot-slug> --title <title> [--description <text>] [--id <preview-slot-id>] [--disabled] [--json]',
       );
       const repoId = getFlagString(flags, 'repo') ?? getFlagString(flags, 'repo-id');
       const runConfigId = getFlagString(flags, 'run-config') ?? getFlagString(flags, 'run-config-id');
       const slotSlug = getFlagString(flags, 'slot') ?? getFlagString(flags, 'slot-slug') ?? positional[2];
       const title = getFlagString(flags, 'title') ?? slotSlug;
       if (!repoId || !runConfigId || !slotSlug || !title) {
-        console.error('Usage: vk preview-url upsert-slot <workspace-id> --repo <repo-id> --run-config <run-config-id> --slot <slot-slug> --title <title> [--id <preview-slot-id>] [--disabled] [--json]');
+        console.error('Usage: vk preview-url upsert-slot <workspace-id> --repo <repo-id> --run-config <run-config-id> --slot <slot-slug> --title <title> [--description <text>] [--id <preview-slot-id>] [--disabled] [--json]');
         process.exit(1);
       }
       const slot = await service.upsertPreviewSlot(workspaceId, {
@@ -794,6 +797,7 @@ async function commandPreviewUrl(positional: string[], flags: FlagMap) {
         run_config_id: runConfigId,
         slot_slug: slotSlug,
         title,
+        description: getFlagString(flags, 'description') ?? null,
         enabled: enabledFlag(flags),
       });
       if (flags.json === true) {
