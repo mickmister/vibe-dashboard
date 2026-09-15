@@ -1,8 +1,8 @@
 import { mkdir, mkdtemp, readFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { describe, expect, it, vi } from 'vitest';
-import { BeadsClient, type ExecFileLike } from './beadsClient.node';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { BeadsClient, clearCompletedBeadsFormSubmitResults, type ExecFileLike } from './beadsClient.node';
 
 function beadJson(metadata: unknown) {
   return JSON.stringify([{ id: 'beads-web-biu', title: 'Plan', metadata }]);
@@ -33,6 +33,7 @@ const reviewMetadata = {
 const submissionId = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
 
 describe('BeadsClient', () => {
+  beforeEach(() => clearCompletedBeadsFormSubmitResults());
   it('persists first and notifies exactly the valid creating session without adding the fallback label', async () => {
     const order: string[] = [];
     const sessionId = '2e56418d-2829-4e2f-aab7-105c5aab41dc';
@@ -92,12 +93,46 @@ describe('BeadsClient', () => {
       },
     });
 
-    const result = await client.submitForm({ dir: '/repo', beadId: 'beads-web-biu', formId: 'review', submissionId, values: { comment: 'LGTM' } });
+    const input = { dir: '/repo-warning-replay', beadId: 'beads-web-biu', formId: 'review', submissionId, values: { comment: 'LGTM' } };
+    const result = await client.submitForm(input);
+    const retry = await client.submitForm(input);
 
     expect(order).toEqual(['persist', 'notify', 'label']);
     expect(result.values).toEqual({ comment: 'LGTM', allow_code_file_changes: false });
     expect(result.warnings.join(' ')).toContain('response was saved');
     expect(result.warnings.join(' ')).toContain('do not submit again');
+    expect(retry).toEqual(result);
+  });
+
+  it('replays timeout warnings to queued same-id callers without another write, send, or fallback', async () => {
+    vi.useFakeTimers();
+    const calls = { persist: 0, notify: 0, fallback: 0 };
+    let markNotifyStarted!: () => void;
+    const notifyStarted = new Promise<void>((resolve) => { markNotifyStarted = resolve; });
+    const exec = vi.fn<ExecFileLike>(async (_file, args) => {
+      if (args[0] === '--readonly') return { stdout: beadJson({ ...reviewMetadata, VK_SESSION_ID: '2e56418d-2829-4e2f-aab7-105c5aab41dc' }), stderr: '' };
+      if (args.includes('--metadata')) calls.persist += 1;
+      if (args.includes('--add-label')) calls.fallback += 1;
+      return { stdout: '', stderr: '' };
+    });
+    const client = new BeadsClient({
+      execFile: exec,
+      notifySession: async () => {
+        calls.notify += 1;
+        markNotifyStarted();
+        await new Promise((_, reject) => setTimeout(() => reject(new Error('notification timed out')), 100));
+      },
+    });
+    const input = { dir: '/repo-timeout-replay', beadId: 'beads-web-biu', formId: 'review', submissionId, values: { comment: 'LGTM' } };
+    const results = Promise.all([client.submitForm(input), client.submitForm(input)]);
+    await notifyStarted;
+    await vi.advanceTimersByTimeAsync(100);
+    const [first, second] = await results;
+
+    expect(second).toEqual(first);
+    expect(first.warnings.join(' ')).toContain('do not submit again');
+    expect(calls).toEqual({ persist: 1, notify: 1, fallback: 1 });
+    vi.useRealTimers();
   });
 
   it('routes independent aggregate-source submissions to each source creator exactly once', async () => {
@@ -224,7 +259,7 @@ describe('BeadsClient', () => {
     const client = new BeadsClient({ execFile: exec, notifySession });
 
     await expect(client.submitForm({ dir: '/repo-lock-cleanup', beadId: 'beads-web-biu', formId: 'review', submissionId: '11111111-1111-4111-8111-111111111111', values: { comment: 'fails' } })).rejects.toThrow('disk failed');
-    const warned = await client.submitForm({ dir: '/repo-lock-cleanup', beadId: 'beads-web-biu', formId: 'review', submissionId: '22222222-2222-4222-8222-222222222222', values: { comment: 'saved with warning' } });
+    const warned = await client.submitForm({ dir: '/repo-lock-cleanup', beadId: 'beads-web-biu', formId: 'review', submissionId: '11111111-1111-4111-8111-111111111111', values: { comment: 'saved with warning' } });
     expect(warned.warnings.join(' ')).toContain('do not submit again');
     await expect(client.submitForm({ dir: '/repo-lock-cleanup', beadId: 'beads-web-biu', formId: 'review', submissionId: '33333333-3333-4333-8333-333333333333', values: { comment: 'later' } })).resolves.toMatchObject({ submissionId: '33333333-3333-4333-8333-333333333333' });
   });

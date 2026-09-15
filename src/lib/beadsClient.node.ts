@@ -24,9 +24,18 @@ import {
 } from './beadsFormCore.ts';
 import { buildBeadsFormSessionNotification, isValidBeadsFormSessionId } from './beadsFormSessionNotification.ts';
 import { KeyedAsyncQueue } from './keyedAsyncQueue.ts';
+import { BoundedReplayCache } from './boundedReplayCache.ts';
 
 const execFileAsync = promisify(execFile);
 const submitMutationQueue = new KeyedAsyncQueue();
+const completedSubmitResults = new BoundedReplayCache<SubmitBeadsFormResult>({
+  maxEntries: 512,
+  ttlMs: 15 * 60 * 1000,
+});
+
+export function clearCompletedBeadsFormSubmitResults(): void {
+  completedSubmitResults.clear();
+}
 
 export type ExecFileLike = (
   file: string,
@@ -403,7 +412,15 @@ export class BeadsClient {
   async submitForm(input: SubmitBeadsFormInput): Promise<SubmitBeadsFormResult> {
     assertSubmissionId(input.submissionId);
     const repo = await canonicalRepoPath(input.dir);
-    return submitMutationQueue.run(`${repo}\0${input.beadId}`, () => this.submitFormLocked(input));
+    const beadKey = `${repo}\0${input.beadId}`;
+    const replayKey = `${beadKey}\0${input.submissionId}`;
+    return submitMutationQueue.run(beadKey, async () => {
+      const completed = completedSubmitResults.get(replayKey);
+      if (completed) return completed;
+      const result = await this.submitFormLocked(input);
+      completedSubmitResults.set(replayKey, result);
+      return completedSubmitResults.get(replayKey) ?? structuredClone(result);
+    });
   }
 
   private async submitFormLocked(input: SubmitBeadsFormInput): Promise<SubmitBeadsFormResult> {
