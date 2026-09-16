@@ -15,12 +15,12 @@ const runtimes = new Map<string, { element: HTMLIFrameElement; bootId: string }>
 const runtimeActivity = new Map<string, number>();
 const disposedRuntimeIds = new Set<string>();
 const RELOAD_KEY = 'dockview-surface-opening-reload-v2';
-let api!: DockviewApi; let coordinator: SurfaceOpeningCoordinator; let atomicCommits = 0; let coordinatorCommands = 0; let rejectNextCommit = false; let corruptNextLayout = false; let lastCommitError = ''; let committedLayout: unknown; let pendingRuntimeIds = new Set<string>(); let runtimeRegistrations = 0; let runtimeReleases = 0; let agentWindow: Window | null = null;
+let api!: DockviewApi; let coordinator: SurfaceOpeningCoordinator; let atomicCommits = 0; let coordinatorCommands = 0; let rejectNextCommit = false; let corruptNextLayout = false; let lastCommitError = ''; let committedLayout: unknown; let pendingRuntimeIds = new Set<string>(); let runtimeRegistrations = 0; let runtimeReleases = 0; let agentWindow: Window | null = null; let restoringEnvelope = false;
 
 addEventListener('message', (event) => { const data = event.data as { source?: string; heartbeats?: number }; const runtimeId = [...runtimes].find(([, runtime]) => runtime.element.contentWindow === event.source)?.[0]; if (event.origin === location.origin && runtimeId && data?.source === 'dockview-iframe-contract' && typeof data.heartbeats === 'number') runtimeActivity.set(runtimeId, data.heartbeats); });
 function runtimeFor(id: string) { let runtime = runtimes.get(id); if (!runtime) { const element = document.createElement('iframe'); const bootId = crypto.randomUUID(); element.title = `Runtime ${id}`; element.src = `/spikes/dockview-contract/iframe-fixture.html?boot=${bootId}`; element.style.cssText = 'height:100%;width:100%;border:0'; runtime = { element, bootId }; runtimes.set(id, runtime); runtimeRegistrations += 1; } return runtime; }
 function createComponent() { const element = document.createElement('div'); element.style.cssText = 'height:100%;width:100%'; let runtime: ReturnType<typeof runtimeFor> | undefined; return { element, init(parameters: { params: Record<string, unknown> }) { runtime = runtimeFor(String(parameters.params.panelId)); element.append(runtime.element); }, dispose() { if (runtime?.element.isConnected) runtimeLayer.append(runtime.element); } }; }
-function createApi() { const next = createDockview(dockviewElement, { createComponent, disableFloatingGroups: true }); next.layout(Number.parseInt(dockviewElement.style.width, 10), 420); next.onDidMaximizedGroupChange(() => renderStatus()); return next; }
+function createApi() { const next = createDockview(dockviewElement, { createComponent, disableFloatingGroups: true }); next.layout(Number.parseInt(dockviewElement.style.width, 10), 420); next.onDidMaximizedGroupChange(() => { if (!restoringEnvelope) renderStatus(); }); return next; }
 function baseVoyage(width = 900): VoyageState { return { id: 'voyage-current', width, revision: 0, activationSequence: 1, panels: { agent: { id: 'agent', voyageId: 'voyage-current', craftId: 'craft', target: target('agent'), groupId: 'agent-group', lastActivatedSequence: 1, runtimeId: 'runtime:agent' } }, groups: [{ id: 'agent-group', panelIds: ['agent'], activePanelId: 'agent', rect: { x: 0, y: 0, width, height: 420 } }], maximizedGroupId: null, history: [], historyCursor: 0 }; }
 function surface(panel: VoyageState['panels'][string]): string { return panel.target.kind === 'workspace-surface' ? panel.target.surfaceKey : 'surface'; }
 function addPanel(id: string, label: string, position?: { direction: 'right' | 'below'; referencePanel: string } | { referencePanel: string }) { api.addPanel({ id, component: 'iframe-panel', title: label, params: { panelId: id }, renderer: 'always', ...(position ? { position } : {}) }); }
@@ -45,7 +45,19 @@ function normalized(value: unknown) { const result = normalizeDockviewTopology(v
 function topologyEquals(expected: unknown, actual: unknown): boolean { try { return JSON.stringify(normalized(expected)) === JSON.stringify(normalized(actual)); } catch { return false; } }
 function projectionAgrees(): boolean { return committedLayout !== undefined && topologyEquals(committedLayout, canonicalEnvelope()); }
 function canonicalEnvelope(): unknown { const snapshot = JSON.parse(JSON.stringify(api.toJSON())) as SerializedDockview; const parsed = parseDockviewEnvelope({ formatVersion: DOCKVIEW_LAYOUT_FORMAT_VERSION, dockviewVersion: PINNED_DOCKVIEW_VERSION, snapshot }); if (!parsed.ok) throw new Error(parsed.reason); return parsed.value; }
-function restoreEnvelope(value: unknown): void { const parsed = parseDockviewEnvelope(value); if (!parsed.ok) throw new Error(parsed.reason); api.fromJSON(parsed.value.snapshot, { reuseExistingPanels: true }); }
+function restoreEnvelope(value: unknown): void {
+  const parsed = parseDockviewEnvelope(value); if (!parsed.ok) throw new Error(parsed.reason);
+  restoringEnvelope = true;
+  try {
+    if (api.activePanel?.api.isMaximized()) api.activePanel.api.exitMaximized();
+    api.fromJSON(parsed.value.snapshot, { reuseExistingPanels: true });
+    const activeGroup = parsed.value.snapshot.activeGroup;
+    if (!activeGroup) return;
+    const findActiveView = (node: unknown): string | undefined => { if (!node || typeof node !== 'object') return undefined; const candidate = node as { type?: string; data?: unknown }; if (candidate.type === 'leaf' && candidate.data && typeof candidate.data === 'object') { const group = candidate.data as { id?: string; activeView?: string }; return group.id === activeGroup ? group.activeView : undefined; } return candidate.type === 'branch' && Array.isArray(candidate.data) ? candidate.data.map(findActiveView).find(Boolean) : undefined; };
+    const activeView = findActiveView(parsed.value.snapshot.grid.root);
+    if (activeView) api.getPanel(activeView)?.api.setActive();
+  } finally { restoringEnvelope = false; }
+}
 function syncProjectionFromLive(next: VoyageState, maximizePanelId: string | null): void { next.groups = api.groups.map((group) => { const rect = group.element.getBoundingClientRect(); for (const panel of group.panels) next.panels[panel.id]!.groupId = group.id; return { id: group.id, panelIds: group.panels.map(({ id }) => id), activePanelId: group.activePanel!.id, rect: { x: rect.x, y: rect.y, width: rect.width, height: rect.height } }; }); next.maximizedGroupId = maximizePanelId ? next.panels[maximizePanelId]?.groupId ?? null : null; }
 function applyStructuralDelta(previous: VoyageState, next: VoyageState): void {
   const maximizePanelId = next.maximizedGroupId ? next.groups.find(({ id }) => id === next.maximizedGroupId)?.activePanelId ?? null : null;

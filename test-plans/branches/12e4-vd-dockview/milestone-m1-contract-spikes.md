@@ -186,6 +186,8 @@ Steps:
 1. Invoke Open maximized when Code exists and when it does not.
 2. Restore using visible pointer and keyboard controls.
 3. Serialize/restore, evict/restore the controller, and exercise undo/redo.
+4. Using only visible controls, run Open maximized → Restore → Undo → Redo and
+   wait for each atomic revision/cursor/status transition before continuing.
 
 Expected:
 

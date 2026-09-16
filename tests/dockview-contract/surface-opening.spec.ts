@@ -76,6 +76,20 @@ test('TEST_CASE_M1_5B routes restore, undo, and redo atomically without phantom 
   expect(await page.evaluate(() => window.surfaceOpeningContract.observations())).toMatchObject({ projectionAgrees: true });
 });
 
+test('TEST_CASE_M1_5B visible maximize Restore Undo Redo completes atomically', async ({ page }) => {
+  const visibleStatus = async () => JSON.parse(await page.locator('#surface-status').textContent() ?? '{}') as Record<string, unknown>;
+  const expectVisible = async (expected: Record<string, unknown>) => expect.poll(visibleStatus).toMatchObject(expected);
+
+  await page.getByRole('button', { name: 'Open Code maximized' }).click();
+  await expectVisible({ revision: 1, history: 1, cursor: 1, active: 'code-workspace-1-1', maximized: true, projectionAgrees: true });
+  await page.getByRole('button', { name: 'Restore layout' }).click();
+  await expectVisible({ revision: 2, history: 2, cursor: 2, active: 'code-workspace-1-1', maximized: false, projectionAgrees: true });
+  await page.getByRole('button', { name: 'Undo layout' }).click();
+  await expectVisible({ revision: 3, history: 2, cursor: 1, active: 'code-workspace-1-1', maximized: true, projectionAgrees: true });
+  await page.getByRole('button', { name: 'Redo layout' }).click();
+  await expectVisible({ revision: 4, history: 2, cursor: 2, active: 'code-workspace-1-1', maximized: false, projectionAgrees: true });
+});
+
 test('TEST_CASE_M1_5B durable MRU survives controller eviction and reload while existing target stays in place', async ({ page }) => {
   await page.getByRole('button', { name: 'Scenario: adjacent vs newer' }).click();
   const before = await page.evaluate(() => window.surfaceOpeningContract.observations().groupPanels);
