@@ -31,6 +31,21 @@ export type SnapshotParseResult =
   | { ok: true; value: DockviewSnapshotEnvelope }
   | { ok: false; reason: SnapshotRejection };
 
+export type NormalizedDockviewNode =
+  | { kind: 'branch'; orientation: 'HORIZONTAL' | 'VERTICAL'; size?: number; visible?: boolean; children: NormalizedDockviewNode[] }
+  | { kind: 'leaf'; groupId: string; views: string[]; activeView?: string; size?: number; visible?: boolean };
+export type NormalizedDockviewTopology = {
+  width: number;
+  height: number;
+  root: NormalizedDockviewNode;
+  activeGroup?: string;
+  maximizedPath?: number[];
+  panels: CanonicalPanel[];
+};
+export type TopologyNormalizationResult =
+  | { ok: true; value: NormalizedDockviewTopology }
+  | { ok: false; reason: SnapshotRejection };
+
 type JsonRecord = Record<string, unknown>;
 type CanonicalNode = {
   type: 'leaf';
@@ -262,6 +277,51 @@ export function parseDockviewEnvelope(value: unknown): SnapshotParseResult {
         panels,
         ...(input.activeGroup === undefined ? {} : { activeGroup: input.activeGroup }),
       },
+    },
+  };
+}
+
+function opposite(orientation: 'HORIZONTAL' | 'VERTICAL'): 'HORIZONTAL' | 'VERTICAL' {
+  return orientation === 'HORIZONTAL' ? 'VERTICAL' : 'HORIZONTAL';
+}
+
+function normalizeNode(node: CanonicalNode, orientation: 'HORIZONTAL' | 'VERTICAL'): NormalizedDockviewNode {
+  const optional = {
+    ...(node.size === undefined ? {} : { size: node.size }),
+    ...(node.visible === undefined ? {} : { visible: node.visible }),
+  };
+  if (node.type === 'branch') {
+    return {
+      kind: 'branch',
+      orientation,
+      children: node.data.map((child) => normalizeNode(child, opposite(orientation))),
+      ...optional,
+    };
+  }
+  return {
+    kind: 'leaf',
+    groupId: node.data.id,
+    views: [...node.data.views],
+    ...(node.data.activeView === undefined ? {} : { activeView: node.data.activeView }),
+    ...optional,
+  };
+}
+
+/** Canonical, order-stable topology projection used on both sides of the live-layout trust boundary. */
+export function normalizeDockviewTopology(value: unknown): TopologyNormalizationResult {
+  const parsed = parseDockviewEnvelope(value);
+  if (!parsed.ok) return parsed;
+  const { snapshot } = parsed.value;
+  const orientation = snapshot.grid.orientation === Orientation.HORIZONTAL ? 'HORIZONTAL' : 'VERTICAL';
+  return {
+    ok: true,
+    value: {
+      width: snapshot.grid.width,
+      height: snapshot.grid.height,
+      root: normalizeNode(snapshot.grid.root as CanonicalNode, orientation),
+      ...(snapshot.activeGroup === undefined ? {} : { activeGroup: snapshot.activeGroup }),
+      ...((snapshot.grid as CanonicalGrid).maximizedNode === undefined ? {} : { maximizedPath: [...(snapshot.grid as CanonicalGrid).maximizedNode!.location] }),
+      panels: Object.values(snapshot.panels as Record<string, CanonicalPanel>).sort((a, b) => a.id.localeCompare(b.id)),
     },
   };
 }

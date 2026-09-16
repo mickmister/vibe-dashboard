@@ -1,6 +1,9 @@
 /* eslint-disable formatjs/no-literal-string-in-object -- isolated persistence fixtures */
 import { describe, expect, it } from 'vitest';
-import { DOCKVIEW_LAYOUT_FORMAT_VERSION, PINNED_DOCKVIEW_VERSION, parseDockviewEnvelope } from './snapshotPolicy';
+import { DOCKVIEW_LAYOUT_FORMAT_VERSION, PINNED_DOCKVIEW_VERSION, normalizeDockviewTopology, parseDockviewEnvelope } from './snapshotPolicy';
+
+type TestNode = { type: 'branch'; data: TestNode[]; size?: number } | { type: 'leaf'; data: { id: string; views: string[]; activeView?: string }; size?: number };
+type TestEnvelope = { snapshot: { grid: { root: TestNode; width: number; height: number; orientation: string; maximizedNode?: { location: number[] } }; panels: Record<string, { id: string; contentComponent: string; params: { label: string }; title: string; renderer: string }>; activeGroup?: string } };
 
 const valid = {
   formatVersion: DOCKVIEW_LAYOUT_FORMAT_VERSION,
@@ -25,6 +28,49 @@ function rejected(input: unknown) {
 }
 
 describe('canonical Dockview snapshot parser', () => {
+  it('normalizes the complete nested topology and detects structural drift', () => {
+    const nested = structuredClone(valid) as unknown as TestEnvelope;
+    const originalLeaf = nested.snapshot.grid.root.type === 'branch' ? nested.snapshot.grid.root.data[0] : undefined;
+    if (originalLeaf?.type !== 'leaf') throw new Error('expected original leaf');
+    nested.snapshot.grid.root = {
+      type: 'branch',
+      size: 500,
+      data: [{
+        type: 'branch',
+        size: 450,
+        data: [originalLeaf, { type: 'leaf', data: { id: 'group-2', views: ['panel-2'], activeView: 'panel-2' }, size: 450 }],
+      }],
+    };
+    nested.snapshot.panels['panel-2'] = { id: 'panel-2', contentComponent: 'contract-panel', params: { label: 'Panel two' }, title: 'Panel two', renderer: 'always' };
+    nested.snapshot.grid.maximizedNode = { location: [0, 0] };
+    const baseline = normalizeDockviewTopology(nested);
+    expect(baseline.ok && baseline.value.root).toMatchObject({ kind: 'branch', orientation: 'HORIZONTAL', children: [{ kind: 'branch', orientation: 'VERTICAL' }] });
+
+    const changedOrientation = structuredClone(nested);
+    changedOrientation.snapshot.grid.orientation = 'VERTICAL';
+    const changedOrder = structuredClone(nested);
+    const changedOrderBranch = changedOrder.snapshot.grid.root.type === 'branch' ? changedOrder.snapshot.grid.root.data[0] : undefined;
+    if (changedOrderBranch?.type !== 'branch') throw new Error('expected nested branch');
+    changedOrderBranch.data.reverse();
+    const changedLeaf = structuredClone(nested);
+    const changedLeafBranch = changedLeaf.snapshot.grid.root.type === 'branch' ? changedLeaf.snapshot.grid.root.data[0] : undefined;
+    const changedLeafNode = changedLeafBranch?.type === 'branch' ? changedLeafBranch.data[0] : undefined;
+    if (changedLeafNode?.type !== 'leaf') throw new Error('expected nested leaf');
+    changedLeafNode.data.id = 'different-group';
+    changedLeaf.snapshot.activeGroup = 'different-group';
+    const flattened = structuredClone(nested);
+    const nestedBranch = flattened.snapshot.grid.root.type === 'branch' ? flattened.snapshot.grid.root.data[0] : undefined;
+    if (nestedBranch?.type !== 'branch') throw new Error('expected nested branch');
+    flattened.snapshot.grid.root.data = nestedBranch.data;
+    flattened.snapshot.grid.maximizedNode = { location: [0] };
+
+    for (const candidate of [changedOrientation, changedOrder, changedLeaf, flattened]) {
+      const normalized = normalizeDockviewTopology(candidate);
+      expect(normalized.ok).toBe(true);
+      expect(normalized.ok && baseline.ok && normalized.value).not.toEqual(baseline.ok && baseline.value);
+    }
+  });
+
   it('constructs a detached allowlisted SerializedDockview value', () => {
     const input = structuredClone(valid);
     const result = parseDockviewEnvelope(input);

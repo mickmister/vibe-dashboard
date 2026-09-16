@@ -204,7 +204,12 @@ from canonical serialization plus measured bounds of a real nested Dockview
 layout, stores validated canonical before/after envelopes in atomic history,
 restores those envelopes only through the guarded `fromJSON` boundary, and
 exposes the complete tester workflow through labeled semantic controls and
-visible status evidence.
+visible status evidence. A shared guarded topology normalizer compares the full
+ordered nested grid, branch orientations, leaves/groups, supported sizing,
+tabs/active views, and maximized path after every command. Rejected create
+transactions restore the prior canonical layout and dispose their newly-created
+runtime, release its budget registration exactly once, and leave the surviving
+runtime unchanged.
 
 ### TEST_CASE_M1_5C — Temporary foreground Split View
 

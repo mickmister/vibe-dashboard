@@ -23,9 +23,20 @@ test('TEST_CASE_M1_5A opens generic targets, truly coalesces pending calls, and 
   expect(await page.evaluate(() => window.surfaceOpeningContract.observations())).toMatchObject({ maximized: false, atomicCommits: 2, history: 2, projectionAgrees: true });
   await page.evaluate(() => window.surfaceOpeningContract.initialize());
   const agentBoot = ((await page.evaluate(() => window.surfaceOpeningContract.observations().runtimeBoots)) as Record<string, string>).agent;
+  await page.evaluate(() => window.surfaceOpeningContract.captureAgentWindow());
+  const beforeRuntime = await page.evaluate(() => window.surfaceOpeningContract.observations()) as { runtimeRegistrations: number; runtimeReleases: number };
   await page.getByRole('button', { name: 'Reject next atomic commit' }).click();
   await expect.poll(() => page.evaluate(() => window.surfaceOpeningContract.observations().lastCommitError)).toBe('unsupported-dockview-version');
-  expect(await page.evaluate(() => window.surfaceOpeningContract.observations())).toMatchObject({ revision: 0, history: 0, cursor: 0, activationSequence: 1, atomicCommits: 0, groups: 1, projectionAgrees: true });
+  const rejected = await page.evaluate(() => window.surfaceOpeningContract.observations()) as Record<string, unknown>;
+  expect(rejected).toMatchObject({ revision: 0, history: 0, cursor: 0, activationSequence: 1, atomicCommits: 0, groups: 1, projectionAgrees: true, agentWindowRetained: true, runtimeLayerChildren: 0 });
+  expect(rejected.runtimeBoots).not.toHaveProperty('code-workspace-1-1');
+  expect(rejected.disposedRuntimeIds).toContain('code-workspace-1-1');
+  expect(rejected.runtimeRegistrations).toBe(beforeRuntime.runtimeRegistrations + 1);
+  expect(rejected.runtimeReleases).toBe(beforeRuntime.runtimeReleases + 1);
+  const rejectedActivity = (rejected.runtimeActivity as Record<string, number>)['code-workspace-1-1'] ?? 0;
+  const agentActivity = (rejected.runtimeActivity as Record<string, number>).agent ?? 0;
+  await expect.poll(() => page.evaluate(() => (window.surfaceOpeningContract.observations().runtimeActivity as Record<string, number>).agent ?? 0)).toBeGreaterThan(agentActivity);
+  expect(await page.evaluate(() => (window.surfaceOpeningContract.observations().runtimeActivity as Record<string, number>)['code-workspace-1-1'] ?? 0)).toBe(rejectedActivity);
   expect(((await page.evaluate(() => window.surfaceOpeningContract.observations().runtimeBoots)) as Record<string, string>).agent).toBe(agentBoot);
 });
 
@@ -34,6 +45,7 @@ test('TEST_CASE_M1_5A uses real geometric adjacency before durable MRU', async (
   const topology = await page.evaluate(() => window.surfaceOpeningContract.observations());
   expect(topology.measuredRightNeighbor).toBe('code-adjacent');
   expect((topology.serializedPanelRecordOrder as string[])[1]).toBe('code-newer');
+  expect(await page.evaluate(() => window.surfaceOpeningContract.topologyNegativeEvidence())).toEqual({ flattened: false, orientationChanged: false, childOrderChanged: false, leafChanged: false, maximizePathChanged: false });
   expect(await page.evaluate(() => window.surfaceOpeningContract.open('code', 'beside'))).toMatchObject({ panelId: 'code-adjacent', focusedOnly: true });
   expect(await page.evaluate(() => window.surfaceOpeningContract.observations())).toMatchObject({ history: 0, active: 'code-adjacent', projectionAgrees: true });
   await page.getByRole('button', { name: 'Remove adjacency and activate newer' }).click();
