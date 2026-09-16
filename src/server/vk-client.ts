@@ -671,8 +671,20 @@ export class VibeKanbanServerClient {
     });
   }
 
-  findQueuedOperation(sessionId: string, operationKey: string): Promise<QueuedMessage | null> {
-    return this.get(`/sessions/${encodeURIComponent(sessionId)}/queue/operations/${encodeURIComponent(operationKey)}`);
+  async findQueuedOperation(
+    sessionId: string,
+    operationKey: string,
+  ): Promise<QueuedMessage | null> {
+    try {
+      return await this.get(
+        `/sessions/${encodeURIComponent(sessionId)}/queue/operations/${encodeURIComponent(operationKey)}`,
+      );
+    } catch (error) {
+      if (error instanceof VkApiError && error.status === 404) {
+        return null;
+      }
+      throw error;
+    }
   }
 
   private get<T>(path: string): Promise<T> {

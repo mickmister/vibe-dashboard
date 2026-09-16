@@ -599,6 +599,24 @@ describe("VibeKanbanServerClient", () => {
     });
   });
 
+  it("treats missing queued operation lookup as authoritative absence", async () => {
+    const fetchImpl = vi.fn(async (url: string) => {
+      expect(url).toBe(
+        "http://vk.local/api/sessions/session-1/queue/operations/native-turn%3Arun-1",
+      );
+      return jsonResponse({ success: false, data: null, message: "not found" }, { status: 404 });
+    });
+    const client = new VibeKanbanServerClient({
+      baseUrl: "http://vk.local/api",
+      fetch: fetchImpl,
+    });
+
+    await expect(
+      client.findQueuedOperation("session-1", "native-turn:run-1"),
+    ).resolves.toBeNull();
+    expect(fetchImpl).toHaveBeenCalledTimes(1);
+  });
+
   it("throws VkApiError for unsuccessful VK envelopes", async () => {
     const client = new VibeKanbanServerClient({
       baseUrl: "http://vk.local/api",

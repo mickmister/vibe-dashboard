@@ -59,7 +59,7 @@ export class PackagedNativeGasCityRuntime implements NativeGasCityRuntime {
     const bundle = JSON.parse(await readFile(join(this.root, 'bundles', input.bundleRef, 'bundle.json'), 'utf8')) as any;
     const formula=String(bundle?.formula?.contents??'');const formulaName=safeId(formula.match(/^(?:formula|name)\s*=\s*"([A-Za-z0-9_.-]+)"/m)?.[1]??'');
     const rig=safeId(this.target.split('/')[0]??'');
-    const output = await this.exec(this.gc, ['sling', this.target, safeId(input.sourceBeadId), '--on', formulaName, '--scope-kind', 'rig', '--scope-ref', rig, '--city', this.city, '--json']);
+    const output = await this.exec(this.gc, ['sling', this.target, safeId(input.sourceBeadId), '--on', formulaName, '--scope-kind', 'rig', '--scope-ref', rig, '--no-convoy', '--city', this.city, '--json']);
     const parsed = parseObject(output);
     return nativeState(parsed, input.sourceBeadId);
   }
