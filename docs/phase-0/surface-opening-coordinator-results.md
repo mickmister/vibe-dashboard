@@ -6,14 +6,15 @@ This isolated contract closes `TEST_CASE_M1_5A` and `TEST_CASE_M1_5B`. It models
 
 ## Executable findings
 
-- The M1.3 `resolvePanelTarget` boundary supplies the authoritative equivalence key. Stored kind, URL, path, or provenance never selects privilege or equivalence by itself.
-- Selection is confined to the invoking Voyage. A visibly adjacent equivalent wins; ties use durable activation sequence and then stable Panel ID. Without adjacency, the same-Voyage durable MRU equivalent wins. An equivalent in another Voyage is untouched.
-- An absent target creates exactly one Panel. Serialized commands re-evaluate after prior commands, so rapid concurrent calls cannot duplicate it.
-- Wide **Open beside** places the selected Panel immediately right of the invoking Panel and browser evidence measures equal group widths. Narrow mode uses one usable tab group.
-- An adjacent focus-only command advances revision and activation metadata without a structural history checkpoint. Create, move, and maximize commands each commit one CAS revision and one structural checkpoint. Activation recency is excluded from structural snapshots.
+- The invoking Panel, trusted action relationship, and every candidate are re-resolved through the current M1.3 boundary and authoritative owner map. Persisted derived equivalence is ignored; malformed data, mismatched Crafts, removed definitions/plugins/factories, and unrelated Craft targets fail closed.
+- Selection is confined to the invoking Voyage. Visible adjacency comes from validated two-dimensional group geometry rather than flat array order. Ties use durable activation sequence and then stable Panel ID; otherwise the current same-Voyage MRU wins.
+- Identical in-flight requests share one promise and cause one activation, atomic commit, and checkpoint. The key is cleared on success and failure, so later commands re-resolve current authority and state.
+- Wide **Open beside** places the selected Panel immediately right at measured equal widths. Below the usable breakpoint it activates the target and maximizes its group, with visible pointer/keyboard Restore and no browser Fullscreen API.
+- A single atomic commit carries expected/next revision, structural Panel projection, validated layout projection, history cursor/checkpoint, and activation metadata. Focus-only activation has no structural checkpoint. Create, move, maximize, Restore, undo, and redo all pass through that coordinator authority.
 - **Open maximized** activates the resolved target before Dockview group maximize. Existing targets remain in place; absent targets are created and maximized in one coordinated checkpoint. Restore is visible and keyboard operable. Browser fullscreen is never requested.
-- Dockview snapshots drive structural undo/redo with `reuseExistingPanels`. Registry-owned runtime payloads preserve boot identity through undo/redo and controller eviction/restoration. Browser reload reconstructs durable topology with an intentionally new DOM runtime identity.
-- A failed aggregate CAS leaves authoritative coordinator state unchanged.
+- Structural undo/redo never rewinds the Voyage activation counter. Surviving Panels keep current recency; structurally recreated Panels start with null recency until meaningful activation. Programmatic projection focus does not advance recency.
+- Runtime payloads preserve boot identity through coordinator projection and controller eviction. Durable MRU survives warm eviction and reload. Every browser command asserts authoritative projection and Dockview topology agree, including commands after Restore/undo/redo.
+- A rejected atomic commit leaves aggregate, layout, history cursor, and activation state unchanged.
 
 ## Evidence
 
