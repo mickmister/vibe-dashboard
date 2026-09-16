@@ -176,7 +176,8 @@ Expected:
 Error cases:
 
 - Rapid repeated invocation creates at most one Panel.
-- At constrained width, the tested fallback avoids unusably narrow Panels.
+- At constrained width, the target is activated and its Dockview group is
+  maximized instead of creating unusably narrow Panels.
 
 ### TEST_CASE_M1_5B — Agent to Code maximized and restore
 
@@ -198,7 +199,12 @@ Phase 0 result for `TEST_CASE_M1_5A` and `TEST_CASE_M1_5B`: **GO**. The generic
 durable surface-opening model, semantic browser harness, and executable evidence
 are recorded in `docs/phase-0/surface-opening-coordinator-results.md`. Agent →
 Code remains an acceptance fixture rather than a special target-kind path; the
-same contract also proves Agent → Forms.
+same contract also proves Agent → Forms. The browser proof derives adjacency
+from canonical serialization plus measured bounds of a real nested Dockview
+layout, stores validated canonical before/after envelopes in atomic history,
+restores those envelopes only through the guarded `fromJSON` boundary, and
+exposes the complete tester workflow through labeled semantic controls and
+visible status evidence.
 
 ### TEST_CASE_M1_5C — Temporary foreground Split View
 

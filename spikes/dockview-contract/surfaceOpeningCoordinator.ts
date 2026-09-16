@@ -5,7 +5,8 @@ export type Rect = { x: number; y: number; width: number; height: number };
 export type DurablePanel = { id: string; voyageId: string; craftId: string; target: PanelTarget; groupId: string; lastActivatedSequence: number | null; runtimeId: string };
 export type DurableGroup = { id: string; panelIds: string[]; activePanelId: string; rect: Rect };
 export type StructuralSnapshot = { groups: DurableGroup[]; panels: Record<string, Omit<DurablePanel, 'lastActivatedSequence'>>; maximizedGroupId: string | null };
-export type HistoryEntry = { before: StructuralSnapshot; after: StructuralSnapshot };
+export type HistorySide = { panels: StructuralSnapshot; layout: unknown };
+export type HistoryEntry = { before: HistorySide; after: HistorySide; cursorBefore: number; cursorAfter: number };
 export type VoyageState = { id: string; width: number; revision: number; activationSequence: number; groups: DurableGroup[]; panels: Record<string, DurablePanel>; maximizedGroupId: string | null; history: HistoryEntry[]; historyCursor: number };
 export type TrustedPanelResolution = { craftId: string; resolved: ResolvedPanelTarget };
 export type TrustedActionResolution = TrustedPanelResolution & { actionIdentity: string };
@@ -13,7 +14,9 @@ export type AtomicCommit = { expectedRevision: number; next: VoyageState; layout
 export type CoordinatorPorts = {
   resolvePanel(panel: DurablePanel): TrustedPanelResolution | { reason: string };
   resolveAction(invoking: TrustedPanelResolution, actionId: string): TrustedActionResolution | { reason: string };
-  serializeValidatedLayout(state: VoyageState): unknown;
+  captureValidatedLayout(): unknown;
+  applyValidatedLayout(state: VoyageState): unknown;
+  restoreValidatedLayout(layout: unknown): void;
   atomicCommit(commit: AtomicCommit): Promise<boolean> | boolean;
 };
 export type OpenSurfaceInput = { voyageId: string; invokingPanelId: string; actionId: string; intent: OpenIntent };
@@ -30,8 +33,7 @@ export function structuralSnapshot(state: VoyageState): StructuralSnapshot {
 function overlap(a: number, as: number, b: number, bs: number): boolean { return Math.min(a + as, b + bs) - Math.max(a, b) > 0; }
 export function areVisiblyAdjacent(a: Rect, b: Rect): boolean {
   const e = 1;
-  return overlap(a.y, a.height, b.y, b.height) && (Math.abs(a.x + a.width - b.x) <= e || Math.abs(b.x + b.width - a.x) <= e) ||
-    overlap(a.x, a.width, b.x, b.width) && (Math.abs(a.y + a.height - b.y) <= e || Math.abs(b.y + b.height - a.y) <= e);
+  return overlap(a.y, a.height, b.y, b.height) && (Math.abs(a.x + a.width - b.x) <= e || Math.abs(b.x + b.width - a.x) <= e);
 }
 export function validateTopology(state: VoyageState): void {
   const groupIds = new Set<string>(); const placed = new Set<string>();
@@ -80,13 +82,13 @@ export class SurfaceOpeningCoordinator {
     const next = clone(current); next.activationSequence += 1; next.panels[panelId]!.lastActivatedSequence = next.activationSequence; next.groups.find(({ id }) => id === next.panels[panelId]!.groupId)!.activePanelId = panelId; next.revision += 1; await this.#commit(current, next, null); return next;
   }); }
   async undo(voyageId: string): Promise<void> { return this.#serialized(voyageId, async (current) => {
-    if (!current.historyCursor) return current; const next = applySnapshot(current, current.history[current.historyCursor - 1]!.before); next.historyCursor -= 1; next.revision += 1; await this.#commit(current, next, null); return next;
+    if (!current.historyCursor) return current; const entry = current.history[current.historyCursor - 1]!; const next = applySnapshot(current, entry.before.panels); next.historyCursor -= 1; next.revision += 1; await this.#commit(current, next, null, entry.before.layout, undefined, true); return next;
   }); }
   async redo(voyageId: string): Promise<void> { return this.#serialized(voyageId, async (current) => {
-    if (current.historyCursor >= current.history.length) return current; const next = applySnapshot(current, current.history[current.historyCursor]!.after); next.historyCursor += 1; next.revision += 1; await this.#commit(current, next, null); return next;
+    if (current.historyCursor >= current.history.length) return current; const entry = current.history[current.historyCursor]!; const next = applySnapshot(current, entry.after.panels); next.historyCursor += 1; next.revision += 1; await this.#commit(current, next, null, entry.after.layout, undefined, true); return next;
   }); }
   async #executeOpen(input: OpenSurfaceInput, initialAction: TrustedActionResolution): Promise<OpenSurfaceResult> {
-    const current = this.#states.get(input.voyageId)!; const invoking = current.panels[input.invokingPanelId]; if (!invoking) throw new Error('invoking-panel-unavailable');
+    const current = this.#states.get(input.voyageId)!; const beforeLayout = this.ports.captureValidatedLayout(); const invoking = current.panels[input.invokingPanelId]; if (!invoking) throw new Error('invoking-panel-unavailable');
     const invokingResolution = this.ports.resolvePanel(invoking); if (!isResolved(invokingResolution)) throw new Error('invoking-target-unavailable');
     const action = this.ports.resolveAction(invokingResolution, input.actionId);
     if (!isAction(action) || action.actionIdentity !== initialAction.actionIdentity || action.resolved.equivalenceKey !== initialAction.resolved.equivalenceKey) throw new Error('action-changed');
@@ -103,13 +105,14 @@ export class SurfaceOpeningCoordinator {
       else if (!isAdjacent) { const group = next.groups.find(({ id }) => id === selected!.groupId)!; group.activePanelId = selected.id; next.maximizedGroupId = group.id; structural = true; }
     } else { const group = next.groups.find(({ id }) => id === selected!.groupId)!; group.activePanelId = selected.id; if (next.maximizedGroupId !== group.id) { next.maximizedGroupId = group.id; structural = true; } }
     next.groups.find(({ id }) => id === selected!.groupId)!.activePanelId = selected.id; next.activationSequence += 1; selected.lastActivatedSequence = next.activationSequence; next.revision += 1;
-    const checkpoint = structural ? { before: structuralSnapshot(current), after: structuralSnapshot(next) } : null;
+    const afterLayout = this.ports.applyValidatedLayout(next);
+    const checkpoint = structural ? { before: { panels: structuralSnapshot(current), layout: beforeLayout }, after: { panels: structuralSnapshot(next), layout: afterLayout }, cursorBefore: current.historyCursor, cursorAfter: current.historyCursor + 1 } : null;
     if (checkpoint) { next.history = next.history.slice(0, next.historyCursor); next.history.push(checkpoint); next.historyCursor = next.history.length; }
-    await this.#commit(current, next, checkpoint); this.#states.set(next.id, next); return { panelId: selected.id, created, moved, focusedOnly: !structural, revision: next.revision };
+    await this.#commit(current, next, checkpoint, afterLayout, beforeLayout); this.#states.set(next.id, next); return { panelId: selected.id, created, moved, focusedOnly: !structural, revision: next.revision };
   }
   async #structural(voyageId: string, mutate: (state: VoyageState) => void): Promise<void> { return this.#serialized(voyageId, async (current) => {
-    const next = clone(current); mutate(next); const checkpoint = { before: structuralSnapshot(current), after: structuralSnapshot(next) }; next.history = next.history.slice(0, next.historyCursor); next.history.push(checkpoint); next.historyCursor = next.history.length; next.revision += 1; await this.#commit(current, next, checkpoint); return next;
+    const beforeLayout = this.ports.captureValidatedLayout(); const next = clone(current); mutate(next); const afterLayout = this.ports.applyValidatedLayout(next); const checkpoint = { before: { panels: structuralSnapshot(current), layout: beforeLayout }, after: { panels: structuralSnapshot(next), layout: afterLayout }, cursorBefore: current.historyCursor, cursorAfter: current.historyCursor + 1 }; next.history = next.history.slice(0, next.historyCursor); next.history.push(checkpoint); next.historyCursor = next.history.length; next.revision += 1; await this.#commit(current, next, checkpoint, afterLayout, beforeLayout); return next;
   }); }
   async #serialized(voyageId: string, work: (state: VoyageState) => Promise<VoyageState>): Promise<void> { const operation = this.#tail.then(async () => { const current = this.#states.get(voyageId); if (!current) throw new Error('voyage-unavailable'); this.#states.set(voyageId, await work(current)); }); this.#tail = operation.catch(() => undefined); return operation; }
-  async #commit(current: VoyageState, next: VoyageState, checkpoint: HistoryEntry | null): Promise<void> { if (!await this.ports.atomicCommit({ expectedRevision: current.revision, next: clone(next), layoutSnapshot: this.ports.serializeValidatedLayout(next), historyCursor: next.historyCursor, historyCheckpoint: checkpoint ? clone(checkpoint) : null })) throw new Error('revision-conflict'); }
+  async #commit(current: VoyageState, next: VoyageState, checkpoint: HistoryEntry | null, appliedLayout?: unknown, rollbackLayout?: unknown, restoreFirst = false): Promise<void> { const before = rollbackLayout ?? this.ports.captureValidatedLayout(); try { if (restoreFirst) this.ports.restoreValidatedLayout(appliedLayout); const layout = appliedLayout ?? this.ports.applyValidatedLayout(next); if (!await this.ports.atomicCommit({ expectedRevision: current.revision, next: clone(next), layoutSnapshot: layout, historyCursor: next.historyCursor, historyCheckpoint: checkpoint ? clone(checkpoint) : null })) throw new Error('revision-conflict'); } catch (error) { this.ports.restoreValidatedLayout(before); throw error; } }
 }

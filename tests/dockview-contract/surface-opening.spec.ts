@@ -10,11 +10,11 @@ test('TEST_CASE_M1_5A opens generic targets, truly coalesces pending calls, and 
   expect(Math.abs(rects.agent!.width - rects['forms-workspace-1-1']!.width)).toBeLessThanOrEqual(2);
 
   await page.evaluate(() => window.surfaceOpeningContract.initialize());
-  const results = await page.evaluate(() => Promise.all(Array.from({ length: 5 }, () => window.surfaceOpeningContract.open('code', 'beside')))) as Array<{ panelId: string }>;
-  expect(new Set(results.map(({ panelId }) => panelId)).size).toBe(1);
+  await page.getByRole('button', { name: 'Run concurrent Open beside' }).click();
+  await expect.poll(() => page.evaluate(() => window.surfaceOpeningContract.observations().atomicCommits)).toBe(1);
   expect(await page.evaluate(() => window.surfaceOpeningContract.observations())).toMatchObject({ revision: 1, activationSequence: 2, history: 1, atomicCommits: 1, coordinatorCommands: 1, projectionAgrees: true });
 
-  await page.evaluate(() => window.surfaceOpeningContract.initialize(500));
+  await page.getByRole('button', { name: 'Scenario: narrow viewport' }).click();
   await page.getByRole('button', { name: 'Open Code beside' }).click();
   await expect(page.getByRole('button', { name: 'Restore layout' })).toBeEnabled();
   expect(await page.evaluate(() => window.surfaceOpeningContract.observations())).toMatchObject({ maximized: true, groups: 1, atomicCommits: 1, browserFullscreen: false, projectionAgrees: true });
@@ -22,18 +22,31 @@ test('TEST_CASE_M1_5A opens generic targets, truly coalesces pending calls, and 
   await expect(page.getByRole('button', { name: 'Restore layout' })).toBeDisabled();
   expect(await page.evaluate(() => window.surfaceOpeningContract.observations())).toMatchObject({ maximized: false, atomicCommits: 2, history: 2, projectionAgrees: true });
   await page.evaluate(() => window.surfaceOpeningContract.initialize());
-  await page.evaluate(() => window.surfaceOpeningContract.rejectNext());
-  await expect(page.evaluate(() => window.surfaceOpeningContract.open('code', 'beside'))).rejects.toThrow('revision-conflict');
-  expect(await page.evaluate(() => window.surfaceOpeningContract.observations())).toMatchObject({ revision: 0, history: 0, atomicCommits: 0, groups: 1, projectionAgrees: true });
+  const agentBoot = ((await page.evaluate(() => window.surfaceOpeningContract.observations().runtimeBoots)) as Record<string, string>).agent;
+  await page.getByRole('button', { name: 'Reject next atomic commit' }).click();
+  await expect.poll(() => page.evaluate(() => window.surfaceOpeningContract.observations().lastCommitError)).toBe('unsupported-dockview-version');
+  expect(await page.evaluate(() => window.surfaceOpeningContract.observations())).toMatchObject({ revision: 0, history: 0, cursor: 0, activationSequence: 1, atomicCommits: 0, groups: 1, projectionAgrees: true });
+  expect(((await page.evaluate(() => window.surfaceOpeningContract.observations().runtimeBoots)) as Record<string, string>).agent).toBe(agentBoot);
 });
 
 test('TEST_CASE_M1_5A uses real geometric adjacency before durable MRU', async ({ page }) => {
-  await page.evaluate(() => window.surfaceOpeningContract.seedSelectionScenario());
+  await page.getByRole('button', { name: 'Scenario: adjacent vs newer' }).click();
+  const topology = await page.evaluate(() => window.surfaceOpeningContract.observations());
+  expect(topology.measuredRightNeighbor).toBe('code-adjacent');
+  expect((topology.serializedPanelRecordOrder as string[])[1]).toBe('code-newer');
   expect(await page.evaluate(() => window.surfaceOpeningContract.open('code', 'beside'))).toMatchObject({ panelId: 'code-adjacent', focusedOnly: true });
   expect(await page.evaluate(() => window.surfaceOpeningContract.observations())).toMatchObject({ history: 0, active: 'code-adjacent', projectionAgrees: true });
-  await page.evaluate(() => window.surfaceOpeningContract.removeAdjacent());
+  await page.getByRole('button', { name: 'Remove adjacency and activate newer' }).click();
   expect(await page.evaluate(() => window.surfaceOpeningContract.open('code', 'beside'))).toMatchObject({ panelId: 'code-newer', moved: true });
   expect(await page.evaluate(() => window.surfaceOpeningContract.observations())).toMatchObject({ history: 1, active: 'code-newer', projectionAgrees: true });
+  await page.getByRole('button', { name: 'Scenario: equal MRU tie' }).click();
+  expect(await page.evaluate(() => window.surfaceOpeningContract.observations().panelRecency)).toMatchObject({ 'code-newer': 5, 'code-adjacent': 5 });
+  await page.getByRole('button', { name: 'Open Code maximized' }).click();
+  await expect.poll(() => page.evaluate(() => window.surfaceOpeningContract.observations().active)).toBe('code-adjacent');
+  await page.getByRole('button', { name: 'Scenario: missing MRU tie' }).click();
+  expect(await page.evaluate(() => window.surfaceOpeningContract.observations().panelRecency)).toMatchObject({ 'code-newer': null, 'code-adjacent': null });
+  await page.getByRole('button', { name: 'Open Code maximized' }).click();
+  await expect.poll(() => page.evaluate(() => window.surfaceOpeningContract.observations().active)).toBe('code-adjacent');
 });
 
 test('TEST_CASE_M1_5B routes restore, undo, and redo atomically without phantom candidates', async ({ page }) => {
@@ -52,13 +65,13 @@ test('TEST_CASE_M1_5B routes restore, undo, and redo atomically without phantom 
 });
 
 test('TEST_CASE_M1_5B durable MRU survives controller eviction and reload while existing target stays in place', async ({ page }) => {
-  await page.evaluate(() => window.surfaceOpeningContract.seedSelectionScenario());
+  await page.getByRole('button', { name: 'Scenario: adjacent vs newer' }).click();
   const before = await page.evaluate(() => window.surfaceOpeningContract.observations().groupPanels);
   expect(await page.evaluate(() => window.surfaceOpeningContract.open('code', 'maximized'))).toMatchObject({ panelId: 'code-newer', moved: false, created: false });
   expect(await page.evaluate(() => window.surfaceOpeningContract.observations().groupPanels)).toEqual(before);
-  await page.evaluate(() => window.surfaceOpeningContract.evictAndRestore());
+  await page.getByRole('button', { name: 'Evict and restore controller' }).click();
   expect(await page.evaluate(() => window.surfaceOpeningContract.open('code', 'maximized'))).toMatchObject({ panelId: 'code-newer', created: false });
-  await page.evaluate(() => window.surfaceOpeningContract.persistForReload()); await page.reload(); await expect(page.locator('#surface-status')).toHaveAttribute('data-ready', 'true');
+  await page.getByRole('button', { name: 'Persist and reload' }).click(); await expect(page.locator('#surface-status')).toHaveAttribute('data-ready', 'true');
   expect(await page.evaluate(() => window.surfaceOpeningContract.open('code', 'maximized'))).toMatchObject({ panelId: 'code-newer', created: false });
   expect(await page.evaluate(() => window.surfaceOpeningContract.observations())).toMatchObject({ maximized: true, projectionAgrees: true });
 });

@@ -10,8 +10,9 @@ function registry(): TrustedTargetRegistry {
 }
 function panel(id: string, surface: string, groupId: string, sequence: number | null, craftId = 'craft', workspaceId = 'w1'): DurablePanel { return { id, voyageId: 'voyage', craftId, target: target(surface, workspaceId), groupId, lastActivatedSequence: sequence, runtimeId: `runtime:${id}` }; }
 function state(width = 900): VoyageState { return { id: 'voyage', width, revision: 0, activationSequence: 10, panels: { agent: panel('agent', 'agent', 'agent-group', 1) }, groups: [{ id: 'agent-group', panelIds: ['agent'], activePanelId: 'agent', rect: { x: 0, y: 0, width, height: 600 } }], maximizedGroupId: null, history: [], historyCursor: 0 }; }
-function setup(initial = state(), overrides?: { fail?: boolean; delay?: Promise<void>; unavailable?: Set<string> }) {
+function setup(initial = state(), overrides?: { fail?: boolean; delay?: Promise<void>; unavailable?: Set<string>; policy?: { allowed: boolean } }) {
   const trusted = registry(); const commits: AtomicCommit[] = []; const authoritativeCraft = new Map(Object.keys(initial.panels).map((id) => [id, initial.panels[id]!.craftId]));
+  let currentLayout: unknown = structuralSnapshot(initial);
   const resolve = (p: DurablePanel): TrustedPanelResolution | { reason: string } => {
     if (overrides?.unavailable?.has(p.id)) return { reason: 'removed-definition' };
     const craftId = authoritativeCraft.get(p.id); if (!craftId || craftId !== p.craftId) return { reason: 'owner-mismatch' };
@@ -19,18 +20,19 @@ function setup(initial = state(), overrides?: { fail?: boolean; delay?: Promise<
   };
   const atomicCommit = vi.fn(async (commit: AtomicCommit) => { await overrides?.delay; commits.push(commit); if (!overrides?.fail) for (const panel of Object.values(commit.next.panels)) authoritativeCraft.set(panel.id, panel.craftId); return !overrides?.fail; });
   const coordinator = new SurfaceOpeningCoordinator([initial], { resolvePanel: resolve, resolveAction: (invoking, actionId) => {
+    if (overrides?.policy?.allowed === false) return { reason: 'policy-tightened' };
     if (actionId === 'removed-factory') return { reason: 'factory-unavailable' };
     const surface = ({ 'open-code': 'code', 'open-forms': 'forms' } as Record<string, string>)[actionId]; if (!surface) return { reason: 'unknown-action' };
     const candidate = panel('requested', surface, '', null, invoking.craftId); const resolution = resolvePanelTarget(candidate.target, { craftId: invoking.craftId }, trusted);
     return resolution.ok ? { craftId: invoking.craftId, resolved: resolution, actionIdentity: `${actionId}:${invoking.craftId}` } : { reason: resolution.reason };
-  }, serializeValidatedLayout: (next) => structuralSnapshot(next), atomicCommit });
+  }, captureValidatedLayout: () => structuredClone(currentLayout), applyValidatedLayout: (next) => { currentLayout = structuralSnapshot(next); return structuredClone(currentLayout); }, restoreValidatedLayout: (layout) => { currentLayout = structuredClone(layout); }, atomicCommit });
   return { coordinator, atomicCommit, commits, authoritativeCraft, trusted };
 }
 const open = (actionId = 'open-code', intent: 'beside' | 'maximized' = 'beside') => ({ voyageId: 'voyage', invokingPanelId: 'agent', actionId, intent });
 
 describe('trusted generic surface opening', () => {
   it('creates generic Code and Forms with one atomic aggregate/history/layout commit', async () => {
-    for (const actionId of ['open-code', 'open-forms']) { const { coordinator, commits } = setup(); const result = await coordinator.open(open(actionId)); expect(result.created).toBe(true); expect(commits).toHaveLength(1); expect(commits[0]).toMatchObject({ expectedRevision: 0, historyCursor: 1 }); expect(commits[0]!.historyCheckpoint).not.toBeNull(); expect(commits[0]!.layoutSnapshot).toEqual(structuralSnapshot(commits[0]!.next)); }
+    for (const actionId of ['open-code', 'open-forms']) { const { coordinator, commits } = setup(); const result = await coordinator.open(open(actionId)); expect(result.created).toBe(true); expect(commits).toHaveLength(1); expect(commits[0]).toMatchObject({ expectedRevision: 0, historyCursor: 1 }); expect(commits[0]!.historyCheckpoint).toMatchObject({ cursorBefore: 0, cursorAfter: 1, before: { panels: expect.any(Object), layout: expect.any(Object) }, after: { panels: expect.any(Object), layout: expect.any(Object) } }); expect(commits[0]!.layoutSnapshot).toEqual(structuralSnapshot(commits[0]!.next)); }
   });
 
   it('re-resolves every candidate and ignores tampered, stale, removed, and unrelated authority', async () => {
@@ -47,6 +49,13 @@ describe('trusted generic surface opening', () => {
     const promises = Array.from({ length: 5 }, () => env.coordinator.open(open())); expect(new Set(promises).size).toBe(1); release(); const results = await Promise.all(promises); expect(new Set(results.map(({ revision }) => revision))).toEqual(new Set([1])); expect(env.atomicCommit).toHaveBeenCalledOnce(); expect(env.coordinator.state('voyage').activationSequence).toBe(11);
     await env.coordinator.open(open()); expect(env.atomicCommit).toHaveBeenCalledTimes(2);
     const failed = setup(state(), { fail: true }); const a = failed.coordinator.open(open()); const b = failed.coordinator.open(open()); expect(a).toBe(b); await expect(a).rejects.toThrow('revision-conflict'); await expect(failed.coordinator.open(open())).rejects.toThrow('revision-conflict'); expect(failed.atomicCommit).toHaveBeenCalledTimes(2); expect(failed.coordinator.state('voyage')).toEqual(state());
+  });
+
+  it('fails closed when current policy tightens while a coalesced request is pending', async () => {
+    const policy = { allowed: true }; const env = setup(state(), { policy });
+    const first = env.coordinator.open(open()); const duplicate = env.coordinator.open(open()); expect(first).toBe(duplicate); policy.allowed = false;
+    await expect(first).rejects.toThrow('action-changed'); expect(env.atomicCommit).not.toHaveBeenCalled(); expect(env.coordinator.state('voyage')).toEqual(state());
+    policy.allowed = true; await expect(env.coordinator.open(open())).resolves.toMatchObject({ created: true }); expect(env.atomicCommit).toHaveBeenCalledOnce();
   });
 
   it('uses geometry for adjacency in nested layouts, not array neighbors', async () => {
