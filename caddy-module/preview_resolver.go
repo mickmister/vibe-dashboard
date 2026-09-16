@@ -24,6 +24,7 @@ import (
 
 const defaultPreviewResolverTimeout = 2 * time.Second
 const defaultTrustedRequestedHostHeader = "X-Vibe-Requested-Host"
+const previewHostnameGrammar = "slot-repo-workspace-customer-v1"
 
 var encodedPreviewLabelPattern = regexp.MustCompile(`^([a-z0-9]{1,10})-([a-z0-9]{1,18})-([a-f0-9]{16})-([a-z0-9]{1,16})$`)
 
@@ -33,6 +34,7 @@ type PreviewResolver struct {
 	StartupPage                string         `json:"startup_page,omitempty"`
 	BaseDomain                 string         `json:"base_domain,omitempty"`
 	TrustedRequestedHostHeader string         `json:"trusted_requested_host_header,omitempty"`
+	Grammar                    string         `json:"grammar,omitempty"`
 	Timeout                    caddy.Duration `json:"timeout,omitempty"`
 
 	logger *zap.Logger
@@ -80,6 +82,9 @@ func (p *PreviewResolver) Provision(ctx caddy.Context) error {
 	p.logger = ctx.Logger(p)
 	if p.ResolverURL == "" {
 		return fmt.Errorf("resolver_url is required")
+	}
+	if p.Grammar != previewHostnameGrammar {
+		return fmt.Errorf("grammar must be %q", previewHostnameGrammar)
 	}
 	parsed, err := url.Parse(p.ResolverURL)
 	if err != nil || parsed.Scheme == "" || parsed.Host == "" {
@@ -160,6 +165,13 @@ func parsePreviewResolverCaddyfile(h httpcaddyfile.Helper) (caddyhttp.Middleware
 			case "trusted_requested_host_header":
 				if !h.Args(&p.TrustedRequestedHostHeader) {
 					return nil, h.ArgErr()
+				}
+			case "grammar":
+				if !h.Args(&p.Grammar) {
+					return nil, h.ArgErr()
+				}
+				if p.Grammar != previewHostnameGrammar {
+					return nil, h.Errf("grammar must be %q", previewHostnameGrammar)
 				}
 			case "timeout":
 				var raw string

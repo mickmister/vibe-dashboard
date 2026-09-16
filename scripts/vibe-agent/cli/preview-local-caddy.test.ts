@@ -6,6 +6,7 @@ import {
   getLocalCaddyOptionMismatches,
   normalizeLocalCaddyStartOptions,
   renderLocalPreviewCaddyfile,
+  verifyLocalCaddyCompatibility,
 } from './preview-local-caddy.js';
 
 describe('preview-local-caddy', () => {
@@ -56,7 +57,31 @@ describe('preview-local-caddy', () => {
       dashboardPort: 3005,
       baseDomain: 'localhost',
       readinessTimeoutMs: 5000,
+      caddyBin: expect.stringMatching(/\.tmp\/custom-caddy\/caddy$/),
     });
+  });
+
+  it('rejects Caddy binaries that do not understand the current Preview URL grammar capability', () => {
+    expect(() => verifyLocalCaddyCompatibility('/usr/bin/caddy', (_command, args) => {
+      if (args[0] === 'list-modules') {
+        return { status: 0, stdout: 'http.handlers.vibe_preview_resolver\n', stderr: '' };
+      }
+      return { status: 1, stdout: '', stderr: 'unrecognized vk_preview_resolver option "grammar"' };
+    })).toThrow(/incompatible.*slot-repo-workspace-customer-v1.*bootstrap-custom-caddy/i);
+  });
+
+  it('accepts a Caddy binary only when module and grammar capability checks pass', () => {
+    const calls: string[][] = [];
+    expect(verifyLocalCaddyCompatibility('/repo/.tmp/custom-caddy/caddy', (_command, args) => {
+      calls.push(args);
+      return args[0] === 'list-modules'
+        ? { status: 0, stdout: 'http.handlers.vibe_preview_resolver\n', stderr: '' }
+        : { status: 0, stdout: '{}', stderr: '' };
+    })).toBe('/repo/.tmp/custom-caddy/caddy');
+    expect(calls).toEqual([
+      ['list-modules'],
+      ['adapt', '--adapter', 'caddyfile', '--config', '-'],
+    ]);
   });
 
   it('documents the local Caddy VD marker in command URLs', () => {
@@ -74,6 +99,7 @@ describe('preview-local-caddy', () => {
     expect(caddyfile).toContain('vk_preview_resolver');
     expect(caddyfile).toContain('resolver_url {$PREVIEW_RESOLVER_URL}');
     expect(caddyfile).toContain('base_domain {$PREVIEW_BASE_DOMAIN:localhost}');
+    expect(caddyfile).toContain('grammar slot-repo-workspace-customer-v1');
     expect(caddyfile).toContain('@vibe_dashboard_assets');
     expect(caddyfile).toContain('@vk_workspace_assets');
     expect(caddyfile).toContain('handle_response @wrapper_asset_error');

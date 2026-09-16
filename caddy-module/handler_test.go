@@ -65,6 +65,7 @@ func TestPreviewResolverAdaptsBeforeCatchAllHandle(t *testing.T) {
 	vk_preview_resolver {
 		resolver_url http://127.0.0.1:3005/internal/preview/resolve
 		base_domain localhost
+		grammar slot-repo-workspace-customer-v1
 	}
 
 	handle /* {
@@ -101,6 +102,13 @@ func TestPreviewResolverAdaptsBeforeCatchAllHandle(t *testing.T) {
 	firstHandler := server.Routes[0].Handle[0].Handler
 	if firstHandler != "vibe_preview_resolver" {
 		t.Fatalf("expected preview resolver to adapt before catch-all handle, got first handler %q in %s", firstHandler, adapted)
+	}
+}
+
+func TestPreviewResolverRejectsObsoleteGrammarCapability(t *testing.T) {
+	caddyfileBody := []byte(":3001 {\n\tvk_preview_resolver {\n\t\tresolver_url http://127.0.0.1:3005/internal/preview/resolve\n\t\tbase_domain localhost\n\t\tgrammar workspace-repo-slot-customer-v0\n\t}\n}")
+	if _, _, err := (caddyfile.Adapter{ServerType: httpcaddyfile.ServerType{}}).Adapt(caddyfileBody, nil); err == nil {
+		t.Fatal("expected obsolete grammar capability to fail")
 	}
 }
 

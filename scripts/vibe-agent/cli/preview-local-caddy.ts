@@ -1,4 +1,4 @@
-import { spawn } from 'child_process';
+import { spawn, spawnSync } from 'child_process';
 import { closeSync, openSync } from 'fs';
 import { mkdir, readFile, rm, writeFile } from 'fs/promises';
 import { tmpdir } from 'os';
@@ -7,6 +7,11 @@ import type { PreviewSlotUrlResponse } from './vk-service.js';
 
 export const LOCAL_PREVIEW_BASE_DOMAIN = 'localhost';
 const STATE_FILE = resolve(tmpdir(), 'vk-preview-local-caddy.json');
+const PREVIEW_CADDY_GRAMMAR = 'slot-repo-workspace-customer-v1';
+const DEFAULT_CUSTOM_CADDY = resolve(process.cwd(), '.tmp', 'custom-caddy', 'caddy');
+
+type CaddyCommandResult = { status: number | null; stdout: string; stderr: string; error?: Error };
+type CaddyCommandRunner = (command: string, args: string[], input?: string) => CaddyCommandResult;
 
 export interface LocalCaddyStartInput {
   backendPort?: string;
@@ -51,7 +56,7 @@ export function normalizeLocalCaddyStartOptions(
     caddyPort: parsePort(input.caddyPort, 'caddy-port', 3001),
     dashboardPort: parsePort(input.dashboardPort, 'dashboard-port', 3005),
     baseDomain: LOCAL_PREVIEW_BASE_DOMAIN,
-    caddyBin: input.caddyBin || process.env.CADDY_BIN || 'caddy',
+    caddyBin: resolve(input.caddyBin || process.env.CADDY_BIN || DEFAULT_CUSTOM_CADDY),
     readinessTimeoutMs: parsePositiveInteger(
       input.readinessTimeoutMs,
       'readiness-timeout-ms',
@@ -95,6 +100,7 @@ http://:{\$CADDY_PORT:3001} {
 \tvk_preview_resolver {
 \t\tresolver_url {\$PREVIEW_RESOLVER_URL}
 \t\tbase_domain {\$PREVIEW_BASE_DOMAIN:localhost}
+\t\tgrammar ${PREVIEW_CADDY_GRAMMAR}
 \t\ttimeout 2s
 \t}
 
@@ -187,6 +193,7 @@ export function buildLocalCaddyDashboardUrl(caddyPort: number): string {
 export async function startLocalPreviewCaddy(
   options: LocalCaddyStartOptions,
 ): Promise<LocalCaddyState> {
+  verifyLocalCaddyCompatibility(options.caddyBin);
   const existing = await readLocalCaddyState().catch(() => null);
   if (existing && isProcessRunning(existing.pid)) {
     const mismatches = getLocalCaddyOptionMismatches(existing, options);
@@ -259,6 +266,47 @@ export async function startLocalPreviewCaddy(
   }
   await writeLocalCaddyState(state);
   return state;
+}
+
+export function verifyLocalCaddyCompatibility(
+  caddyBin: string,
+  runner: CaddyCommandRunner = runCaddyCommand,
+): string {
+  const modules = runner(caddyBin, ['list-modules']);
+  if (
+    modules.status !== 0 ||
+    !modules.stdout.split(/\r?\n/).includes('http.handlers.vibe_preview_resolver')
+  ) {
+    throw incompatibleCaddyError(caddyBin, modules);
+  }
+
+  const capabilityCaddyfile = `:0 {\n\tvk_preview_resolver {\n\t\tresolver_url http://127.0.0.1:1/resolve\n\t\tbase_domain localhost\n\t\tgrammar ${PREVIEW_CADDY_GRAMMAR}\n\t}\n}`;
+  const capability = runner(
+    caddyBin,
+    ['adapt', '--adapter', 'caddyfile', '--config', '-'],
+    capabilityCaddyfile,
+  );
+  if (capability.status !== 0) {
+    throw incompatibleCaddyError(caddyBin, capability);
+  }
+  return caddyBin;
+}
+
+function runCaddyCommand(command: string, args: string[], input?: string): CaddyCommandResult {
+  const result = spawnSync(command, args, { encoding: 'utf8', input, timeout: 10_000 });
+  return {
+    status: result.status,
+    stdout: result.stdout || '',
+    stderr: result.stderr || '',
+    ...(result.error ? { error: result.error } : {}),
+  };
+}
+
+function incompatibleCaddyError(caddyBin: string, result: CaddyCommandResult): Error {
+  const detail = result.error?.message || result.stderr.trim() || `exit status ${result.status ?? 'unknown'}`;
+  return new Error(
+    `Incompatible PreviewServer Caddy binary ${caddyBin}: expected http.handlers.vibe_preview_resolver with ${PREVIEW_CADDY_GRAMMAR} capability (${detail}). Build the current repo binary with "scripts/bootstrap-custom-caddy.sh" or pass --caddy-bin /absolute/path/to/current/caddy.`,
+  );
 }
 
 export async function stopLocalPreviewCaddy(): Promise<LocalCaddyState | null> {
