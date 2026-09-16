@@ -142,7 +142,7 @@ export function PreviewRunConfigsPanel({
         repo_id: selectedRepoId,
         slug,
         name: runForm.name,
-        description: runForm.description.trim() || matchingRunConfig?.description || null,
+        description: runForm.description.trim() || null,
         command: runForm.command,
         kind: runForm.kind,
         enabled: true,

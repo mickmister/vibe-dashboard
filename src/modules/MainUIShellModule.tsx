@@ -25,6 +25,10 @@ import { resolveDashboardVoyage } from "../lib/voyageSession";
 import { getSavedWorkspaceSessions } from "../lib/savedVoyageState";
 import { getRenderedPairViewIds } from "../lib/renderedWorkspaceSelection";
 import {
+  buildPreviewDeepLinkPath,
+  resolvePreviewDeepLinkTarget,
+} from "../lib/previewDeepLink";
+import {
   fetchPluginAdminStatuses,
   setPluginAdminDesiredEnabled,
   type PluginAdminStatus,
@@ -234,6 +238,26 @@ springboard.registerModule("MainUIShell", {}, async (moduleAPI) => {
     const [createFirstVoyageError, setCreateFirstVoyageError] = useState<
       string | null
     >(null);
+    const previewWorkspaceId = sessionSearchParams.get("previewWorkspaceId");
+    const previewSlotId = sessionSearchParams.get("previewSlotId");
+    const previewDeepLinkTarget = useMemo(
+      () =>
+        resolvePreviewDeepLinkTarget({
+          workspace: effectiveWorkspace,
+          savedSessions: savedVoyages,
+          activeSession: activeSavedSession,
+          previewWorkspaceId,
+          previewSlotId,
+        }),
+      [
+        activeSavedSession,
+        effectiveWorkspace,
+        previewSlotId,
+        previewWorkspaceId,
+        savedVoyages,
+      ],
+    );
+    const pendingPreviewDeepLinkRef = useRef<string | null>(null);
 
     const querySelection = useMemo(
       () =>
@@ -258,6 +282,14 @@ springboard.registerModule("MainUIShell", {}, async (moduleAPI) => {
       {
         persistToSessionStorage: false,
       },
+    );
+    const previewDeepLinkIsActive = Boolean(
+      previewDeepLinkTarget &&
+        querySelection.tabGroupId === previewDeepLinkTarget.tabGroupId &&
+        querySelection.viewIds?.includes(previewDeepLinkTarget.tabId),
+    );
+    const previewDeepLinkNeedsNavigation = Boolean(
+      previewDeepLinkTarget && !previewDeepLinkIsActive,
     );
 
     const firstVoyageNameIsInvalid =
@@ -315,6 +347,7 @@ springboard.registerModule("MainUIShell", {}, async (moduleAPI) => {
 
     useEffect(() => {
       if (dashboardVoyage.status !== "missing-param") return;
+      if (previewDeepLinkTarget) return;
       if (!missingParamRedirectPath) return;
       const currentPath = `${location.pathname}${location.search}`;
       if (missingParamRedirectPath !== currentPath) {
@@ -326,6 +359,64 @@ springboard.registerModule("MainUIShell", {}, async (moduleAPI) => {
       location.search,
       missingParamRedirectPath,
       navigate,
+      previewDeepLinkTarget,
+    ]);
+
+    useEffect(() => {
+      const target = previewDeepLinkTarget;
+      if (!target || previewDeepLinkIsActive) {
+        pendingPreviewDeepLinkRef.current = null;
+        return;
+      }
+
+      const navigateToTarget = (session: SavedWorkspaceSession, voyageEntryId: string) => {
+        const nextPath = buildPreviewDeepLinkPath({
+          currentSearch: location.search,
+          workspace: effectiveWorkspace,
+          target,
+          session,
+          savedSessions: savedVoyages,
+          voyageEntryId,
+        });
+        const currentPath = `${location.pathname}${location.search}`;
+        if (nextPath !== currentPath) navigate(nextPath, { replace: true });
+      };
+
+      if (target.voyageEntryId) {
+        navigateToTarget(target.session, target.voyageEntryId);
+        return;
+      }
+
+      const operationKey = `${target.session.id}:${target.tabGroupId}:${previewSlotId}`;
+      if (pendingPreviewDeepLinkRef.current === operationKey) return;
+      pendingPreviewDeepLinkRef.current = operationKey;
+      void actions.addSelectionToSavedSession({
+        sessionId: target.session.id,
+        spaceId: target.spaceId,
+        tabGroupId: target.tabGroupId,
+      }).then(async (result) => {
+        if (pendingPreviewDeepLinkRef.current !== operationKey) return;
+        const updatedSession = await result;
+        pendingPreviewDeepLinkRef.current = null;
+        const entry = updatedSession?.voyageEntries.find(
+          (candidate) => candidate.tabGroupId === target.tabGroupId,
+        );
+        if (updatedSession && entry) navigateToTarget(updatedSession, entry.id);
+      }).catch(() => {
+        if (pendingPreviewDeepLinkRef.current === operationKey) {
+          pendingPreviewDeepLinkRef.current = null;
+        }
+      });
+    }, [
+      actions,
+      effectiveWorkspace,
+      location.pathname,
+      location.search,
+      navigate,
+      previewDeepLinkIsActive,
+      previewDeepLinkTarget,
+      previewSlotId,
+      savedVoyages,
     ]);
 
     useEffect(() => {
@@ -364,6 +455,7 @@ springboard.registerModule("MainUIShell", {}, async (moduleAPI) => {
     useEffect(() => {
       if (dashboardVoyage.status !== "resolved") return;
       if (!activeSavedSession) return;
+      if (previewDeepLinkNeedsNavigation) return;
 
       const pendingActivation = pendingSavedSessionActivationRef.current;
       if (pendingActivation) {
@@ -453,6 +545,7 @@ springboard.registerModule("MainUIShell", {}, async (moduleAPI) => {
       querySelection,
       queryViewsParam,
       savedVoyages,
+      previewDeepLinkNeedsNavigation,
     ]);
 
     const updateBookmarkedSessionSearch = (

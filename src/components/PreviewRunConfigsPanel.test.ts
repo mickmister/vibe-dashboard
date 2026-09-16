@@ -181,10 +181,41 @@ describe('PreviewRunConfigsPanel', () => {
           repo_id: 'repo-alpha',
           slug: 'web',
           name: 'Updated Web',
-          description: 'Existing browser review config',
+          description: null,
         }),
       }));
     });
+  });
+
+  it('clears an existing run config description when the field is emptied', async () => {
+    const requests: Array<{ url: string; body?: Record<string, unknown> }> = [];
+    vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      requests.push({ url, body: init?.body ? JSON.parse(String(init.body)) : undefined });
+      if (url.endsWith('/repos')) {
+        return jsonResponse([{ id: 'repo-alpha', name: 'alpha', display_name: 'Alpha', target_branch: 'main' }]);
+      }
+      if (url.endsWith('/run-configs') && init?.method === 'POST') {
+        return jsonResponse({ id: 'rc-existing', ...JSON.parse(String(init.body)), created_at: '', updated_at: '' });
+      }
+      if (url.endsWith('/run-configs')) {
+        return jsonResponse({
+          run_configs: [{ id: 'rc-existing', repo_id: 'repo-alpha', slug: 'web', name: 'Web', description: 'Remove me', command: 'npm run dev', kind: 'long_running', enabled: true, created_at: '', updated_at: '' }],
+          preview_slots: [], preview_url_parts: [],
+        });
+      }
+      throw new Error(`unexpected fetch ${url}`);
+    }));
+
+    render(React.createElement(PreviewRunConfigsPanel, { workspaceId: 'ws-clear' }));
+    await screen.findByText('Remove me');
+    fireEvent.change(screen.getByLabelText('Run config description'), { target: { value: '   ' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Save run config' }));
+
+    await waitFor(() => expect(requests).toContainEqual(expect.objectContaining({
+      url: '/internal/preview/workspaces/ws-clear/run-configs',
+      body: expect.objectContaining({ id: 'rc-existing', description: null }),
+    })));
   });
 
   it('shows a readable error when the backend rejects a duplicate run config save', async () => {
