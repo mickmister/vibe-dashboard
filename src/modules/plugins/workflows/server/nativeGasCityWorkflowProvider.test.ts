@@ -8,7 +8,7 @@ import { migration as effectsMigration } from '../../../../store/db/migrations/2
 import { migration as roleTurnMigration } from '../../../../store/db/migrations/20260915020000_native_role_turn_request/migration';
 import { NativeGasCityWorkflowProvider, type NativeGasCityRuntime } from './nativeGasCityWorkflowProvider';
 
-function bundle(): any { return { schemaVersion: 'vd.execution-bundle.v1', digest: 'b'.repeat(64), bytes: new TextEncoder().encode('{}'), document: { workflow:{definition:{schemaVersion:1,name:'Native',roles:{dev:{}},initialState:'work',states:{work:{owner:'dev',steps:[{id:'decide',type:'agent_turn',turnType:'decision',prompt:{template:'Decide'},response:{format:'xml',schema:{format:'xsd',source:'state_actions'},invalidXmlRetry:{maxAttempts:1,prompt:'engine_default_with_validation_errors',onExhausted:'blocked'},storeRawXml:true,rawXmlMaxChars:1000,storeParsedFields:true,unknownFields:'reject_unless_allowed_by_result_contract'}}],actions:{done:{targetState:'done',result:{fields:{summary:{type:'markdown'}},required:['summary'],unknownFields:'reject'}}}},done:{terminal:true}}}}, inputs:{scope:'focused'},roles: [{ roleId: 'dev',template:{id:'reviewer',version:2,content:'Template instructions.',contentHash:'t'.repeat(64)}, promptAssets: [{id:'prompt',version:3,content:'Implement carefully.',contentHash:'p'.repeat(64)}], skillAssets: [{id:'skill',version:4,content:'Use the checklist.',contentHash:'s'.repeat(64)}], baseInstructions: 'Return the decision.', executor: 'CODEX', model: 'gpt-5.3-codex', reasoningId: 'high',preferenceSources:{executor:'role_default',model:'role_default',reasoningId:'role_default'} }], responseSchemas: { decision: '<xs:schema />' }, formula: { intendedGraph: { nodes: [{ id: 'work' }] } } }, verificationEvidence: {} }; }
+function bundle(): any { return { schemaVersion: 'vd.execution-bundle.v1', digest: 'b'.repeat(64), bytes: new TextEncoder().encode('{}'), document: { workflow:{definition:{schemaVersion:1,name:'Native',roles:{dev:{}},initialState:'work',states:{work:{owner:'dev',steps:[{id:'decide',type:'agent_turn',turnType:'decision',prompt:{template:'Decide'},response:{format:'xml',schema:{format:'xsd',source:'state_actions'},invalidXmlRetry:{maxAttempts:1,prompt:'engine_default_with_validation_errors',onExhausted:'blocked'},storeRawXml:true,rawXmlMaxChars:1000,storeParsedFields:true,unknownFields:'reject_unless_allowed_by_result_contract'}}],actions:{done:{targetState:'done',result:{fields:{summary:{type:'markdown'}},required:['summary'],unknownFields:'reject'}}}},done:{terminal:true}}}}, inputs:{scope:'focused'},roles: [{ roleId: 'dev',template:{id:'reviewer',version:2,content:'Template instructions.',contentHash:createHash('sha256').update('Template instructions.').digest('hex')}, promptAssets: [{id:'prompt',version:3,content:'Implement carefully.',contentHash:createHash('sha256').update('Implement carefully.').digest('hex')}], skillAssets: [{id:'skill',version:4,content:'Use the checklist.',contentHash:createHash('sha256').update('Use the checklist.').digest('hex')}], baseInstructions: 'Return the decision.', executor: 'CODEX', model: 'gpt-5.3-codex', reasoningId: 'high',preferenceSources:{executor:'role_default',model:'role_default',reasoningId:'role_default'} }], responseSchemas: [{ stateId: 'work', stepId: 'decide', xsd: '<xs:schema />' }], formula: { intendedGraph: [{ id: 'state-work', stateId: 'work' }] } }, verificationEvidence: {} }; }
 const request:any={workspaceId:'ws-1',designId:'design-1',version:1,inputs:{},roleBindings:{dev:{mode:'create',name:'Dev'}},beadIds:['bead-1'],completionResponse:{sessionId:'caller-1',source:'vibe-agent-cli'}};
 const plan:any={digest:'p'.repeat(64),tasks:[{id:'bead-1',title:'Task'}]};
 
@@ -20,7 +20,7 @@ describe('native Gas City single-task provider', () => {
     ensureBundle:async({operationKey,bundle})=>{calls.bundle++; const value={bundleRef:bundle.digest};effects.set(`${operationKey}:bundle`,value);return value;},
     ensureWorkflow:async({operationKey,sourceBeadId})=>{calls.workflow++;const value={workflowId:'wf-1',rootBeadId:'root-1',sourceBeadId,status:'running' as const};effects.set(`${operationKey}:workflow`,value);return value;},
     reconcileWorkflow:async({operationKey})=>effects.get(`${operationKey}:workflow`)??null,
-    ensureRoleTurn:async(input)=>{turnRequests.push(structuredClone(input));calls.turn++;const value={sessionId:'session-dev',queueItemRef:input.operationKey==='never-enqueued'?'queue-native-2':'queue-native-1'};effects.set(`${input.operationKey}:turn`,value);return value;},
+    ensureRoleTurn:async(input)=>{turnRequests.push(structuredClone(input));calls.turn++;const value={sessionId:'session-dev',queueItemRef:`queue-${input.operationKey}`};effects.set(`${input.operationKey}:turn`,value);return value;},
     reconcileRoleTurn:async(input)=>effects.get(`${input.operationKey}:turn`)??null,
     readAuthoritativeState:async({sourceBeadId})=>({workflowId:'wf-1',rootBeadId:'root-1',sourceBeadId,status:'completed'}),
     ensureTypedResult:async({workflowId,rootBeadId,sourceBeadId})=>({workflowId,rootBeadId,sourceBeadId,status:'completed'}),
@@ -34,8 +34,8 @@ describe('native Gas City single-task provider', () => {
     const replay=await provider.launch({request,plan,bundle:bundle(),idempotencyKey:'operation-1'});
     expect(first).toMatchObject({status:'running'});expect(replay.reused).toBe(true);
     expect(calls).toMatchObject({bundle:1,workflow:1,turn:1});
-    const completed=await provider.completeRoleTurn({queueItemRef:'queue-native-1',responseRef:'response-1',finalResponseText:'<decision action="done"><summary>Task completed safely.</summary></decision>'});
-    const duplicate=await provider.completeRoleTurn({queueItemRef:'queue-native-1',responseRef:'response-1',finalResponseText:'<decision action="done"><summary>Task completed safely.</summary></decision>'});
+    const completed=await provider.completeRoleTurn({queueItemRef:'queue-operation-1',responseRef:'response-1',finalResponseText:'<decision action="done"><summary>Task completed safely.</summary></decision>'});
+    const duplicate=await provider.completeRoleTurn({queueItemRef:'queue-operation-1',responseRef:'response-1',finalResponseText:'<decision action="done"><summary>Task completed safely.</summary></decision>'});
     expect(completed!.run).toMatchObject({status:'completed',summary:'Task completed safely.'}); expect(duplicate!.applied).toBe(false);
     expect(calls.note).toBe(1);expect(calls.callback).toBe(1);
   });
@@ -68,6 +68,32 @@ describe('native Gas City single-task provider', () => {
     await db.updateTable('WorkflowNativeGasCityRun').set({roleTurnRequestJson:null,roleTurnRequestDigest:null,roleTurnSchemaVersion:null,status:'ready'}).where('operationKey','=','corrupt-turn').execute();await expect(new NativeGasCityWorkflowProvider({getDb:()=>db,runtime}).reconcile('corrupt-turn')).rejects.toThrow('predates');
   });
 
+  it('selects the exact compiler schema and binds the authored decision prompt',async()=>{
+    const first=bundle();await provider.launch({request,plan,bundle:first,idempotencyKey:'step-prompt-a'});const a=await db.selectFrom('WorkflowNativeGasCityRun').selectAll().where('operationKey','=','step-prompt-a').executeTakeFirstOrThrow();const parsed=JSON.parse(a.roleTurnRequestJson!);expect(parsed.promptComposition.decision).toEqual({stateId:'work',stepId:'decide',authoredPrompt:'Decide'});expect(parsed.prompt).toContain('\n\nDecide\n\n');
+    const changed=bundle();changed.document.workflow.definition.states.work.steps[0].prompt.template='Decide with the changed authored instruction';await provider.launch({request,plan,bundle:changed,idempotencyKey:'step-prompt-b'});const b=await db.selectFrom('WorkflowNativeGasCityRun').selectAll().where('operationKey','=','step-prompt-b').executeTakeFirstOrThrow();expect(b.roleTurnRequestDigest).not.toBe(a.roleTurnRequestDigest);expect(b.roleTurnRequestJson).toContain('changed authored instruction');
+    await expect(provider.launch({request,plan,bundle:changed,idempotencyKey:'step-prompt-a'})).rejects.toThrow('different resolved role turn');
+    const duplicate=bundle();duplicate.document.responseSchemas.push({...duplicate.document.responseSchemas[0]});await expect(provider.launch({request,plan,bundle:duplicate,idempotencyKey:'duplicate-schema'})).rejects.toThrow('duplicated');
+    const wrong=bundle();wrong.document.responseSchemas[0].stepId='other';await expect(provider.launch({request,plan,bundle:wrong,idempotencyKey:'wrong-schema'})).rejects.toThrow('missing or mismatched');
+  });
+
+  it('strictly rejects unknown and malformed nested snapshots on running and completed replay',async()=>{
+    const rewrite=async(operationKey:string,mutate:(value:any)=>void,status:'running'|'completed')=>{const row=await db.selectFrom('WorkflowNativeGasCityRun').selectAll().where('operationKey','=',operationKey).executeTakeFirstOrThrow();const value=JSON.parse(row.roleTurnRequestJson!);mutate(value);const json=JSON.stringify(value);await db.updateTable('WorkflowNativeGasCityRun').set({status,roleTurnRequestJson:json,roleTurnRequestDigest:createHash('sha256').update(json).digest('hex')}).where('operationKey','=',operationKey).execute();};
+    await provider.launch({request,plan,bundle:bundle(),idempotencyKey:'strict-running'});await rewrite('strict-running',(value)=>{value.promptComposition.promptAssets[0].unknown='no';},'running');await expect(provider.launch({request,plan,bundle:bundle(),idempotencyKey:'strict-running'})).rejects.toThrow('incompatible');
+    await provider.launch({request,plan,bundle:bundle(),idempotencyKey:'strict-completed'});await rewrite('strict-completed',(value)=>{value.preferenceSources.model='invented';},'completed');await expect(provider.launch({request,plan,bundle:bundle(),idempotencyKey:'strict-completed'})).rejects.toThrow('incompatible');
+    await provider.launch({request,plan,bundle:bundle(),idempotencyKey:'strict-binding'});await rewrite('strict-binding',(value)=>{value.binding.extra=true;},'running');await expect(provider.reconcile('strict-binding')).rejects.toThrow('incompatible');
+    const malformed:Array<[string,(value:any)=>void]>=[
+      ['unknown-root',(value)=>{value.unknown=true;}],
+      ['template-version',(value)=>{value.promptComposition.roleTemplate.version=0;}],
+      ['asset-hash',(value)=>{value.promptComposition.skillAssets[0].contentHash='bad';}],
+      ['decision',(value)=>{value.promptComposition.decision.stepId='';}],
+      ['context',(value)=>{value.promptComposition.taskContext.tasks[0].extra=true;}],
+      ['executor',(value)=>{value.executor=null;value.model='unexpected';}],
+      ['queue',(value)=>{value.queue.extra=true;}],
+      ['provenance',(value)=>{value.queue.provenance.workflow_role_id='other';}],
+    ];
+    for(const [suffix,mutate] of malformed){const operationKey=`strict-${suffix}`;await provider.launch({request,plan,bundle:bundle(),idempotencyKey:operationKey});await rewrite(operationKey,mutate,'running');await expect(provider.reconcile(operationKey)).rejects.toThrow('incompatible');}
+  });
+
   it('recovers an enqueue whose response was lost and distinguishes a never-enqueued turn',async()=>{
     await provider.launch({request,plan,bundle:bundle(),idempotencyKey:'lost-enqueue'});
     await db.updateTable('WorkflowNativeGasCityRun').set({sessionId:null,queueItemRef:null,status:'ready'}).where('operationKey','=','lost-enqueue').execute();
@@ -88,20 +114,20 @@ describe('native Gas City single-task provider', () => {
   it('resumes only the terminal callback after a crash following durable result persistence',async()=>{
     await provider.launch({request,plan,bundle:bundle(),idempotencyKey:'callback-crash'});
     await db.updateTable('WorkflowNativeGasCityRun').set({resultRef:'response-1',noteRef:'note-1',status:'completed',callbackRef:null}).where('operationKey','=','callback-crash').execute();
-    const replay=await provider.completeRoleTurn({queueItemRef:'queue-native-1',responseRef:'response-1',finalResponseText:'<decision action="done"><summary>Task completed safely.</summary></decision>'});
+    const replay=await provider.completeRoleTurn({queueItemRef:'queue-callback-crash',responseRef:'response-1',finalResponseText:'<decision action="done"><summary>Task completed safely.</summary></decision>'});
     expect(replay).toMatchObject({applied:false,run:{status:'completed'}});expect(calls.note).toBe(0);expect(calls.callback).toBe(1);
-    await provider.completeRoleTurn({queueItemRef:'queue-native-1',responseRef:'response-1',finalResponseText:'<decision action="done"><summary>Task completed safely.</summary></decision>'});
+    await provider.completeRoleTurn({queueItemRef:'queue-callback-crash',responseRef:'response-1',finalResponseText:'<decision action="done"><summary>Task completed safely.</summary></decision>'});
     expect(calls.callback).toBe(1);
   });
 
   it('blocks unsupported topology, conflicting replay, invalid XML, and scrubs hostile errors',async()=>{
-    const bad=bundle();bad.document.formula.intendedGraph.nodes.push({id:'two'});
+    const bad=bundle();bad.document.formula.intendedGraph.push({id:'two'});
     await expect(provider.launch({request,plan,bundle:bad,idempotencyKey:'bad'})).rejects.toThrow('one role turn');
     await provider.launch({request,plan,bundle:bundle(),idempotencyKey:'same'});
     await expect(provider.launch({request:{...request,inputs:{changed:true}},plan,bundle:bundle(),idempotencyKey:'same'})).rejects.toThrow('different confirmed plan');
-    await expect(provider.completeRoleTurn({queueItemRef:'queue-native-1',responseRef:'r',finalResponseText:'not xml'})).rejects.toThrow('decision contract');
-    await expect(provider.completeRoleTurn({queueItemRef:'queue-native-1',responseRef:'r',finalResponseText:'<decision action="done"><summary>a</summary><summary>b</summary></decision>'})).rejects.toThrow('duplicate');
-    await expect(provider.completeRoleTurn({queueItemRef:'queue-native-1',responseRef:'r',finalResponseText:'<decision action="done"><summary>a</summary><extra>x</extra></decision>'})).rejects.toThrow('compiled decision contract');
+    await expect(provider.completeRoleTurn({queueItemRef:'queue-same',responseRef:'r',finalResponseText:'not xml'})).rejects.toThrow('decision contract');
+    await expect(provider.completeRoleTurn({queueItemRef:'queue-same',responseRef:'r',finalResponseText:'<decision action="done"><summary>a</summary><summary>b</summary></decision>'})).rejects.toThrow('duplicate');
+    await expect(provider.completeRoleTurn({queueItemRef:'queue-same',responseRef:'r',finalResponseText:'<decision action="done"><summary>a</summary><extra>x</extra></decision>'})).rejects.toThrow('compiled decision contract');
     runtime.health=vi.fn(async()=>({ready:false,message:'provider diagnostics /tmp/secret stdout webhook'}));
     expect(await provider.checkDynamic(plan)).toEqual({ready:false,message:expect.not.stringMatching(/provider diagnostics|\/tmp|stdout|webhook/i)});
   });
