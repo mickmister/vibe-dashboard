@@ -4,6 +4,7 @@ import {
   buildLocalCaddyEnv,
   buildLocalPreviewUrl,
   getLocalCaddyOptionMismatches,
+  getLocalCaddyReuseDecision,
   normalizeLocalCaddyStartOptions,
   renderLocalPreviewCaddyfile,
   verifyLocalCaddyCompatibility,
@@ -57,7 +58,7 @@ describe('preview-local-caddy', () => {
       dashboardPort: 3005,
       baseDomain: 'localhost',
       readinessTimeoutMs: 5000,
-      caddyBin: expect.stringMatching(/\.tmp\/custom-caddy\/caddy$/),
+      caddyBin: expect.stringMatching(/\.cache\/vibe-dashboard\/preview-caddy\/slot-repo-workspace-customer-v1\/caddy$/),
     });
   });
 
@@ -125,5 +126,16 @@ describe('preview-local-caddy', () => {
         },
       ),
     ).toEqual(['caddyPort=3001 (requested 55743)']);
+  });
+
+  it('reuses only an unchanged compatible executable identity', () => {
+    const state = { executableIdentity: { sha256: 'same', grammar: 'slot-repo-workspace-customer-v1' as const } };
+    expect(getLocalCaddyReuseDecision(state, state.executableIdentity, true)).toEqual({ kind: 'reuse' });
+    expect(getLocalCaddyReuseDecision(state, { ...state.executableIdentity, sha256: 'replacement' }, true)).toMatchObject({ kind: 'conflict' });
+  });
+
+  it('requires restart for legacy running state but permits stale-state migration', () => {
+    expect(getLocalCaddyReuseDecision({}, { sha256: 'current', grammar: 'slot-repo-workspace-customer-v1' }, true)).toMatchObject({ kind: 'conflict' });
+    expect(getLocalCaddyReuseDecision({}, { sha256: 'current', grammar: 'slot-repo-workspace-customer-v1' }, false)).toEqual({ kind: 'stale' });
   });
 });

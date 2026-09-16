@@ -1,14 +1,16 @@
 import { spawn, spawnSync } from 'child_process';
 import { closeSync, openSync } from 'fs';
 import { mkdir, readFile, rm, writeFile } from 'fs/promises';
-import { tmpdir } from 'os';
+import { createHash } from 'crypto';
+import { homedir, tmpdir } from 'os';
 import { dirname, resolve } from 'path';
 import type { PreviewSlotUrlResponse } from './vk-service.js';
 
 export const LOCAL_PREVIEW_BASE_DOMAIN = 'localhost';
 const STATE_FILE = resolve(tmpdir(), 'vk-preview-local-caddy.json');
-const PREVIEW_CADDY_GRAMMAR = 'slot-repo-workspace-customer-v1';
-const DEFAULT_CUSTOM_CADDY = resolve(process.cwd(), '.tmp', 'custom-caddy', 'caddy');
+const PREVIEW_CADDY_GRAMMAR = 'slot-repo-workspace-customer-v1' as const;
+const DEFAULT_CUSTOM_CADDY = resolve(process.env.XDG_CACHE_HOME || resolve(homedir(), '.cache'), 'vibe-dashboard', 'preview-caddy', PREVIEW_CADDY_GRAMMAR, 'caddy');
+export interface LocalCaddyExecutableIdentity { sha256: string; grammar: typeof PREVIEW_CADDY_GRAMMAR }
 
 type CaddyCommandResult = { status: number | null; stdout: string; stderr: string; error?: Error };
 type CaddyCommandRunner = (command: string, args: string[], input?: string) => CaddyCommandResult;
@@ -31,6 +33,7 @@ export interface LocalCaddyStartOptions {
 }
 
 export interface LocalCaddyState extends LocalCaddyStartOptions {
+  executableIdentity?: LocalCaddyExecutableIdentity;
   pid: number;
   startedAt: string;
   runDir: string;
@@ -194,8 +197,12 @@ export async function startLocalPreviewCaddy(
   options: LocalCaddyStartOptions,
 ): Promise<LocalCaddyState> {
   verifyLocalCaddyCompatibility(options.caddyBin);
+  const executableIdentity = await getLocalCaddyExecutableIdentity(options.caddyBin);
   const existing = await readLocalCaddyState().catch(() => null);
-  if (existing && isProcessRunning(existing.pid)) {
+  if (existing) {
+    const decision = getLocalCaddyReuseDecision(existing, executableIdentity, isProcessRunning(existing.pid));
+    if (decision.kind === 'conflict') throw new Error(`${decision.reason} Stop it first with "vk preview-url local-caddy stop".`);
+    if (decision.kind === 'reuse') {
     const mismatches = getLocalCaddyOptionMismatches(existing, options);
     if (mismatches.length) {
       throw new Error(
@@ -203,8 +210,7 @@ export async function startLocalPreviewCaddy(
       );
     }
     return existing;
-  }
-  if (existing && !isProcessRunning(existing.pid)) {
+    }
     await rm(STATE_FILE, { force: true });
   }
 
@@ -248,6 +254,7 @@ export async function startLocalPreviewCaddy(
 
   const state: LocalCaddyState = {
     ...options,
+    executableIdentity,
     pid: child.pid,
     startedAt: new Date().toISOString(),
     runDir,
@@ -266,6 +273,23 @@ export async function startLocalPreviewCaddy(
   }
   await writeLocalCaddyState(state);
   return state;
+}
+
+export async function getLocalCaddyExecutableIdentity(caddyBin: string): Promise<LocalCaddyExecutableIdentity> {
+  return { sha256: createHash('sha256').update(await readFile(caddyBin)).digest('hex'), grammar: PREVIEW_CADDY_GRAMMAR };
+}
+
+export function getLocalCaddyReuseDecision(
+  state: Pick<LocalCaddyState, 'executableIdentity'>,
+  current: LocalCaddyExecutableIdentity,
+  running: boolean,
+): { kind: 'reuse' } | { kind: 'stale' } | { kind: 'conflict'; reason: string } {
+  if (!running) return { kind: 'stale' };
+  if (!state.executableIdentity) return { kind: 'conflict', reason: 'Running local PreviewServer Caddy has legacy state without executable identity.' };
+  if (state.executableIdentity.sha256 !== current.sha256 || state.executableIdentity.grammar !== current.grammar) {
+    return { kind: 'conflict', reason: 'Running local PreviewServer Caddy executable differs from the currently validated binary.' };
+  }
+  return { kind: 'reuse' };
 }
 
 export function verifyLocalCaddyCompatibility(
