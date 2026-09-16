@@ -38,12 +38,33 @@ const VALID_RESOLVE_STATUSES = new Set([
   'unavailable',
   'error',
 ]);
+const STARTED_PREVIEW_LINK_TTL_MS = 24 * 60 * 60 * 1000;
+const MAX_STARTED_PREVIEW_LINKS = 1_000;
 
 export function registerPreviewResolverRoutes(
   app: Hono,
   options: RegisterPreviewResolverRoutesOptions = {},
 ): void {
   const vkClient = options.vkClient ?? new VibeKanbanServerClient();
+  const startedPreviewLinks = new Map<string, { workspaceId: string; expiresAt: number }>();
+
+  const rememberStartedPreviewLink = (workspaceId: string, response: RunConfigStartResponse) => {
+    const link = response.preview_process_link;
+    if (link.workspace_id !== workspaceId || !link.execution_process_id) return;
+    const now = Date.now();
+    for (const [processId, cached] of startedPreviewLinks) {
+      if (cached.expiresAt <= now) startedPreviewLinks.delete(processId);
+    }
+    while (startedPreviewLinks.size >= MAX_STARTED_PREVIEW_LINKS) {
+      const oldestProcessId = startedPreviewLinks.keys().next().value as string | undefined;
+      if (!oldestProcessId) break;
+      startedPreviewLinks.delete(oldestProcessId);
+    }
+    startedPreviewLinks.set(link.execution_process_id, {
+      workspaceId,
+      expiresAt: now + STARTED_PREVIEW_LINK_TTL_MS,
+    });
+  };
 
   app.post('/internal/preview/resolve', async (c) => {
     let payload: PreviewResolveRequest;
@@ -96,9 +117,13 @@ export function registerPreviewResolverRoutes(
     const maxEntries = parseBoundedInteger(c.req.query('maxEntries'), 200, 1, 1_000);
     try {
       const previewData = await vkClient.getRunConfigs!(workspaceId);
+      const cachedLink = startedPreviewLinks.get(processId);
+      if (cachedLink && cachedLink.expiresAt <= Date.now()) {
+        startedPreviewLinks.delete(processId);
+      }
       const linkedProcess = previewData.preview_process_links?.some(
         (link) => link.workspace_id === workspaceId && link.execution_process_id === processId,
-      );
+      ) || (cachedLink?.workspaceId === workspaceId && cachedLink.expiresAt > Date.now());
       if (!linkedProcess) {
         return c.json({ message: 'No PreviewServer logs found for this workspace process.' }, 404);
       }
@@ -146,6 +171,7 @@ export function registerPreviewResolverRoutes(
     const runConfigId = c.req.param('runConfigId');
     try {
       const response = await vkClient.startRunConfig!(workspaceId, runConfigId);
+      rememberStartedPreviewLink(workspaceId, response);
       return c.json(response, 200);
     } catch (error) {
       console.warn('Preview run config start failed', error);
@@ -158,6 +184,7 @@ export function registerPreviewResolverRoutes(
     const previewSlotId = c.req.param('previewSlotId');
     try {
       const response = await vkClient.startPreviewSlot!(workspaceId, previewSlotId);
+      rememberStartedPreviewLink(workspaceId, response);
       return c.json(response, 200);
     } catch (error) {
       console.warn('Preview slot start failed', error);

@@ -345,6 +345,47 @@ describe('PreviewRunConfigsPanel', () => {
     expect(requests.filter((url) => url.includes('/logs'))).toHaveLength(1);
   });
 
+  it.each(['completed', 'failed'] as const)(
+    'retains a start-returned %s process across refresh and loads logs only after click',
+    async (terminalStatus) => {
+      const requests: string[] = [];
+      let listCount = 0;
+      vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+        const url = String(input);
+        requests.push(url);
+        if (url === `/internal/preview/workspaces/ws-${terminalStatus}/repos`) {
+          return jsonResponse([{ id: 'repo-alpha', name: 'alpha', display_name: 'Alpha', target_branch: 'main' }]);
+        }
+        if (url.endsWith('/run-configs/rc-terminal/start') && init?.method === 'POST') {
+          return jsonResponse(startResponse(`process-${terminalStatus}`, 'rc-terminal', terminalStatus));
+        }
+        if (url.includes(`/execution-processes/process-${terminalStatus}/logs`)) {
+          return jsonResponse({ logs: [{ type: terminalStatus === 'failed' ? 'STDERR' : 'STDOUT', content: `${terminalStatus} output\n` }] });
+        }
+        if (url.endsWith('/run-configs')) {
+          listCount += 1;
+          return jsonResponse({
+            run_configs: [{ id: 'rc-terminal', repo_id: 'repo-alpha', slug: 'once', name: 'One shot', command: 'echo done', kind: 'one_shot', enabled: true, created_at: '', updated_at: '' }],
+            preview_slots: [], preview_url_parts: [],
+            // Terminal links are omitted by the current VK active-link listing.
+            preview_process_links: [],
+          });
+        }
+        throw new Error(`unexpected fetch ${url}`);
+      }));
+
+      render(React.createElement(PreviewRunConfigsPanel, { workspaceId: `ws-${terminalStatus}` }));
+      await screen.findByText('One shot');
+      fireEvent.click(screen.getByRole('button', { name: 'Run on demand' }));
+      await waitFor(() => expect(listCount).toBeGreaterThan(1));
+      expect(requests.some((url) => url.includes('/logs'))).toBe(false);
+
+      fireEvent.click(screen.getByRole('button', { name: 'Show logs for run config One shot' }));
+      expect(await screen.findByText(new RegExp(`${terminalStatus} output`))).toBeTruthy();
+      expect(requests.filter((url) => url.includes('/logs'))).toHaveLength(1);
+    },
+  );
+
   it('restores URL-started slot process linkage without eagerly loading logs', async () => {
     const requests: string[] = [];
     window.history.replaceState({}, '', '/?previewWorkspaceId=ws-linked&previewSlotId=slot-linked');
@@ -452,12 +493,12 @@ describe('PreviewRunConfigsPanel', () => {
   });
 });
 
-function startResponse(processId: string, runConfigId: string) {
+function startResponse(processId: string, runConfigId: string, status = 'running') {
   return {
     execution_process: {
       id: processId,
       session_id: 'session-1',
-      status: 'running',
+      status,
     },
     preview_process_link: {
       id: `link-${processId}`,

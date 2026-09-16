@@ -289,4 +289,41 @@ describe('registerPreviewResolverRoutes', () => {
     expect(client.getExecutionProcess).not.toHaveBeenCalled();
     expect(client.fetchRawExecutionLogs).not.toHaveBeenCalled();
   });
+
+  it.each(['completed', 'failed'] as const)(
+    'authorizes %s process logs from a start-returned Preview link after active links disappear',
+    async (status) => {
+      const processId = `process-${status}`;
+      const client = {
+        resolvePreview: vi.fn(),
+        startRunConfig: vi.fn(async () => ({
+          execution_process: { id: processId, session_id: 'session-1', status },
+          preview_process_link: {
+            id: `link-${status}`, workspace_id: 'ws1', repo_id: 'repo-1', run_config_id: 'config-1',
+            execution_process_id: processId, assigned_port: 4000,
+            status_snapshot: status === 'failed' ? 'failed' as const : 'stopped' as const,
+            started_at: '', updated_at: '',
+          },
+          upstream: 'http://127.0.0.1:4000',
+        })),
+        getRunConfigs: vi.fn(async () => ({
+          run_configs: [], preview_slots: [], preview_url_parts: [], preview_process_links: [],
+        })),
+        getExecutionProcess: vi.fn(async () => ({ id: processId, session_id: 'session-1', status })),
+        getSession: vi.fn(async () => ({ id: 'session-1', workspace_id: 'ws1', executor: 'CODEX' as const, created_at: '', updated_at: '' })),
+        fetchRawExecutionLogs: vi.fn(async () => [{
+          type: status === 'failed' ? 'STDERR' as const : 'STDOUT' as const,
+          content: `${status}\n`,
+        }]),
+      };
+      const app = new Hono();
+      registerPreviewResolverRoutes(app, { vkClient: client });
+
+      await app.request('/internal/preview/workspaces/ws1/run-configs/config-1/start', { method: 'POST' });
+      const response = await app.request(`/internal/preview/workspaces/ws1/execution-processes/${processId}/logs`);
+
+      expect(response.status).toBe(200);
+      expect(client.fetchRawExecutionLogs).toHaveBeenCalledWith(processId, { timeoutMs: 1500, maxEntries: 200 });
+    },
+  );
 });

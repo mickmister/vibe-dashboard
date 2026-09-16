@@ -68,8 +68,8 @@ export function PreviewRunConfigsPanel({
       // A supporting VK response is authoritative. Replacing rather than
       // merging prevents removed links from leaving stale Logs actions, while
       // an older VK that omits this field keeps panel-started process IDs.
-      setRunConfigProcessIds(nextRunProcesses);
-      setPreviewSlotProcessIds(nextSlotProcesses);
+      setRunConfigProcessIds((current) => ({ ...current, ...nextRunProcesses }));
+      setPreviewSlotProcessIds((current) => ({ ...current, ...nextSlotProcesses }));
     }
   }, [workspaceId]);
 
