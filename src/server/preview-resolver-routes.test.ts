@@ -320,6 +320,10 @@ describe('registerPreviewResolverRoutes', () => {
       registerPreviewResolverRoutes(app, { vkClient: client });
 
       await app.request('/internal/preview/workspaces/ws1/run-configs/config-1/start', { method: 'POST' });
+      const listing = await app.request('/internal/preview/workspaces/ws1/run-configs');
+      await expect(listing.json()).resolves.toMatchObject({
+        preview_process_links: [expect.objectContaining({ execution_process_id: processId })],
+      });
       const response = await app.request(`/internal/preview/workspaces/ws1/execution-processes/${processId}/logs`);
 
       expect(response.status).toBe(200);
