@@ -301,6 +301,8 @@ export interface QueuedMessage {
     | "cancelled";
   source: "from_user" | "workflow" | "agent" | "system";
   priority: number | bigint;
+  last_error?: string | null;
+  started_execution_process_id?: string | null;
   data: { message: string; executor_config?: ExecutorConfig | null; session_command?: unknown | null; provenance?: QueueFollowUpProvenance | null; operation_key?: string | null };
 }
 
