@@ -1,24 +1,26 @@
 import Database from 'better-sqlite3';
 import { Kysely, SqliteDialect } from 'kysely';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { createHash } from 'node:crypto';
 import type { DB } from '../../../../store/kysely_types';
 import { migration } from '../../../../store/db/migrations/20260915000000_native_gas_city_runs/migration';
 import { migration as effectsMigration } from '../../../../store/db/migrations/20260915010000_native_gas_city_effects/migration';
+import { migration as roleTurnMigration } from '../../../../store/db/migrations/20260915020000_native_role_turn_request/migration';
 import { NativeGasCityWorkflowProvider, type NativeGasCityRuntime } from './nativeGasCityWorkflowProvider';
 
-function bundle(): any { return { schemaVersion: 'vd.execution-bundle.v1', digest: 'b'.repeat(64), bytes: new TextEncoder().encode('{}'), document: { workflow:{definition:{schemaVersion:1,name:'Native',roles:{dev:{}},initialState:'work',states:{work:{owner:'dev',steps:[{id:'decide',type:'agent_turn',turnType:'decision',prompt:{template:'Decide'},response:{format:'xml',schema:{format:'xsd',source:'state_actions'},invalidXmlRetry:{maxAttempts:1,prompt:'engine_default_with_validation_errors',onExhausted:'blocked'},storeRawXml:true,rawXmlMaxChars:1000,storeParsedFields:true,unknownFields:'reject_unless_allowed_by_result_contract'}}],actions:{done:{targetState:'done',result:{fields:{summary:{type:'markdown'}},required:['summary'],unknownFields:'reject'}}}},done:{terminal:true}}}}, roles: [{ roleId: 'dev', promptAssets: [{ content: 'Implement carefully.' }], skillAssets: [], baseInstructions: 'Return the decision.', executor: 'CODEX', model: 'gpt-5.3-codex', reasoningId: 'high' }], responseSchemas: { decision: '<xs:schema />' }, formula: { intendedGraph: { nodes: [{ id: 'work' }] } } }, verificationEvidence: {} }; }
+function bundle(): any { return { schemaVersion: 'vd.execution-bundle.v1', digest: 'b'.repeat(64), bytes: new TextEncoder().encode('{}'), document: { workflow:{definition:{schemaVersion:1,name:'Native',roles:{dev:{}},initialState:'work',states:{work:{owner:'dev',steps:[{id:'decide',type:'agent_turn',turnType:'decision',prompt:{template:'Decide'},response:{format:'xml',schema:{format:'xsd',source:'state_actions'},invalidXmlRetry:{maxAttempts:1,prompt:'engine_default_with_validation_errors',onExhausted:'blocked'},storeRawXml:true,rawXmlMaxChars:1000,storeParsedFields:true,unknownFields:'reject_unless_allowed_by_result_contract'}}],actions:{done:{targetState:'done',result:{fields:{summary:{type:'markdown'}},required:['summary'],unknownFields:'reject'}}}},done:{terminal:true}}}}, inputs:{scope:'focused'},roles: [{ roleId: 'dev',template:{id:'reviewer',version:2,content:'Template instructions.',contentHash:'t'.repeat(64)}, promptAssets: [{id:'prompt',version:3,content:'Implement carefully.',contentHash:'p'.repeat(64)}], skillAssets: [{id:'skill',version:4,content:'Use the checklist.',contentHash:'s'.repeat(64)}], baseInstructions: 'Return the decision.', executor: 'CODEX', model: 'gpt-5.3-codex', reasoningId: 'high',preferenceSources:{executor:'role_default',model:'role_default',reasoningId:'role_default'} }], responseSchemas: { decision: '<xs:schema />' }, formula: { intendedGraph: { nodes: [{ id: 'work' }] } } }, verificationEvidence: {} }; }
 const request:any={workspaceId:'ws-1',designId:'design-1',version:1,inputs:{},roleBindings:{dev:{mode:'create',name:'Dev'}},beadIds:['bead-1'],completionResponse:{sessionId:'caller-1',source:'vibe-agent-cli'}};
 const plan:any={digest:'p'.repeat(64),tasks:[{id:'bead-1',title:'Task'}]};
 
 describe('native Gas City single-task provider', () => {
-  let db:Kysely<DB>; let calls:{bundle:number;workflow:number;turn:number;note:number;callback:number}; let runtime:NativeGasCityRuntime; let provider:NativeGasCityWorkflowProvider;
-  beforeEach(async()=>{ const sqlite=new Database(':memory:'); (sqlite as any).exec(`${migration}\n${effectsMigration}`); db=new Kysely<DB>({dialect:new SqliteDialect({database:sqlite})}); calls={bundle:0,workflow:0,turn:0,note:0,callback:0}; const effects=new Map<string,any>(); runtime={
+  let db:Kysely<DB>; let calls:{bundle:number;workflow:number;turn:number;note:number;callback:number}; let turnRequests:any[];let runtime:NativeGasCityRuntime; let provider:NativeGasCityWorkflowProvider;
+  beforeEach(async()=>{ const sqlite=new Database(':memory:'); (sqlite as any).exec(`${migration}\n${effectsMigration}\n${roleTurnMigration}`); db=new Kysely<DB>({dialect:new SqliteDialect({database:sqlite})}); calls={bundle:0,workflow:0,turn:0,note:0,callback:0};turnRequests=[]; const effects=new Map<string,any>(); runtime={
     health:async()=>({ready:true}),
     checkTaskReady:async()=>({ready:true}),
     ensureBundle:async({operationKey,bundle})=>{calls.bundle++; const value={bundleRef:bundle.digest};effects.set(`${operationKey}:bundle`,value);return value;},
     ensureWorkflow:async({operationKey,sourceBeadId})=>{calls.workflow++;const value={workflowId:'wf-1',rootBeadId:'root-1',sourceBeadId,status:'running' as const};effects.set(`${operationKey}:workflow`,value);return value;},
     reconcileWorkflow:async({operationKey})=>effects.get(`${operationKey}:workflow`)??null,
-    ensureRoleTurn:async({operationKey})=>{calls.turn++;const value={sessionId:'session-dev',queueItemRef:operationKey==='never-enqueued'?'queue-native-2':'queue-native-1'};effects.set(`${operationKey}:turn`,value);return value;},
+    ensureRoleTurn:async(input)=>{turnRequests.push(structuredClone(input));calls.turn++;const value={sessionId:'session-dev',queueItemRef:input.operationKey==='never-enqueued'?'queue-native-2':'queue-native-1'};effects.set(`${input.operationKey}:turn`,value);return value;},
     reconcileRoleTurn:async(input)=>effects.get(`${input.operationKey}:turn`)??null,
     readAuthoritativeState:async({sourceBeadId})=>({workflowId:'wf-1',rootBeadId:'root-1',sourceBeadId,status:'completed'}),
     ensureTypedResult:async({workflowId,rootBeadId,sourceBeadId})=>({workflowId,rootBeadId,sourceBeadId,status:'completed'}),
@@ -45,6 +47,27 @@ describe('native Gas City single-task provider', () => {
     expect(calls.workflow).toBe(1);expect(calls.turn).toBe(1);
   });
 
+  it('persists the complete canonical role turn before effects and reuses it after mutable inputs change',async()=>{
+    const original=bundle();let observedBeforeBundle=false;runtime.ensureBundle=async({bundle:compiled})=>{const row=await db.selectFrom('WorkflowNativeGasCityRun').selectAll().where('operationKey','=','immutable-turn').executeTakeFirstOrThrow();expect(row.roleTurnRequestDigest).toMatch(/^[a-f0-9]{64}$/);expect(row.roleTurnRequestJson).toContain('Implement carefully.');observedBeforeBundle=true;return{bundleRef:compiled.digest};};
+    await provider.launch({request:{...request,inputs:{scope:'focused'}},plan,bundle:original,idempotencyKey:'immutable-turn'});expect(observedBeforeBundle).toBe(true);const persisted=await db.selectFrom('WorkflowNativeGasCityRun').selectAll().where('operationKey','=','immutable-turn').executeTakeFirstOrThrow();const parsed=JSON.parse(persisted.roleTurnRequestJson!);expect(parsed).toMatchObject({schemaVersion:'vd.native-role-turn.v1',operationKey:'immutable-turn',workspaceId:'ws-1',roleId:'dev',executor:'CODEX',model:'gpt-5.3-codex',reasoningId:'high',preferenceSources:{executor:'role_default'},binding:{mode:'create',name:'Dev'},queue:{operationKey:'native-turn:immutable-turn',source:'workflow',priority:60,sessionCommand:null}});expect(parsed.promptComposition).toMatchObject({roleTemplate:{content:'Template instructions.'},promptAssets:[{content:'Implement carefully.'}],skillAssets:[{content:'Use the checklist.'}],generatedXsd:'<xs:schema />',taskContext:{tasks:[{id:'bead-1',title:'Task'}],inputs:{scope:'focused'}}});expect(parsed.prompt).toContain('Template instructions.');expect(parsed.prompt).toContain('bead-1: Task');expect(parsed.prompt).toContain('<xs:schema />');
+    original.document.roles[0].promptAssets[0].content='MUTATED';original.document.roles[0].model='other';await db.updateTable('WorkflowNativeGasCityRun').set({sessionId:null,queueItemRef:null,status:'ready'}).where('operationKey','=','immutable-turn').execute();const restarted=new NativeGasCityWorkflowProvider({getDb:()=>db,runtime,now:()=>200});await restarted.reconcile('immutable-turn');expect(turnRequests.at(-1)).toEqual(parsed);expect(turnRequests.at(-1).prompt).not.toContain('MUTATED');
+  });
+
+  it('recovers a crash before enqueue from the byte-identical persisted role request',async()=>{
+    const originalEnsure=runtime.ensureRoleTurn;runtime.ensureRoleTurn=async()=>{throw new Error('crash before enqueue');};
+    const interrupted=new NativeGasCityWorkflowProvider({getDb:()=>db,runtime,now:()=>100,effectLeaseMs:10});
+    await expect(interrupted.launch({request,plan,bundle:bundle(),idempotencyKey:'before-enqueue'})).rejects.toThrow('could not be confirmed');
+    const stored=await db.selectFrom('WorkflowNativeGasCityRun').selectAll().where('operationKey','=','before-enqueue').executeTakeFirstOrThrow();expect(stored.queueItemRef).toBeNull();const canonical=stored.roleTurnRequestJson;
+    runtime.ensureRoleTurn=originalEnsure;const restarted=new NativeGasCityWorkflowProvider({getDb:()=>db,runtime,now:()=>1000,effectLeaseMs:10});
+    await expect(restarted.reconcile('before-enqueue')).resolves.toMatchObject({outcome:'found',run:{status:'running'}});
+    expect(turnRequests).toHaveLength(1);expect(JSON.stringify(turnRequests[0])).toBe(canonical);expect(calls.turn).toBe(1);
+  });
+
+  it('fails closed for corrupted, incompatible, and legacy role-turn records',async()=>{
+    await provider.launch({request,plan,bundle:bundle(),idempotencyKey:'corrupt-turn'});await db.updateTable('WorkflowNativeGasCityRun').set({sessionId:null,queueItemRef:null,status:'ready',roleTurnRequestJson:'{}'}).where('operationKey','=','corrupt-turn').execute();await expect(new NativeGasCityWorkflowProvider({getDb:()=>db,runtime}).reconcile('corrupt-turn')).rejects.toThrow('corrupted');
+    await db.updateTable('WorkflowNativeGasCityRun').set({roleTurnRequestJson:null,roleTurnRequestDigest:null,roleTurnSchemaVersion:null,status:'ready'}).where('operationKey','=','corrupt-turn').execute();await expect(new NativeGasCityWorkflowProvider({getDb:()=>db,runtime}).reconcile('corrupt-turn')).rejects.toThrow('predates');
+  });
+
   it('recovers an enqueue whose response was lost and distinguishes a never-enqueued turn',async()=>{
     await provider.launch({request,plan,bundle:bundle(),idempotencyKey:'lost-enqueue'});
     await db.updateTable('WorkflowNativeGasCityRun').set({sessionId:null,queueItemRef:null,status:'ready'}).where('operationKey','=','lost-enqueue').execute();
@@ -56,7 +79,8 @@ describe('native Gas City single-task provider', () => {
     // therefore enqueued exactly once; restart found that same durable item.
     expect(calls.turn).toBe(1);
 
-    await db.insertInto('WorkflowNativeGasCityRun').values({operationKey:'never-enqueued',runId:'native_never',workspaceId:'ws-1',sourceBeadId:'bead-1',requestDigest:'request',bundleDigest:bundle().digest,requestJson:JSON.stringify(request),allowedActionsJson:'["done"]',definitionJson:JSON.stringify(bundle().document.workflow.definition),status:'ready',bundleRef:bundle().digest,workflowId:'wf-1',rootBeadId:'root-1',sessionId:null,queueItemRef:null,resultRef:null,noteRef:null,callbackRef:null,summary:'Ready.',attempts:1,createdAt:1,updatedAt:1}).execute();
+    const prior=await db.selectFrom('WorkflowNativeGasCityRun').select(['roleTurnSchemaVersion','roleTurnRequestJson']).where('operationKey','=','lost-enqueue').executeTakeFirstOrThrow();const roleTurn=JSON.parse(prior.roleTurnRequestJson!);roleTurn.operationKey='never-enqueued';roleTurn.queue.operationKey='native-turn:never-enqueued';roleTurn.queue.provenance.workflow_run_id='never-enqueued';const roleTurnRequestJson=JSON.stringify(roleTurn);const stored={roleTurnSchemaVersion:prior.roleTurnSchemaVersion,roleTurnRequestJson,roleTurnRequestDigest:createHash('sha256').update(roleTurnRequestJson).digest('hex')};
+    await db.insertInto('WorkflowNativeGasCityRun').values({operationKey:'never-enqueued',runId:'native_never',workspaceId:'ws-1',sourceBeadId:'bead-1',requestDigest:'request',bundleDigest:bundle().digest,requestJson:JSON.stringify(request),allowedActionsJson:'["done"]',definitionJson:JSON.stringify(bundle().document.workflow.definition),...stored,status:'ready',bundleRef:bundle().digest,workflowId:'wf-1',rootBeadId:'root-1',sessionId:null,queueItemRef:null,resultRef:null,noteRef:null,callbackRef:null,summary:'Ready.',attempts:1,createdAt:1,updatedAt:1}).execute();
     await expect(restarted.reconcile('never-enqueued')).resolves.toMatchObject({outcome:'found'});
     expect(calls.turn).toBe(2);
   });

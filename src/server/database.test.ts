@@ -13,6 +13,7 @@ import { migration as workAreaRegistryAdoptionAuditMigration } from '../store/db
 import { migration as workAreaAdoptionCapabilityMigration } from '../store/db/migrations/20260912060000_workflow_work_area_adoption_capability/migration';
 import { migration as nativeRunsMigration } from '../store/db/migrations/20260915000000_native_gas_city_runs/migration';
 import { migration as nativeEffectsMigration } from '../store/db/migrations/20260915010000_native_gas_city_effects/migration';
+import { migration as nativeRoleTurnMigration } from '../store/db/migrations/20260915020000_native_role_turn_request/migration';
 import Database from 'better-sqlite3';
 
 const tempDirs: string[] = [];
@@ -28,7 +29,8 @@ describe('VD database', () => {
     const sqlite:any=new Database(':memory:');sqlite.exec(nativeRunsMigration);
     sqlite.prepare(`INSERT INTO WorkflowNativeGasCityRun(operationKey,runId,workspaceId,sourceBeadId,requestDigest,bundleDigest,requestJson,allowedActionsJson,status,summary,attempts,createdAt,updatedAt) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)`).run('op','run','ws','bead','request','bundle','{}','[]','running','Running.',1,1,1);
     sqlite.exec(nativeEffectsMigration);
-    expect(sqlite.prepare('SELECT operationKey,definitionJson FROM WorkflowNativeGasCityRun').get()).toEqual({operationKey:'op',definitionJson:'{}'});
+    sqlite.exec(nativeRoleTurnMigration);
+    expect(sqlite.prepare('SELECT operationKey,definitionJson,roleTurnRequestJson FROM WorkflowNativeGasCityRun').get()).toEqual({operationKey:'op',definitionJson:'{}',roleTurnRequestJson:null});
     sqlite.prepare(`INSERT INTO WorkflowNativeGasCityEffect(runId,kind,requestDigest,status,fence,createdAt,updatedAt) VALUES('run','bundle','digest','completed',1,1,1)`).run();
     expect(sqlite.prepare('SELECT COUNT(*) AS count FROM WorkflowNativeGasCityEffect').get()).toEqual({count:1});sqlite.close();
   });
@@ -76,6 +78,7 @@ describe('VD database', () => {
         '20260912080000_harden_workflow_plan_launch',
         '20260915000000_native_gas_city_runs',
         '20260915010000_native_gas_city_effects',
+        '20260915020000_native_role_turn_request',
       ]);
       const tables = await sql<{ name: string }>`
         SELECT name FROM sqlite_master

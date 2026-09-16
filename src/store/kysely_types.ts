@@ -857,6 +857,9 @@ export interface WorkflowNativeGasCityRun {
   requestJson: string;
   allowedActionsJson: string;
   definitionJson:string;
+  roleTurnSchemaVersion:NullableString;
+  roleTurnRequestJson:NullableString;
+  roleTurnRequestDigest:NullableString;
   status: 'preparing' | 'materializing' | 'ready' | 'turn_pending' | 'running' | 'completed' | 'blocked';
   bundleRef: NullableString;
   workflowId: NullableString;
