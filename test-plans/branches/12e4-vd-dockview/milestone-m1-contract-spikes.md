@@ -194,6 +194,12 @@ Expected:
   promised.
 - Each user command produces one coordinator mutation/history checkpoint.
 
+Phase 0 result for `TEST_CASE_M1_5A` and `TEST_CASE_M1_5B`: **GO**. The generic
+durable surface-opening model, semantic browser harness, and executable evidence
+are recorded in `docs/phase-0/surface-opening-coordinator-results.md`. Agent →
+Code remains an acceptance fixture rather than a special target-kind path; the
+same contract also proves Agent → Forms.
+
 ### TEST_CASE_M1_5C — Temporary foreground Split View
 
 Steps:

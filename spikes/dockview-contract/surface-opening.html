@@ -1,0 +1,18 @@
+<!doctype html>
+<html lang="en">
+  <head><meta charset="utf-8"><meta name="viewport" content="width=device-width"><title>Durable surface opening contract</title></head>
+  <body>
+    <nav aria-label="Surface actions">
+      <button id="open-code-beside" type="button">Open Code beside</button>
+      <button id="open-forms-beside" type="button">Open Forms beside</button>
+      <button id="open-code-maximized" type="button">Open Code maximized</button>
+      <button id="restore-layout" type="button" disabled>Restore layout</button>
+      <button id="undo-layout" type="button" disabled>Undo layout</button>
+      <button id="redo-layout" type="button" disabled>Redo layout</button>
+    </nav>
+    <div id="surface-dockview" style="height: 420px; width: 900px"></div>
+    <div id="runtime-layer" hidden></div>
+    <output id="surface-status" aria-live="polite">loading</output>
+    <script type="module" src="./surfaceOpeningHarness.ts"></script>
+  </body>
+</html>
