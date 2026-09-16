@@ -37,8 +37,9 @@ export class PreviewProcessLinkStore {
     const authoritativeSlots = new Set(authoritative.flatMap((item) => item.preview_slot_id ? [item.preview_slot_id] : []));
     const retained = [...this.links.values()].reverse().map(({ link }) => link).filter((item) =>
       item.workspace_id === workspaceId &&
-      !authoritativeRuns.has(item.run_config_id) &&
-      (!item.preview_slot_id || !authoritativeSlots.has(item.preview_slot_id)),
+      (item.preview_slot_id
+        ? !authoritativeSlots.has(item.preview_slot_id)
+        : !authoritativeRuns.has(item.run_config_id)),
     );
     return [...authoritative, ...retained];
   }

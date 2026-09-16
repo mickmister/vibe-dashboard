@@ -23,6 +23,29 @@ describe('PreviewProcessLinkStore', () => {
     expect(store.merge('ws-1', authoritative)).toEqual(authoritative);
   });
 
+  it('preserves a terminal sibling slot while authoritative links lead shared run-config resolution', () => {
+    const store = new PreviewProcessLinkStore();
+    store.remember('ws-1', link('slot-a-complete', 'shared-run', 'slot-a'));
+    const authoritativeSlotB = link('slot-b-active', 'shared-run', 'slot-b');
+
+    const merged = store.merge('ws-1', [authoritativeSlotB]);
+    const runProcess = merged.find((item) => item.run_config_id === 'shared-run');
+    const slotAProcess = merged.find((item) => item.preview_slot_id === 'slot-a');
+    const slotBProcess = merged.find((item) => item.preview_slot_id === 'slot-b');
+
+    expect(merged).toEqual([authoritativeSlotB, link('slot-a-complete', 'shared-run', 'slot-a')]);
+    expect(runProcess?.execution_process_id).toBe('slot-b-active');
+    expect(slotAProcess?.execution_process_id).toBe('slot-a-complete');
+    expect(slotBProcess?.execution_process_id).toBe('slot-b-active');
+  });
+
+  it('replaces a retained slot only with an authoritative link for that same slot', () => {
+    const store = new PreviewProcessLinkStore();
+    store.remember('ws-1', link('slot-a-complete', 'shared-run', 'slot-a'));
+    const authoritativeSlotA = link('slot-a-active', 'shared-run', 'slot-a');
+    expect(store.merge('ws-1', [authoritativeSlotA])).toEqual([authoritativeSlotA]);
+  });
+
   it('expires links and evicts the oldest beyond 1000 entries', () => {
     let now = 0;
     const store = new PreviewProcessLinkStore({ now: () => now, ttlMs: 10, maxEntries: 1000 });
