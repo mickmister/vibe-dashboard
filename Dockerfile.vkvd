@@ -6,11 +6,11 @@ ARG VK_COMMIT=
 ARG VK_RUNTIME_SOURCE=github
 ARG BUILD_VK_LOCALLY=false
 ARG CODEX_RELEASE_REPO=mickmister/codex
-ARG CODEX_RELEASE_TAG=codex-cli-assets-dc198b6aa9597a0b82a7488d2d2777933ad01329
+ARG CODEX_RELEASE_TAG=codex-cli-assets-dda8e1e80d0978293146c8c9117198d85e096367
 ARG CODEX_RELEASE_ASSET=
 ARG BEADS_VERSION=v1.2.2
 ARG GASCITY_VERSION=v1.4.1
-ARG DOLT_VERSION=v2.1.4
+ARG DOLT_VERSION=2.3.1
 
 FROM node:22-bookworm AS node-bookworm-base
 
@@ -154,6 +154,7 @@ RUN set -eux; \
     printf '%s  %s\n' "${asset_sha}" "${asset_file}" | sha256sum -c -; \
     tar -xzf "${asset_file}" -C /codex-release-bin; \
     test -x /codex-release-bin/codex; \
+    test -x /codex-release-bin/codex-code-mode-host; \
     /codex-release-bin/codex --version
 
 FROM node:22-bookworm AS dashboard-builder
@@ -188,6 +189,7 @@ ARG CODEX_RELEASE_TAG
 ARG CODEX_RELEASE_ASSET
 ARG BEADS_VERSION
 ARG GASCITY_VERSION
+ARG DOLT_VERSION
 
 # Harden APT against flaky proxy/cache behavior (helps prevent Hash Sum mismatch on macOS VM networking).
 RUN set -eux; \
@@ -204,6 +206,7 @@ RUN apt-get update && apt-get install -y \
     python3 \
     sqlite3 \
     zip \
+    libclang-dev \
     supervisor \
     sudo \
     ca-certificates \
@@ -213,6 +216,7 @@ RUN apt-get update && apt-get install -y \
     apt-transport-https \
     ripgrep \
     inotify-tools \
+    tmux \
     zsh \
     bubblewrap \
     $(cat /usr/local/share/vk-native-build-packages.txt) \
@@ -225,26 +229,25 @@ RUN apt-get update && apt-get install -y \
     && rm -rf /var/lib/apt/lists/*
 
 # Install Go (required for building Caddy with xcaddy)
-RUN apt-get update && apt-get install -y --no-install-recommends jq tmux lsof procps util-linux && rm -rf /var/lib/apt/lists/*
+RUN apt-get update && apt-get install -y --no-install-recommends jq lsof procps util-linux && rm -rf /var/lib/apt/lists/*
 
-ARG DOLT_VERSION=v2.1.4
 RUN set -eux; \
     arch="$(dpkg --print-architecture)"; \
     case "$arch" in \
-      amd64) go_arch=amd64; tool_arch=amd64 ;; \
-      arm64) go_arch=arm64; tool_arch=arm64 ;; \
+      amd64) go_arch=amd64 ;; \
+      arm64) go_arch=arm64 ;; \
       *) echo "unsupported architecture: $arch" >&2; exit 1 ;; \
     esac; \
-    curl -fsSL "https://github.com/dolthub/dolt/releases/download/${DOLT_VERSION}/dolt-linux-${tool_arch}.tar.gz" -o /tmp/dolt.tar.gz; \
-    tar -xzf /tmp/dolt.tar.gz -C /tmp; \
-    install -m 0755 /tmp/dolt-linux-${tool_arch}/bin/dolt /usr/local/bin/dolt; \
-    rm -rf /tmp/dolt.tar.gz /tmp/dolt-linux-${tool_arch}; \
-    dolt version | grep -F "${DOLT_VERSION#v}"; \
     wget "https://go.dev/dl/go1.25.7.linux-${go_arch}.tar.gz"; \
     tar -C /usr/local -xzf "go1.25.7.linux-${go_arch}.tar.gz"; \
     rm "go1.25.7.linux-${go_arch}.tar.gz"
 ENV PATH="/usr/local/go/bin:${PATH}"
 ENV VK_ALLOWED_ORIGINS=""
+ENV VK_CODEX_BINARY="/usr/local/bin/codex"
+ENV CODEX_SQLITE_LOGS="off"
+ENV BEADS_DOLT_SHARED_SERVER="1"
+ENV BEADS_DOLT_SERVER_HOST="127.0.0.1"
+ENV BEADS_DOLT_SERVER_PORT="3308"
 
 # Install Rust and Cargo
 ENV CARGO_HOME=/usr/local/cargo
@@ -255,6 +258,7 @@ RUN cargo --version >/dev/null && rustc --version >/dev/null \
     && ln -sf /usr/local/cargo/bin/cargo /usr/local/bin/cargo \
     && ln -sf /usr/local/cargo/bin/rustc /usr/local/bin/rustc \
     && ln -sf /usr/local/cargo/bin/rustup /usr/local/bin/rustup
+RUN cargo install cargo-watch
 
 # Install uv for Python-based CLI tools
 RUN curl -LsSf https://astral.sh/uv/install.sh | env UV_UNMANAGED_INSTALL="/usr/local/bin" sh
@@ -409,7 +413,7 @@ RUN set -eux; \
       sleep $((attempt * 10)); \
     done
 
-COPY --from=codex-release-downloader /codex-release-bin/codex /tmp/codex-release/codex
+COPY --from=codex-release-downloader /codex-release-bin/ /tmp/codex-release/
 
 # By default, install the configured Codex GitHub release asset. Clear
 # CODEX_RELEASE_TAG to use official npm @openai/codex from the global npm
@@ -417,7 +421,9 @@ COPY --from=codex-release-downloader /codex-release-bin/codex /tmp/codex-release
 RUN set -eux; \
     if [ -n "${CODEX_RELEASE_TAG}" ]; then \
       test -x /tmp/codex-release/codex; \
+      test -x /tmp/codex-release/codex-code-mode-host; \
       install -m 0755 /tmp/codex-release/codex /usr/local/bin/codex; \
+      install -m 0755 /tmp/codex-release/codex-code-mode-host /usr/local/bin/codex-code-mode-host; \
       codex --version; \
       rm -rf /tmp/codex-release; \
       exit 0; \
@@ -493,6 +499,24 @@ ENV VD_BEADS_VERSION=${BEADS_VERSION}
 ENV GC_HOME=/home/vkuser/.gc
 ENV XDG_RUNTIME_DIR=/var/tmp/vibe-kanban/gc-runtime
 
+# Install Dolt for Beads shared-server mode. Pin the binary independently from
+# bd so container startup can supervise the shared Dolt server instead of
+# forcing every agent shell to run `bd dolt start` opportunistically.
+RUN set -eux; \
+    arch="$(dpkg --print-architecture)"; \
+    case "$arch" in \
+      amd64) dolt_arch=amd64; dolt_sha256=0a2a318f27c5e1088a2883038573c2054e00f356dc9752e74bca934f8321959a ;; \
+      arm64) dolt_arch=arm64; dolt_sha256=33ce669f922a3424f271a9905b815ea442133a0504eea1f43b07cb5b1fef589e ;; \
+      *) echo "unsupported architecture: $arch" >&2; exit 1 ;; \
+    esac; \
+    archive_name="dolt-linux-${dolt_arch}.tar.gz"; \
+    curl -fsSL "https://github.com/dolthub/dolt/releases/download/v${DOLT_VERSION}/${archive_name}" -o "/tmp/${archive_name}"; \
+    printf '%s  %s\n' "${dolt_sha256}" "/tmp/${archive_name}" | sha256sum -c -; \
+    tar -xzf "/tmp/${archive_name}" -C /tmp; \
+    install -m 0755 "/tmp/dolt-linux-${dolt_arch}/bin/dolt" /usr/local/bin/dolt; \
+    rm -rf "/tmp/${archive_name}" "/tmp/dolt-linux-${dolt_arch}"; \
+    dolt version | grep -F "${DOLT_VERSION}"
+
 # Create supervisor config and plugin runtime directories. /var/lib/vd is
 # intentionally writable by vkadmin so the VD app, agents, and root startup
 # reconciliation can all manage persisted per-instance plugin state.
@@ -547,6 +571,7 @@ COPY --chown=vkuser:vkuser --from=dashboard-builder /app/dist /home/vkuser/.loca
 
 # Copy entrypoint script that fixes docker group GID at runtime
 COPY docker-entrypoint.sh /usr/local/bin/docker-entrypoint.sh
+COPY bd-config.default.yaml /usr/local/share/vkvd/defaults/bd-config.yaml
 RUN chmod +x /usr/local/bin/docker-entrypoint.sh
 
 # Copy startup scripts

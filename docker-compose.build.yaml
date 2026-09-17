@@ -10,7 +10,7 @@ services:
         VK_RUNTIME_SOURCE: ${VK_RUNTIME_SOURCE:-github}
         BUILD_VK_LOCALLY: ${BUILD_VK_LOCALLY:-false}
         CODEX_RELEASE_REPO: ${CODEX_RELEASE_REPO:-mickmister/codex}
-        CODEX_RELEASE_TAG: ${CODEX_RELEASE_TAG:-codex-cli-assets-dc198b6aa9597a0b82a7488d2d2777933ad01329}
+        CODEX_RELEASE_TAG: ${CODEX_RELEASE_TAG:-codex-cli-assets-dda8e1e80d0978293146c8c9117198d85e096367}
         CODEX_RELEASE_ASSET: ${CODEX_RELEASE_ASSET:-}
     pull_policy: build
 
