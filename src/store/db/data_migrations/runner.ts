@@ -6,11 +6,26 @@ export interface DataMigrationPaths {
   targetPath: string;
 }
 
-export type DataMigrationPhase =
-  | 'source-read'
-  | 'ledger-reserved'
-  | 'migration-complete'
-  | string;
+const DATA_MIGRATION_PHASES = [
+  'ledger-check',
+  'source-read',
+  'ledger-reserved',
+  'target-writes',
+  'normalized-writes',
+  'diagnostics',
+  'quarantine',
+  'settings',
+  'migration-complete',
+  'invalid-phase',
+] as const;
+
+export type DataMigrationPhase = (typeof DATA_MIGRATION_PHASES)[number];
+
+function sanitizePhase(value: unknown): DataMigrationPhase {
+  return typeof value === 'string' && (DATA_MIGRATION_PHASES as readonly string[]).includes(value)
+    ? value as DataMigrationPhase
+    : 'invalid-phase';
+}
 
 export interface DataMigrationContext {
   db: Transaction<DB>;
@@ -51,7 +66,7 @@ export class DataMigrationStartupError extends Error {
   readonly phase: DataMigrationPhase;
   readonly causeCode: string;
 
-  constructor(migrationId: string, phase: DataMigrationPhase, cause: unknown) {
+  constructor(migrationId: unknown, phase: unknown, cause: unknown) {
     const error = cause as { code?: unknown; name?: unknown } | null;
     const candidateCode = typeof error?.code === 'string'
       ? error.code
@@ -59,10 +74,14 @@ export class DataMigrationStartupError extends Error {
     const causeCode = /^[A-Za-z][A-Za-z0-9_]{0,63}$/.test(candidateCode)
       ? candidateCode
       : 'UnknownError';
-    super(`Data migration ${migrationId} failed during ${phase} [${causeCode}]`);
+    const safeMigrationId = typeof migrationId === 'string' && isValidMigrationId(migrationId)
+      ? migrationId
+      : 'invalid-migration-id';
+    const safePhase = sanitizePhase(phase);
+    super(`Data migration ${safeMigrationId} failed during ${safePhase} [${causeCode}]`);
     this.name = 'DataMigrationStartupError';
-    this.migrationId = migrationId;
-    this.phase = phase;
+    this.migrationId = safeMigrationId;
+    this.phase = safePhase;
     this.causeCode = causeCode;
   }
 }
@@ -70,6 +89,7 @@ export class DataMigrationStartupError extends Error {
 const migrationIdPattern = /^(\d{4})(\d{2})(\d{2})(\d{2})(\d{2})(\d{2})_[a-z0-9]+(?:_[a-z0-9]+)*$/;
 
 function isValidMigrationId(id: string): boolean {
+  if (id.length > 128) return false;
   const match = migrationIdPattern.exec(id);
   if (!match) return false;
   const year = Number(match[1]);
@@ -93,7 +113,7 @@ export function validateDataMigrationRegistry(migrations: readonly DataMigration
   for (const migration of migrations) {
     if (!isValidMigrationId(migration.id)) {
       throw new DataMigrationRegistryError(
-        `Invalid data migration id ${JSON.stringify(migration.id)}; expected a real UTC YYYYMMDDHHMMSS_description timestamp`,
+        'Invalid data migration id; expected a bounded real UTC YYYYMMDDHHMMSS_description timestamp',
       );
     }
     if (seen.has(migration.id)) {
@@ -168,7 +188,7 @@ async function runSerially(options: RunDataMigrationsOptions): Promise<string[]>
           paths: options.paths,
           services,
           checkpoint: async (nextPhase) => {
-            phase = nextPhase;
+            phase = sanitizePhase(nextPhase);
             await dependencies.onPhase?.(migration.id, phase);
           },
         });

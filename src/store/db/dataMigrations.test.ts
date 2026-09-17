@@ -95,6 +95,20 @@ describe('timestamped data migration runner', () => {
     ])).toThrow(/out of order/);
   });
 
+  it('never exposes an invalid migration id in public registry diagnostics', () => {
+    const secretId = 'https://user:password@example.test/private\nBearer secret-token';
+    let failure: unknown;
+    try {
+      validateDataMigrationRegistry([{ ...representativeMigration(), id: secretId }]);
+    } catch (error) {
+      failure = error;
+    }
+    expect(failure).toBeInstanceOf(DataMigrationRegistryError);
+    expect(String(failure)).not.toContain(secretId);
+    expect(String(failure)).not.toContain('password');
+    expect(String(failure)).not.toContain('secret-token');
+  });
+
   it('runs after schema migration on a fresh database with injected paths, source reader, and services', async () => {
     const paths = await temporaryPaths();
     await writeFile(paths.sourcePath, JSON.stringify({ voyageName: 'Imported voyage' }));
@@ -184,6 +198,64 @@ describe('timestamped data migration runner', () => {
       phase: failurePhase,
     });
     expect(await rowCounts(handle.db, '20260917090000_representative_fixture')).toEqual({
+      voyages: 0, diagnostics: 0, settings: 0, ledger: 0,
+    });
+    await handle.db.destroy();
+    handle.sqlite.close();
+  });
+
+  it.each([
+    { caseName: 'path', unsafePhase: '/private/workspaces/customer-a/kv.db' },
+    { caseName: 'token', unsafePhase: 'token=sk-super-secret-token' },
+    { caseName: 'URL and credentials', unsafePhase: 'https://user:password@example.test/private' },
+    { caseName: 'whitespace', unsafePhase: 'phase with whitespace' },
+    { caseName: 'Unicode', unsafePhase: 'unicode-密钥-🔑' },
+    { caseName: 'control character', unsafePhase: 'control\u0000character' },
+    { caseName: 'newlines', unsafePhase: 'line-one\nline-two\r\nAuthorization: Bearer secret' },
+  ])('sanitizes a $caseName phase label and rolls back completely', async ({ unsafePhase }) => {
+    const paths = await temporaryPaths();
+    const handle = await initExternalIntegrationsDb({ path: paths.targetPath, runDataMigrations: false });
+    const observedPhases: string[] = [];
+    const migration: DataMigration = {
+      id: '20260917090100_adversarial_phase',
+      async run({ db, checkpoint }) {
+        await db.insertInto('Voyage').values({
+          id: 'voyage-adversarial', name: 'Must roll back', lifecycleState: 'active',
+        }).execute();
+        await checkpoint(unsafePhase as DataMigrationPhase);
+      },
+    };
+    const failure = await runDataMigrations({
+      db: handle.db,
+      migrations: [migration],
+      paths,
+      dependencies: {
+        onPhase: (_id, phase) => {
+          observedPhases.push(phase);
+          if (phase === 'invalid-phase') throw new Error(`private cause: ${unsafePhase}`);
+        },
+      },
+    }).catch((error: unknown) => error);
+
+    expect(failure).toMatchObject({
+      name: 'DataMigrationStartupError',
+      migrationId: migration.id,
+      phase: 'invalid-phase',
+    });
+    if (!(failure instanceof DataMigrationStartupError)) throw new Error('Expected startup error');
+    const publicMetadata = JSON.stringify({
+      name: failure.name,
+      message: failure.message,
+      migrationId: failure.migrationId,
+      phase: failure.phase,
+      causeCode: failure.causeCode,
+    });
+    expect(publicMetadata).not.toContain(unsafePhase);
+    expect(publicMetadata).not.toMatch(/password|secret-token|Bearer secret|customer-a|example\.test/);
+    expect(publicMetadata).not.toMatch(/[\u0000-\u001f\u007f]/);
+    expect(observedPhases).toEqual(['ledger-reserved', 'invalid-phase']);
+    expect(observedPhases.join('|')).not.toContain(unsafePhase);
+    expect(await rowCounts(handle.db, migration.id)).toEqual({
       voyages: 0, diagnostics: 0, settings: 0, ledger: 0,
     });
     await handle.db.destroy();
