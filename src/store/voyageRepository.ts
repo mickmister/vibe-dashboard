@@ -89,6 +89,8 @@ export interface VoyageAggregate {
     mission: string | null;
     lifecycleState: string;
     lastOpenedAt: string | null;
+    createdAt: string;
+    updatedAt: string;
   };
   crafts: VoyageCraftRecord[];
   panels: VoyagePanelRecord[];
@@ -238,6 +240,23 @@ export class VoyageRepository {
     );
   }
 
+  async listVoyageIds(): Promise<string[]> {
+    const rows = await this.db.selectFrom('Voyage').select('id')
+      .where('lifecycleState', '=', 'active').orderBy('createdAt').orderBy('id').execute();
+    return rows.map(({ id }) => id);
+  }
+
+  async deleteVoyage(voyageId: string, expectedRevision: number): Promise<void> {
+    await coordinatorLocks.run([voyageId], this.options.onCoordinatorAcquired, () =>
+      this.db.transaction().execute(async (transaction) => {
+        await requireRevision(transaction, voyageId, expectedRevision);
+        const deleted = await transaction.deleteFrom('Voyage')
+          .where('id', '=', voyageId).where('revision', '=', expectedRevision).executeTakeFirst();
+        if (deleted.numDeletedRows !== 1n) throw new VoyageConflictError(voyageId, expectedRevision);
+      }),
+    );
+  }
+
   private async loadVoyageTransaction(transaction: VoyageTransaction, voyageId: string): Promise<VoyageAggregate> {
     const voyage = await transaction.selectFrom('Voyage').selectAll().where('id', '=', voyageId).executeTakeFirst();
     if (!voyage) throw new VoyageInvariantError(`Unknown Voyage ${voyageId}`);
@@ -269,6 +288,8 @@ export class VoyageRepository {
         mission: voyage.mission,
         lifecycleState: voyage.lifecycleState,
         lastOpenedAt: voyage.lastOpenedAt,
+        createdAt: voyage.createdAt,
+        updatedAt: voyage.updatedAt,
       },
       crafts,
       panels,

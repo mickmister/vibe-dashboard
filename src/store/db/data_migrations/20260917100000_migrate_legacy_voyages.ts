@@ -3,7 +3,6 @@ import { createHash } from 'node:crypto';
 import Database from 'better-sqlite3';
 import { getSavedWorkspaceSessions } from '../../../lib/savedVoyageState';
 import { getBuiltInWorkspaceMetadata } from '../../../modules/plugins/vibe-dashboard/craft-surfaces';
-import { getPluginRegistrySnapshot } from '../../../modules/plugins/vibe-dashboard/registry';
 import type { Craft, SavedWorkspaceSession, WorkspaceState } from '../../../types';
 import { classifyLegacyPanelRepresentation, createPanelTargetRegistry, resolveLegacyPanelTarget, type PanelTargetResolutionContext, type StoredPanelTarget } from '../../panelTargetRegistry';
 import { buildMigratedDockviewSnapshot, productionDockviewSnapshotCodec } from '../../dockviewSnapshotCodec';
@@ -55,7 +54,7 @@ function rawSessions(value: unknown): unknown[] | null {
 }
 
 type Outcome = 'migrated' | 'skipped' | 'quarantined';
-type Diagnostic = { sourceKind: string; sourceId: string; outcome: Outcome; reasonCode: string; voyageId: string | null; details?: unknown };
+type Diagnostic = { sourceKind: string; sourceId: string; outcome: Outcome; reasonCode: string; voyageId: string | null; outputRefs?: string[]; details?: unknown };
 type Panel = { id: string; legacyGroupId: string; legacyEntryId: string; legacySelectionId: string; craftWorkspaceId: string; target: StoredPanelTarget; lastActivatedSequence: number | null };
 type Voyage = { id: string; session: SavedWorkspaceSession; crafts: Array<{ workspaceId: string; sortKey: string }>; panels: Panel[]; pairs: Array<{ pairId: string; panelIds: string[]; ratios: [50, 50] }>; activePanelId: string | null };
 
@@ -67,14 +66,31 @@ class OccurrenceLedger {
     this.entries.set(key, entry);
   }
   detachVoyage(voyageId: string): void {
-    for (const entry of this.entries.values()) if (entry.voyageId === voyageId) entry.voyageId = null;
+    for (const entry of this.entries.values()) if (entry.voyageId === voyageId) {
+      entry.voyageId = null;
+      entry.outputRefs = undefined;
+      if (entry.outcome === 'migrated') {
+        entry.outcome = 'skipped';
+        entry.reasonCode = 'no-migratable-voyage-output';
+      }
+    }
   }
-  finish(expected: number): Diagnostic[] {
+  finish(expected: number, outputRefs: ReadonlySet<string>): Diagnostic[] {
     if (this.entries.size !== expected) throw Object.assign(new Error('Unclassified migration occurrence'), { code: 'AUDIT_IMBALANCE' });
     const diagnostics = [...this.entries.values()];
     const counts = { migrated: 0, skipped: 0, quarantined: 0 };
     diagnostics.forEach(({ outcome }) => { counts[outcome] += 1; });
     if (Object.values(counts).reduce((sum, count) => sum + count, 0) !== expected) throw Object.assign(new Error('Unbalanced migration audit'), { code: 'AUDIT_IMBALANCE' });
+    const claimed = new Set<string>();
+    for (const diagnostic of diagnostics) {
+      const references = diagnostic.outputRefs ?? [];
+      if ((diagnostic.outcome === 'migrated') !== (references.length > 0)) throw Object.assign(new Error('Migration outcome has no constructed output'), { code: 'AUDIT_IMBALANCE' });
+      for (const reference of references) {
+        if (!outputRefs.has(reference) || claimed.has(reference)) throw Object.assign(new Error('Migration output mapping is missing or duplicated'), { code: 'AUDIT_IMBALANCE' });
+        claimed.add(reference);
+      }
+    }
+    if (claimed.size !== outputRefs.size || [...outputRefs].some((reference) => !claimed.has(reference))) throw Object.assign(new Error('Constructed migration output is not audited'), { code: 'AUDIT_IMBALANCE' });
     const scoped = (pattern: RegExp) => Object.fromEntries([...new Set(diagnostics.flatMap(({ sourceId }) => sourceId.match(pattern)?.[1] ?? []))]
       .sort().map((scope) => {
         const entries = diagnostics.filter(({ sourceId }) => sourceId.match(pattern)?.[1] === scope);
@@ -93,20 +109,6 @@ class OccurrenceLedger {
 }
 
 type ContextFactory = (craftId: string, workspaceId: string) => PanelTargetResolutionContext | null;
-function defaultContextFactory(craftId: string, workspaceId: string): PanelTargetResolutionContext {
-  const plugins = getPluginRegistrySnapshot();
-  const origin = 'https://migration.invalid';
-  return {
-    craftId, hostOrigin: origin,
-    crafts: { [craftId]: { workspaceId, allowedPluginTargets: [...Object.keys(plugins.internalRoutes), ...Object.keys(plugins.craftSurfaces)] } },
-    workspaces: { [workspaceId]: { id: workspaceId, available: true, directory: '', origin, repositoryIds: [], locations: { overview: '/upstream/overview', code: '/upstream/code', changes: '/upstream/changes', beads: '/upstream/beads', forms: '/upstream/forms' } } },
-    agentSessions: {}, terminals: {}, previews: {}, builtInRoutes: {},
-    redirectGuards: Object.fromEntries(['craft-overview', 'code', 'changes', 'beads', 'forms'].map((kind) => [
-      `${kind}:${workspaceId}`, { deliveryUrl: `${origin}/guard/${kind}`, upstreamOrigin: origin },
-    ])),
-    getPluginRegistry: () => plugins,
-  };
-}
 
 function selections(session: SavedWorkspaceSession, entry: SavedWorkspaceSession['voyageEntries'][number]): string[] {
   return entry.viewIds.length ? entry.viewIds : session.activeItemsByVoyageEntryId[entry.id] ? [session.activeItemsByVoyageEntryId[entry.id]!] : [];
@@ -149,20 +151,20 @@ function buildMigration(source: LegacyVoyageSource, contextFactory: ContextFacto
     const metadata = getBuiltInWorkspaceMetadata(craft);
     const homepage = craft.id === 'tg_home';
     const temporary = /create workspace/i.test(craft.label) || /create[_-]?workspace/i.test(craft.id);
-    const outcome: Outcome = homepage || temporary || !metadata ? 'skipped' : 'migrated';
-    const reason = homepage ? 'homepage-representation' : temporary ? 'temporary-create-workspace' : metadata ? 'vk-craft' : 'non-vk-craft';
+    const outcome: Outcome = 'skipped';
+    const reason = homepage ? 'homepage-representation' : temporary ? 'temporary-create-workspace' : metadata ? 'unselected-source-definition' : 'non-vk-craft';
     const craftSource = `group:${craft.id}:occurrence:${craftIndex}`;
     ledger.add({ sourceKind: 'source-group', sourceId: craftSource, outcome, reasonCode: reason, voyageId: null });
     craft.tabs.forEach((view, viewIndex) => {
       const classification = classifyLegacyPanelRepresentation({ groupId: craft.id, view });
       const target = metadata && classification.outcome === 'durable-candidate' ? resolve(craft.id, metadata.workspaceId, view) : null;
       ledger.add({ sourceKind: 'source-view', sourceId: `${craftSource}:view:${viewIndex}:${view.id}`,
-        outcome: classification.outcome === 'skip' || outcome === 'skipped' ? 'skipped' : target ? 'migrated' : 'quarantined',
-        reasonCode: classification.outcome === 'skip' ? classification.reason : outcome === 'skipped' ? reason : target ? 'trusted-target' : 'target-unresolvable', voyageId: null });
+        outcome: 'skipped',
+        reasonCode: classification.outcome === 'skip' ? classification.reason : target ? 'unselected-source-definition' : reason, voyageId: null });
     });
     craft.pairs.forEach((pair, pairIndex) => {
       const valid = pair.tabIds.length === 2 && new Set(pair.tabIds).size === 2;
-      ledger.add({ sourceKind: 'source-pair', sourceId: `${craftSource}:pair:${pairIndex}:${pair.id}`, outcome: valid ? outcome : 'quarantined', reasonCode: valid ? reason : 'pair-cardinality', voyageId: null });
+      ledger.add({ sourceKind: 'source-pair', sourceId: `${craftSource}:pair:${pairIndex}:${pair.id}`, outcome: valid ? 'skipped' : 'quarantined', reasonCode: valid ? 'unselected-source-definition' : 'pair-cardinality', voyageId: null });
     });
   });
 
@@ -183,7 +185,11 @@ function buildMigration(source: LegacyVoyageSource, contextFactory: ContextFacto
       const reason = homepage ? 'homepage-representation' : temporary ? 'temporary-create-workspace' : !craft ? 'craft-unavailable' : !metadata ? 'non-vk-craft' : 'vk-craft';
       const outcome: Outcome = !craft ? 'quarantined' : homepage || temporary || !metadata ? 'skipped' : 'migrated';
       sawHomepage ||= homepage;
-      ledger.add({ sourceKind: 'craft-occurrence', sourceId: occurrence, outcome, reasonCode: reason, voyageId: outcome === 'migrated' ? voyageId : null });
+      const isNewMembership = metadata !== null && !memberships.has(metadata.workspaceId);
+      ledger.add({ sourceKind: 'craft-occurrence', sourceId: occurrence, outcome: outcome === 'migrated' && !isNewMembership ? 'skipped' : outcome,
+        reasonCode: outcome === 'migrated' && !isNewMembership ? 'duplicate-membership-occurrence' : reason,
+        voyageId: outcome === 'migrated' && isNewMembership ? voyageId : null,
+        outputRefs: outcome === 'migrated' && isNewMembership ? [`membership:${voyageId}:${metadata!.workspaceId}`] : undefined });
       const selected = selections(session, entry);
       if (!craft || !metadata || outcome !== 'migrated') {
         selected.forEach((id, index) => ledger.add({ sourceKind: 'view-selection', sourceId: `${occurrence}:selection:${index}:${id}`, outcome, reasonCode: reason, voyageId: null }));
@@ -197,20 +203,21 @@ function buildMigration(source: LegacyVoyageSource, contextFactory: ContextFacto
           const classification = classifyLegacyPanelRepresentation({ groupId: craft.id, view: { id: pair.id, url: '' }, pair, views: craft.tabs, resolveMember: (view) => resolve(craft.id, metadata.workspaceId, view) });
           if (classification.outcome !== 'pair') throw Object.assign(new Error('Pair classification failed'), { code: 'AUDIT_IMBALANCE' });
           const complete = 'topology' in classification && Boolean(classification.topology);
-          ledger.add({ sourceKind: 'view-selection', sourceId: selectionId, outcome: complete ? 'migrated' : 'quarantined', reasonCode: complete ? 'pair-expanded' : 'pair-incomplete', voyageId: complete ? voyageId : null });
+          const topologyRefs = complete ? classification.targets.map((_, memberIndex) => `topology:${voyageId}:group-${`panel-${hash(session.id, occurrence, pair.id, String(memberIndex), classification.diagnostics[memberIndex]!.tabId)}`}`) : undefined;
+          ledger.add({ sourceKind: 'view-selection', sourceId: selectionId, outcome: complete ? 'migrated' : 'quarantined', reasonCode: complete ? 'pair-expanded' : 'pair-incomplete', voyageId: complete ? voyageId : null, outputRefs: topologyRefs });
           const pairPanelIds: string[] = [];
           let targetIndex = 0;
           classification.diagnostics.forEach((item, memberIndex) => {
             const memberOutcome: Outcome = item.status === 'resolved' ? 'migrated' : item.status === 'skipped' ? 'skipped' : 'quarantined';
-            ledger.add({ sourceKind: 'pair-member', sourceId: `${selectionId}:member:${memberIndex}:${item.tabId}`, outcome: memberOutcome, reasonCode: item.reason ?? item.status, voyageId: memberOutcome === 'migrated' ? voyageId : null });
             if (item.status === 'resolved') {
               const target = classification.targets[targetIndex++];
               if (!target) throw Object.assign(new Error('Pair target audit mismatch'), { code: 'AUDIT_IMBALANCE' });
               const panelId = `panel-${hash(session.id, occurrence, pair.id, String(memberIndex), item.tabId)}`;
               panels.push({ id: panelId, legacyGroupId: craft.id, legacyEntryId: entry.id, legacySelectionId: pair.id, craftWorkspaceId: metadata.workspaceId, target, lastActivatedSequence: null });
+              ledger.add({ sourceKind: 'pair-member', sourceId: `${selectionId}:member:${memberIndex}:${item.tabId}`, outcome: memberOutcome, reasonCode: item.reason ?? item.status, voyageId, outputRefs: [`panel:${panelId}`] });
               pairPanelIds.push(panelId);
               if (entry.id === session.activeVoyageEntryId && session.activeItemsByVoyageEntryId[entry.id] === pair.id && memberIndex === 0) activePanelId = panelId;
-            }
+            } else ledger.add({ sourceKind: 'pair-member', sourceId: `${selectionId}:member:${memberIndex}:${item.tabId}`, outcome: memberOutcome, reasonCode: item.reason ?? item.status, voyageId: null });
           });
           if (complete && pairPanelIds.length === 2) pairs.push({ pairId: pair.id, panelIds: pairPanelIds, ratios: [50, 50] });
           return;
@@ -223,7 +230,7 @@ function buildMigration(source: LegacyVoyageSource, contextFactory: ContextFacto
         if (!target) { ledger.add({ sourceKind: 'view-selection', sourceId: selectionId, outcome: 'quarantined', reasonCode: 'target-unresolvable', voyageId: null }); return; }
         const panelId = `panel-${hash(session.id, occurrence, selectedId, String(selectionIndex))}`;
         panels.push({ id: panelId, legacyGroupId: craft.id, legacyEntryId: entry.id, legacySelectionId: selectedId, craftWorkspaceId: metadata.workspaceId, target, lastActivatedSequence: null });
-        ledger.add({ sourceKind: 'view-selection', sourceId: selectionId, outcome: 'migrated', reasonCode: 'panel', voyageId });
+        ledger.add({ sourceKind: 'view-selection', sourceId: selectionId, outcome: 'migrated', reasonCode: 'panel', voyageId, outputRefs: [`panel:${panelId}`, `topology:${voyageId}:group-${panelId}`] });
         if (entry.id === session.activeVoyageEntryId && session.activeItemsByVoyageEntryId[entry.id] === selectedId) activePanelId = panelId;
       });
     });
@@ -243,17 +250,23 @@ function buildMigration(source: LegacyVoyageSource, contextFactory: ContextFacto
       }
     }
     if (activePanelId) panels.find(({ id }) => id === activePanelId)!.lastActivatedSequence = ++activationSequence;
-    ledger.add({ sourceKind: 'voyage', sourceId: `voyage:${sessionIndex}:${session.id}`, outcome: 'migrated', reasonCode: 'normalized-voyage', voyageId });
+    ledger.add({ sourceKind: 'voyage', sourceId: `voyage:${sessionIndex}:${session.id}`, outcome: 'migrated', reasonCode: 'normalized-voyage', voyageId, outputRefs: [`voyage:${voyageId}`] });
     voyages.push({ id: voyageId, session, crafts: [...memberships].map(([workspaceId, sortKey]) => ({ workspaceId, sortKey })), panels, pairs, activePanelId });
   });
-  return { voyages, diagnostics: ledger.finish(countExpected(workspace, sessions)) };
+  const outputs = new Set(voyages.flatMap((voyage) => [
+    `voyage:${voyage.id}`,
+    ...voyage.crafts.map(({ workspaceId }) => `membership:${voyage.id}:${workspaceId}`),
+    ...voyage.panels.flatMap(({ id }) => [`panel:${id}`, `topology:${voyage.id}:group-${id}`]),
+  ]));
+  return { voyages, diagnostics: ledger.finish(countExpected(workspace, sessions), outputs) };
 }
 
 export const migrateLegacyVoyages: DataMigration = {
   id: LEGACY_VOYAGE_MIGRATION_ID,
   requiresSource: true,
   async run({ db, source, services, checkpoint }) {
-    const contextFactory = typeof services.legacyTargetContextForCraft === 'function' ? services.legacyTargetContextForCraft as ContextFactory : defaultContextFactory;
+    if (typeof services.legacyTargetContextForCraft !== 'function') throw Object.assign(new Error('Authoritative legacy target resolver is unavailable'), { code: 'MIGRATION_AUTHORITY_UNAVAILABLE' });
+    const contextFactory = services.legacyTargetContextForCraft as ContextFactory;
     const result = buildMigration(source as LegacyVoyageSource, contextFactory);
     for (const voyage of result.voyages) {
       const activationSequence = Math.max(0, ...voyage.panels.map(({ lastActivatedSequence }) => lastActivatedSequence ?? 0));

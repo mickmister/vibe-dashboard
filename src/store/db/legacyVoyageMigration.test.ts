@@ -4,7 +4,9 @@ import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import Database from 'better-sqlite3';
 import { afterEach, describe, expect, it } from 'vitest';
-import { initExternalIntegrationsDb } from '../../modules/plugins/kanban/server/database';
+import { initExternalIntegrationsDb as initDatabase, type ExternalIntegrationsDbHandle } from '../../modules/plugins/kanban/server/database';
+import { getPluginRegistrySnapshot } from '../../modules/plugins/vibe-dashboard/registry';
+import type { PanelTargetResolutionContext } from '../panelTargetRegistry';
 import { productionDockviewSnapshotCodec } from '../dockviewSnapshotCodec';
 import {
   LEGACY_SESSIONS_KEY,
@@ -20,6 +22,27 @@ async function paths() {
   const directory = await mkdtemp(join(tmpdir(), 'vd-legacy-voyages-'));
   directories.push(directory);
   return { sourcePath: join(directory, 'configured-kv.db'), targetPath: join(directory, 'vd.sqlite') };
+}
+
+function trustedTestContext(craftId: string, workspaceId: string): PanelTargetResolutionContext {
+  const plugins = getPluginRegistrySnapshot();
+  const origin = 'https://trusted.test';
+  return {
+    craftId, hostOrigin: origin,
+    crafts: { [craftId]: { workspaceId, allowedPluginTargets: [...Object.keys(plugins.internalRoutes), ...Object.keys(plugins.craftSurfaces)] } },
+    workspaces: { [workspaceId]: { id: workspaceId, available: true, directory: '/trusted', origin, repositoryIds: [], locations: { overview: '/overview', code: '/code', changes: '/changes', beads: '/beads', forms: '/forms' } } },
+    agentSessions: {}, terminals: {}, previews: {}, builtInRoutes: {},
+    redirectGuards: Object.fromEntries(['craft-overview', 'code', 'changes', 'beads', 'forms'].map((kind) => [`${kind}:${workspaceId}`, { deliveryUrl: `${origin}/guard/${kind}`, upstreamOrigin: origin }])),
+    getPluginRegistry: () => plugins,
+  };
+}
+
+type InitOptions = Parameters<typeof initDatabase>[0];
+function initExternalIntegrationsDb(options: InitOptions = {}): Promise<ExternalIntegrationsDbHandle> {
+  return initDatabase({ ...options, dataMigrationDependencies: {
+    ...options.dataMigrationDependencies,
+    services: { legacyTargetContextForCraft: trustedTestContext, ...options.dataMigrationDependencies?.services },
+  } });
 }
 
 function sourceDatabase(sourcePath: string, workspace: unknown, sessions: unknown): Database.Database {
@@ -267,8 +290,21 @@ describe('legacy Springboard Voyage data migration', () => {
     try {
       expect(handle.sqlite.prepare('SELECT COUNT(*) AS count FROM Voyage').get()).toEqual({ count: 0 });
       expect(handle.sqlite.prepare("SELECT COUNT(*) AS count FROM VoyageMigrationDiagnostic WHERE outcome = 'quarantined' AND reasonCode = 'target-unresolvable'").get())
-        .toEqual({ count: 4 });
+        .toEqual({ count: 1 });
     } finally { await handle.db.destroy(); handle.sqlite.close(); }
+  });
+
+  it('fails closed when production does not inject an authoritative resolver snapshot', async () => {
+    const configured = await paths();
+    sourceDatabase(configured.sourcePath, workspace, { version: 3, data: [session('authority', [
+      { id: 'code', tabGroupId: 'craft-vk', viewIds: ['code'] },
+    ])] }).close();
+    await expect(initDatabase({ path: configured.targetPath, sourcePath: configured.sourcePath }))
+      .rejects.toMatchObject({ name: 'DataMigrationStartupError', causeCode: 'MIGRATION_AUTHORITY_UNAVAILABLE' });
+    const target = new Database(configured.targetPath, { readonly: true });
+    expect(target.prepare('SELECT COUNT(*) AS count FROM Voyage').get()).toEqual({ count: 0 });
+    expect(target.prepare('SELECT COUNT(*) AS count FROM Migration WHERE name = ?').get(LEGACY_VOYAGE_MIGRATION_ID)).toEqual({ count: 0 });
+    target.close();
   });
 
   it('rejects an occurrence audit with duplicate source identities before any target write', async () => {

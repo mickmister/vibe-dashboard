@@ -31,6 +31,9 @@ import "./modules/MainUIShellModule";
 import "./modules/ObservabilityServerModule";
 import "./modules/WorkflowServerModule";
 import { initializeVoyagePersistenceAuthority } from "./store/voyagePersistenceAuthority";
+import { NormalizedVoyageProjection } from "./store/normalizedVoyageProjection";
+import { VoyageRepository } from "./store/voyageRepository";
+import { productionDockviewSnapshotCodec } from "./store/dockviewSnapshotCodec";
 import "./modules/plugins/kanban/jira/serverModule";
 import "./modules/plugins/kanban/linear/serverModule";
 // @platform end
@@ -434,96 +437,6 @@ function cloneSavedSession(
   };
 }
 
-function normalizeVoyageEntryForWorkspace(
-  workspace: WorkspaceState,
-  entry: VoyageEntry,
-): VoyageEntry | undefined {
-  const tabGroup = workspace.tabGroups.find(
-    (candidate) => candidate.id === entry.tabGroupId,
-  );
-  if (!tabGroup) return undefined;
-
-  const validViewIds = entry.viewIds.filter(
-    (viewId) =>
-      tabGroup.tabs.some((tab) => tab.id === viewId) ||
-      Boolean(tabGroup.workspace?.workspaceId),
-  );
-  return {
-    ...entry,
-    viewIds: validViewIds.length
-      ? validViewIds
-      : getDefaultViewIdsForTabGroup(workspace, entry.tabGroupId),
-  };
-}
-
-function repairSavedSessionForWorkspace(
-  session: SavedWorkspaceSession,
-  workspace: WorkspaceState,
-): SavedWorkspaceSession | undefined {
-  const voyageEntries = (session.voyageEntries || [])
-    .map((entry) => normalizeVoyageEntryForWorkspace(workspace, entry))
-    .filter((entry): entry is VoyageEntry => Boolean(entry));
-  if (!voyageEntries.length) return undefined;
-
-  const activeVoyageEntryId =
-    voyageEntries.find((entry) => entry.id === session.activeVoyageEntryId)
-      ?.id || voyageEntries[0]!.id;
-  const activeEntry =
-    voyageEntries.find((entry) => entry.id === activeVoyageEntryId) ||
-    voyageEntries[0]!;
-  const activeSpaceId =
-    workspace.spaces.find((space) =>
-      space.tabGroupIds.includes(activeEntry.tabGroupId),
-    )?.id || session.activeSpaceId;
-  const activeItemsByVoyageEntryId: Record<string, string> = {};
-
-  voyageEntries.forEach((entry) => {
-    const activeItemId = getActiveItemIdForViewIds(
-      workspace,
-      entry.tabGroupId,
-      entry.viewIds,
-    );
-    activeItemsByVoyageEntryId[entry.id] = activeItemId;
-  });
-
-  return {
-    ...session,
-    activeVoyageEntryId,
-    voyageEntries,
-    activeSpaceId,
-    activeTabGroupId: activeEntry.tabGroupId,
-    activeItemsByVoyageEntryId,
-    visitedTabGroupIds: Array.from(
-      new Set(voyageEntries.map((entry) => entry.tabGroupId)),
-    ),
-  };
-}
-
-function repairSavedSessionsForWorkspace(
-  state: SavedWorkspaceSessionState,
-  workspace: WorkspaceState,
-): { state: SavedWorkspaceSessionState; removedSessionIds: string[] } {
-  const repairedSessions: SavedWorkspaceSession[] = [];
-  const removedSessionIds: string[] = [];
-
-  getSavedWorkspaceSessions(state).forEach((session) => {
-    const repairedSession = repairSavedSessionForWorkspace(
-      cloneSavedSession(session),
-      workspace,
-    );
-    if (repairedSession) {
-      repairedSessions.push(repairedSession);
-    } else {
-      removedSessionIds.push(session.id);
-    }
-  });
-
-  return {
-    state: createSavedWorkspaceSessionState(repairedSessions),
-    removedSessionIds,
-  };
-}
-
 function pickRandomMobileEmoji() {
   return MOBILE_TAB_EMOJIS[
     Math.floor(Math.random() * MOBILE_TAB_EMOJIS.length)
@@ -560,9 +473,10 @@ const createWorkspaceModule = async (moduleAPI: ModuleAPI) => {
   // The normalized database cutover is an unconditional startup gate. This
   // must precede creation of any workspace/Voyage reader or writer; rejection
   // aborts module startup rather than falling back to legacy state.
+  let voyageDatabase: Awaited<ReturnType<typeof initializeVoyagePersistenceAuthority>> | undefined;
   if (moduleAPI.deps.core.isMaestro()) {
     // @platform "node"
-    await initializeVoyagePersistenceAuthority();
+    voyageDatabase = await initializeVoyagePersistenceAuthority();
     // @platform end
   }
   const workspaceState =
@@ -570,27 +484,32 @@ const createWorkspaceModule = async (moduleAPI: ModuleAPI) => {
       "workspace",
       createDefaultWorkspace(),
     );
-  // Kept only as a non-persistent compatibility projection until the Dockview
-  // UI lands. The legacy workspace-sessions key is never read or written after
-  // the migration ledger completes; normalized SQLite is the sole persistence
-  // authority.
+  const normalizedProjection = voyageDatabase
+    ? new NormalizedVoyageProjection(
+        new VoyageRepository(voyageDatabase.db, { snapshotCodec: productionDockviewSnapshotCodec }),
+        () => workspaceState.getState(),
+      )
+    : undefined;
+  let projectionSnapshot = normalizedProjection
+    ? await normalizedProjection.load()
+    : { state: createDefaultSavedSessionState() as Extract<SavedWorkspaceSessionState, { version: 3 }>, revisions: new Map<string, number>() };
+  // This shared value is a derived UI projection only. Every mutation below
+  // must commit through NormalizedVoyageProjection/VoyageRepository first.
   const savedSessionsState =
     await moduleAPI.statesAPI.createSharedState<SavedWorkspaceSessionState>(
       "normalized-voyage-compatibility-projection",
-      createDefaultSavedSessionState(),
+      projectionSnapshot.state,
     );
-
-  const repairSavedVoyagesForCurrentWorkspace = () => {
-    const repaired = repairSavedSessionsForWorkspace(
-      savedSessionsState.getState(),
-      workspaceState.getState(),
-    );
-    savedSessionsState.setState(repaired.state);
+  const commitSavedVoyageProjection = async (
+    update: (current: SavedWorkspaceSessionState) => SavedWorkspaceSessionState,
+  ) => {
+    if (!normalizedProjection) throw new Error("Normalized Voyage authority is unavailable.");
+    const candidate = update(projectionSnapshot.state);
+    if (!("version" in candidate) || candidate.version !== 3) throw new Error("Invalid normalized Voyage projection.");
+    projectionSnapshot = await normalizedProjection.replace(projectionSnapshot, candidate);
+    savedSessionsState.setState(projectionSnapshot.state);
+    return projectionSnapshot.state;
   };
-
-  if (moduleAPI.deps.core.isMaestro()) {
-    repairSavedVoyagesForCurrentWorkspace();
-  }
 
   const currentWorkspace = workspaceState.getState();
   const builtInMigratedWorkspace =
@@ -650,7 +569,6 @@ const createWorkspaceModule = async (moduleAPI: ModuleAPI) => {
         wasDeleted = true;
       });
       if (wasDeleted) {
-        repairSavedVoyagesForCurrentWorkspace();
       }
 
       return { wasDeleted, deletedSpaceId: args.spaceId };
@@ -799,7 +717,6 @@ const createWorkspaceModule = async (moduleAPI: ModuleAPI) => {
         wasDeleted = true;
       });
       if (wasDeleted) {
-        repairSavedVoyagesForCurrentWorkspace();
       }
 
       return {
@@ -821,7 +738,6 @@ const createWorkspaceModule = async (moduleAPI: ModuleAPI) => {
         tg.pairs = tg.pairs.filter((p) => !p.tabIds.includes(args.tabId));
         tg.tabs = tg.tabs.filter((t) => t.id !== args.tabId);
       });
-      repairSavedVoyagesForCurrentWorkspace();
     },
 
     addTab: async (args: {
@@ -947,7 +863,7 @@ const createWorkspaceModule = async (moduleAPI: ModuleAPI) => {
       });
       if (!savedSession) return undefined;
 
-      savedSessionsState.setState((current) => {
+      await commitSavedVoyageProjection((current) => {
         const sessions = getSavedWorkspaceSessions(current).filter(
           (session) => session.id !== savedSession.id,
         );
@@ -1010,7 +926,6 @@ const createWorkspaceModule = async (moduleAPI: ModuleAPI) => {
         }
       });
       if (firstTabId) {
-        repairSavedVoyagesForCurrentWorkspace();
       }
 
       return { firstTabId, tabGroupId: args.tabGroupId };
@@ -1105,7 +1020,7 @@ const createWorkspaceModule = async (moduleAPI: ModuleAPI) => {
       });
       if (!savedSession) return undefined;
 
-      savedSessionsState.setState((current) => {
+      await commitSavedVoyageProjection((current) => {
         const sessions = getSavedWorkspaceSessions(current).filter(
           (session) => session.id !== savedSession.id,
         );
@@ -1125,7 +1040,7 @@ const createWorkspaceModule = async (moduleAPI: ModuleAPI) => {
       composition: ResolvedWorkspaceComposition;
     }) => {
       const existingTarget = getSavedWorkspaceSessions(
-        savedSessionsState.getState(),
+        projectionSnapshot.state,
       ).find((session) => session.id === args.sessionId);
       if (!existingTarget) return undefined;
 
@@ -1152,7 +1067,7 @@ const createWorkspaceModule = async (moduleAPI: ModuleAPI) => {
       );
       let savedSession: SavedWorkspaceSession | undefined;
 
-      savedSessionsState.setState((current) => {
+      await commitSavedVoyageProjection((current) => {
         const sessions =
           getSavedWorkspaceSessions(current).map(cloneSavedSession);
         const target = sessions.find(
@@ -1313,7 +1228,7 @@ const createWorkspaceModule = async (moduleAPI: ModuleAPI) => {
       });
       if (!savedSession) return undefined;
 
-      savedSessionsState.setState((current) => {
+      await commitSavedVoyageProjection((current) => {
         const sessions = getSavedWorkspaceSessions(current).filter(
           (session) => session.id !== savedSession.id,
         );
@@ -1346,7 +1261,7 @@ const createWorkspaceModule = async (moduleAPI: ModuleAPI) => {
           }
         | undefined;
 
-      savedSessionsState.setState((current) => {
+      await commitSavedVoyageProjection((current) => {
         const sessions =
           getSavedWorkspaceSessions(current).map(cloneSavedSession);
         const nextSessions = sessions.filter(
@@ -1438,7 +1353,7 @@ const createWorkspaceModule = async (moduleAPI: ModuleAPI) => {
       );
       let updatedSession: SavedWorkspaceSession | undefined;
 
-      savedSessionsState.setState((current) => {
+      await commitSavedVoyageProjection((current) => {
         const sessions =
           getSavedWorkspaceSessions(current).map(cloneSavedSession);
         const target = sessions.find(
@@ -1493,7 +1408,7 @@ const createWorkspaceModule = async (moduleAPI: ModuleAPI) => {
       voyageEntryId: string;
     }) => {
       let updatedSession: SavedWorkspaceSession | undefined;
-      savedSessionsState.setState((current) => {
+      await commitSavedVoyageProjection((current) => {
         const sessions =
           getSavedWorkspaceSessions(current).map(cloneSavedSession);
         const target = sessions.find(
@@ -1534,7 +1449,7 @@ const createWorkspaceModule = async (moduleAPI: ModuleAPI) => {
       voyageEntryId: string;
     }) => {
       let updatedSession: SavedWorkspaceSession | undefined;
-      savedSessionsState.setState((current) => {
+      await commitSavedVoyageProjection((current) => {
         const sessions =
           getSavedWorkspaceSessions(current).map(cloneSavedSession);
         const target = sessions.find(
@@ -1584,7 +1499,7 @@ const createWorkspaceModule = async (moduleAPI: ModuleAPI) => {
       targetEntryId: string;
     }) => {
       let updatedSession: SavedWorkspaceSession | undefined;
-      savedSessionsState.setState((current) => {
+      await commitSavedVoyageProjection((current) => {
         const sessions =
           getSavedWorkspaceSessions(current).map(cloneSavedSession);
         const target = sessions.find(
@@ -1628,7 +1543,7 @@ const createWorkspaceModule = async (moduleAPI: ModuleAPI) => {
         !args.voyageEntries?.length
       )
         return;
-      savedSessionsState.setState((current) => {
+      await commitSavedVoyageProjection((current) => {
         const sessions =
           getSavedWorkspaceSessions(current).map(cloneSavedSession);
         const nextSession = cloneSavedSession({
@@ -1650,7 +1565,7 @@ const createWorkspaceModule = async (moduleAPI: ModuleAPI) => {
       });
     },
     renameSavedSession: async (args: { id: string; name: string }) => {
-      savedSessionsState.setState((current) => {
+      await commitSavedVoyageProjection((current) => {
         const sessions = getSavedWorkspaceSessions(current).map((session) => ({
           ...session,
         }));
@@ -1666,7 +1581,7 @@ const createWorkspaceModule = async (moduleAPI: ModuleAPI) => {
       });
     },
     deleteSavedSession: async (args: { id: string }) => {
-      savedSessionsState.setState((current) =>
+      await commitSavedVoyageProjection((current) =>
         createSavedWorkspaceSessionState(
           getSavedWorkspaceSessions(current).filter(
             (session) => session.id !== args.id,
@@ -1691,7 +1606,7 @@ const createWorkspaceModule = async (moduleAPI: ModuleAPI) => {
           }
         | undefined;
 
-      savedSessionsState.setState((current) => {
+      await commitSavedVoyageProjection((current) => {
         const sessions =
           getSavedWorkspaceSessions(current).map(cloneSavedSession);
         const source = sessions.find(
