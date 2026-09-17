@@ -22,8 +22,8 @@ import type {
   VoyageCraftSelection,
 } from "./types";
 
-// @platform "browser"
 import "./modules/plugins";
+// @platform "browser"
 import "./modules/MainUIShellModule";
 // @platform end
 
@@ -508,10 +508,12 @@ const createWorkspaceModule = async (moduleAPI: ModuleAPI) => {
       "workspace",
       createDefaultWorkspace(),
     );
+  if (voyageDatabase && !voyageDatabase.legacyTargetContextForCraft) throw new Error("Normalized Voyage target authority is unavailable.");
   const normalizedProjection = voyageDatabase
     ? new NormalizedVoyageProjection(
         new VoyageRepository(voyageDatabase.db, { snapshotCodec: productionDockviewSnapshotCodec }),
         () => workspaceState.getState(),
+        voyageDatabase.legacyTargetContextForCraft!,
       )
     : undefined;
   let projectionSnapshot = normalizedProjection
@@ -865,37 +867,11 @@ const createWorkspaceModule = async (moduleAPI: ModuleAPI) => {
       name: string;
       label?: string;
     }) => {
-      const voyageName = args.name.trim();
-      if (!voyageName || voyageName.toLowerCase() === "home") return undefined;
-
-      let result:
-        | { spaceId: string; tabGroupId: string; tabId: string }
-        | undefined;
-
-      workspaceState.setStateImmer((draft) => {
-        result = addCreateWorkspaceCraftToWorkspace(draft, args);
-      });
-
-      if (!result) return undefined;
-
-      const savedSession = createSavedSessionFromSelection({
-        workspace: workspaceState.getState(),
-        name: voyageName,
-        spaceId: result.spaceId,
-        tabGroupId: result.tabGroupId,
-        tabId: result.tabId,
-      });
-      if (!savedSession) return undefined;
-
-      await commitSavedVoyageProjection((current) => {
-        const sessions = getSavedWorkspaceSessions(current).filter(
-          (session) => session.id !== savedSession.id,
-        );
-        sessions.unshift(savedSession);
-        return createSavedWorkspaceSessionState(sessions);
-      });
-
-      return savedSession;
+      // Temporary Create Workspace surfaces are not durable Panel targets and
+      // cannot become normalized Voyages. The dedicated workspace flow remains
+      // available through ensureCreateWorkspaceTab.
+      void args;
+      return undefined;
     },
 
     createPair: async (args: { tabGroupId: string; tabIds: string[] }) => {

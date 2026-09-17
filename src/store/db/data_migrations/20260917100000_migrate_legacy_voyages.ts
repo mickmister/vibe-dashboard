@@ -54,21 +54,31 @@ function rawSessions(value: unknown): unknown[] | null {
 }
 
 type Outcome = 'migrated' | 'skipped' | 'quarantined';
-type Diagnostic = { sourceKind: string; sourceId: string; outcome: Outcome; reasonCode: string; voyageId: string | null; outputRefs?: string[]; details?: unknown };
+type Diagnostic = { sourceKind: string; sourceId: string; outcome: Outcome; reasonCode: string; voyageId: string | null; craftWorkspaceId?: string | null; outputRefs?: string[]; details?: unknown };
+export type MigrationOutput = { reference: string; voyageId: string; craftWorkspaceId: string | null };
 type Panel = { id: string; legacyGroupId: string; legacyEntryId: string; legacySelectionId: string; craftWorkspaceId: string; target: StoredPanelTarget; lastActivatedSequence: number | null };
 type Voyage = { id: string; session: SavedWorkspaceSession; crafts: Array<{ workspaceId: string; sortKey: string }>; panels: Panel[]; pairs: Array<{ pairId: string; panelIds: string[]; ratios: [50, 50] }>; activePanelId: string | null };
 
-export function assertOccurrenceOutputs(diagnostics: ReadonlyArray<Pick<Diagnostic, 'outcome' | 'outputRefs'>>, outputRefs: ReadonlySet<string>): void {
+export function assertOccurrenceOutputs(
+  diagnostics: ReadonlyArray<Pick<Diagnostic, 'outcome' | 'outputRefs' | 'voyageId' | 'craftWorkspaceId'>>,
+  outputs: ReadonlyArray<MigrationOutput>,
+): void {
+  const outputByReference = new Map(outputs.map((output) => [output.reference, output]));
+  if (outputByReference.size !== outputs.length) throw Object.assign(new Error('Duplicate constructed migration output'), { code: 'AUDIT_IMBALANCE' });
   const claimed = new Set<string>();
   for (const diagnostic of diagnostics) {
     const references = diagnostic.outputRefs ?? [];
     if ((diagnostic.outcome === 'migrated') !== (references.length > 0)) throw Object.assign(new Error('Migration outcome has no constructed output'), { code: 'AUDIT_IMBALANCE' });
     for (const reference of references) {
-      if (!outputRefs.has(reference) || claimed.has(reference)) throw Object.assign(new Error('Migration output mapping is missing or duplicated'), { code: 'AUDIT_IMBALANCE' });
+      const output = outputByReference.get(reference);
+      if (!output || claimed.has(reference)) throw Object.assign(new Error('Migration output mapping is missing or duplicated'), { code: 'AUDIT_IMBALANCE' });
+      if (diagnostic.voyageId !== output.voyageId || (diagnostic.craftWorkspaceId ?? null) !== output.craftWorkspaceId) {
+        throw Object.assign(new Error('Migration output mapping crosses ownership scope'), { code: 'AUDIT_IMBALANCE' });
+      }
       claimed.add(reference);
     }
   }
-  if (claimed.size !== outputRefs.size || [...outputRefs].some((reference) => !claimed.has(reference))) throw Object.assign(new Error('Constructed migration output is not audited'), { code: 'AUDIT_IMBALANCE' });
+  if (claimed.size !== outputs.length || outputs.some(({ reference }) => !claimed.has(reference))) throw Object.assign(new Error('Constructed migration output is not audited'), { code: 'AUDIT_IMBALANCE' });
 }
 
 class OccurrenceLedger {
@@ -81,6 +91,7 @@ class OccurrenceLedger {
   detachVoyage(voyageId: string): void {
     for (const entry of this.entries.values()) if (entry.voyageId === voyageId) {
       entry.voyageId = null;
+      entry.craftWorkspaceId = null;
       entry.outputRefs = undefined;
       if (entry.outcome === 'migrated') {
         entry.outcome = 'skipped';
@@ -88,13 +99,13 @@ class OccurrenceLedger {
       }
     }
   }
-  finish(expected: number, outputRefs: ReadonlySet<string>): Diagnostic[] {
+  finish(expected: number, outputs: ReadonlyArray<MigrationOutput>): Diagnostic[] {
     if (this.entries.size !== expected) throw Object.assign(new Error('Unclassified migration occurrence'), { code: 'AUDIT_IMBALANCE' });
     const diagnostics = [...this.entries.values()];
     const counts = { migrated: 0, skipped: 0, quarantined: 0 };
     diagnostics.forEach(({ outcome }) => { counts[outcome] += 1; });
     if (Object.values(counts).reduce((sum, count) => sum + count, 0) !== expected) throw Object.assign(new Error('Unbalanced migration audit'), { code: 'AUDIT_IMBALANCE' });
-    assertOccurrenceOutputs(diagnostics, outputRefs);
+    assertOccurrenceOutputs(diagnostics, outputs);
     diagnostics.forEach((diagnostic) => { if (diagnostic.outputRefs?.length) diagnostic.details = { outputRefs: diagnostic.outputRefs }; });
     const scoped = (pattern: RegExp) => Object.fromEntries([...new Set(diagnostics.flatMap(({ sourceId }) => sourceId.match(pattern)?.[1] ?? []))]
       .sort().map((scope) => {
@@ -113,7 +124,7 @@ class OccurrenceLedger {
   }
 }
 
-type ContextFactory = (craftId: string, workspaceId: string) => PanelTargetResolutionContext | null;
+export type LegacyTargetContextForCraft = (craft: Craft, workspaceId: string) => PanelTargetResolutionContext | null;
 function snapshotContext(context: PanelTargetResolutionContext): PanelTargetResolutionContext {
   const plugins = context.getPluginRegistry ? structuredClone(context.getPluginRegistry()) : undefined;
   return {
@@ -140,7 +151,7 @@ function countExpected(workspace: WorkspaceState, sessions: SavedWorkspaceSessio
   }, 0), 0);
 }
 
-function buildMigration(source: LegacyVoyageSource, contextFactory: ContextFactory) {
+function buildMigration(source: LegacyVoyageSource, contextFactory: LegacyTargetContextForCraft) {
   if (source.kind === 'absent' || (source.workspaceJson === null && source.sessionsJson === null)) return { voyages: [] as Voyage[], diagnostics: [{ sourceKind: 'installation', sourceId: 'legacy-source', outcome: 'skipped', reasonCode: 'fresh-install', voyageId: null }] satisfies Diagnostic[] };
   if (source.workspaceJson === null || source.sessionsJson === null) throw Object.assign(new Error('Legacy source keys are incomplete'), { code: 'INCOMPLETE_SOURCE' });
   const workspace = parseJson(source.workspaceJson, 'workspace');
@@ -165,7 +176,8 @@ function buildMigration(source: LegacyVoyageSource, contextFactory: ContextFacto
   const resolve = (craftId: string, workspaceId: string, view: { id: string; url: string }) => {
     const key = `${craftId}\0${workspaceId}`;
     if (!contexts.has(key)) {
-      const supplied = contextFactory(craftId, workspaceId);
+      const craft = crafts.get(craftId);
+      const supplied = craft ? contextFactory(craft, workspaceId) : null;
       contexts.set(key, supplied ? snapshotContext(supplied) : null);
     }
     const context = contexts.get(key) ?? null;
@@ -214,6 +226,7 @@ function buildMigration(source: LegacyVoyageSource, contextFactory: ContextFacto
       ledger.add({ sourceKind: 'craft-occurrence', sourceId: occurrence, outcome: outcome === 'migrated' && !isNewMembership ? 'skipped' : outcome,
         reasonCode: outcome === 'migrated' && !isNewMembership ? 'duplicate-membership-occurrence' : reason,
         voyageId: outcome === 'migrated' && isNewMembership ? voyageId : null,
+        craftWorkspaceId: outcome === 'migrated' && isNewMembership ? metadata!.workspaceId : null,
         outputRefs: outcome === 'migrated' && isNewMembership ? [`membership:${voyageId}:${metadata!.workspaceId}`] : undefined });
       const selected = selections(session, entry);
       if (!craft || !metadata || outcome !== 'migrated') {
@@ -229,7 +242,7 @@ function buildMigration(source: LegacyVoyageSource, contextFactory: ContextFacto
           if (classification.outcome !== 'pair') throw Object.assign(new Error('Pair classification failed'), { code: 'AUDIT_IMBALANCE' });
           const complete = 'topology' in classification && Boolean(classification.topology);
           const topologyRefs = complete ? classification.targets.map((_, memberIndex) => `topology:${voyageId}:group-${`panel-${hash(session.id, occurrence, pair.id, String(memberIndex), classification.diagnostics[memberIndex]!.tabId)}`}`) : undefined;
-          ledger.add({ sourceKind: 'view-selection', sourceId: selectionId, outcome: complete ? 'migrated' : 'quarantined', reasonCode: complete ? 'pair-expanded' : 'pair-incomplete', voyageId: complete ? voyageId : null, outputRefs: topologyRefs });
+          ledger.add({ sourceKind: 'view-selection', sourceId: selectionId, outcome: complete ? 'migrated' : 'quarantined', reasonCode: complete ? 'pair-expanded' : 'pair-incomplete', voyageId: complete ? voyageId : null, craftWorkspaceId: complete ? metadata.workspaceId : null, outputRefs: topologyRefs });
           const pairPanelIds: string[] = [];
           let targetIndex = 0;
           classification.diagnostics.forEach((item, memberIndex) => {
@@ -239,7 +252,7 @@ function buildMigration(source: LegacyVoyageSource, contextFactory: ContextFacto
               if (!target) throw Object.assign(new Error('Pair target audit mismatch'), { code: 'AUDIT_IMBALANCE' });
               const panelId = `panel-${hash(session.id, occurrence, pair.id, String(memberIndex), item.tabId)}`;
               panels.push({ id: panelId, legacyGroupId: craft.id, legacyEntryId: entry.id, legacySelectionId: pair.id, craftWorkspaceId: metadata.workspaceId, target, lastActivatedSequence: null });
-              ledger.add({ sourceKind: 'pair-member', sourceId: `${selectionId}:member:${memberIndex}:${item.tabId}`, outcome: memberOutcome, reasonCode: item.reason ?? item.status, voyageId, outputRefs: [`panel:${panelId}`] });
+              ledger.add({ sourceKind: 'pair-member', sourceId: `${selectionId}:member:${memberIndex}:${item.tabId}`, outcome: memberOutcome, reasonCode: item.reason ?? item.status, voyageId, craftWorkspaceId: metadata.workspaceId, outputRefs: [`panel:${panelId}`] });
               pairPanelIds.push(panelId);
               if (entry.id === session.activeVoyageEntryId && session.activeItemsByVoyageEntryId[entry.id] === pair.id && memberIndex === 0) activePanelId = panelId;
             } else ledger.add({ sourceKind: 'pair-member', sourceId: `${selectionId}:member:${memberIndex}:${item.tabId}`, outcome: memberOutcome, reasonCode: item.reason ?? item.status, voyageId: null });
@@ -255,7 +268,7 @@ function buildMigration(source: LegacyVoyageSource, contextFactory: ContextFacto
         if (!target) { ledger.add({ sourceKind: 'view-selection', sourceId: selectionId, outcome: 'quarantined', reasonCode: 'target-unresolvable', voyageId: null }); return; }
         const panelId = `panel-${hash(session.id, occurrence, selectedId, String(selectionIndex))}`;
         panels.push({ id: panelId, legacyGroupId: craft.id, legacyEntryId: entry.id, legacySelectionId: selectedId, craftWorkspaceId: metadata.workspaceId, target, lastActivatedSequence: null });
-        ledger.add({ sourceKind: 'view-selection', sourceId: selectionId, outcome: 'migrated', reasonCode: 'panel', voyageId, outputRefs: [`panel:${panelId}`, `topology:${voyageId}:group-${panelId}`] });
+        ledger.add({ sourceKind: 'view-selection', sourceId: selectionId, outcome: 'migrated', reasonCode: 'panel', voyageId, craftWorkspaceId: metadata.workspaceId, outputRefs: [`panel:${panelId}`, `topology:${voyageId}:group-${panelId}`] });
         if (entry.id === session.activeVoyageEntryId && session.activeItemsByVoyageEntryId[entry.id] === selectedId) activePanelId = panelId;
       });
     });
@@ -278,11 +291,14 @@ function buildMigration(source: LegacyVoyageSource, contextFactory: ContextFacto
     ledger.add({ sourceKind: 'voyage', sourceId: `voyage:${sessionIndex}:${session.id}`, outcome: 'migrated', reasonCode: 'normalized-voyage', voyageId, outputRefs: [`voyage:${voyageId}`] });
     voyages.push({ id: voyageId, session, crafts: [...memberships].map(([workspaceId, sortKey]) => ({ workspaceId, sortKey })), panels, pairs, activePanelId });
   });
-  const outputs = new Set(voyages.flatMap((voyage) => [
-    `voyage:${voyage.id}`,
-    ...voyage.crafts.map(({ workspaceId }) => `membership:${voyage.id}:${workspaceId}`),
-    ...voyage.panels.flatMap(({ id }) => [`panel:${id}`, `topology:${voyage.id}:group-${id}`]),
-  ]));
+  const outputs: MigrationOutput[] = voyages.flatMap((voyage) => [
+    { reference: `voyage:${voyage.id}`, voyageId: voyage.id, craftWorkspaceId: null },
+    ...voyage.crafts.map(({ workspaceId }) => ({ reference: `membership:${voyage.id}:${workspaceId}`, voyageId: voyage.id, craftWorkspaceId: workspaceId })),
+    ...voyage.panels.flatMap(({ id, craftWorkspaceId }) => [
+      { reference: `panel:${id}`, voyageId: voyage.id, craftWorkspaceId },
+      { reference: `topology:${voyage.id}:group-${id}`, voyageId: voyage.id, craftWorkspaceId },
+    ]),
+  ]);
   return { voyages, diagnostics: ledger.finish(countExpected(workspace, sessions), outputs) };
 }
 
@@ -291,7 +307,7 @@ export const migrateLegacyVoyages: DataMigration = {
   requiresSource: true,
   async run({ db, source, services, checkpoint }) {
     if (typeof services.legacyTargetContextForCraft !== 'function') throw Object.assign(new Error('Authoritative legacy target resolver is unavailable'), { code: 'MIGRATION_AUTHORITY_UNAVAILABLE' });
-    const contextFactory = services.legacyTargetContextForCraft as ContextFactory;
+    const contextFactory = services.legacyTargetContextForCraft as LegacyTargetContextForCraft;
     const result = buildMigration(source as LegacyVoyageSource, contextFactory);
     for (const voyage of result.voyages) {
       const activationSequence = Math.max(0, ...voyage.panels.map(({ lastActivatedSequence }) => lastActivatedSequence ?? 0));

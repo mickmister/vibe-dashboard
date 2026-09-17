@@ -25,7 +25,8 @@ async function paths() {
   return { sourcePath: join(directory, 'configured-kv.db'), targetPath: join(directory, 'vd.sqlite') };
 }
 
-function trustedTestContext(craftId: string, workspaceId: string): PanelTargetResolutionContext {
+function trustedTestContext(craft: { id: string }, workspaceId: string): PanelTargetResolutionContext {
+  const craftId = craft.id;
   const plugins = getPluginRegistrySnapshot();
   const origin = 'https://trusted.test';
   return {
@@ -86,15 +87,20 @@ function session(id: string, entries: Array<{ id: string; tabGroupId: string; vi
 
 describe('legacy Springboard Voyage data migration', () => {
   it('rejects missing, duplicate, orphaned, and extra output mappings', () => {
-    expect(() => assertOccurrenceOutputs([{ outcome: 'migrated', outputRefs: ['panel:a'] }], new Set(['panel:b'])))
+    const output = (reference: string, voyageId = 'voyage-a', craftWorkspaceId: string | null = 'craft-a') => ({ reference, voyageId, craftWorkspaceId });
+    const diagnostic = (outputRefs: string[], voyageId = 'voyage-a', craftWorkspaceId: string | null = 'craft-a') => ({ outcome: 'migrated' as const, outputRefs, voyageId, craftWorkspaceId });
+    expect(() => assertOccurrenceOutputs([diagnostic(['panel:a'])], [output('panel:b')]))
       .toThrowError(expect.objectContaining({ code: 'AUDIT_IMBALANCE' }));
     expect(() => assertOccurrenceOutputs([
-      { outcome: 'migrated', outputRefs: ['panel:a'] },
-      { outcome: 'migrated', outputRefs: ['panel:a'] },
-    ], new Set(['panel:a']))).toThrowError(expect.objectContaining({ code: 'AUDIT_IMBALANCE' }));
-    expect(() => assertOccurrenceOutputs([{ outcome: 'skipped', outputRefs: ['panel:a'] }], new Set(['panel:a'])))
+      diagnostic(['panel:a']), diagnostic(['panel:a']),
+    ], [output('panel:a')])).toThrowError(expect.objectContaining({ code: 'AUDIT_IMBALANCE' }));
+    expect(() => assertOccurrenceOutputs([{ outcome: 'skipped', outputRefs: ['panel:a'], voyageId: null, craftWorkspaceId: null }], [output('panel:a')]))
       .toThrowError(expect.objectContaining({ code: 'AUDIT_IMBALANCE' }));
-    expect(() => assertOccurrenceOutputs([], new Set(['panel:a'])))
+    expect(() => assertOccurrenceOutputs([], [output('panel:a')]))
+      .toThrowError(expect.objectContaining({ code: 'AUDIT_IMBALANCE' }));
+    expect(() => assertOccurrenceOutputs([diagnostic(['panel:a'], 'voyage-b')], [output('panel:a')]))
+      .toThrowError(expect.objectContaining({ code: 'AUDIT_IMBALANCE' }));
+    expect(() => assertOccurrenceOutputs([diagnostic(['panel:a'], 'voyage-a', 'craft-b')], [output('panel:a')]))
       .toThrowError(expect.objectContaining({ code: 'AUDIT_IMBALANCE' }));
   });
 

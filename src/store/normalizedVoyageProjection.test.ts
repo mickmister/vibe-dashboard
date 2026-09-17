@@ -8,16 +8,26 @@ import type { DB } from './kysely_types';
 import { buildMigratedDockviewSnapshot, productionDockviewSnapshotCodec } from './dockviewSnapshotCodec';
 import { NormalizedVoyageProjection } from './normalizedVoyageProjection';
 import { VoyageConflictError, VoyageRepository, type StructuralPanelHistoryRecord } from './voyageRepository';
+import type { PanelTargetContextProvider } from './normalizedVoyageProjection';
 
 const workspace: WorkspaceState = {
-  spaces: [{ id: 'space', name: 'Space', icon: 'x', tabGroupIds: ['craft'] }],
+  spaces: [{ id: 'space', name: 'Space', icon: 'x', tabGroupIds: ['craft', 'craft-2'] }],
   tabGroups: [{ id: 'craft', label: 'Craft', workspace: { workspaceId: 'workspace-1', workspaceDir: '/not-persisted' }, order: 0,
-    tabs: [{ id: 'code', title: 'Code', url: '/code' }, { id: 'docs', title: 'Docs', url: 'https://docs.test/' }], pairs: [] }],
+    tabs: [{ id: 'code', title: 'Code', url: '/code' }, { id: 'docs', title: 'Docs', url: 'https://docs.test/' }], pairs: [] },
+  { id: 'craft-2', label: 'Craft 2', workspace: { workspaceId: 'workspace-2', workspaceDir: '/not-persisted' }, order: 1,
+    tabs: [{ id: 'code', title: 'Code', url: '/code' }], pairs: [] }],
   nextId: 1,
 };
 const panel = (id: string, kind: string): StructuralPanelHistoryRecord => ({ id, craftWorkspaceId: 'workspace-1', targetKind: kind, targetVersion: 1,
   targetPayload: kind === 'custom-url' ? { url: 'https://docs.test/' } : { workspaceId: 'workspace-1', folderIntent: 'workspace-root' },
   titleMode: 'automatic' as const, customTitle: null, closePolicy: 'closable' });
+const trustedContext: PanelTargetContextProvider = (craft, workspaceId) => ({
+  craftId: craft.id, hostOrigin: 'https://dashboard.test', crafts: { [craft.id]: { workspaceId, allowedPluginTargets: [] } },
+  workspaces: { [workspaceId]: { id: workspaceId, available: true, directory: '/trusted', origin: 'https://vk.test', repositoryIds: [],
+    locations: { overview: '/overview', code: '/code', changes: '/changes', beads: '/beads', forms: '/forms' } } },
+  agentSessions: {}, terminals: {}, previews: {}, builtInRoutes: {},
+  redirectGuards: { [`code:${workspaceId}`]: { deliveryUrl: 'https://dashboard.test/guard/code', upstreamOrigin: 'https://vk.test' } },
+});
 
 describe('normalized Voyage compatibility projection', () => {
   let sqlite: Database.Database;
@@ -73,5 +83,29 @@ describe('normalized Voyage compatibility projection', () => {
     const loser = structuredClone(stale.state); loser.data[0]!.name = 'Loser';
     await expect(projection.replace(stale, loser)).rejects.toBeInstanceOf(VoyageConflictError);
     expect((await repository.loadVoyage('voyage-1')).metadata.name).toBe('Winner');
+  });
+
+  it('creates and adds trusted normalized Panels, reloads them, and rejects invalid additions', async () => {
+    const projection = new NormalizedVoyageProjection(repository, () => workspace, trustedContext);
+    const before = await projection.load();
+    const created = structuredClone(before.state.data[0]!);
+    created.id = 'voyage-created'; created.name = 'Created'; created.voyageEntries[0]!.viewIds = ['code'];
+    const next = structuredClone(before.state); next.data.push(created);
+    const committed = await projection.replace(before, next);
+    expect((await repository.loadVoyage('voyage-created')).panels.map(({ targetKind }) => targetKind)).toEqual(['code']);
+    expect((await new NormalizedVoyageProjection(repository, () => workspace, trustedContext).load()).state.data.map(({ id }) => id))
+      .toContain('voyage-created');
+
+    const add = structuredClone(committed.state);
+    add.data.find(({ id }) => id === 'voyage-created')!.voyageEntries[0]!.viewIds.push('docs');
+    const added = await projection.replace(committed, add);
+    expect((await repository.loadVoyage('voyage-created')).panels.map(({ targetKind }) => targetKind).sort()).toEqual(['code', 'custom-url']);
+    const addCraft = structuredClone(added.state);
+    addCraft.data.find(({ id }) => id === 'voyage-created')!.voyageEntries.push({ id: 'new-craft', tabGroupId: 'craft-2', viewIds: ['code'] });
+    const withCraft = await projection.replace(added, addCraft);
+    expect((await repository.loadVoyage('voyage-created')).crafts.map(({ craftWorkspaceId }) => craftWorkspaceId).sort()).toEqual(['workspace-1', 'workspace-2']);
+    const invalid = structuredClone(withCraft.state);
+    invalid.data.find(({ id }) => id === 'voyage-created')!.voyageEntries[0]!.viewIds.push('missing');
+    await expect(projection.replace(withCraft, invalid)).rejects.toMatchObject({ name: 'VoyageInvariantError' });
   });
 });

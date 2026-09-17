@@ -83,8 +83,8 @@ export async function initExternalIntegrationsDb(options: {
   }
 }
 
-export function getExternalIntegrationsDb(): Promise<ExternalIntegrationsDbHandle> {
-  cachedHandle ??= initExternalIntegrationsDb();
+export function getExternalIntegrationsDb(dataMigrationDependencies?: DataMigrationDependencies): Promise<ExternalIntegrationsDbHandle> {
+  cachedHandle ??= initExternalIntegrationsDb({ dataMigrationDependencies });
   return cachedHandle;
 }
 

@@ -1,4 +1,4 @@
-import type { SavedWorkspaceSession, SavedWorkspaceSessionState, WorkspaceState } from '../types';
+import type { Craft, SavedWorkspaceSession, SavedWorkspaceSessionState, WorkspaceState } from '../types';
 import { createSavedWorkspaceSessionState } from '../lib/savedVoyageState';
 import { getBuiltInWorkspaceMetadata } from '../modules/plugins/vibe-dashboard/craft-surfaces';
 import {
@@ -8,6 +8,9 @@ import {
   type VoyageRepository,
 } from './voyageRepository';
 import { buildMigratedDockviewSnapshot } from './dockviewSnapshotCodec';
+import { createPanelTargetRegistry, resolveLegacyPanelTarget, type PanelTargetResolutionContext } from './panelTargetRegistry';
+
+export type PanelTargetContextProvider = (craft: Craft, workspaceId: string) => PanelTargetResolutionContext | null;
 
 export interface NormalizedVoyageProjectionSnapshot {
   state: Extract<SavedWorkspaceSessionState, { version: 3 }>;
@@ -61,26 +64,37 @@ function structuralEqual(left: SavedWorkspaceSession, right: SavedWorkspaceSessi
   return JSON.stringify(omitMetadata(left)) === JSON.stringify(omitMetadata(right));
 }
 
-function compileExistingStructure(session: SavedWorkspaceSession, aggregate: VoyageAggregate, workspace: WorkspaceState) {
+function compileStructure(session: SavedWorkspaceSession, aggregate: VoyageAggregate | null, workspace: WorkspaceState, contextProvider: PanelTargetContextProvider) {
   const used = new Set<string>();
+  const registry = createPanelTargetRegistry();
   const crafts = session.voyageEntries.map((entry, index) => {
     const workspaceId = getBuiltInWorkspaceMetadata(workspace.tabGroups.find(({ id }) => id === entry.tabGroupId) ?? { tabs: [] })?.workspaceId
       ?? (entry.id.startsWith('normalized:') ? entry.id.slice('normalized:'.length) : '');
-    if (!workspaceId || !aggregate.crafts.some(({ craftWorkspaceId }) => craftWorkspaceId === workspaceId)) {
-      throw new VoyageInvariantError('Projected Craft must already belong to the normalized Voyage');
-    }
+    if (!workspaceId) throw new VoyageInvariantError('Projected Craft has no authoritative workspace owner');
     return { craftWorkspaceId: workspaceId, sortKey: String(index).padStart(8, '0') };
   });
   const panels = session.voyageEntries.flatMap((entry) => {
     const workspaceId = crafts.find(({ craftWorkspaceId }) => entry.id === `normalized:${craftWorkspaceId}`)?.craftWorkspaceId
       ?? getBuiltInWorkspaceMetadata(workspace.tabGroups.find(({ id }) => id === entry.tabGroupId) ?? { tabs: [] })?.workspaceId;
+    if (!workspaceId) throw new VoyageInvariantError('Projected Panel has no authoritative workspace owner');
     return entry.viewIds.map((viewId) => {
-      const panel = aggregate.panels.find((candidate) => !used.has(candidate.id)
+      const panel = aggregate?.panels.find((candidate) => !used.has(candidate.id)
         && candidate.craftWorkspaceId === workspaceId && legacyViewId(candidate, workspace) === viewId);
-      if (!panel) throw new VoyageInvariantError('Projection cannot invent a normalized Panel target');
-      used.add(panel.id);
-      const { lastActivatedSequence: _recency, ...structural } = panel;
-      return structural;
+      if (panel) {
+        used.add(panel.id);
+        const { lastActivatedSequence: _recency, ...structural } = panel;
+        return structural;
+      }
+      const craft = workspace.tabGroups.find(({ id }) => id === entry.tabGroupId);
+      const view = craft?.tabs.find(({ id }) => id === viewId);
+      const context = craft && workspaceId ? contextProvider(craft, workspaceId) : null;
+      const target = craft && view && context ? resolveLegacyPanelTarget({ view, workspaceId, context, registry }) : null;
+      if (!target) throw new VoyageInvariantError('Projected Panel target is unavailable or unauthorized');
+      const id = panelId(session.id, entry.id, viewId);
+      if (used.has(id) || aggregate?.panels.some((candidate) => candidate.id === id)) throw new VoyageInvariantError('Projected Panel identity collides');
+      used.add(id);
+      return { id, craftWorkspaceId: workspaceId, targetKind: target.kind, targetVersion: target.version, targetPayload: target.payload as never,
+        titleMode: 'automatic' as const, customTitle: null, closePolicy: 'closable' };
     });
   });
   return {
@@ -90,6 +104,12 @@ function compileExistingStructure(session: SavedWorkspaceSession, aggregate: Voy
   };
 }
 
+function panelId(...parts: string[]): string {
+  let hash = 2166136261;
+  for (const character of parts.join('\0')) { hash ^= character.charCodeAt(0); hash = Math.imul(hash, 16777619); }
+  return `panel-${(hash >>> 0).toString(16).padStart(8, '0')}`;
+}
+
 function projectedWorkspaceIds(session: SavedWorkspaceSession, workspace: WorkspaceState): string[] {
   return session.voyageEntries.map((entry) => getBuiltInWorkspaceMetadata(workspace.tabGroups.find(({ id }) => id === entry.tabGroupId) ?? { tabs: [] })?.workspaceId
     ?? (entry.id.startsWith('normalized:') ? entry.id.slice('normalized:'.length) : '')).filter(Boolean);
@@ -97,7 +117,8 @@ function projectedWorkspaceIds(session: SavedWorkspaceSession, workspace: Worksp
 
 /** Read-only UI projection whose only write path is repository CAS. */
 export class NormalizedVoyageProjection {
-  constructor(private readonly repository: VoyageRepository, private readonly workspace: () => WorkspaceState) {}
+  constructor(private readonly repository: VoyageRepository, private readonly workspace: () => WorkspaceState,
+    private readonly contextProvider: PanelTargetContextProvider = () => null) {}
 
   async load(): Promise<NormalizedVoyageProjectionSnapshot> {
     const aggregates = await Promise.all((await this.repository.listVoyageIds()).map((id) => this.repository.loadVoyage(id)));
@@ -110,11 +131,14 @@ export class NormalizedVoyageProjection {
   async replace(previous: NormalizedVoyageProjectionSnapshot, next: Extract<SavedWorkspaceSessionState, { version: 3 }>): Promise<NormalizedVoyageProjectionSnapshot> {
     const before = new Map(previous.state.data.map((session) => [session.id, session]));
     const after = new Map(next.data.map((session) => [session.id, session]));
-    if ([...after].some(([id]) => !before.has(id))) throw new VoyageInvariantError('Compatibility projection cannot create structural Voyages');
     await Promise.all([...before.keys()].map(async (id) => {
       const expected = previous.revisions.get(id);
       if (expected === undefined || (await this.repository.loadVoyage(id)).revision !== expected) throw new VoyageConflictError(id, expected ?? -1);
     }));
+    const creations = [...after].filter(([id]) => !before.has(id)).map(([id, session]) => ({ id, session,
+      structure: compileStructure(session, null, this.workspace(), this.contextProvider) }));
+    if (creations.length > 1) throw new VoyageInvariantError('Compatibility projection creates one Voyage per command');
+    for (const creation of creations) await this.repository.createVoyage({ id: creation.id, name: creation.session.name, ...creation.structure });
     const structuralHandled = new Set<string>();
     const revisionOverrides = new Map<string, number>();
     const removed = [...before].flatMap(([id, session]) => {
@@ -129,7 +153,7 @@ export class NormalizedVoyageProjection {
       const oldIds = new Set(projectedWorkspaceIds(oldSession, this.workspace()));
       return projectedWorkspaceIds(session, this.workspace()).filter((workspaceId) => !oldIds.has(workspaceId)).map((workspaceId) => ({ id, workspaceId }));
     });
-    if (removed.length || added.length) {
+    if (removed.length && added.length) {
       if (removed.length !== 1 || added.length !== 1 || removed[0]!.workspaceId !== added[0]!.workspaceId || removed[0]!.id === added[0]!.id) {
         throw new VoyageInvariantError('Compatibility projection supports only one atomic Craft move at a time');
       }
@@ -159,7 +183,7 @@ export class NormalizedVoyageProjection {
       let currentRevision = revision;
       if (!structuralHandled.has(id) && !structuralEqual(session, replacement)) {
         const aggregate = await this.repository.loadVoyage(id);
-        const structure = compileExistingStructure(replacement, aggregate, this.workspace());
+        const structure = compileStructure(replacement, aggregate, this.workspace(), this.contextProvider);
         currentRevision = (await this.repository.commitMembershipMutation({ voyageId: id, expectedRevision: currentRevision, ...structure })).revision;
       }
       if (session.name !== replacement.name) currentRevision = await this.repository.updateMetadata({ voyageId: id, expectedRevision: currentRevision, name: replacement.name });
