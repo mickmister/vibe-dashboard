@@ -31,6 +31,13 @@ describe('external integrations migrations', () => {
     ]);
   });
 
+  it('keeps SQLite trigger bodies as one executable statement', () => {
+    expect(splitSqlStatements("CREATE TRIGGER t BEFORE INSERT ON x BEGIN SELECT RAISE(ABORT, 'no'); END; CREATE INDEX i ON x(id);")).toEqual([
+      "CREATE TRIGGER t BEFORE INSERT ON x BEGIN SELECT RAISE(ABORT, 'no'); END",
+      'CREATE INDEX i ON x(id)',
+    ]);
+  });
+
   it('creates Better Auth and external connection tables idempotently', async () => {
     const sqlite = new Database(':memory:');
     const db = new Kysely<DB>({ dialect: new SqliteDialect({ database: sqlite }) });
@@ -43,6 +50,7 @@ describe('external integrations migrations', () => {
         '20260702010000_external_issue_workspace_mappings',
         '20260702020000_external_repo_project_mappings',
         '20260804220000_external_repo_project_mapping_site_scope',
+        '20260917000000_normalized_voyages',
       ]);
       expect(second).toEqual([]);
 
@@ -63,6 +71,37 @@ describe('external integrations migrations', () => {
         'ExternalRepoProjectMapping',
         'Migration',
       ]));
+    } finally {
+      await db.destroy();
+      sqlite.close();
+    }
+  });
+
+  it('creates normalized Voyage tables with installation-global invariants', async () => {
+    const sqlite = new Database(':memory:');
+    sqlite.pragma('foreign_keys = ON');
+    const db = new Kysely<DB>({ dialect: new SqliteDialect({ database: sqlite }) });
+
+    try {
+      await migrateExternalIntegrationsDb(db);
+      const tables = sqlite.prepare("SELECT name FROM sqlite_master WHERE type = 'table' AND name LIKE 'Voyage%'").all() as Array<{ name: string }>;
+      expect(tables.map(({ name }) => name)).toEqual(expect.arrayContaining([
+        'Voyage', 'VoyageCraft', 'VoyagePanel', 'VoyageLayout', 'VoyageHistory',
+        'VoyageLayoutQuarantine', 'VoyageSettings', 'VoyageMigrationDiagnostic',
+      ]));
+
+      sqlite.prepare('INSERT INTO Voyage (id, name, lifecycleState) VALUES (?, ?, ?)').run('voyage-1', 'Today', 'active');
+      sqlite.prepare('INSERT INTO VoyageCraft (voyageId, craftWorkspaceId, sortKey) VALUES (?, ?, ?)').run('voyage-1', 'vk-workspace-1', 'a');
+      sqlite.prepare('INSERT INTO VoyagePanel (id, voyageId, craftWorkspaceId, targetKind, targetVersion, targetPayloadJson, titleMode, closePolicy) VALUES (?, ?, ?, ?, ?, ?, ?, ?)')
+        .run('panel-1', 'voyage-1', 'vk-workspace-1', 'agent-session', 1, '{}', 'derived', 'closable');
+
+      expect(() => sqlite.prepare('INSERT INTO VoyagePanel (id, voyageId, craftWorkspaceId, targetKind, targetVersion, targetPayloadJson, titleMode, closePolicy) VALUES (?, ?, ?, ?, ?, ?, ?, ?)')
+        .run('panel-wrong-membership', 'voyage-1', 'vk-workspace-other', 'code', 1, '{}', 'derived', 'closable')).toThrow();
+      expect(() => sqlite.prepare('UPDATE VoyagePanel SET lastActivatedSequence = 2 WHERE id = ?').run('panel-1')).toThrow();
+      expect(() => sqlite.prepare('UPDATE Voyage SET revision = -1 WHERE id = ?').run('voyage-1')).toThrow();
+
+      sqlite.prepare('DELETE FROM Voyage WHERE id = ?').run('voyage-1');
+      expect((sqlite.prepare('SELECT COUNT(*) AS count FROM VoyagePanel').get() as { count: number }).count).toBe(0);
     } finally {
       await db.destroy();
       sqlite.close();
@@ -169,7 +208,10 @@ describe('external integrations migrations', () => {
       await db.deleteFrom('ExternalRepoProjectMapping').execute();
 
       const applied = await migrateExternalIntegrationsDb(db);
-      expect(applied).toEqual(['20260804220000_external_repo_project_mapping_site_scope']);
+      expect(applied).toEqual([
+        '20260804220000_external_repo_project_mapping_site_scope',
+        '20260917000000_normalized_voyages',
+      ]);
 
       await db.insertInto('ExternalRepoProjectMapping').values([
         {

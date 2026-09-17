@@ -68,6 +68,10 @@ export function splitSqlStatements(migrationSql: string): string[] {
     }
 
     if (char === ';') {
+      if (/^CREATE\s+TRIGGER\b/i.test(current.trimStart()) && !/\bEND\s*$/i.test(current.trimEnd())) {
+        current += char;
+        continue;
+      }
       const trimmed = current.trim();
       if (trimmed) statements.push(trimmed);
       current = '';
