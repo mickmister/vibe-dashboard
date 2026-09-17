@@ -1,4 +1,5 @@
 import type { CreateWebhookSubscriptionBody, UpsertWebhookSubscriptionResponse } from './vk-client';
+import { areWorkflowFeaturesEnabled, isTruthy } from '../workflows/featureFlags';
 import { DEFAULT_WORKFLOW_WEBHOOK_PROVISIONING_STATE_KEY, type DbWorkflowWebhookProvisioningStore, type WorkflowWebhookProvisioningReadModel } from './workflow-webhook-provisioning-store';
 
 export const DEFAULT_WORKFLOW_WEBHOOK_UPSERT_KEY = 'vd.workflow_wakeups.v1';
@@ -111,6 +112,7 @@ export class WorkflowWebhookProvisioner {
 }
 
 export function shouldStartWorkflowWebhookProvisioner(env: Record<string, string | undefined> = process.env): boolean {
+  if (!areWorkflowFeaturesEnabled(env)) return false;
   if (env.NODE_ENV === 'test') return false;
   if (isTruthy(env.VD_DISABLE_VK_WORKFLOW_WEBHOOK_PROVISIONING)) return false;
   return true;
@@ -155,10 +157,6 @@ function isLocalOrPrivateHost(hostname: string): boolean {
 
 function formatHost(host: string): string {
   return host.includes(':') && !host.startsWith('[') ? `[${host}]` : host;
-}
-
-function isTruthy(value: string | undefined): boolean {
-  return value === '1' || value?.toLowerCase() === 'true' || value?.toLowerCase() === 'yes';
 }
 
 function toPublic(state: { secret: string } & WorkflowWebhookProvisioningReadModel): WorkflowWebhookProvisioningReadModel {

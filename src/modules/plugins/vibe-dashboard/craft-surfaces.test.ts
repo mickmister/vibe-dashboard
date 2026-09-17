@@ -55,7 +55,7 @@ const surfaces: RegisteredCraftSurfaceContribution[] = [
 ];
 
 describe("dynamic Craft surfaces", () => {
-  it("derives Agent, Code, Beads, Forms, Workflows, and built-in split pairs from Craft workspace metadata", () => {
+  it("derives Agent, Code, Beads, Forms, and built-in split pairs from Craft workspace metadata by default", () => {
     const effective = createEffectiveWorkspaceWithCraftSurfaces({
       workspace: {
         ...workspace,
@@ -92,16 +92,38 @@ describe("dynamic Craft surfaces", () => {
         "Forms",
         "https://vd.example.test/dashboard/forms?workspace=workspace_1",
       ],
-      [
-        "workflows",
-        "Workflows",
-        "https://vd.example.test/dashboard/workflows?workspaceId=workspace_1",
-      ],
     ]);
     expect(effective.tabGroups[0]!.pairs).toEqual([
       { id: "agent+code", tabIds: ["agent", "code"], ratios: [50, 50] },
       { id: "agent+beads", tabIds: ["agent", "beads"], ratios: [50, 50] },
     ]);
+    expect(effective.tabGroups[0]!.tabs.some((tab) => tab.id === BUILT_IN_WORKFLOWS_TAB_ID)).toBe(false);
+  });
+
+
+  it("adds the Workflows tab only when workflow features are enabled", () => {
+    const effective = createEffectiveWorkspaceWithCraftSurfaces({
+      workspace: {
+        ...workspace,
+        tabGroups: [
+          {
+            id: "craft_workspace",
+            label: "Workspace Craft",
+            workspace: {
+              workspaceId: "workspace_1",
+              workspaceDir: "/home/vkuser/repos/app",
+            },
+            tabs: [],
+            pairs: [],
+            order: 0,
+          },
+        ],
+      },
+      craftSurfaces: [],
+      origin: "https://vd.example.test",
+      workflowsEnabled: true,
+    });
+
     const workflowsTab = effective.tabGroups[0]!.tabs.find(
       (tab) => tab.id === BUILT_IN_WORKFLOWS_TAB_ID,
     );
@@ -233,6 +255,7 @@ describe("dynamic Craft surfaces", () => {
       },
       craftSurfaces: [],
       origin: "http://localhost:3001",
+      workflowsEnabled: true,
     });
 
     expect(
@@ -280,6 +303,7 @@ describe("dynamic Craft surfaces", () => {
         },
         craftSurfaces: [],
         origin: "http://localhost:4101",
+        workflowsEnabled: true,
       });
 
       expect(

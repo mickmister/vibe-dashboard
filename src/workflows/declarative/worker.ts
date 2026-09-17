@@ -1,3 +1,4 @@
+import { areWorkflowFeaturesEnabled, isTruthy } from '../featureFlags';
 import type { DeclarativeWorkflowRuntime, DeclarativeWorkflowRunOnceResult } from './runtime';
 
 export interface DeclarativeWorkflowWorkerOptions {
@@ -64,8 +65,9 @@ export function createDeclarativeWorkflowWorker(options: DeclarativeWorkflowWork
 }
 
 export function shouldStartDeclarativeWorkflowWorker(env: NodeJS.ProcessEnv = process.env): boolean {
-  if (env.VD_DECLARATIVE_WORKFLOW_WORKER_DISABLED === '1' || env.VD_DECLARATIVE_WORKFLOW_WORKER_DISABLED === 'true') return false;
-  if (env.VITEST || env.NODE_ENV === 'test') return env.VD_DECLARATIVE_WORKFLOW_WORKER_ENABLED === '1' || env.VD_DECLARATIVE_WORKFLOW_WORKER_ENABLED === 'true';
+  if (!areWorkflowFeaturesEnabled(env)) return false;
+  if (isTruthy(env.VD_DECLARATIVE_WORKFLOW_WORKER_DISABLED)) return false;
+  if (env.VITEST || env.NODE_ENV === 'test') return isTruthy(env.VD_DECLARATIVE_WORKFLOW_WORKER_ENABLED);
   return true;
 }
 

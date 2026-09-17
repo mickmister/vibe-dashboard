@@ -7,6 +7,7 @@ import type {
   WorkspaceState,
 } from "../../../types";
 import { buildWorkspaceFolderUrl } from "../../../lib/vkWorkspaceUrl";
+import { areWorkflowFeaturesEnabled } from "../../../workflows/featureFlags";
 import type { RegisteredCraftSurfaceContribution } from "./types";
 
 export const CRAFT_SURFACE_TAB_ID_PREFIX = "craft-surface:";
@@ -36,6 +37,7 @@ type BuiltInWorkspaceMetadata = NonNullable<TabGroup["workspace"]>;
 type ViteImportMeta = ImportMeta & {
   env?: {
     VITE_VK_BASE_ORIGIN?: string;
+    VITE_VD_WORKFLOWS_ENABLED?: string;
   };
 };
 
@@ -43,6 +45,7 @@ export interface CreateEffectiveWorkspaceWithCraftSurfacesInput {
   workspace: WorkspaceState;
   craftSurfaces: RegisteredCraftSurfaceContribution[];
   origin: string;
+  workflowsEnabled?: boolean;
 }
 
 export function createEffectiveWorkspaceWithCraftSurfaces(
@@ -55,6 +58,7 @@ export function createEffectiveWorkspaceWithCraftSurfaces(
         tabGroup,
         craftSurfaces: input.craftSurfaces,
         origin: input.origin,
+        workflowsEnabled: input.workflowsEnabled,
       }),
     ),
   };
@@ -64,10 +68,12 @@ function createEffectiveCraftWithSurfaces(input: {
   tabGroup: TabGroup;
   craftSurfaces: RegisteredCraftSurfaceContribution[];
   origin: string;
+  workflowsEnabled?: boolean;
 }): TabGroup {
   const tabs = getEffectiveTabs(input.tabGroup, {
     craftSurfaces: input.craftSurfaces,
     origin: input.origin,
+    workflowsEnabled: input.workflowsEnabled,
   });
   const pairs = getEffectivePairs({ ...input.tabGroup, tabs }, input.origin);
 
@@ -82,11 +88,15 @@ export function getEffectiveTabs(
   options: {
     craftSurfaces?: RegisteredCraftSurfaceContribution[];
     origin?: string;
+    workflowsEnabled?: boolean;
   } = {},
 ): Tab[] {
   const builtInWorkspaceTabs = getBuiltInWorkspaceTabs(
     tabGroup,
     options.origin ?? "",
+    options.workflowsEnabled ?? areWorkflowFeaturesEnabled({
+      VITE_VD_WORKFLOWS_ENABLED: (import.meta as ViteImportMeta).env?.VITE_VD_WORKFLOWS_ENABLED,
+    }),
   );
   const craftSurfaceTabs = getCraftSurfaceTabs({
     tabGroup,
@@ -189,14 +199,18 @@ export function getBuiltInWorkspaceMetadata(
   };
 }
 
-function getBuiltInWorkspaceTabs(tabGroup: TabGroup, origin: string): Tab[] {
+function getBuiltInWorkspaceTabs(
+  tabGroup: TabGroup,
+  origin: string,
+  workflowsEnabled: boolean,
+): Tab[] {
   const metadata = getBuiltInWorkspaceMetadata(tabGroup);
   if (!metadata) return [];
   const workspaceBaseOrigin = getBuiltInWorkspaceBaseOrigin(origin, {
     allowConfiguredVkBaseOrigin: true,
   });
   const dashboardBaseOrigin = getBuiltInWorkspaceBaseOrigin(origin);
-  return [
+  const tabs: Tab[] = [
     {
       id: BUILT_IN_AGENT_TAB_ID,
       title: "Agent",
@@ -225,7 +239,9 @@ function getBuiltInWorkspaceTabs(tabGroup: TabGroup, origin: string): Tab[] {
       ),
       pinned: true,
     },
-    {
+  ];
+  if (workflowsEnabled) {
+    tabs.push({
       id: BUILT_IN_WORKFLOWS_TAB_ID,
       title: "Workflows",
       url: buildWorkflowsUrl(dashboardBaseOrigin, metadata.workspaceId),
@@ -236,8 +252,9 @@ function getBuiltInWorkspaceTabs(tabGroup: TabGroup, origin: string): Tab[] {
         surfaceKey: "workflows",
         sourceKey: "built-in-workflows",
       },
-    },
-  ];
+    });
+  }
+  return tabs;
 }
 
 function getCraftSurfaceTabs(input: {

@@ -114,6 +114,9 @@ docker exec \
   --env VD_GAS_CITY_E2E_FIXTURE="${VD_GAS_CITY_E2E_FIXTURE:-}" \
   --env VD_GAS_CITY_E2E_FIXTURE_FILE="${container_gas_city_fixture_file}" \
   --env VD_NATIVE_GAS_CITY_GATE_ONLY="${VD_NATIVE_GAS_CITY_GATE_ONLY:-}" \
+  --env VD_WORKFLOWS_ENABLED=1 \
+  --env VITE_VD_WORKFLOWS_ENABLED=1 \
+  --env VD_WORKFLOW_E2E_FIXTURES_ENABLED=1 \
   "${container_name}" bash -lc '
     set -euo pipefail
     run_with_log() {

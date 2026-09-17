@@ -1,6 +1,7 @@
 import React from 'react';
 import type { Tab, TabGroup } from '../../../types';
 import { PreviewRunConfigsPanel } from '../../../components/PreviewRunConfigsPanel';
+import { areWorkflowFeaturesEnabled } from '../../../workflows/featureFlags';
 import { WorkspaceWorkflowsPage } from '../workflows/components/WorkspaceWorkflowsPage';
 import {
   BUILT_IN_WORKFLOWS_TAB_ID,
@@ -32,7 +33,7 @@ export function getReactCraftSurfaceTarget(
   tabGroup: Pick<TabGroup, 'tabs' | 'workspace'>,
 ): ReactCraftSurfaceTarget | null {
   const workspace = getBuiltInWorkspaceMetadata(tabGroup);
-  if (tab.id === BUILT_IN_WORKFLOWS_TAB_ID && workspace?.workspaceId) {
+  if (tab.id === BUILT_IN_WORKFLOWS_TAB_ID && workspace?.workspaceId && areWorkflowFeaturesEnabled()) {
     return {
       kind: 'react',
       pluginId: 'vibe-dashboard',

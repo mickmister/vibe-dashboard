@@ -6,6 +6,7 @@ import {
   DEFAULT_WORKFLOW_WEBHOOK_UPSERT_KEY,
   WorkflowWebhookProvisioner,
   deriveWorkflowWebhookUrl,
+  shouldStartWorkflowWebhookProvisioner,
   validateProvisioningTargetUrl,
   type WorkflowWebhookProvisionerVkClient,
 } from './workflow-webhook-provisioner';
@@ -22,6 +23,14 @@ afterEach(async () => {
 });
 
 describe('WorkflowWebhookProvisioner', () => {
+
+  it('keeps webhook provisioning disabled unless workflows are enabled', () => {
+    expect(shouldStartWorkflowWebhookProvisioner({})).toBe(false);
+    expect(shouldStartWorkflowWebhookProvisioner({ VD_WORKFLOWS_ENABLED: '1' })).toBe(true);
+    expect(shouldStartWorkflowWebhookProvisioner({ VD_WORKFLOWS_ENABLED: '1', NODE_ENV: 'test' })).toBe(false);
+    expect(shouldStartWorkflowWebhookProvisioner({ VD_WORKFLOWS_ENABLED: '1', VD_DISABLE_VK_WORKFLOW_WEBHOOK_PROVISIONING: '1' })).toBe(false);
+  });
+
   it('derives the same-container localhost webhook URL from listen env', () => {
     expect(deriveWorkflowWebhookUrl({ PORT: '3109' })).toBe('http://127.0.0.1:3109/dashboard/api/workflow-webhooks/vk');
     expect(deriveWorkflowWebhookUrl({ DASHBOARD_PORT: '4200', VD_WORKFLOW_WEBHOOK_HOST: 'localhost' })).toBe('http://localhost:4200/dashboard/api/workflow-webhooks/vk');

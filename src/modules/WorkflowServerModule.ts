@@ -39,6 +39,7 @@ import { DbWorkflowPlanStore } from './plugins/workflows/server/workflowPlanStor
 import { WorkflowPlanAuthService } from './plugins/workflows/server/workflowPlanAuthorization';
 import { NativeGasCityWorkflowProvider } from './plugins/workflows/server/nativeGasCityWorkflowProvider';
 import { createProductionNativeGasCityRuntime } from './plugins/workflows/server/nativeGasCityRuntime';
+import { areWorkflowE2eFixturesEnabled, areWorkflowFeaturesEnabled } from '../workflows/featureFlags';
 
 const execFileAsync = promisify(execFile);
 const reposRoot = process.env.VK_REPOS_ROOT || join(process.env.HOME || '/home/vkuser', 'repos');
@@ -50,112 +51,117 @@ let cachedGitRepos: CachedRepoAlias[] | null = null;
 export const gasCityExecutionBundleCompiler = createProductionGasCityExecutionBundleCompiler();
 
 serverRegistry.registerServerModule((api) => {
-  const workflowOrchestrationStore = new DbWorkflowOrchestrationStore({
-    getDb: async () => (await getVdDb()).db,
-  });
   const vkClient = new VibeKanbanServerClient();
-  const roleSessionResolver = new WorkflowRoleSessionResolver({
-    getDb: async () => (await getVdDb()).db,
-    vk: vkClient,
-  });
-  const workflowActivityScanner = new WorkflowActivityScanner({
-    getDb: async () => (await getVdDb()).db,
-    orchestrationStore: workflowOrchestrationStore,
-    vk: vkClient,
-  });
-  const responsePipeStore = new DbResponsePipeStore({ getDb: async () => (await getVdDb()).db });
-  const declarativeWorkflowDefinitionStore = new DbDeclarativeWorkflowDefinitionStore({ getDb: async () => (await getVdDb()).db });
-  const workflowWebhookInboxStore = new DbWorkflowWebhookInboxStore({ getDb: async () => (await getVdDb()).db });
-  const workflowWebhookProvisioningStore = new DbWorkflowWebhookProvisioningStore({ getDb: async () => (await getVdDb()).db });
-  const workflowDesignStore = new DbWorkflowDesignStore({ getDb: async () => (await getVdDb()).db, templates: BUILT_IN_WORKFLOW_TEMPLATES });
-  const workspaceLaneStore = new DbWorkspaceLaneStore({ getDb: async () => (await getVdDb()).db });
-  const workflowBeadProviders = createBdWorkflowProviders();
-  const nativeRuntime = createProductionNativeGasCityRuntime({ vk: vkClient, resolver: roleSessionResolver });
-  const nativeGasCityWorkflowProvider = nativeRuntime ? new NativeGasCityWorkflowProvider({ getDb: async () => (await getVdDb()).db, runtime: nativeRuntime }) : null;
-  const workflowPlanLaunchService = new WorkflowPlanLaunchService({
-    store: new DbWorkflowPlanStore({ getDb: async () => (await getVdDb()).db, ownerId: `vd-${process.pid}` }),
-    compiler: gasCityExecutionBundleCompiler,
-    source: new DbWorkflowPlanSource({
-      designStore: workflowDesignStore,
-      tasks: {
-        async getBeadsByIds(workspaceId, ids) {
-          return (await workflowBeadProviders.beadProvider.readBeads(ids)).filter((bead) => bead.workspaceId === workspaceId).map((bead) => ({ id: bead.beadId, title: bead.title, workspaceId, dependencies: [], contentRevision: `${bead.beadId}:${bead.title}` }));
-        },
-      },
-      repositories: async (workspaceId) => (await vkClient.getWorkspaceRepos(workspaceId)).map((repo) => ({ id: repo.id, name: repo.name, targetRevision: repo.target_branch })),
-    }),
-    launcher: nativeGasCityWorkflowProvider ?? {
-      async checkDynamic() { return { ready: false, message: 'Native workflow start is not available yet. The verified plan can be reviewed now.' }; },
-      async reconcile() { return { outcome: 'unknown' as const }; },
-      async launch() { throw new Error('Native workflow start is not available.'); },
-    },
-  });
-  const workflowPlanAuthService = new WorkflowPlanAuthService({ cliCapabilityKey: workflowCapabilityKeyFromEnvironment(), browserOrigin: process.env.VD_WORKFLOW_LOCAL_ORIGIN });
-  const declarativeWorkflowRuntime = new DeclarativeWorkflowRuntime({
-    store: workflowOrchestrationStore,
-    resolver: roleSessionResolver,
-    vk: vkClient,
-    responsePipe: new ResponsePipeService({
-      store: responsePipeStore,
-      vk: vkClient,
-    }),
-    scopedTriggerSatisfier: new WorkflowScopedTriggerSatisfier({
-      scanner: workflowActivityScanner,
-      orchestrationStore: workflowOrchestrationStore,
-      policy: { maxActiveExecutions: 8 },
-    }),
-    notificationStore: responsePipeStore,
-  });
-  const workflowWebhookWakeup = new WorkflowWebhookWakeup(() => declarativeWorkflowRuntime.runReady());
-  if (shouldStartWorkflowWebhookProvisioner()) {
-    new WorkflowWebhookProvisioner({
-      store: workflowWebhookProvisioningStore,
-      vk: vkClient,
-      logger: console,
-    }).start();
-  }
-  if (shouldStartDeclarativeWorkflowWorker()) {
-    createDeclarativeWorkflowWorker({
-      runtime: declarativeWorkflowRuntime,
-      intervalMs: getDeclarativeWorkflowWorkerIntervalMs(),
+
+  if (areWorkflowFeaturesEnabled()) {
+    const workflowOrchestrationStore = new DbWorkflowOrchestrationStore({
+      getDb: async () => (await getVdDb()).db,
     });
+    const roleSessionResolver = new WorkflowRoleSessionResolver({
+      getDb: async () => (await getVdDb()).db,
+      vk: vkClient,
+    });
+    const workflowActivityScanner = new WorkflowActivityScanner({
+      getDb: async () => (await getVdDb()).db,
+      orchestrationStore: workflowOrchestrationStore,
+      vk: vkClient,
+    });
+    const responsePipeStore = new DbResponsePipeStore({ getDb: async () => (await getVdDb()).db });
+    const declarativeWorkflowDefinitionStore = new DbDeclarativeWorkflowDefinitionStore({ getDb: async () => (await getVdDb()).db });
+    const workflowWebhookInboxStore = new DbWorkflowWebhookInboxStore({ getDb: async () => (await getVdDb()).db });
+    const workflowWebhookProvisioningStore = new DbWorkflowWebhookProvisioningStore({ getDb: async () => (await getVdDb()).db });
+    const workflowDesignStore = new DbWorkflowDesignStore({ getDb: async () => (await getVdDb()).db, templates: BUILT_IN_WORKFLOW_TEMPLATES });
+    const workspaceLaneStore = new DbWorkspaceLaneStore({ getDb: async () => (await getVdDb()).db });
+    const workflowBeadProviders = createBdWorkflowProviders();
+    const nativeRuntime = createProductionNativeGasCityRuntime({ vk: vkClient, resolver: roleSessionResolver });
+    const nativeGasCityWorkflowProvider = nativeRuntime ? new NativeGasCityWorkflowProvider({ getDb: async () => (await getVdDb()).db, runtime: nativeRuntime }) : null;
+    const workflowPlanLaunchService = new WorkflowPlanLaunchService({
+      store: new DbWorkflowPlanStore({ getDb: async () => (await getVdDb()).db, ownerId: `vd-${process.pid}` }),
+      compiler: gasCityExecutionBundleCompiler,
+      source: new DbWorkflowPlanSource({
+        designStore: workflowDesignStore,
+        tasks: {
+          async getBeadsByIds(workspaceId, ids) {
+            return (await workflowBeadProviders.beadProvider.readBeads(ids)).filter((bead) => bead.workspaceId === workspaceId).map((bead) => ({ id: bead.beadId, title: bead.title, workspaceId, dependencies: [], contentRevision: `${bead.beadId}:${bead.title}` }));
+          },
+        },
+        repositories: async (workspaceId) => (await vkClient.getWorkspaceRepos(workspaceId)).map((repo) => ({ id: repo.id, name: repo.name, targetRevision: repo.target_branch })),
+      }),
+      launcher: nativeGasCityWorkflowProvider ?? {
+        async checkDynamic() { return { ready: false, message: 'Native workflow start is not available yet. The verified plan can be reviewed now.' }; },
+        async reconcile() { return { outcome: 'unknown' as const }; },
+        async launch() { throw new Error('Native workflow start is not available.'); },
+      },
+    });
+    const workflowPlanAuthService = new WorkflowPlanAuthService({ cliCapabilityKey: workflowCapabilityKeyFromEnvironment(), browserOrigin: process.env.VD_WORKFLOW_LOCAL_ORIGIN });
+    const declarativeWorkflowRuntime = new DeclarativeWorkflowRuntime({
+      store: workflowOrchestrationStore,
+      resolver: roleSessionResolver,
+      vk: vkClient,
+      responsePipe: new ResponsePipeService({
+        store: responsePipeStore,
+        vk: vkClient,
+      }),
+      scopedTriggerSatisfier: new WorkflowScopedTriggerSatisfier({
+        scanner: workflowActivityScanner,
+        orchestrationStore: workflowOrchestrationStore,
+        policy: { maxActiveExecutions: 8 },
+      }),
+      notificationStore: responsePipeStore,
+    });
+    const workflowWebhookWakeup = new WorkflowWebhookWakeup(() => declarativeWorkflowRuntime.runReady());
+    if (shouldStartWorkflowWebhookProvisioner()) {
+      new WorkflowWebhookProvisioner({
+        store: workflowWebhookProvisioningStore,
+        vk: vkClient,
+        logger: console,
+      }).start();
+    }
+    if (shouldStartDeclarativeWorkflowWorker()) {
+      createDeclarativeWorkflowWorker({
+        runtime: declarativeWorkflowRuntime,
+        intervalMs: getDeclarativeWorkflowWorkerIntervalMs(),
+      });
+    }
+    registerWorkflowRoutes(api.hono, {
+      registry: workflowRegistry,
+      repoAliasCache: {
+        get: getCachedGitRepos,
+        set: setCachedGitRepos,
+        refresh: refreshCachedGitRepos,
+      },
+      workflowRunRecorder: new DbWorkflowRunRecorder({
+        getDb: async () => (await getVdDb()).db,
+      }),
+      workflowRunReader: new DbWorkflowRunReader({
+        getDb: async () => (await getVdDb()).db,
+      }),
+      workflowOrchestrationStore,
+      roleSessionResolver,
+      workflowActivityScanner,
+      declarativeWorkflowRuntime,
+      declarativeWorkflowDefinitionStore,
+      workflowWebhookInboxStore,
+      workflowWebhookWakeup,
+      workflowWebhookProvisioningStore,
+      workflowDesignStore,
+      workspaceLaneStore,
+      metaWorkflowBeadProvider: workflowBeadProviders.beadProvider,
+      workflowRoadmapLiveProvider: workflowBeadProviders.roadmapProvider,
+      vkClient,
+      workflowPlanLaunchService,
+      nativeGasCityWorkflowProvider: nativeGasCityWorkflowProvider ?? undefined,
+      workflowPlanAuthService,
+    });
+    if (areWorkflowE2eFixturesEnabled()) {
+      registerGasCityE2eFixtureRoutes(api.hono, { vkClient, enabled: true });
+    }
   }
-  registerWorkflowRoutes(api.hono, {
-    registry: workflowRegistry,
-    repoAliasCache: {
-      get: getCachedGitRepos,
-      set: setCachedGitRepos,
-      refresh: refreshCachedGitRepos,
-    },
-    workflowRunRecorder: new DbWorkflowRunRecorder({
-      getDb: async () => (await getVdDb()).db,
-    }),
-    workflowRunReader: new DbWorkflowRunReader({
-      getDb: async () => (await getVdDb()).db,
-    }),
-    workflowOrchestrationStore,
-    roleSessionResolver,
-    workflowActivityScanner,
-    declarativeWorkflowRuntime,
-    declarativeWorkflowDefinitionStore,
-    workflowWebhookInboxStore,
-    workflowWebhookWakeup,
-    workflowWebhookProvisioningStore,
-    workflowDesignStore,
-    workspaceLaneStore,
-    metaWorkflowBeadProvider: workflowBeadProviders.beadProvider,
-    workflowRoadmapLiveProvider: workflowBeadProviders.roadmapProvider,
-    vkClient,
-    workflowPlanLaunchService,
-    nativeGasCityWorkflowProvider: nativeGasCityWorkflowProvider ?? undefined,
-    workflowPlanAuthService,
-  });
   registerPluginAssetRoutes(api.hono, { installRoot: pluginInstallRoot });
   registerPluginAdminRoutes(api.hono);
   registerVkWorkspaceRoutes(api.hono);
   registerVkRepoRoutes(api.hono);
   registerPreviewResolverRoutes(api.hono);
-  registerGasCityE2eFixtureRoutes(api.hono, { vkClient });
 });
 
 async function getCachedGitRepos(): Promise<CachedRepoAlias[]> {

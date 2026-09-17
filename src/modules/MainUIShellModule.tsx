@@ -19,6 +19,7 @@ import { WorkflowLibraryPage } from "./plugins/workflows/components/WorkflowLibr
 import { useSessionWorkspaceNav } from "../sessionState";
 import type { NewSessionInitialSelection } from "../sessionState";
 import { resolveWorkspaceContainerRef } from "../lib/vkWorkspaceOpen";
+import { areWorkflowFeaturesEnabled } from "../workflows/featureFlags";
 import {
   buildCanonicalDashboardPath,
   buildSavedVoyageDashboardPath,
@@ -1249,59 +1250,61 @@ springboard.registerModule("MainUIShell", {}, async (moduleAPI) => {
     AdminPluginsRoute,
   );
 
-  moduleAPI.registerRoute(
-    "/dashboard/teams",
-    { hideApplicationShell: true },
-    AgentTeamsDashboard,
-  );
+  if (areWorkflowFeaturesEnabled()) {
+    moduleAPI.registerRoute(
+      "/dashboard/teams",
+      { hideApplicationShell: true },
+      AgentTeamsDashboard,
+    );
 
-  moduleAPI.registerRoute(
-    "/dashboard/workflows",
-    { hideApplicationShell: true },
-    WorkspaceWorkflowsPage,
-  );
+    moduleAPI.registerRoute(
+      "/dashboard/workflows",
+      { hideApplicationShell: true },
+      WorkspaceWorkflowsPage,
+    );
 
-  moduleAPI.registerRoute(
-    "/dashboard/workflows/new",
-    { hideApplicationShell: true },
-    WorkflowCreationWizardPage,
-  );
+    moduleAPI.registerRoute(
+      "/dashboard/workflows/new",
+      { hideApplicationShell: true },
+      WorkflowCreationWizardPage,
+    );
 
-  moduleAPI.registerRoute(
-    "/dashboard/workflows/roadmap",
-    { hideApplicationShell: true },
-    WorkflowRoadmapPage,
-  );
+    moduleAPI.registerRoute(
+      "/dashboard/workflows/roadmap",
+      { hideApplicationShell: true },
+      WorkflowRoadmapPage,
+    );
 
-  moduleAPI.registerRoute(
-    "/dashboard/workflows/library",
-    { hideApplicationShell: true },
-    WorkflowLibraryPage,
-  );
+    moduleAPI.registerRoute(
+      "/dashboard/workflows/library",
+      { hideApplicationShell: true },
+      WorkflowLibraryPage,
+    );
 
-  moduleAPI.registerRoute(
-    "/dashboard/workflows/meta-runs",
-    { hideApplicationShell: true },
-    WorkflowMetaRunsPage,
-  );
+    moduleAPI.registerRoute(
+      "/dashboard/workflows/meta-runs",
+      { hideApplicationShell: true },
+      WorkflowMetaRunsPage,
+    );
 
-  moduleAPI.registerRoute(
-    "/dashboard/workflows/editor/:designId",
-    { hideApplicationShell: true },
-    WorkflowGraphEditorPage,
-  );
+    moduleAPI.registerRoute(
+      "/dashboard/workflows/editor/:designId",
+      { hideApplicationShell: true },
+      WorkflowGraphEditorPage,
+    );
 
-  moduleAPI.registerRoute(
-    "/dashboard/workflow-batches/:batchId",
-    { hideApplicationShell: true },
-    WorkflowBatchDetailPage,
-  );
+    moduleAPI.registerRoute(
+      "/dashboard/workflow-batches/:batchId",
+      { hideApplicationShell: true },
+      WorkflowBatchDetailPage,
+    );
 
-  moduleAPI.registerRoute(
-    "/dashboard/workflows/:instanceId",
-    { hideApplicationShell: true },
-    WorkflowPresentationPage,
-  );
+    moduleAPI.registerRoute(
+      "/dashboard/workflows/:instanceId",
+      { hideApplicationShell: true },
+      WorkflowPresentationPage,
+    );
+  }
 
   return {
     Provider: (props: React.PropsWithChildren) => {

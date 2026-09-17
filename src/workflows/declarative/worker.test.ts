@@ -47,11 +47,17 @@ describe('declarative workflow worker', () => {
     expect(runtime.runReady).not.toHaveBeenCalled();
   });
 
-  it('keeps test environments disabled unless explicitly enabled', () => {
+  it('keeps workers disabled unless workflows are enabled', () => {
+    expect(shouldStartDeclarativeWorkflowWorker({})).toBe(false);
+    expect(shouldStartDeclarativeWorkflowWorker({ VD_WORKFLOWS_ENABLED: '1' })).toBe(true);
+    expect(shouldStartDeclarativeWorkflowWorker({ VD_WORKFLOWS_ENABLED: '1', VD_DECLARATIVE_WORKFLOW_WORKER_DISABLED: '1' })).toBe(false);
+  });
+
+  it('keeps test environments disabled unless workflows and the worker are explicitly enabled', () => {
     expect(shouldStartDeclarativeWorkflowWorker({ NODE_ENV: 'test' })).toBe(false);
     expect(shouldStartDeclarativeWorkflowWorker({ VITEST: 'true' })).toBe(false);
-    expect(shouldStartDeclarativeWorkflowWorker({ NODE_ENV: 'test', VD_DECLARATIVE_WORKFLOW_WORKER_ENABLED: '1' })).toBe(true);
-    expect(shouldStartDeclarativeWorkflowWorker({ VD_DECLARATIVE_WORKFLOW_WORKER_DISABLED: '1' })).toBe(false);
+    expect(shouldStartDeclarativeWorkflowWorker({ NODE_ENV: 'test', VD_WORKFLOWS_ENABLED: '1' })).toBe(false);
+    expect(shouldStartDeclarativeWorkflowWorker({ NODE_ENV: 'test', VD_WORKFLOWS_ENABLED: '1', VD_DECLARATIVE_WORKFLOW_WORKER_ENABLED: '1' })).toBe(true);
   });
 
   it('normalizes worker interval config', () => {
