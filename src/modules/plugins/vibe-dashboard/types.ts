@@ -1,3 +1,5 @@
+import type { IframeCapabilityName } from '../../../lib/iframeCapabilityPolicy';
+
 export const PLUGIN_API_VERSION = '1.0.0';
 
 export type TabPresetMode = 'immediate' | 'urlPrompt';
@@ -63,6 +65,8 @@ export interface CraftSurfaceContribution {
   urlTemplate: string;
   defaultTitle?: string;
   order?: number;
+  /** Requested iframe capabilities; the host applies its provenance ceiling. */
+  capabilities?: IframeCapabilityName[];
 }
 
 export interface PluginInternalRouteContribution {
@@ -71,6 +75,10 @@ export interface PluginInternalRouteContribution {
   path: string;
   urlTemplate: string;
   order?: number;
+  /** Query parameter names accepted by this route. Values are always strings. */
+  allowedParams?: string[];
+  /** Requested iframe capabilities; the host applies its provenance ceiling. */
+  capabilities?: IframeCapabilityName[];
 }
 
 export interface RegisteredCraftSurfaceContribution extends CraftSurfaceContribution {

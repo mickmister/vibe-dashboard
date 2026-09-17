@@ -1,13 +1,17 @@
 import { getPluginRegistrySnapshot } from '../modules/plugins/vibe-dashboard/registry';
 import type { PluginRegistryState } from '../modules/plugins/vibe-dashboard/types';
+import {
+  resolveIframeCapabilityPolicy,
+  validateEffectiveIframePolicy,
+  type EffectiveIframePolicy,
+  type IframeCapabilityName,
+  type IframeProvenance,
+} from '../lib/iframeCapabilityPolicy';
 
 export type JsonValue = null | boolean | number | string | JsonValue[] | { [key: string]: JsonValue };
 export type JsonObject = { [key: string]: JsonValue };
-export type CapabilityName =
-  | 'scripts' | 'same-origin' | 'forms' | 'modals' | 'downloads' | 'popups'
-  | 'clipboard-read' | 'clipboard-write' | 'fullscreen';
-export type EffectiveProvenance =
-  | 'vd-built-in' | 'vk-built-in' | 'installed-plugin' | 'forwarded-project' | 'external-url';
+export type CapabilityName = IframeCapabilityName;
+export type EffectiveProvenance = IframeProvenance;
 
 export interface StoredPanelTarget {
   kind: string;
@@ -37,29 +41,18 @@ export interface PanelTargetResolutionContext {
   previews: Record<string, OwnedBackendTarget>;
   builtInRoutes: Record<string, BuiltInRoute>;
   getPluginRegistry?: () => PluginRegistryState;
-  pluginCapabilities: Record<string, unknown>;
+  redirectGuards: Record<string, { deliveryUrl: string; upstreamOrigin: string }>;
   resolveCustomUrl?(url: URL): URL | string;
 }
 
-export interface CapabilityPolicy {
-  sandbox: string;
-  allow: string;
-  scripts: boolean;
-  sameOrigin: boolean;
-  forms: boolean;
-  modals: boolean;
-  downloads: boolean;
-  popups: boolean;
-  clipboardRead: boolean;
-  clipboardWrite: boolean;
-  fullscreen: boolean;
-}
+export type CapabilityPolicy = EffectiveIframePolicy;
 
 export type TargetRecoveryReason =
   | 'malformed' | 'unknown-kind' | 'unsupported-version' | 'craft-unavailable'
   | 'workspace-unavailable' | 'workspace-owner-mismatch' | 'target-scope-denied'
   | 'target-unavailable' | 'ambiguous-target' | 'plugin-unavailable' | 'unsafe-url'
-  | 'invalid-capability-policy' | 'resolver-failed' | 'invalid-resolver-result';
+  | 'invalid-capability-policy' | 'redirect-boundary-required' | 'invalid-route-params'
+  | 'resolver-failed' | 'invalid-resolver-result';
 
 export interface ResolvedPanelTarget {
   status: 'resolved';
@@ -93,14 +86,17 @@ export interface PanelTargetDefinition {
   parse(value: unknown): JsonObject | null;
   migrate(value: unknown, fromVersion: number): JsonObject | null;
   resolve(value: JsonObject, context: PanelTargetResolutionContext): ResolverResult | null;
+  validateResolved?(value: JsonObject, resolved: ResolverResult): boolean;
 }
 
-const CAPABILITIES = new Set<CapabilityName>([
-  'scripts', 'same-origin', 'forms', 'modals', 'downloads', 'popups',
-  'clipboard-read', 'clipboard-write', 'fullscreen',
-]);
 const KEY = /^[A-Za-z0-9][A-Za-z0-9._/-]*$/;
-const DENY_ALL = policy([], 'external-url');
+const DENY_ALL: CapabilityPolicy = {
+  resolvedUrl: 'about:blank', sandbox: '', allow: '', messageOrigin: null,
+  navigationEnforcement: 'sandbox-safe-unbounded', scripts: false, sameOrigin: false,
+  forms: false, modals: false, downloads: false, popups: false, popupEscape: false,
+  topNavigationByUserActivation: false, clipboardRead: false, clipboardWrite: false,
+  fullscreen: false,
+};
 
 function object(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
@@ -125,33 +121,6 @@ function jsonValue(value: unknown): value is JsonValue {
     || (Array.isArray(value) && value.every(jsonValue)) || jsonObject(value);
 }
 
-function strings(value: unknown): value is CapabilityName[] {
-  return Array.isArray(value) && value.every((item) => typeof item === 'string' && CAPABILITIES.has(item as CapabilityName));
-}
-
-function policy(requested: CapabilityName[], provenance: EffectiveProvenance): CapabilityPolicy {
-  const ceilings: Record<EffectiveProvenance, ReadonlySet<CapabilityName>> = {
-    'vd-built-in': new Set(CAPABILITIES),
-    'vk-built-in': new Set(CAPABILITIES),
-    'installed-plugin': new Set(['scripts', 'fullscreen']),
-    'forwarded-project': new Set(['scripts', 'forms']),
-    'external-url': new Set(['scripts']),
-  };
-  const granted = new Set(requested.filter((capability) => ceilings[provenance].has(capability)));
-  const has = (name: CapabilityName) => granted.has(name);
-  const sandbox = [
-    ['scripts', 'allow-scripts'], ['same-origin', 'allow-same-origin'], ['forms', 'allow-forms'],
-    ['modals', 'allow-modals'], ['downloads', 'allow-downloads'], ['popups', 'allow-popups'],
-  ].filter(([name]) => has(name as CapabilityName)).map(([, token]) => token).join(' ');
-  const allow = [['clipboard-read', 'clipboard-read'], ['clipboard-write', 'clipboard-write'], ['fullscreen', 'fullscreen']]
-    .filter(([name]) => has(name as CapabilityName)).map(([, token]) => token).join('; ');
-  return {
-    sandbox, allow, scripts: has('scripts'), sameOrigin: has('same-origin'), forms: has('forms'),
-    modals: has('modals'), downloads: has('downloads'), popups: has('popups'),
-    clipboardRead: has('clipboard-read'), clipboardWrite: has('clipboard-write'), fullscreen: has('fullscreen'),
-  };
-}
-
 function absolute(location: string, origin: string): string | null {
   try {
     const parsed = new URL(location, origin);
@@ -173,7 +142,7 @@ function common(value: JsonObject, context: PanelTargetResolutionContext):
 
 function result(input: {
   rendererKey: string; factoryKey?: string; payload: JsonObject; location: string;
-  provenance: EffectiveProvenance; requested: CapabilityName[]; runtime?: 'retained' | 'recreatable';
+  provenance: EffectiveProvenance; capabilityPolicy: CapabilityPolicy; runtime?: 'retained' | 'recreatable';
   splitClass?: string | null; equivalence: string[]; sharing?: string[] | null;
 }): ResolverResult {
   return {
@@ -182,12 +151,30 @@ function result(input: {
     canonicalPayload: input.payload,
     canonicalLocation: input.location,
     effectiveProvenance: input.provenance,
-    capabilityPolicy: policy(input.requested, input.provenance),
+    capabilityPolicy: input.capabilityPolicy,
     runtimeClass: input.runtime ?? 'retained',
     splitClass: input.splitClass === undefined ? 'workspace-tool' : input.splitClass,
     equivalenceIdentity: input.equivalence.join('\0'),
     backendSharingIdentity: input.sharing === null ? null : (input.sharing ?? input.equivalence).join('\0'),
   };
+}
+
+function authorizedResult(
+  input: Omit<Parameters<typeof result>[0], 'capabilityPolicy'> & { targetKey: string; requested: unknown },
+  context: PanelTargetResolutionContext,
+): ResolverResult {
+  const resolution = resolveIframeCapabilityPolicy({
+    targetKey: input.targetKey,
+    provenance: input.provenance,
+    resolvedUrl: input.location,
+    requested: input.requested,
+  }, { applicationOrigin: context.hostOrigin, redirectGuards: context.redirectGuards });
+  if (!resolution.ok) {
+    return recoveryResolver(resolution.reason === 'invalid-definition'
+      ? 'invalid-capability-policy'
+      : 'redirect-boundary-required');
+  }
+  return result({ ...input, location: resolution.policy.resolvedUrl, capabilityPolicy: resolution.policy });
 }
 
 const workspaceParser = (optional: Record<string, (value: unknown) => boolean> = {}) => (value: unknown): JsonObject | null => {
@@ -214,18 +201,22 @@ function workspaceDefinition(kind: string, locationKey: keyof TrustedWorkspace['
       if (repoId && !owned.workspace.repositoryIds.includes(repoId)) return recoveryResolver('target-scope-denied');
       const location = absolute(owned.workspace.locations[locationKey], owned.workspace.origin);
       if (!location) return recoveryResolver('target-unavailable');
-      const identity = [kind, owned.workspaceId, repoId ?? '', typeof value.folderIntent === 'string' ? value.folderIntent : ''];
-      return result({ rendererKey, payload: value, location, provenance: 'vk-built-in', requested: ['scripts', 'same-origin', 'forms', 'clipboard-read', 'clipboard-write', 'fullscreen'], equivalence: identity, sharing: ['workspace', owned.workspaceId] });
+      const identity = [kind, owned.workspaceId];
+      if (repoId) identity.push(repoId);
+      if (typeof value.folderIntent === 'string') identity.push(value.folderIntent);
+      if (typeof value.formId === 'string') identity.push(value.formId);
+      return authorizedResult({ targetKey: `${kind}:${owned.workspaceId}`, rendererKey, payload: value, location, provenance: 'vk-built-in', requested: ['scripts', 'same-origin', 'forms', 'clipboard-read', 'clipboard-write', 'fullscreen'], equivalence: identity, sharing: ['workspace', owned.workspaceId] }, context);
     },
   };
 }
 
 function recoveryResolver(reason: TargetRecoveryReason): ResolverResult {
-  return { ...result({ rendererKey: 'panel-target-recovery', payload: {}, location: 'about:blank', provenance: 'external-url', requested: [], splitClass: null, equivalence: ['recovery', reason], sharing: null }), factoryKey: `recovery:${reason}` };
+  return { ...result({ rendererKey: 'panel-target-recovery', payload: {}, location: 'about:blank', provenance: 'external-url', capabilityPolicy: DENY_ALL, splitClass: null, equivalence: ['recovery', reason], sharing: null }), factoryKey: `recovery:${reason}` };
 }
 
 function backendDefinition(kind: 'agent-session' | 'terminal' | 'preview', idName: string): PanelTargetDefinition {
-  const parse = workspaceParser({ [idName]: optionalKey });
+  const parse = (value: unknown): JsonObject | null => exact(value, ['workspaceId', idName])
+    && key(value.workspaceId) && key(value[idName]) ? value as JsonObject : null;
   return {
     kind, version: 1, parse, migrate: (value, version) => version === 0 ? parse(value) : null,
     resolve(value, context) {
@@ -237,7 +228,7 @@ function backendDefinition(kind: 'agent-session' | 'terminal' | 'preview', idNam
       if (!target || target.workspaceId !== owned.workspaceId) return recoveryResolver('target-unavailable');
       const location = absolute(target.location, owned.workspace.origin);
       if (!location) return recoveryResolver('target-unavailable');
-      return result({ rendererKey: kind, payload: value, location, provenance: kind === 'preview' ? 'forwarded-project' : 'vk-built-in', requested: ['scripts', 'same-origin', 'forms', 'clipboard-read', 'clipboard-write', 'fullscreen'], equivalence: [kind, id], sharing: [kind, id] });
+      return authorizedResult({ targetKey: `${kind}:${id}`, rendererKey: kind, payload: value, location, provenance: kind === 'preview' ? 'forwarded-project' : 'vk-built-in', requested: ['scripts', 'same-origin', 'forms', 'clipboard-read', 'clipboard-write', 'fullscreen'], equivalence: [kind, id], sharing: [kind, id] }, context);
     },
   };
 }
@@ -266,7 +257,7 @@ const DEFINITIONS: PanelTargetDefinition[] = [
         const resolved = context.resolveCustomUrl ? context.resolveCustomUrl(parsed) : parsed;
         const location = absolute(String(resolved), context.hostOrigin);
         if (!location) return recoveryResolver('unsafe-url');
-        return result({ rendererKey: 'sandboxed-custom-url', payload: { url: parsed.href }, location, provenance: 'external-url', requested: ['scripts'], runtime: 'recreatable', splitClass: null, equivalence: ['custom-url', parsed.href], sharing: null });
+        return authorizedResult({ targetKey: `custom-url:${parsed.href}`, rendererKey: 'sandboxed-custom-url', payload: { url: parsed.href }, location, provenance: 'external-url', requested: ['scripts'], runtime: 'recreatable', splitClass: null, equivalence: ['custom-url', parsed.href], sharing: null }, context);
       } catch { return recoveryResolver('resolver-failed'); }
     },
   },
@@ -288,10 +279,9 @@ const DEFINITIONS: PanelTargetDefinition[] = [
       if (!context.workspaces[craft.workspaceId]?.available) return recoveryResolver('workspace-unavailable');
       const route = context.builtInRoutes[routeId];
       if (!route || !route.allowedCraftIds.includes(context.craftId)) return recoveryResolver('target-unavailable');
-      if (route.capabilities !== undefined && !strings(route.capabilities)) return recoveryResolver('invalid-capability-policy');
       const location = absolute(route.location, context.hostOrigin);
       if (!location) return recoveryResolver('target-unavailable');
-      return result({ rendererKey: 'internal-route', factoryKey: `internal-route:${routeId}`, payload: value, location, provenance: 'vd-built-in', requested: route.capabilities ?? ['scripts', 'same-origin'], equivalence: ['internal-route', routeId, stable(value.params as JsonObject)], sharing: ['internal-route', routeId] });
+      return authorizedResult({ targetKey: `internal-route:${routeId}`, rendererKey: 'internal-route', factoryKey: `internal-route:${routeId}`, payload: value, location, provenance: 'vd-built-in', requested: route.capabilities ?? ['scripts', 'same-origin'], equivalence: ['internal-route', routeId, stable(value.params as JsonObject)], sharing: ['internal-route', routeId] }, context);
     },
   },
 ];
@@ -308,12 +298,20 @@ function resolvePlugin(value: JsonObject, context: PanelTargetResolutionContext,
   const plugin = pluginId ? registry.plugins[pluginId] : undefined;
   if (!plugin) return recoveryResolver('plugin-unavailable');
   if (!contribution || contribution.pluginId !== pluginId || contribution.key !== routeId) return recoveryResolver('target-unavailable');
+  const manifestContribution = internal
+    ? plugin.contributions.internalRoutes?.find((candidate) => candidate.key === contribution.sourceKey)
+    : plugin.contributions.craftSurfaces?.find((candidate) => candidate.key === contribution.sourceKey);
+  if (!manifestContribution
+    || manifestContribution.urlTemplate !== contribution.urlTemplate
+    || (internal && (!('path' in manifestContribution) || !('path' in contribution)
+      || manifestContribution.path !== contribution.path))) {
+    return recoveryResolver('target-unavailable');
+  }
   if (internal && 'path' in contribution && Object.values(registry.internalRoutes).filter((candidate) => candidate.pluginId === pluginId && candidate.path === contribution.path).length !== 1) {
     return recoveryResolver('ambiguous-target');
   }
   if (!craft.allowedPluginTargets.includes(routeId)) return recoveryResolver('target-scope-denied');
-  const requested = context.pluginCapabilities[routeId] ?? ['scripts'];
-  if (!strings(requested)) return recoveryResolver('invalid-capability-policy');
+  const requested = manifestContribution.capabilities ?? ['scripts'];
   const routePath = 'path' in contribution ? contribution.path : '/';
   const expanded = contribution.urlTemplate
     .replaceAll('{{origin}}', context.hostOrigin)
@@ -322,14 +320,25 @@ function resolvePlugin(value: JsonObject, context: PanelTargetResolutionContext,
   const location = absolute(expanded, context.hostOrigin);
   if (!location) return recoveryResolver('target-unavailable');
   const params = value.params as JsonObject;
+  if (internal) {
+    const allowedParams = 'allowedParams' in manifestContribution ? manifestContribution.allowedParams : undefined;
+    if (!Array.isArray(allowedParams)
+      || allowedParams.some((name: unknown) => !key(name))
+      || new Set(allowedParams).size !== allowedParams.length
+      || Object.keys(params).some((name) => !allowedParams.includes(name))
+      || Object.values(params).some((param) => typeof param !== 'string')) {
+      return recoveryResolver('invalid-route-params');
+    }
+  }
   const canonicalLocation = internal ? withQuery(location, params) : location;
-  return result({
+  return authorizedResult({
+    targetKey: internal ? `plugin-internal-route:${routeId}` : `plugin-surface:${routeId}`,
     rendererKey: 'plugin-iframe', factoryKey: internal ? `plugin-internal-route:${routeId}` : `plugin-surface:${routeId}`,
     payload: internal ? { pluginId, routeKey: contribution.sourceKey, routePath, params } : { pluginId, surfaceId: contribution.sourceKey, params },
     location: canonicalLocation, provenance: 'installed-plugin', requested, runtime: 'recreatable', splitClass: 'plugin-opaque',
     equivalence: [internal ? 'plugin-internal-route' : 'plugin-surface', routeId, stable(params)],
     sharing: internal ? ['plugin-internal-route', routeId] : null,
-  });
+  }, context);
 }
 
 function withQuery(location: string, params: JsonObject): string {
@@ -347,20 +356,54 @@ function stable(value: JsonObject): string {
 
 function validResolver(value: unknown): value is ResolverResult {
   if (!object(value)) return false;
+  const resolverKeys = [
+    'backendSharingIdentity', 'canonicalLocation', 'canonicalPayload', 'capabilityPolicy',
+    'effectiveProvenance', 'equivalenceIdentity', 'factoryKey', 'rendererKey',
+    'runtimeClass', 'splitClass',
+  ];
   const provenances = new Set<EffectiveProvenance>(['vd-built-in', 'vk-built-in', 'installed-plugin', 'forwarded-project', 'external-url']);
-  const capabilityKeys = ['allow', 'clipboardRead', 'clipboardWrite', 'downloads', 'forms', 'fullscreen', 'modals', 'popups', 'sameOrigin', 'sandbox', 'scripts'];
   const capabilities = value.capabilityPolicy;
-  return typeof value.rendererKey === 'string' && value.rendererKey.length > 0
+  return Object.keys(value).sort().join('\0') === resolverKeys.sort().join('\0')
+    && typeof value.rendererKey === 'string' && value.rendererKey.length > 0
     && typeof value.factoryKey === 'string' && value.factoryKey.length > 0
     && jsonObject(value.canonicalPayload) && typeof value.canonicalLocation === 'string'
     && provenances.has(value.effectiveProvenance as EffectiveProvenance)
-    && object(capabilities) && Object.keys(capabilities).sort().join('\0') === capabilityKeys.sort().join('\0')
-    && typeof capabilities.sandbox === 'string' && typeof capabilities.allow === 'string'
-    && capabilityKeys.filter((key) => key !== 'sandbox' && key !== 'allow').every((key) => typeof capabilities[key] === 'boolean')
+    && object(capabilities)
     && (value.runtimeClass === 'retained' || value.runtimeClass === 'recreatable')
     && (typeof value.splitClass === 'string' || value.splitClass === null)
     && typeof value.equivalenceIdentity === 'string'
     && (typeof value.backendSharingIdentity === 'string' || value.backendSharingIdentity === null);
+}
+
+function validateResolvedSemantics(
+  resolved: ResolverResult,
+  context: PanelTargetResolutionContext,
+): boolean {
+  const location = absolute(resolved.canonicalLocation, context.hostOrigin);
+  if (!location || location !== resolved.canonicalLocation
+    || resolved.capabilityPolicy.resolvedUrl !== location
+    || !resolved.equivalenceIdentity
+    || resolved.equivalenceIdentity.split('\0').some((part) => !part)
+    || (resolved.backendSharingIdentity !== null
+      && resolved.backendSharingIdentity.split('\0').some((part) => !part))) {
+    return false;
+  }
+  if (!validateEffectiveIframePolicy(
+    resolved.capabilityPolicy,
+    resolved.effectiveProvenance,
+    context.hostOrigin,
+  )) return false;
+  const ambient = resolved.capabilityPolicy.sameOrigin
+    || resolved.capabilityPolicy.clipboardRead
+    || resolved.capabilityPolicy.clipboardWrite;
+  if (ambient && !Object.values(context.redirectGuards).some(
+    (guard) => absolute(guard.deliveryUrl, context.hostOrigin) === location,
+  )) return false;
+  if (resolved.effectiveProvenance === 'installed-plugin'
+    && (resolved.runtimeClass !== 'recreatable' || resolved.capabilityPolicy.sameOrigin)) return false;
+  if (resolved.effectiveProvenance === 'external-url'
+    && (resolved.runtimeClass !== 'recreatable' || resolved.splitClass !== null)) return false;
+  return true;
 }
 
 function quarantine(reason: TargetRecoveryReason, target: unknown): QuarantinedPanelTarget {
@@ -388,6 +431,18 @@ export function createPanelTargetRegistry(options: { customDefinitions?: PanelTa
       catch { return quarantine('resolver-failed', input); }
       if (!validResolver(resolved)) return quarantine('invalid-resolver-result', input);
       if (resolved.rendererKey === 'panel-target-recovery') return quarantine(resolved.factoryKey.slice('recovery:'.length) as TargetRecoveryReason, input);
+      const customDefinition = (options.customDefinitions ?? []).includes(definition);
+      const customAmbient = customDefinition && (resolved.capabilityPolicy.sameOrigin
+        || resolved.capabilityPolicy.clipboardRead
+        || resolved.capabilityPolicy.clipboardWrite);
+      try {
+        if (!validateResolvedSemantics(resolved, context)
+          || customAmbient
+          || (customDefinition
+            && (!definition.validateResolved || !definition.validateResolved(payload, resolved)))) {
+          return quarantine('invalid-resolver-result', input);
+        }
+      } catch { return quarantine('invalid-resolver-result', input); }
       const storedPayload = definition.kind === 'custom-url'
         ? { url: resolved.canonicalPayload.url as string }
         : payload;
@@ -398,30 +453,65 @@ export function createPanelTargetRegistry(options: { customDefinitions?: PanelTa
 
 export function findSplitCompatibleTargets(
   invoking: ResolvedPanelTarget,
-  candidates: StoredPanelTarget[],
-  context: PanelTargetResolutionContext,
+  invokingCraftId: string,
+  candidates: Array<{ craftId: string; target: StoredPanelTarget }>,
+  contextForCraft: (craftId: string) => PanelTargetResolutionContext | null,
   registry = createPanelTargetRegistry(),
-): ResolvedPanelTarget[] {
+): Array<{ craftId: string; target: StoredPanelTarget; resolved: ResolvedPanelTarget }> {
   if (!invoking.splitClass) return [];
-  return candidates.map((target) => registry.resolve(target, context))
-    .filter((candidate): candidate is ResolvedPanelTarget => candidate.status === 'resolved' && candidate.splitClass === invoking.splitClass)
-    .sort((left, right) => left.equivalenceIdentity.localeCompare(right.equivalenceIdentity));
+  return candidates.flatMap((candidate) => {
+    const context = contextForCraft(candidate.craftId);
+    if (!context || context.craftId !== candidate.craftId) return [];
+    const resolved = registry.resolve(candidate.target, context);
+    return resolved.status === 'resolved' && resolved.splitClass === invoking.splitClass
+      ? [{ ...candidate, resolved }]
+      : [];
+  }).sort((left, right) => Number(right.craftId === invokingCraftId) - Number(left.craftId === invokingCraftId)
+    || left.resolved.equivalenceIdentity.localeCompare(right.resolved.equivalenceIdentity)
+    || left.craftId.localeCompare(right.craftId));
 }
 
 export function classifyLegacyPanelRepresentation(input: {
   groupId: string;
   view: { id: string; url: string; ephemeral?: { kind?: string } };
-  pair?: { tabIds: string[] };
-  views?: Array<{ id: string; url: string }>;
+  pair?: { id: string; tabIds: string[] };
+  views?: unknown[];
+  resolveMember?: (view: { id: string; url: string }) => StoredPanelTarget | null;
 }):
   | { outcome: 'skip'; reason: 'homepage-representation' | 'ephemeral-plugin-placeholder' }
-  | { outcome: 'pair-audit'; diagnostics: Array<{ tabId: string; status: 'present' | 'missing' }> }
+  | { outcome: 'pair'; reason: 'pair-cardinality'; diagnostics: Array<{ tabId: string; status: 'invalid'; reason: 'pair-cardinality' }>; targets: [] }
+  | { outcome: 'pair'; diagnostics: Array<{ tabId: string; status: 'resolved' | 'missing' | 'malformed' | 'skipped' | 'unresolvable'; reason?: string }>; targets: StoredPanelTarget[]; topology?: { pairId: string; memberIndexes: [0, 1] } }
   | { outcome: 'durable-candidate' } {
   if (input.pair) {
-    const ids = new Set((input.views ?? []).map((view) => view.id));
-    return { outcome: 'pair-audit', diagnostics: input.pair.tabIds.map((tabId) => ({ tabId, status: ids.has(tabId) ? 'present' : 'missing' })) };
+    const tabIds = input.pair.tabIds;
+    if (tabIds.length !== 2 || new Set(tabIds).size !== tabIds.length) {
+      return { outcome: 'pair', reason: 'pair-cardinality', targets: [], diagnostics: tabIds.map((tabId) => ({ tabId, status: 'invalid', reason: 'pair-cardinality' })) };
+    }
+    const diagnostics: Array<{ tabId: string; status: 'resolved' | 'missing' | 'malformed' | 'skipped' | 'unresolvable'; reason?: string }> = [];
+    const targets: StoredPanelTarget[] = [];
+    for (const tabId of tabIds) {
+      const raw = (input.views ?? []).find((candidate) => object(candidate) && candidate.id === tabId);
+      if (!raw) { diagnostics.push({ tabId, status: 'missing', reason: 'missing-view' }); continue; }
+      if (!exactLegacyView(raw)) { diagnostics.push({ tabId, status: 'malformed', reason: 'malformed-view' }); continue; }
+      const classification = classifyLegacyPanelRepresentation({ groupId: input.groupId, view: raw });
+      if (classification.outcome === 'skip') { diagnostics.push({ tabId, status: 'skipped', reason: classification.reason }); continue; }
+      let target: StoredPanelTarget | null = null;
+      try { target = input.resolveMember?.(raw) ?? null; }
+      catch { target = null; }
+      if (!target) { diagnostics.push({ tabId, status: 'unresolvable', reason: 'target-unresolvable' }); continue; }
+      diagnostics.push({ tabId, status: 'resolved' });
+      targets.push(target);
+    }
+    return { outcome: 'pair', targets, diagnostics, ...(targets.length === 2 ? { topology: { pairId: input.pair.id, memberIndexes: [0, 1] as [0, 1] } } : {}) };
   }
   if (input.view.ephemeral?.kind === 'craft-surface') return { outcome: 'skip', reason: 'ephemeral-plugin-placeholder' };
   if (input.groupId === 'tg_home' || input.view.id === 'tab_overview' || input.view.url === 'internal://spaces-overview') return { outcome: 'skip', reason: 'homepage-representation' };
   return { outcome: 'durable-candidate' };
+}
+
+function exactLegacyView(value: unknown): value is { id: string; title: string; url: string; pinned?: boolean; ephemeral?: { kind?: string } } {
+  if (!object(value) || typeof value.id !== 'string' || typeof value.title !== 'string' || typeof value.url !== 'string') return false;
+  if (value.pinned !== undefined && typeof value.pinned !== 'boolean') return false;
+  if (value.ephemeral === undefined) return true;
+  return object(value.ephemeral) && value.ephemeral.kind === 'craft-surface';
 }
