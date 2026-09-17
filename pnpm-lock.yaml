@@ -96,8 +96,8 @@ importers:
         specifier: ^7.8.2
         version: 7.8.2
       springboard:
-        specifier: file:vendor/springboard-0.0.1-dev-jamapp-17-lifecycle4.tgz
-        version: file:vendor/springboard-0.0.1-dev-jamapp-17-lifecycle4.tgz(crossws@0.4.4)(immer@11.1.4)(kysely@0.28.11)(react-dom@19.2.4(react@19.2.4))(react-router@7.13.0(react-dom@19.2.4(react@19.2.4))(react@19.2.4))(react@19.2.4)(rxjs@7.8.2)(vite@7.3.1(@types/node@25.2.3)(jiti@2.6.1)(lightningcss@1.30.2)(yaml@2.9.0))
+        specifier: file:vendor/springboard-0.0.1-dev-jamapp-17-lifecycle6.tgz
+        version: file:vendor/springboard-0.0.1-dev-jamapp-17-lifecycle6.tgz(crossws@0.4.4)(immer@11.1.4)(kysely@0.28.11)(react-dom@19.2.4(react@19.2.4))(react-router@7.13.0(react-dom@19.2.4(react@19.2.4))(react@19.2.4))(react@19.2.4)(rxjs@7.8.2)(vite@7.3.1(@types/node@25.2.3)(jiti@2.6.1)(lightningcss@1.30.2)(yaml@2.9.0))
       tailwindcss:
         specifier: ^4.1.18
         version: 4.1.18
@@ -5317,8 +5317,8 @@ packages:
     resolution: {integrity: sha512-UcjcJOWknrNkF6PLX83qcHM6KHgVKNkV62Y8a5uYDVv9ydGQVwAHMKqHdJje1VTWpljG0WYpCDhrCdAOYH4TWg==}
     engines: {node: '>= 10.x'}
 
-  springboard@file:vendor/springboard-0.0.1-dev-jamapp-17-lifecycle4.tgz:
-    resolution: {integrity: sha512-aawFAlBZB0kT44TJUG6rZ7Au1txo6AoU3R8LhNofumogv54EdAqD0cs7AFGugX7TgUiHf/YdbrQSLRQClHIHHg==, tarball: file:vendor/springboard-0.0.1-dev-jamapp-17-lifecycle4.tgz}
+  springboard@file:vendor/springboard-0.0.1-dev-jamapp-17-lifecycle6.tgz:
+    resolution: {integrity: sha512-NB7XcCs0IYjsejqAssIoYqsGo+VxHCe6frgiI7Pyfgwn2tUcJrTT6jZWxDvvEcM5aNBBic/yO7ZiLMCRumcPYg==, tarball: file:vendor/springboard-0.0.1-dev-jamapp-17-lifecycle6.tgz}
     version: 0.0.1-dev-jamapp-17
     hasBin: true
     peerDependencies:
@@ -11914,7 +11914,7 @@ snapshots:
 
   split2@4.2.0: {}
 
-  springboard@file:vendor/springboard-0.0.1-dev-jamapp-17-lifecycle4.tgz(crossws@0.4.4)(immer@11.1.4)(kysely@0.28.11)(react-dom@19.2.4(react@19.2.4))(react-router@7.13.0(react-dom@19.2.4(react@19.2.4))(react@19.2.4))(react@19.2.4)(rxjs@7.8.2)(vite@7.3.1(@types/node@25.2.3)(jiti@2.6.1)(lightningcss@1.30.2)(yaml@2.9.0)):
+  springboard@file:vendor/springboard-0.0.1-dev-jamapp-17-lifecycle6.tgz(crossws@0.4.4)(immer@11.1.4)(kysely@0.28.11)(react-dom@19.2.4(react@19.2.4))(react-router@7.13.0(react-dom@19.2.4(react@19.2.4))(react@19.2.4))(react@19.2.4)(rxjs@7.8.2)(vite@7.3.1(@types/node@25.2.3)(jiti@2.6.1)(lightningcss@1.30.2)(yaml@2.9.0)):
     dependencies:
       commander: 14.0.3
       concurrently: 9.2.4
