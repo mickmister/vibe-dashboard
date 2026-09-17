@@ -3,6 +3,7 @@ import {
   clearPluginRegistryForTests,
   createPluginManifest,
   getPluginRegistrySnapshot,
+  getAllowedPluginTargetsForCraft,
   getRegisteredPluginIframePolicy,
   registerPlugin,
   resolvePluginInternalRouteIframeSrc,
@@ -230,6 +231,23 @@ describe('raw plugin registry', () => {
         origin: 'https://vd.example.test',
       }),
     ).toBeNull();
+  });
+
+  it('derives exact Craft grants from its registered owning factory and current contributions', () => {
+    clearPluginRegistryForTests();
+    registerPlugin(createPluginManifest({ id: 'plugin.docs', displayName: 'Docs', version: '1', contributions: {
+      internalRoutes: [{ key: 'help', title: 'Help', path: '/help', urlTemplate: '/help' }],
+      tabGroupFactories: [{ key: 'workspace', title: 'Workspace', description: 'Workspace', launchMode: 'vk-workspace',
+        allowedPluginTargets: ['plugin.docs/help'], workspaceComposition: { tabs: [{ key: 'help', title: 'Help', urlTemplate: 'internal://plugins/plugin.docs/help' }] } }],
+    } }));
+    const craft = { workspace: { workspaceId: 'workspace-1', workspaceDir: '/work', factoryKey: 'plugin.docs/workspace' } };
+    expect(getAllowedPluginTargetsForCraft(getPluginRegistrySnapshot(), craft)).toEqual(['plugin.docs/help']);
+    expect(getAllowedPluginTargetsForCraft(getPluginRegistrySnapshot(), { workspace: { ...craft.workspace, factoryKey: 'other/factory' } })).toEqual([]);
+
+    registerPlugin(createPluginManifest({ id: 'plugin.docs', displayName: 'Docs', version: '2', contributions: {
+      tabGroupFactories: [{ key: 'workspace', title: 'Workspace', description: 'Workspace', launchMode: 'vk-workspace', allowedPluginTargets: ['plugin.docs/help'] }],
+    } }));
+    expect(getAllowedPluginTargetsForCraft(getPluginRegistrySnapshot(), craft)).toEqual([]);
   });
 
 });

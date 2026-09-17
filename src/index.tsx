@@ -31,6 +31,7 @@ import "./modules/MainUIShellModule";
 import "./modules/ObservabilityServerModule";
 import "./modules/WorkflowServerModule";
 import { initializeVoyagePersistenceAuthority } from "./store/voyagePersistenceAuthority";
+import { createProductionPanelTargetAuthorityServices } from "./store/productionPanelTargetAuthority";
 import { NormalizedVoyageProjection } from "./store/normalizedVoyageProjection";
 import { VoyageRepository } from "./store/voyageRepository";
 import { productionDockviewSnapshotCodec } from "./store/dockviewSnapshotCodec";
@@ -404,6 +405,7 @@ function addVKWorkspaceCraftToWorkspace(
     workspace: {
       workspaceId: args.taskAttemptId,
       workspaceDir: args.containerRef,
+      factoryKey: args.composition.factoryKey,
     },
     mobileEmoji: pickRandomMobileEmoji(),
     createdAt: new Date().toISOString(),
@@ -500,7 +502,8 @@ const createWorkspaceModule = async (moduleAPI: ModuleAPI) => {
   let voyageDatabase: Awaited<ReturnType<typeof initializeVoyagePersistenceAuthority>> | undefined;
   if (moduleAPI.deps.core.isMaestro()) {
     // @platform "node"
-    voyageDatabase = await initializeVoyagePersistenceAuthority();
+    const panelTargetAuthorityServices = createProductionPanelTargetAuthorityServices();
+    voyageDatabase = await initializeVoyagePersistenceAuthority(undefined, panelTargetAuthorityServices);
     // @platform end
   }
   const workspaceState =

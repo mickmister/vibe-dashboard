@@ -3,7 +3,11 @@ import {
   type ExternalIntegrationsDbHandle,
 } from '../modules/plugins/kanban/server/database';
 import { LEGACY_VOYAGE_MIGRATION_ID } from './db/data_migrations/20260917100000_migrate_legacy_voyages';
-import { createProductionPanelTargetContextProvider } from './productionPanelTargetAuthority';
+import {
+  createProductionPanelTargetContextProvider,
+  createProductionPanelTargetAuthorityServices,
+  type ProductionPanelTargetAuthorityServices,
+} from './productionPanelTargetAuthority';
 import type { LegacyTargetContextForCraft } from './db/data_migrations/20260917100000_migrate_legacy_voyages';
 
 export type VoyagePersistenceAuthorityHandle = ExternalIntegrationsDbHandle & { legacyTargetContextForCraft?: LegacyTargetContextForCraft };
@@ -15,10 +19,11 @@ export type VoyagePersistenceAuthorityHandle = ExternalIntegrationsDbHandle & { 
  */
 export async function initializeVoyagePersistenceAuthority(
   openDatabase?: () => Promise<ExternalIntegrationsDbHandle>,
+  authorityServices: ProductionPanelTargetAuthorityServices = createProductionPanelTargetAuthorityServices(),
 ): Promise<VoyagePersistenceAuthorityHandle> {
   let productionProvider: LegacyTargetContextForCraft | undefined;
   const open = openDatabase ?? (async () => {
-    const legacyTargetContextForCraft = await createProductionPanelTargetContextProvider();
+    const legacyTargetContextForCraft = await createProductionPanelTargetContextProvider(authorityServices);
     productionProvider = legacyTargetContextForCraft;
     return getExternalIntegrationsDb({ services: { legacyTargetContextForCraft } });
   });

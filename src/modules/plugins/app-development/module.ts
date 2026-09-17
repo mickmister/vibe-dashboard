@@ -14,6 +14,10 @@ const manifest: PluginManifest = createPluginManifest({
         description: 'Add workspace with Agent + Code split view',
         launchMode: 'vk-workspace',
         order: 10,
+        allowedPluginTargets: [
+          'dev.mickmister.code-server/editor',
+          'dev.mickmister.preview-server/run-configs',
+        ],
         workspaceComposition: {
           primaryTabKey: 'agent',
           defaultPairTabKeys: ['agent', 'code'],

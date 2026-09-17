@@ -13,6 +13,7 @@ import {
   type RegisteredTabPresetContribution,
 } from './types';
 import { parsePluginFrontendAssetRoute, parsePluginInternalUrl } from './runtime';
+import type { Craft, WorkspaceState } from '../../../types';
 
 let registryState = createEmptyPluginRegistryState();
 const listeners = new Set<() => void>();
@@ -28,6 +29,27 @@ export function createPluginManifest(
 
 export function getPluginRegistrySnapshot(): PluginRegistryState {
   return registryState;
+}
+
+/** Canonical factory-to-Craft authorization relationship used by UI and persistence. */
+export function getAllowedPluginTargetsForCraft(
+  state: PluginRegistryState,
+  craft: Pick<Craft, 'workspace'>,
+): readonly string[] {
+  const factoryKey = craft.workspace?.factoryKey;
+  if (!factoryKey) return [];
+  return [...new Set(state.tabGroupFactories[factoryKey]?.allowedPluginTargets ?? [])]
+    .filter((key) => state.craftSurfaces[key] || state.internalRoutes[key])
+    .sort();
+}
+
+export function getCraftPluginAuthorizationSnapshot(
+  state: PluginRegistryState,
+  workspace: Pick<WorkspaceState, 'tabGroups'>,
+): Readonly<Record<string, readonly string[]>> {
+  return Object.fromEntries(workspace.tabGroups.map((craft) => [
+    craft.id, getAllowedPluginTargetsForCraft(state, craft),
+  ]));
 }
 
 export function subscribeToPluginRegistry(listener: () => void): () => void {

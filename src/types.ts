@@ -36,6 +36,8 @@ export interface Craft {
   workspace?: {
     workspaceId: string;
     workspaceDir: string;
+    /** Canonical registered factory which owns this Craft's plugin grants. */
+    factoryKey?: string;
     formsBeadId?: string;
   };
   /** Optional compact label shown in the mobile craft strip */

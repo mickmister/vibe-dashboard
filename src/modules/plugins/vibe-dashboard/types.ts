@@ -51,6 +51,8 @@ export interface TabGroupFactoryContribution {
   launchMode: TabGroupFactoryLaunchMode;
   order?: number;
   workspaceComposition?: WorkspaceCompositionContribution;
+  /** Exact namespaced plugin targets authorized for Crafts created by this factory. */
+  allowedPluginTargets?: string[];
 }
 
 export interface RegisteredTabGroupFactoryContribution

@@ -648,4 +648,15 @@ describe("dynamic Craft surfaces", () => {
       activeItemsByVoyageEntryId: {},
     });
   });
+
+  it("uses the runtime authority's per-Craft contribution grants", () => {
+    const effective = createEffectiveWorkspaceWithCraftSurfaces({
+      workspace,
+      craftSurfaces: surfaces,
+      origin: "https://vd.example.test",
+      allowedPluginTargetsByCraftId: { craft_1: [surfaces[0]!.key], craft_2: [] },
+    });
+    expect(effective.tabGroups.find(({ id }) => id === "craft_1")?.tabs.some(({ ephemeral }) => ephemeral?.kind === "craft-surface")).toBe(true);
+    expect(effective.tabGroups.find(({ id }) => id === "craft_2")?.tabs.some(({ ephemeral }) => ephemeral?.kind === "craft-surface")).toBe(false);
+  });
 });

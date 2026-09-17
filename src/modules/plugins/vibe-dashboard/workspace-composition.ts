@@ -15,6 +15,7 @@ export interface ResolvedWorkspaceCompositionTab {
 }
 
 export interface ResolvedWorkspaceComposition {
+  factoryKey: string;
   tabs: ResolvedWorkspaceCompositionTab[];
   pairTabKeys: string[];
   primaryTabKey: string;
@@ -52,6 +53,7 @@ export function resolveWorkspaceFactoryComposition(input: {
     : tabs[0]!.key;
 
   return {
+    factoryKey: input.factory.key,
     tabs,
     pairTabKeys,
     primaryTabKey,

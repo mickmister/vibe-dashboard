@@ -30,6 +30,7 @@ describe('plugin-owned workspace composition', () => {
         },
       }),
     ).toEqual({
+      factoryKey: 'open-existing-workspace',
       primaryTabKey: 'agent',
       pairTabKeys: ['agent', 'code'],
       tabs: [

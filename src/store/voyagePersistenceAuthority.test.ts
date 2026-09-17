@@ -42,7 +42,7 @@ describe('normalized Voyage startup authority', () => {
     const sourcePath = join(directory, 'kv.db'); const targetPath = join(directory, 'vd.sqlite');
     const source = new Database(sourcePath); source.exec('CREATE TABLE kvstore (key TEXT PRIMARY KEY, value TEXT NOT NULL)');
     const workspace = { spaces: [{ id: 'space', name: 'Space', icon: 'x', tabGroupIds: ['craft-1'] }], nextId: 2, tabGroups: [{
-      id: 'craft-1', label: 'Craft', workspace: { workspaceId: 'workspace-1', workspaceDir: '/stale' }, order: 0, pairs: [], tabs: [
+      id: 'craft-1', label: 'Craft', workspace: { workspaceId: 'workspace-1', workspaceDir: '/stale', factoryKey: 'plugin.docs/workspace' }, order: 0, pairs: [], tabs: [
         { id: 'code', title: 'Code', url: 'https://stale.test/code' },
         { id: 'help', title: 'Help', url: 'internal://plugins/plugin.docs/help' },
       ],
@@ -55,12 +55,13 @@ describe('normalized Voyage startup authority', () => {
     registerPlugin(createPluginManifest({ id: 'plugin.docs', displayName: 'Docs', version: '1', contributions: {
       internalRoutes: [{ key: 'help', title: 'Help', path: '/help', urlTemplate: 'https://plugin.test/help', allowedParams: [] }],
       tabGroupFactories: [{ key: 'workspace', title: 'Workspace', description: 'Workspace', launchMode: 'vk-workspace',
+        allowedPluginTargets: ['plugin.docs/help'],
         workspaceComposition: { tabs: [{ key: 'help', title: 'Help', urlTemplate: 'internal://plugins/plugin.docs/help' }] } }],
     } }));
     const prior = { VD_DB_PATH: process.env.VD_DB_PATH, VD_KV_DB_PATH: process.env.VD_KV_DB_PATH, VIBE_API_URL: process.env.VIBE_API_URL, VITE_VK_BASE_ORIGIN: process.env.VITE_VK_BASE_ORIGIN };
     Object.assign(process.env, { VD_DB_PATH: targetPath, VD_KV_DB_PATH: sourcePath, VIBE_API_URL: 'https://vk-api.test', VITE_VK_BASE_ORIGIN: 'https://dashboard.test' });
     vi.stubGlobal('fetch', vi.fn(async (url: string) => new Response(JSON.stringify({ success: true, data: url.endsWith('/workspaces') ? [{ id: 'workspace-1', archived: false, agent_working_dir: '/trusted' }]
-      : url.includes('/repos') ? [] : [] }), { status: 200, headers: { 'content-type': 'application/json' } })));
+      : url.includes('/run-configs') ? { run_configs: [], preview_slots: [], preview_url_parts: [] } : [] }), { status: 200, headers: { 'content-type': 'application/json' } })));
     try {
       const authority = await initializeVoyagePersistenceAuthority();
       expect(authority.sqlite.prepare('SELECT targetKind FROM VoyagePanel ORDER BY targetKind').all()).toEqual([{ targetKind: 'code' }, { targetKind: 'internal-route' }]);

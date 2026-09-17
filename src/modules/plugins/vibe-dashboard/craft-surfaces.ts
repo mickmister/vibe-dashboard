@@ -41,6 +41,8 @@ export interface CreateEffectiveWorkspaceWithCraftSurfacesInput {
   workspace: WorkspaceState;
   craftSurfaces: RegisteredCraftSurfaceContribution[];
   origin: string;
+  /** Production authorization snapshot keyed by Craft ID. */
+  allowedPluginTargetsByCraftId?: Readonly<Record<string, readonly string[]>>;
 }
 
 export function createEffectiveWorkspaceWithCraftSurfaces(
@@ -53,6 +55,7 @@ export function createEffectiveWorkspaceWithCraftSurfaces(
         tabGroup,
         craftSurfaces: input.craftSurfaces,
         origin: input.origin,
+        allowedPluginTargets: input.allowedPluginTargetsByCraftId?.[tabGroup.id],
       }),
     ),
   };
@@ -62,9 +65,13 @@ function createEffectiveCraftWithSurfaces(input: {
   tabGroup: TabGroup;
   craftSurfaces: RegisteredCraftSurfaceContribution[];
   origin: string;
+  allowedPluginTargets?: readonly string[];
 }): TabGroup {
+  const allowed = input.allowedPluginTargets && new Set(input.allowedPluginTargets);
   const tabs = getEffectiveTabs(input.tabGroup, {
-    craftSurfaces: input.craftSurfaces,
+    craftSurfaces: allowed
+      ? input.craftSurfaces.filter((surface) => allowed.has(surface.key))
+      : input.craftSurfaces,
     origin: input.origin,
   });
   const pairs = getEffectivePairs({ ...input.tabGroup, tabs }, input.origin);

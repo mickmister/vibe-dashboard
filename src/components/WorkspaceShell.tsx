@@ -39,6 +39,7 @@ import {
   filterEphemeralCraftSurfaceActiveItems,
   tabGroupHasEphemeralCraftSurfaceTab,
 } from "../modules/plugins/vibe-dashboard/craft-surfaces";
+import { getCraftPluginAuthorizationSnapshot } from "../modules/plugins/vibe-dashboard/registry";
 import { getVoyageEntryIdAfterClosingCraft } from "../lib/voyageFallback";
 
 const MOBILE_TAB_EMOJI_CHOICES = [
@@ -404,9 +405,10 @@ export function WorkspaceShell({
       createEffectiveWorkspaceWithCraftSurfaces({
         workspace,
         craftSurfaces: Object.values(pluginRegistry.craftSurfaces),
+        allowedPluginTargetsByCraftId: getCraftPluginAuthorizationSnapshot(pluginRegistry, workspace),
         origin: typeof window === "undefined" ? "" : window.location.origin,
       }),
-    [pluginRegistry.craftSurfaces, workspace],
+    [pluginRegistry, workspace],
   );
 
   const openCraftMutation = useMutation<
