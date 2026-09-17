@@ -2,8 +2,6 @@ import { buildVoyageSlug } from "./lib/voyageUrl";
 import {
   createSavedWorkspaceSessionState,
   getSavedWorkspaceSessions,
-  isSavedWorkspaceSessionStateMigrated,
-  migrateSavedWorkspaceSessionStateWithCleanup,
 } from "./lib/savedVoyageState";
 
 import springboard, { ModuleAPI } from "springboard";
@@ -32,6 +30,7 @@ import "./modules/MainUIShellModule";
 // @platform "node"
 import "./modules/ObservabilityServerModule";
 import "./modules/WorkflowServerModule";
+import { initializeVoyagePersistenceAuthority } from "./store/voyagePersistenceAuthority";
 import "./modules/plugins/kanban/jira/serverModule";
 import "./modules/plugins/kanban/linear/serverModule";
 // @platform end
@@ -558,31 +557,28 @@ springboard.registerModule(
 );
 
 const createWorkspaceModule = async (moduleAPI: ModuleAPI) => {
+  // The normalized database cutover is an unconditional startup gate. This
+  // must precede creation of any workspace/Voyage reader or writer; rejection
+  // aborts module startup rather than falling back to legacy state.
+  if (moduleAPI.deps.core.isMaestro()) {
+    // @platform "node"
+    await initializeVoyagePersistenceAuthority();
+    // @platform end
+  }
   const workspaceState =
     await moduleAPI.statesAPI.createPersistentState<WorkspaceState>(
       "workspace",
       createDefaultWorkspace(),
     );
+  // Kept only as a non-persistent compatibility projection until the Dockview
+  // UI lands. The legacy workspace-sessions key is never read or written after
+  // the migration ledger completes; normalized SQLite is the sole persistence
+  // authority.
   const savedSessionsState =
-    await moduleAPI.statesAPI.createPersistentState<SavedWorkspaceSessionState>(
-      "workspace-sessions",
+    await moduleAPI.statesAPI.createSharedState<SavedWorkspaceSessionState>(
+      "normalized-voyage-compatibility-projection",
       createDefaultSavedSessionState(),
     );
-  // v2 is the first shipped saved-voyage migration. Since no production
-  // state has been written as v2 yet, the v2 migration also performs the
-  // Home-voyage removal and duplicate cleanup before marking state migrated.
-  if (
-    moduleAPI.deps.core.isMaestro() &&
-    !isSavedWorkspaceSessionStateMigrated(savedSessionsState.getState())
-  ) {
-    const migratedSavedSessions = migrateSavedWorkspaceSessionStateWithCleanup(
-      savedSessionsState.getState(),
-      {
-        workspace: workspaceState.getState(),
-      },
-    );
-    savedSessionsState.setState(migratedSavedSessions.state);
-  }
 
   const repairSavedVoyagesForCurrentWorkspace = () => {
     const repaired = repairSavedSessionsForWorkspace(

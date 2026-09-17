@@ -1,4 +1,5 @@
 import { getPluginRegistrySnapshot } from '../modules/plugins/vibe-dashboard/registry';
+import { parsePluginInternalUrl } from '../modules/plugins/vibe-dashboard/runtime';
 import type { PluginRegistryState } from '../modules/plugins/vibe-dashboard/types';
 import {
   resolveIframeCapabilityPolicy,
@@ -509,22 +510,60 @@ export function classifyLegacyPanelRepresentation(input: {
   return { outcome: 'durable-candidate' };
 }
 
-/** Converts only audited durable legacy producers into current stored targets. */
-export function getLegacyStoredPanelTarget(input: {
+/**
+ * Adapts a legacy View into a stored intent, then requires the current trusted
+ * registry to resolve it. Expanded locations and capability claims are never
+ * copied into persistence.
+ */
+export function resolveLegacyPanelTarget(input: {
   view: { id: string; url: string };
   workspaceId: string;
+  context: PanelTargetResolutionContext;
+  registry?: ReturnType<typeof createPanelTargetRegistry>;
 }): StoredPanelTarget | null {
   const payload = { workspaceId: input.workspaceId };
-  if (input.view.id === 'code') return { kind: 'code', version: 1, payload: { ...payload, folderIntent: 'workspace-root' } };
-  if (input.view.id === 'changes') return { kind: 'changes', version: 1, payload };
-  if (input.view.id === 'beads') return { kind: 'beads', version: 1, payload };
-  if (input.view.id === 'forms') return { kind: 'forms', version: 1, payload };
-  if (input.view.id === 'overview' || input.view.id === 'craft-overview') return { kind: 'craft-overview', version: 1, payload };
-  try {
-    const url = new URL(input.view.url);
-    if (!['http:', 'https:'].includes(url.protocol) || url.username || url.password) return null;
-    return { kind: 'custom-url', version: 1, payload: { url: url.href } };
-  } catch { return null; }
+  let candidate: StoredPanelTarget | null = null;
+  if (input.view.id === 'code') candidate = { kind: 'code', version: 1, payload: { ...payload, folderIntent: 'workspace-root' } };
+  else if (input.view.id === 'changes') candidate = { kind: 'changes', version: 1, payload };
+  else if (input.view.id === 'beads') candidate = { kind: 'beads', version: 1, payload };
+  else if (input.view.id === 'forms') candidate = { kind: 'forms', version: 1, payload };
+  else if (input.view.id === 'overview' || input.view.id === 'craft-overview') candidate = { kind: 'craft-overview', version: 1, payload };
+  else {
+    const pluginRegistry = (input.context.getPluginRegistry ?? getPluginRegistrySnapshot)();
+    const matchingSurfaces = Object.values(pluginRegistry.craftSurfaces).filter((surface) => {
+      const expanded = surface.urlTemplate
+        .replaceAll('{{origin}}', input.context.hostOrigin)
+        .replaceAll('{{pluginId}}', surface.pluginId);
+      try { return new URL(expanded, input.context.hostOrigin).href === new URL(input.view.url, input.context.hostOrigin).href; }
+      catch { return false; }
+    });
+    if (matchingSurfaces.length > 1) return null;
+    if (matchingSurfaces.length === 1) {
+      const surface = matchingSurfaces[0]!;
+      candidate = { kind: 'plugin-surface', version: 1, payload: { pluginId: surface.pluginId, surfaceId: surface.sourceKey, params: {} } };
+    }
+    const queryIndex = input.view.url.indexOf('?');
+    const pluginRoute = parsePluginInternalUrl(queryIndex < 0 ? input.view.url : input.view.url.slice(0, queryIndex));
+    if (!candidate && pluginRoute) {
+      const matches = Object.values(pluginRegistry.internalRoutes)
+        .filter((route) => route.pluginId === pluginRoute.pluginId && route.path === pluginRoute.routePath);
+      if (matches.length !== 1) return null;
+      const search = new URLSearchParams(queryIndex < 0 ? '' : input.view.url.slice(queryIndex + 1));
+      const names = [...search.keys()];
+      if (new Set(names).size !== names.length) return null;
+      const params = Object.fromEntries(search);
+      candidate = { kind: 'internal-route', version: 1, payload: { routeId: matches[0]!.key, params } };
+    } else if (!candidate) {
+      try {
+        const url = new URL(input.view.url);
+        if (!['http:', 'https:'].includes(url.protocol) || url.username || url.password) return null;
+        if (url.pathname.includes('/dashboard/plugins/')) return null;
+        candidate = { kind: 'custom-url', version: 1, payload: { url: url.href } };
+      } catch { return null; }
+    }
+  }
+  const resolution = (input.registry ?? createPanelTargetRegistry()).resolve(candidate, input.context);
+  return resolution.status === 'resolved' ? resolution.target : null;
 }
 
 function exactLegacyView(value: unknown): value is { id: string; title: string; url: string; pinned?: boolean; ephemeral?: { kind?: string } } {

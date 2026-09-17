@@ -5,7 +5,7 @@ import {
   classifyLegacyPanelRepresentation,
   createPanelTargetRegistry,
   findSplitCompatibleTargets,
-  getLegacyStoredPanelTarget,
+  resolveLegacyPanelTarget,
   type PanelTargetResolutionContext,
   type StoredPanelTarget,
 } from './panelTargetRegistry';
@@ -246,14 +246,30 @@ describe('production Panel target registry', () => {
 
 describe('approved migration classification boundary', () => {
   it('derives stored legacy targets only from audited stable identities', () => {
-    expect(getLegacyStoredPanelTarget({ view: { id: 'code', url: 'https://attacker.invalid/path' }, workspaceId: 'workspace-1' }))
+    expect(resolveLegacyPanelTarget({ view: { id: 'code', url: 'https://attacker.invalid/path' }, workspaceId: 'workspace-1', context: context() }))
       .toEqual(stored('code', { workspaceId: 'workspace-1', folderIntent: 'workspace-root' }));
-    expect(getLegacyStoredPanelTarget({ view: { id: 'docs', url: 'https://docs.example.test/path' }, workspaceId: 'workspace-1' }))
+    expect(resolveLegacyPanelTarget({ view: { id: 'docs', url: 'https://docs.example.test/path' }, workspaceId: 'workspace-1', context: context() }))
       .toEqual(stored('custom-url', { url: 'https://docs.example.test/path' }));
-    expect(getLegacyStoredPanelTarget({ view: { id: 'agent', url: '/legacy-agent-without-session-id' }, workspaceId: 'workspace-1' }))
+    expect(resolveLegacyPanelTarget({ view: { id: 'agent', url: '/legacy-agent-without-session-id' }, workspaceId: 'workspace-1', context: context() }))
       .toBeNull();
-    expect(getLegacyStoredPanelTarget({ view: { id: 'unsafe', url: 'https://user:password@example.test' }, workspaceId: 'workspace-1' }))
+    expect(resolveLegacyPanelTarget({ view: { id: 'unsafe', url: 'https://user:password@example.test' }, workspaceId: 'workspace-1', context: context() }))
       .toBeNull();
+    expect(resolveLegacyPanelTarget({
+      view: { id: 'plugin-help', url: 'internal://plugins/plugin.docs/help?topic=voyages' },
+      workspaceId: 'workspace-1', context: context(),
+    })).toEqual(stored('internal-route', { routeId: 'plugin.docs/help', params: { topic: 'voyages' } }));
+    expect(resolveLegacyPanelTarget({
+      view: { id: 'plugin-help', url: 'internal://plugins/plugin.docs/help?unknown=value' },
+      workspaceId: 'workspace-1', context: context(),
+    })).toBeNull();
+    expect(resolveLegacyPanelTarget({
+      view: { id: 'plugin-surface', url: 'https://dashboard.example.test/dashboard/plugins/plugin.docs/2.0.0/frontend_assets/index.html' },
+      workspaceId: 'workspace-1', context: context(),
+    })).toEqual(stored('plugin-surface', { pluginId: 'plugin.docs', surfaceId: 'site', params: {} }));
+    expect(resolveLegacyPanelTarget({
+      view: { id: 'removed-plugin', url: 'https://dashboard.example.test/dashboard/plugins/removed/1/frontend_assets/index.html' },
+      workspaceId: 'workspace-1', context: context(),
+    })).toBeNull();
   });
 
   it.each([

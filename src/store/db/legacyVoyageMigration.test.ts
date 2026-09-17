@@ -5,6 +5,7 @@ import { tmpdir } from 'node:os';
 import Database from 'better-sqlite3';
 import { afterEach, describe, expect, it } from 'vitest';
 import { initExternalIntegrationsDb } from '../../modules/plugins/kanban/server/database';
+import { productionDockviewSnapshotCodec } from '../dockviewSnapshotCodec';
 import {
   LEGACY_SESSIONS_KEY,
   LEGACY_VOYAGE_MIGRATION_ID,
@@ -70,6 +71,7 @@ describe('legacy Springboard Voyage data migration', () => {
         { id: 'vk-code', tabGroupId: 'craft-vk', viewIds: ['code'] },
       ]),
     ] });
+    const sourceBefore = source.prepare('SELECT key, value FROM kvstore ORDER BY key').all();
     source.close();
 
     const handle = await initExternalIntegrationsDb({ path: configured.targetPath, sourcePath: configured.sourcePath });
@@ -92,7 +94,10 @@ describe('legacy Springboard Voyage data migration', () => {
         expect.objectContaining({ sourceKind: 'craft-occurrence', outcome: 'skipped', reasonCode: 'non-vk-craft' }),
         expect.objectContaining({ sourceKind: 'view-selection', outcome: 'skipped', reasonCode: 'homepage-representation' }),
       ]));
-      expect(handle.sqlite.prepare("SELECT COUNT(*) AS count FROM VoyageMigrationDiagnostic WHERE outcome NOT IN ('migrated','skipped','rejected')").get()).toEqual({ count: 0 });
+      expect(handle.sqlite.prepare("SELECT COUNT(*) AS count FROM VoyageMigrationDiagnostic WHERE outcome NOT IN ('migrated','skipped','quarantined')").get()).toEqual({ count: 0 });
+      const audit = handle.sqlite.prepare("SELECT detailsJson FROM VoyageMigrationDiagnostic WHERE sourceKind = 'audit-summary'").get() as { detailsJson: string };
+      const counts = JSON.parse(audit.detailsJson) as { source: number; migrated: number; skipped: number; quarantined: number };
+      expect(counts.migrated + counts.skipped + counts.quarantined).toBe(counts.source);
       deterministicRows = {
         voyages: handle.sqlite.prepare('SELECT id, name, activationSequence FROM Voyage ORDER BY id').all(),
         panels: handle.sqlite.prepare('SELECT id, voyageId, targetKind, targetPayloadJson FROM VoyagePanel ORDER BY id').all(),
@@ -115,6 +120,9 @@ describe('legacy Springboard Voyage data migration', () => {
     expect(rerun.appliedDataMigrations).toEqual([]);
     expect(rerun.sqlite.prepare('SELECT COUNT(*) AS count FROM Voyage').get()).toEqual({ count: 1 });
     await rerun.db.destroy(); rerun.sqlite.close();
+    const unchangedSource = new Database(configured.sourcePath, { readonly: true });
+    expect(unchangedSource.prepare('SELECT key, value FROM kvstore ORDER BY key').all()).toEqual(sourceBefore);
+    unchangedSource.close();
   });
 
   it('records a fresh configured installation without inventing normalized state', async () => {
@@ -173,21 +181,29 @@ describe('legacy Springboard Voyage data migration', () => {
     const configured = await paths();
     const schemaOnly = await initExternalIntegrationsDb({ path: configured.targetPath, runDataMigrations: false });
     await schemaOnly.db.destroy(); schemaOnly.sqlite.close();
-    sourceDatabase(configured.sourcePath, workspace, { sessions: [session('pairs', [
+    const pairSession = session('pairs', [
       { id: 'pair-entry', tabGroupId: 'craft-vk', viewIds: ['code+docs'] },
       { id: 'ephemeral-entry', tabGroupId: 'craft-vk', viewIds: ['craft-surface:craft-vk:preview'] },
       { id: 'removed-plugin-entry', tabGroupId: 'craft-vk', viewIds: ['removed-plugin'] },
-    ])] }).close();
+    ]);
+    pairSession.activeVoyageEntryId = 'pair-entry';
+    pairSession.activeItemsByVoyageEntryId['pair-entry'] = 'code+docs';
+    sourceDatabase(configured.sourcePath, workspace, { sessions: [pairSession] }).close();
     const handle = await initExternalIntegrationsDb({ path: configured.targetPath, sourcePath: configured.sourcePath });
     try {
       expect(handle.sqlite.prepare('SELECT targetKind FROM VoyagePanel ORDER BY rowid').all()).toEqual([
         { targetKind: 'code' }, { targetKind: 'custom-url' },
       ]);
-      const layout = JSON.parse((handle.sqlite.prepare('SELECT snapshotJson FROM VoyageLayout').get() as { snapshotJson: string }).snapshotJson);
-      expect(layout.pairs).toHaveLength(1);
-      expect(layout.pairs[0].panelIds).toHaveLength(2);
-      expect(handle.sqlite.prepare("SELECT reasonCode FROM VoyageMigrationDiagnostic WHERE reasonCode = 'ephemeral-plugin-placeholder'").all()).toHaveLength(1);
-      expect(handle.sqlite.prepare("SELECT outcome, reasonCode FROM VoyageMigrationDiagnostic WHERE sourceId LIKE '%removed-plugin-entry:view:%'").all())
+      const storedLayout = handle.sqlite.prepare('SELECT dockviewVersion, snapshotJson FROM VoyageLayout').get() as { dockviewVersion: string; snapshotJson: string };
+      const layout = JSON.parse(storedLayout.snapshotJson) as { grid: { root: { data: unknown[] } }; panels: Record<string, unknown>; activeGroup?: string };
+      expect(storedLayout.dockviewVersion).toBe('8.3.1');
+      expect(layout.grid.root.data).toHaveLength(2);
+      expect(Object.keys(layout.panels)).toHaveLength(2);
+      expect(layout.activeGroup).toMatch(/^group-panel-/);
+      const canonical = productionDockviewSnapshotCodec.validateAndCanonicalize(layout);
+      expect(new Set(canonical.panelIds)).toEqual(new Set((handle.sqlite.prepare('SELECT id FROM VoyagePanel').all() as Array<{ id: string }>).map(({ id }) => id)));
+      expect(handle.sqlite.prepare("SELECT reasonCode FROM VoyageMigrationDiagnostic WHERE reasonCode = 'ephemeral-plugin-placeholder'").all()).toHaveLength(2);
+      expect(handle.sqlite.prepare("SELECT outcome, reasonCode FROM VoyageMigrationDiagnostic WHERE sourceKind = 'view-selection' AND sourceId LIKE '%removed-plugin-entry%'").all())
         .toEqual([{ outcome: 'quarantined', reasonCode: 'target-unresolvable' }]);
     } finally { await handle.db.destroy(); handle.sqlite.close(); }
   });
@@ -207,6 +223,65 @@ describe('legacy Springboard Voyage data migration', () => {
     if (snapshot.kind !== 'snapshot') return;
     expect(JSON.parse(snapshot.workspaceJson!).nextId).toBe(1);
     expect(JSON.parse(snapshot.sessionsJson!).data).toEqual([]);
+  });
+
+  it('seeds MRU from ordered duplicate visit evidence and applies the active selection last', async () => {
+    const configured = await paths();
+    const twoCrafts = {
+      ...workspace,
+      tabGroups: [...workspace.tabGroups, {
+        id: 'craft-vk-2', label: 'VK Craft 2',
+        workspace: { workspaceId: 'vk-workspace-2', workspaceDir: '/ignored' },
+        tabs: [{ id: 'code', title: 'Code', url: 'https://stale.invalid/code' }], pairs: [], order: 3,
+      }],
+    };
+    const ordered = session('ordered-mru', [
+      { id: 'first-layout', tabGroupId: 'craft-vk', viewIds: ['code', 'docs'] },
+      { id: 'second-layout', tabGroupId: 'craft-vk-2', viewIds: ['code'] },
+    ]);
+    ordered.visitedTabGroupIds = ['craft-vk-2', 'craft-vk', 'craft-vk-2'];
+    ordered.activeVoyageEntryId = 'first-layout';
+    ordered.activeItemsByVoyageEntryId['first-layout'] = 'code';
+    sourceDatabase(configured.sourcePath, twoCrafts, { version: 3, data: [ordered] }).close();
+    const handle = await initExternalIntegrationsDb({ path: configured.targetPath, sourcePath: configured.sourcePath });
+    try {
+      expect(handle.sqlite.prepare('SELECT craftWorkspaceId, targetKind, lastActivatedSequence FROM VoyagePanel ORDER BY craftWorkspaceId, targetKind').all()).toEqual([
+        { craftWorkspaceId: 'vk-workspace-1', targetKind: 'code', lastActivatedSequence: 4 },
+        { craftWorkspaceId: 'vk-workspace-1', targetKind: 'custom-url', lastActivatedSequence: null },
+        { craftWorkspaceId: 'vk-workspace-2', targetKind: 'code', lastActivatedSequence: 3 },
+      ]);
+      expect(handle.sqlite.prepare('SELECT activationSequence FROM Voyage').get()).toEqual({ activationSequence: 4 });
+    } finally { await handle.db.destroy(); handle.sqlite.close(); }
+  });
+
+  it('uses injected current definitions and quarantines targets when their workspace authority is removed', async () => {
+    const configured = await paths();
+    sourceDatabase(configured.sourcePath, workspace, { version: 3, data: [session('removed-owner', [
+      { id: 'code', tabGroupId: 'craft-vk', viewIds: ['code'] },
+    ])] }).close();
+    const handle = await initExternalIntegrationsDb({
+      path: configured.targetPath,
+      sourcePath: configured.sourcePath,
+      dataMigrationDependencies: { services: { legacyTargetContextForCraft: () => null } },
+    });
+    try {
+      expect(handle.sqlite.prepare('SELECT COUNT(*) AS count FROM Voyage').get()).toEqual({ count: 0 });
+      expect(handle.sqlite.prepare("SELECT COUNT(*) AS count FROM VoyageMigrationDiagnostic WHERE outcome = 'quarantined' AND reasonCode = 'target-unresolvable'").get())
+        .toEqual({ count: 4 });
+    } finally { await handle.db.destroy(); handle.sqlite.close(); }
+  });
+
+  it('rejects an occurrence audit with duplicate source identities before any target write', async () => {
+    const configured = await paths();
+    const duplicate = session('duplicate', [{ id: 'code', tabGroupId: 'craft-vk', viewIds: ['code'] }]);
+    sourceDatabase(configured.sourcePath, workspace, { version: 3, data: [duplicate, duplicate] }).close();
+    await expect(initExternalIntegrationsDb({ path: configured.targetPath, sourcePath: configured.sourcePath }))
+      .rejects.toMatchObject({ name: 'DataMigrationStartupError', causeCode: 'AUDIT_IMBALANCE' });
+    const target = new Database(configured.targetPath, { readonly: true });
+    expect(target.prepare('SELECT COUNT(*) AS count FROM Voyage').get()).toEqual({ count: 0 });
+    expect(target.prepare('SELECT COUNT(*) AS count FROM VoyageMigrationDiagnostic').get()).toEqual({ count: 0 });
+    expect(target.prepare('SELECT COUNT(*) AS count FROM Migration WHERE name = ?').get(LEGACY_VOYAGE_MIGRATION_ID)).toEqual({ count: 0 });
+    target.close();
   });
 
   it.each(['missing-key', 'malformed-container', 'normalized-write-failure', 'diagnostic-failure'])('fails closed without rows or completion for %s', async (failure) => {
