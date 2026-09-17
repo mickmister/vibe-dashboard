@@ -12,6 +12,7 @@ import {
   LEGACY_SESSIONS_KEY,
   LEGACY_VOYAGE_MIGRATION_ID,
   LEGACY_WORKSPACE_KEY,
+  assertOccurrenceOutputs,
   readLegacyVoyageSource,
 } from './data_migrations/20260917100000_migrate_legacy_voyages';
 
@@ -84,6 +85,19 @@ function session(id: string, entries: Array<{ id: string; tabGroupId: string; vi
 }
 
 describe('legacy Springboard Voyage data migration', () => {
+  it('rejects missing, duplicate, orphaned, and extra output mappings', () => {
+    expect(() => assertOccurrenceOutputs([{ outcome: 'migrated', outputRefs: ['panel:a'] }], new Set(['panel:b'])))
+      .toThrowError(expect.objectContaining({ code: 'AUDIT_IMBALANCE' }));
+    expect(() => assertOccurrenceOutputs([
+      { outcome: 'migrated', outputRefs: ['panel:a'] },
+      { outcome: 'migrated', outputRefs: ['panel:a'] },
+    ], new Set(['panel:a']))).toThrowError(expect.objectContaining({ code: 'AUDIT_IMBALANCE' }));
+    expect(() => assertOccurrenceOutputs([{ outcome: 'skipped', outputRefs: ['panel:a'] }], new Set(['panel:a'])))
+      .toThrowError(expect.objectContaining({ code: 'AUDIT_IMBALANCE' }));
+    expect(() => assertOccurrenceOutputs([], new Set(['panel:a'])))
+      .toThrowError(expect.objectContaining({ code: 'AUDIT_IMBALANCE' }));
+  });
+
   it('uses the configured source, skips homepage-only state, and migrates mixed VK content deterministically', async () => {
     const configured = await paths();
     const source = sourceDatabase(configured.sourcePath, workspace, { version: 3, data: [

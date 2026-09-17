@@ -1,3 +1,4 @@
+/* eslint-disable formatjs/no-literal-string-in-object -- persistence/UI projection fixtures intentionally use exact labels */
 import Database from 'better-sqlite3';
 import { Kysely, SqliteDialect } from 'kysely';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
@@ -11,7 +12,7 @@ import { VoyageConflictError, VoyageRepository, type StructuralPanelHistoryRecor
 const workspace: WorkspaceState = {
   spaces: [{ id: 'space', name: 'Space', icon: 'x', tabGroupIds: ['craft'] }],
   tabGroups: [{ id: 'craft', label: 'Craft', workspace: { workspaceId: 'workspace-1', workspaceDir: '/not-persisted' }, order: 0,
-    tabs: [{ id: 'code', title: 'Code', url: '/code' }, { id: 'docs', title: 'Docs', url: 'https://docs.test' }], pairs: [] }],
+    tabs: [{ id: 'code', title: 'Code', url: '/code' }, { id: 'docs', title: 'Docs', url: 'https://docs.test/' }], pairs: [] }],
   nextId: 1,
 };
 const panel = (id: string, kind: string): StructuralPanelHistoryRecord => ({ id, craftWorkspaceId: 'workspace-1', targetKind: kind, targetVersion: 1,
@@ -47,11 +48,21 @@ describe('normalized Voyage compatibility projection', () => {
     renamed.data[0]!.name = 'Persisted rename';
     let committed = await projection.replace(before, renamed);
     expect((await repository.loadVoyage('voyage-1')).metadata.name).toBe('Persisted rename');
+    const activated = structuredClone(committed.state);
+    activated.data[0]!.activeItemsByVoyageEntryId[activated.data[0]!.activeVoyageEntryId] = 'docs';
+    committed = await projection.replace(committed, activated);
+    expect((await repository.loadVoyage('voyage-1')).panels.find(({ targetKind }) => targetKind === 'custom-url')!.lastActivatedSequence).toBe(1);
     const removed = structuredClone(committed.state);
     removed.data[0]!.voyageEntries[0]!.viewIds = ['code'];
     committed = await projection.replace(committed, removed);
     expect((await repository.loadVoyage('voyage-1')).panels.map(({ targetKind }) => targetKind)).toEqual(['code']);
     expect(committed.state.data[0]!.voyageEntries[0]!.viewIds).toEqual(['code']);
+    expect(committed.revisions.get('voyage-1')).toBe(3);
+
+    const deleted = structuredClone(committed.state);
+    deleted.data = [];
+    expect((await projection.replace(committed, deleted)).state.data).toEqual([]);
+    expect(await repository.listVoyageIds()).toEqual([]);
   });
 
   it('rejects stale projection CAS and never overwrites the committed winner', async () => {

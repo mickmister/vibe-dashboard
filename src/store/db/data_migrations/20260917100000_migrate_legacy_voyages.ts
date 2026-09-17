@@ -58,6 +58,19 @@ type Diagnostic = { sourceKind: string; sourceId: string; outcome: Outcome; reas
 type Panel = { id: string; legacyGroupId: string; legacyEntryId: string; legacySelectionId: string; craftWorkspaceId: string; target: StoredPanelTarget; lastActivatedSequence: number | null };
 type Voyage = { id: string; session: SavedWorkspaceSession; crafts: Array<{ workspaceId: string; sortKey: string }>; panels: Panel[]; pairs: Array<{ pairId: string; panelIds: string[]; ratios: [50, 50] }>; activePanelId: string | null };
 
+export function assertOccurrenceOutputs(diagnostics: ReadonlyArray<Pick<Diagnostic, 'outcome' | 'outputRefs'>>, outputRefs: ReadonlySet<string>): void {
+  const claimed = new Set<string>();
+  for (const diagnostic of diagnostics) {
+    const references = diagnostic.outputRefs ?? [];
+    if ((diagnostic.outcome === 'migrated') !== (references.length > 0)) throw Object.assign(new Error('Migration outcome has no constructed output'), { code: 'AUDIT_IMBALANCE' });
+    for (const reference of references) {
+      if (!outputRefs.has(reference) || claimed.has(reference)) throw Object.assign(new Error('Migration output mapping is missing or duplicated'), { code: 'AUDIT_IMBALANCE' });
+      claimed.add(reference);
+    }
+  }
+  if (claimed.size !== outputRefs.size || [...outputRefs].some((reference) => !claimed.has(reference))) throw Object.assign(new Error('Constructed migration output is not audited'), { code: 'AUDIT_IMBALANCE' });
+}
+
 class OccurrenceLedger {
   private readonly entries = new Map<string, Diagnostic>();
   add(entry: Diagnostic): void {
@@ -81,16 +94,8 @@ class OccurrenceLedger {
     const counts = { migrated: 0, skipped: 0, quarantined: 0 };
     diagnostics.forEach(({ outcome }) => { counts[outcome] += 1; });
     if (Object.values(counts).reduce((sum, count) => sum + count, 0) !== expected) throw Object.assign(new Error('Unbalanced migration audit'), { code: 'AUDIT_IMBALANCE' });
-    const claimed = new Set<string>();
-    for (const diagnostic of diagnostics) {
-      const references = diagnostic.outputRefs ?? [];
-      if ((diagnostic.outcome === 'migrated') !== (references.length > 0)) throw Object.assign(new Error('Migration outcome has no constructed output'), { code: 'AUDIT_IMBALANCE' });
-      for (const reference of references) {
-        if (!outputRefs.has(reference) || claimed.has(reference)) throw Object.assign(new Error('Migration output mapping is missing or duplicated'), { code: 'AUDIT_IMBALANCE' });
-        claimed.add(reference);
-      }
-    }
-    if (claimed.size !== outputRefs.size || [...outputRefs].some((reference) => !claimed.has(reference))) throw Object.assign(new Error('Constructed migration output is not audited'), { code: 'AUDIT_IMBALANCE' });
+    assertOccurrenceOutputs(diagnostics, outputRefs);
+    diagnostics.forEach((diagnostic) => { if (diagnostic.outputRefs?.length) diagnostic.details = { outputRefs: diagnostic.outputRefs }; });
     const scoped = (pattern: RegExp) => Object.fromEntries([...new Set(diagnostics.flatMap(({ sourceId }) => sourceId.match(pattern)?.[1] ?? []))]
       .sort().map((scope) => {
         const entries = diagnostics.filter(({ sourceId }) => sourceId.match(pattern)?.[1] === scope);
@@ -109,6 +114,20 @@ class OccurrenceLedger {
 }
 
 type ContextFactory = (craftId: string, workspaceId: string) => PanelTargetResolutionContext | null;
+function snapshotContext(context: PanelTargetResolutionContext): PanelTargetResolutionContext {
+  const plugins = context.getPluginRegistry ? structuredClone(context.getPluginRegistry()) : undefined;
+  return {
+    ...context,
+    crafts: structuredClone(context.crafts),
+    workspaces: structuredClone(context.workspaces),
+    agentSessions: structuredClone(context.agentSessions),
+    terminals: structuredClone(context.terminals),
+    previews: structuredClone(context.previews),
+    builtInRoutes: structuredClone(context.builtInRoutes),
+    redirectGuards: structuredClone(context.redirectGuards),
+    getPluginRegistry: plugins ? () => plugins : context.getPluginRegistry,
+  };
+}
 
 function selections(session: SavedWorkspaceSession, entry: SavedWorkspaceSession['voyageEntries'][number]): string[] {
   return entry.viewIds.length ? entry.viewIds : session.activeItemsByVoyageEntryId[entry.id] ? [session.activeItemsByVoyageEntryId[entry.id]!] : [];
@@ -142,8 +161,14 @@ function buildMigration(source: LegacyVoyageSource, contextFactory: ContextFacto
   const ledger = new OccurrenceLedger();
   const crafts = new Map(workspace.tabGroups.map((craft) => [craft.id, craft]));
   const registry = createPanelTargetRegistry();
+  const contexts = new Map<string, PanelTargetResolutionContext | null>();
   const resolve = (craftId: string, workspaceId: string, view: { id: string; url: string }) => {
-    const context = contextFactory(craftId, workspaceId);
+    const key = `${craftId}\0${workspaceId}`;
+    if (!contexts.has(key)) {
+      const supplied = contextFactory(craftId, workspaceId);
+      contexts.set(key, supplied ? snapshotContext(supplied) : null);
+    }
+    const context = contexts.get(key) ?? null;
     return context ? resolveLegacyPanelTarget({ view, workspaceId, context, registry }) : null;
   };
 

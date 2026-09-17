@@ -437,6 +437,30 @@ function cloneSavedSession(
   };
 }
 
+// Candidate projection normalization only. The returned value is never
+// persisted directly; callers must commit it through VoyageRepository CAS.
+function normalizeVoyageEntryForWorkspace(workspace: WorkspaceState, entry: VoyageEntry): VoyageEntry | undefined {
+  const tabGroup = workspace.tabGroups.find((candidate) => candidate.id === entry.tabGroupId);
+  if (!tabGroup) return undefined;
+  const validViewIds = entry.viewIds.filter((viewId) => tabGroup.tabs.some((tab) => tab.id === viewId) || Boolean(tabGroup.workspace?.workspaceId));
+  return { ...entry, viewIds: validViewIds.length ? validViewIds : getDefaultViewIdsForTabGroup(workspace, entry.tabGroupId) };
+}
+
+function repairSavedSessionForWorkspace(session: SavedWorkspaceSession, workspace: WorkspaceState): SavedWorkspaceSession | undefined {
+  const voyageEntries = (session.voyageEntries || []).map((entry) => normalizeVoyageEntryForWorkspace(workspace, entry))
+    .filter((entry): entry is VoyageEntry => Boolean(entry));
+  if (!voyageEntries.length) return undefined;
+  const activeVoyageEntryId = voyageEntries.find((entry) => entry.id === session.activeVoyageEntryId)?.id || voyageEntries[0]!.id;
+  const activeEntry = voyageEntries.find((entry) => entry.id === activeVoyageEntryId) || voyageEntries[0]!;
+  return {
+    ...session, voyageEntries, activeVoyageEntryId,
+    activeSpaceId: workspace.spaces.find((space) => space.tabGroupIds.includes(activeEntry.tabGroupId))?.id || session.activeSpaceId,
+    activeTabGroupId: activeEntry.tabGroupId,
+    activeItemsByVoyageEntryId: Object.fromEntries(voyageEntries.map((entry) => [entry.id, getActiveItemIdForViewIds(workspace, entry.tabGroupId, entry.viewIds)])),
+    visitedTabGroupIds: Array.from(new Set(voyageEntries.map((entry) => entry.tabGroupId))),
+  };
+}
+
 function pickRandomMobileEmoji() {
   return MOBILE_TAB_EMOJIS[
     Math.floor(Math.random() * MOBILE_TAB_EMOJIS.length)
@@ -1665,19 +1689,13 @@ const createWorkspaceModule = async (moduleAPI: ModuleAPI) => {
           movedEntry.viewIds[0] ||
           "";
 
-        const repairedSource = repairSavedSessionForWorkspace(
-          {
-            ...source,
-            voyageEntries: nextSourceEntries,
-            activeVoyageEntryId: fallbackSourceEntry.id,
-            updatedAt: now,
-          },
-          workspace,
-        );
-        if (!repairedSource) return createSavedWorkspaceSessionState(sessions);
-
         Object.assign(source, {
-          ...repairedSource,
+          voyageEntries: nextSourceEntries,
+          activeVoyageEntryId: fallbackSourceEntry.id,
+          activeTabGroupId: fallbackSourceEntry.tabGroupId,
+          activeSpaceId: workspace.spaces.find((space) => space.tabGroupIds.includes(fallbackSourceEntry.tabGroupId))?.id ?? source.activeSpaceId,
+          activeItemsByVoyageEntryId: Object.fromEntries(Object.entries(source.activeItemsByVoyageEntryId).filter(([entryId]) => nextSourceEntries.some(({ id }) => id === entryId))),
+          visitedTabGroupIds: Array.from(new Set(nextSourceEntries.map(({ tabGroupId }) => tabGroupId))),
           updatedAt: now,
         });
 
