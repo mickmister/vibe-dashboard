@@ -10,6 +10,7 @@ import { registerVkWorkspaceRoutes } from '../server/vk-workspace-routes';
 import { registerVkRepoRoutes } from '../server/vk-repo-routes';
 import { registerPreviewResolverRoutes } from '../server/preview-resolver-routes';
 import { registerPanelTargetDeliveryRoutes } from '../server/panel-target-delivery-routes';
+import { registerServerModuleCleanup } from '../server/server-module-lifecycle';
 import { workflowRegistry } from '../workflows/registry';
 import type { CachedRepoAlias } from '../workflows/github-ci';
 
@@ -18,8 +19,12 @@ const reposRoot = process.env.VK_REPOS_ROOT || join(process.env.HOME || '/home/v
 const pluginInstallRoot = process.env.VD_PLUGIN_INSTALL_ROOT || join(process.cwd(), 'plugins');
 let cachedGitRepos: CachedRepoAlias[] | null = null;
 let panelTargetDeliveryOwner: { dispose(): void } | null = null;
+let unregisterPanelTargetCleanup: (() => void) | null = null;
 
 export function disposeWorkflowServerModule(): void {
+  const unregister = unregisterPanelTargetCleanup;
+  unregisterPanelTargetCleanup = null;
+  if (unregister) { unregister(); return; }
   const owner = panelTargetDeliveryOwner;
   panelTargetDeliveryOwner = null;
   owner?.dispose();
@@ -43,6 +48,11 @@ serverRegistry.registerServerModule((api) => {
   // the route owner's authority snapshot rather than leaving stale privileges.
   disposeWorkflowServerModule();
   panelTargetDeliveryOwner = registerPanelTargetDeliveryRoutes(api.hono);
+  unregisterPanelTargetCleanup = registerServerModuleCleanup(() => {
+    const owner = panelTargetDeliveryOwner;
+    panelTargetDeliveryOwner = null;
+    owner?.dispose();
+  });
 });
 
 const hot = (import.meta as ImportMeta & { hot?: { dispose(callback: () => void): void } }).hot;

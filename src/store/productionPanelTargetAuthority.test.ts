@@ -29,7 +29,12 @@ const craft = { id: 'craft-1', label: 'Craft', workspace: { workspaceId: 'worksp
 const router = (allowedCraftIds = ['craft-1']) => createPanelTargetRouterAuthoritySnapshot({
   builtInRoutes: { settings: { location: '/settings', allowedCraftIds } },
   redirectGuards: { 'internal-route:settings': { deliveryUrl: 'https://dashboard.test/settings', upstreamOrigin: 'https://dashboard.test' } },
-  deliveryRoutes: { workspacePrefix: '/w', previewPrefix: '/p', workspaceUpstreamOrigin: 'https://vk.test', workspaceUpstreamPrefix: 'https://vk.test/workspaces', previewCustomerSlug: 'customer' },
+  deliveryRoutes: { workspacePrefix: '/w', previewPrefix: '/p' },
+  deliveryGuardOwner: {
+    isCurrent: () => true,
+    issueWorkspace: (kind, workspaceId, origin) => ({ location: `https://vk.test/workspaces/${workspaceId}${kind === 'code' ? '/vscode' : ''}`, guard: { deliveryUrl: `${origin}/w/${workspaceId}/${kind}`, upstreamOrigin: 'https://vk.test' } }),
+    issuePreview: async (workspaceId, previewId, origin) => ({ location: 'https://preview.test/', guard: { deliveryUrl: `${origin}/p/${workspaceId}/${previewId}`, upstreamOrigin: 'https://preview.test' } }),
+  },
 });
 
 describe('production Panel target authority composition', () => {

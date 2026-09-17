@@ -77,7 +77,7 @@ export async function createProductionPanelTargetContextProvider(
   const router = services.getRouterAuthority();
   if (router.status !== 'ready') throw unavailable('Panel target router authority is not ready');
   if (Object.values(router.definitions.deliveryRoutes).some((value) => !value)) throw unavailable('Panel target delivery authority is not ready');
-  const backend = await loadPanelTargetBackendAuthority(services.client, current.map(({ id }) => id), router.definitions.deliveryRoutes, hostOrigin);
+  const backend = await loadPanelTargetBackendAuthority(services.client, current.map(({ id }) => id), router.definitions.deliveryGuardOwner, hostOrigin);
   if (backend.status !== 'ready') throw unavailable('Panel target backend authority is not ready');
   const duplicateGuard = Object.keys(backend.definitions.redirectGuards)
     .find((key) => key in router.definitions.redirectGuards);
@@ -90,11 +90,12 @@ export async function createProductionPanelTargetContextProvider(
     builtInRoutes: router.definitions.builtInRoutes,
     redirectGuards: { ...backend.definitions.redirectGuards, ...router.definitions.redirectGuards },
   });
-  return providerFromSnapshot(runtime, new Map(details.map((detail) => [detail.workspace.id, detail])), backend.definitions.workspaceTargets);
+  return providerFromSnapshot(runtime, new Map(details.map((detail) => [detail.workspace.id, detail])), backend.definitions.workspaceTargets, router.definitions.deliveryGuardOwner.isCurrent);
 }
 
-function providerFromSnapshot(runtime: PanelTargetRuntimeAuthoritySnapshot, byId: Map<string, WorkspaceDetail>, workspaceTargets: BackendWorkspaceTargets) {
+function providerFromSnapshot(runtime: PanelTargetRuntimeAuthoritySnapshot, byId: Map<string, WorkspaceDetail>, workspaceTargets: BackendWorkspaceTargets, isCurrent: () => boolean) {
   return (craft: Craft, workspaceId: string): PanelTargetResolutionContext | null => {
+    if (!isCurrent()) return null;
     const detail = byId.get(workspaceId);
     const targets = workspaceTargets[workspaceId];
     if (!detail || craft.workspace?.workspaceId !== workspaceId || !detail.workspace.agent_working_dir || !targets) return null;

@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 import { loadPanelTargetBackendAuthority } from './panelTargetBackendAuthority';
+import type { PanelTargetDeliveryGuardOwner } from './panelTargetRouterAuthority';
 
 function client(overrides: Record<string, unknown> = {}) {
   return {
@@ -10,7 +11,11 @@ function client(overrides: Record<string, unknown> = {}) {
 }
 
 describe('backend Panel target owners', () => {
-  const routes = { workspacePrefix: '/w', previewPrefix: '/p', workspaceUpstreamOrigin: 'https://vk.test', workspaceUpstreamPrefix: 'https://vk.test/workspaces', previewCustomerSlug: 'customer' };
+  const routes: PanelTargetDeliveryGuardOwner = {
+    isCurrent: () => true,
+    issueWorkspace: (kind, workspaceId, applicationOrigin) => ({ location: `https://vk.test/workspaces/${workspaceId}${kind === 'code' ? '/vscode' : ''}`, guard: { deliveryUrl: `${applicationOrigin}/w/${workspaceId}/${kind}`, upstreamOrigin: 'https://vk.test' } }),
+    issuePreview: async (workspaceId, previewId, applicationOrigin) => ({ location: 'https://preview.test/', guard: { deliveryUrl: `${applicationOrigin}/p/${workspaceId}/${previewId}`, upstreamOrigin: 'https://preview.test' } }),
+  };
   it('distinguishes successful ready-empty terminal/session/preview owners', async () => {
     await expect(loadPanelTargetBackendAuthority(client(), ['workspace-1'], routes, 'https://dashboard.test')).resolves.toEqual({
       status: 'ready', definitions: { agentSessions: {}, terminals: {}, previews: {}, redirectGuards: {}, workspaceTargets: { 'workspace-1': {} } },
@@ -26,7 +31,6 @@ describe('backend Panel target owners', () => {
         { sessionId: 'cross', workspaceId: 'other', factory: { available: true, factoryKey: 'session' } },
         { sessionId: 'session', workspaceId: 'workspace-1', factory: { available: true, factoryKey: 'session' } },
       ], previews: [{ previewSlotId: 'preview', workspaceId: 'workspace-1', factoryKey: 'preview-slot', available: true }] })),
-      getPreviewSlotUrl,
     }), ['workspace-1'], routes, 'https://dashboard.test');
     expect(snapshot).toMatchObject({ status: 'ready', definitions: { agentSessions: {}, terminals: {}, previews: { preview: { location: 'https://preview.test/' } }, redirectGuards: {
       'preview:preview': { deliveryUrl: 'https://dashboard.test/p/workspace-1/preview', upstreamOrigin: 'https://preview.test' },
@@ -36,8 +40,7 @@ describe('backend Panel target owners', () => {
   it('publishes exact guards for ambient workspace targets and rejects unresolved preview delivery', async () => {
     const result = await loadPanelTargetBackendAuthority(client({
       getPanelTargetAuthority: vi.fn(async () => ({ ready: true, workspaceId: 'workspace-1', terminalsReady: true, terminals: [], sessions: [], previews: [{ previewSlotId: 'preview', workspaceId: 'workspace-1', factoryKey: 'preview-slot', available: true }], workspaceTargets: { code: { available: true, factoryKey: 'code' } } })),
-      getPreviewSlotUrl: vi.fn(async () => ({ previewSlotId: 'wrong', url: 'https://preview.test/' })),
-    }), ['workspace-1'], routes, 'https://dashboard.test');
+    }), ['workspace-1'], { ...routes, issuePreview: async () => null }, 'https://dashboard.test');
     expect(result).toMatchObject({ status: 'ready', definitions: { previews: {}, redirectGuards: {
       'code:workspace-1': { deliveryUrl: 'https://dashboard.test/w/workspace-1/code', upstreamOrigin: 'https://vk.test' },
     } } });
