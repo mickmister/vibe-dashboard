@@ -65,9 +65,9 @@ describe('normalized Voyage startup authority', () => {
     const targets = { overview: delivery('/workspaces/workspace-1'), code: delivery('/workspaces/workspace-1/vscode'), changes: delivery('/workspaces/workspace-1?view=changes'), beads: delivery('/workspaces/workspace-1?view=beads'), forms: delivery('/workspaces/workspace-1?view=forms') };
     publishProductionPanelTargetRouterAuthority({ builtInRoutes: {}, redirectGuards: {
       'code:workspace-1': { deliveryUrl: 'https://dashboard.test/workspaces/workspace-1/vscode', upstreamOrigin: 'https://dashboard.test' },
-    } });
+    }, deliveryRoutes: { workspacePrefix: '/internal/panel-target/workspaces', agentSessionPrefix: '/internal/panel-target/agent-sessions', terminalPrefix: '/internal/panel-target/terminals', previewPrefix: '/internal/panel-target/previews' } });
     vi.stubGlobal('fetch', vi.fn(async (url: string) => new Response(JSON.stringify({ success: true, data: url.endsWith('/workspaces') ? [{ id: 'workspace-1', archived: false, agent_working_dir: '/trusted' }]
-      : url.includes('/panel-target-authority') ? { ready: true, workspaceId: 'workspace-1', workspaceTargets: targets, sessions: [], terminalsReady: true, terminals: [], previews: [] } : [] }), { status: 200, headers: { 'content-type': 'application/json' } })));
+      : url.includes('/panel-target-authority') ? { ready: true, workspaceId: 'workspace-1', workspaceTargets: Object.fromEntries(Object.entries(targets).map(([key, value]) => [key, { factoryKey: value.factoryKey, available: value.available }])), sessions: [], terminalsReady: true, terminals: [], previews: [] } : [] }), { status: 200, headers: { 'content-type': 'application/json' } })));
     try {
       const authority = await initializeVoyagePersistenceAuthority();
       expect(authority.sqlite.prepare('SELECT targetKind FROM VoyagePanel ORDER BY targetKind').all()).toEqual([{ targetKind: 'code' }, { targetKind: 'internal-route' }]);

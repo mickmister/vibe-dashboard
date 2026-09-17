@@ -10,8 +10,9 @@ function client(overrides: Record<string, unknown> = {}) {
 }
 
 describe('backend Panel target owners', () => {
+  const routes = { workspacePrefix: '/w', agentSessionPrefix: '/s', terminalPrefix: '/t', previewPrefix: '/p' };
   it('distinguishes successful ready-empty terminal/session/preview owners', async () => {
-    await expect(loadPanelTargetBackendAuthority(client(), ['workspace-1'])).resolves.toEqual({
+    await expect(loadPanelTargetBackendAuthority(client(), ['workspace-1'], routes)).resolves.toEqual({
       status: 'ready', definitions: { agentSessions: {}, terminals: {}, previews: {}, redirectGuards: {}, workspaceTargets: { 'workspace-1': {} } },
     });
   });
@@ -20,19 +21,18 @@ describe('backend Panel target owners', () => {
     const getPreviewSlotUrl = vi.fn(async () => ({ previewSlotId: 'wrong', url: 'https://preview.test/' }));
     const snapshot = await loadPanelTargetBackendAuthority(client({
       getPanelTargetAuthority: vi.fn(async () => ({ ready: true, workspaceId: 'workspace-1', workspaceTargets: {}, terminalsReady: true, terminals: [
-        { terminalId: 'terminal', workspaceId: 'workspace-1', delivery: { location: '/terminal', available: true, factoryKey: 'terminal' } },
+        { terminalId: 'terminal', workspaceId: 'workspace-1', factory: { available: true, factoryKey: 'terminal' } },
       ], sessions: [
-        { sessionId: 'cross', workspaceId: 'other', delivery: { location: '/cross', available: true, factoryKey: 'session' } },
-        { sessionId: 'session', workspaceId: 'workspace-1', delivery: { location: '/session', available: true, factoryKey: 'session' } },
-      ], previews: [{ previewSlotId: 'preview', workspaceId: 'workspace-1', urlParts: { previewSlotId: 'preview', workspaceToken: 'token', repoSlug: 'repo', slotSlug: 'slot' }, customerSlug: 'customer', factoryKey: 'preview-slot', available: true }] })),
+        { sessionId: 'cross', workspaceId: 'other', factory: { available: true, factoryKey: 'session' } },
+        { sessionId: 'session', workspaceId: 'workspace-1', factory: { available: true, factoryKey: 'session' } },
+      ], previews: [{ previewSlotId: 'preview', workspaceId: 'workspace-1', factoryKey: 'preview-slot', available: true }] })),
       getPreviewSlotUrl,
-    }), ['workspace-1']);
-    expect(snapshot).toMatchObject({ status: 'ready', definitions: { agentSessions: { session: { workspaceId: 'workspace-1' } }, terminals: { terminal: { workspaceId: 'workspace-1', location: '/terminal' } }, previews: {} } });
-    expect(getPreviewSlotUrl).toHaveBeenCalledWith('workspace-1', 'preview', { customerSlug: 'customer' });
+    }), ['workspace-1'], routes);
+    expect(snapshot).toMatchObject({ status: 'ready', definitions: { agentSessions: { session: { workspaceId: 'workspace-1', location: '/s/workspace-1/session' } }, terminals: { terminal: { workspaceId: 'workspace-1', location: '/t/workspace-1/terminal' } }, previews: { preview: { location: '/p/workspace-1/preview' } } } });
   });
 
   it('propagates owner readiness failures instead of converting them to empty', async () => {
-    await expect(loadPanelTargetBackendAuthority(client({ getPanelTargetAuthority: vi.fn(async () => { throw new Error('session owner unavailable'); }) }), ['workspace-1']))
+    await expect(loadPanelTargetBackendAuthority(client({ getPanelTargetAuthority: vi.fn(async () => { throw new Error('session owner unavailable'); }) }), ['workspace-1'], routes))
       .rejects.toThrow('session owner unavailable');
   });
 });

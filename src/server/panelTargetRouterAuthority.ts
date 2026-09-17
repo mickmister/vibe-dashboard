@@ -1,6 +1,7 @@
 import type { PanelBuiltInRoute, PanelRedirectGuard } from './panelTargetRuntimeAuthority';
 export type AuthorityReadiness<T> = { readonly status: 'ready'; readonly definitions: T } | { readonly status: 'not-ready' };
-export interface PanelTargetRouterDefinitions { readonly builtInRoutes: Record<string, PanelBuiltInRoute>; readonly redirectGuards: Record<string, PanelRedirectGuard>; }
+export interface PanelTargetDeliveryRoutes { readonly workspacePrefix: string; readonly agentSessionPrefix: string; readonly terminalPrefix: string; readonly previewPrefix: string; }
+export interface PanelTargetRouterDefinitions { readonly builtInRoutes: Record<string, PanelBuiltInRoute>; readonly redirectGuards: Record<string, PanelRedirectGuard>; readonly deliveryRoutes: PanelTargetDeliveryRoutes; }
 function freeze<T>(value: T): T { if (value && typeof value === 'object' && !Object.isFrozen(value)) { Object.freeze(value); for (const nested of Object.values(value as Record<string, unknown>)) freeze(nested); } return value; }
 export class PanelTargetRouterAuthorityRegistry {
   private current: AuthorityReadiness<PanelTargetRouterDefinitions> = { status: 'not-ready' };
@@ -15,4 +16,5 @@ export function createPanelTargetRouterAuthoritySnapshot(definitions: PanelTarge
   return owner.snapshot();
 }
 export function publishProductionPanelTargetRouterAuthority(definitions: PanelTargetRouterDefinitions): void { productionRouterAuthority.publish(definitions); }
+export function markProductionPanelTargetRouterAuthorityNotReady(): void { productionRouterAuthority.markNotReady(); }
 export function getProductionPanelTargetRouterAuthoritySnapshot(): AuthorityReadiness<PanelTargetRouterDefinitions> { return productionRouterAuthority.snapshot(); }

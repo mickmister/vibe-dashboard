@@ -222,12 +222,12 @@ export interface PreviewSlotUrlResponse extends PreviewSlotUrlParts {
   url: string;
 }
 
-export interface PanelTargetDeliveryDefinition { location: string; factoryKey: string; available: boolean; }
-export interface SessionPanelTargetDefinition { sessionId: string; workspaceId: string; delivery: PanelTargetDeliveryDefinition; }
-export interface TerminalPanelTargetDefinition { terminalId: string; workspaceId: string; delivery: PanelTargetDeliveryDefinition; }
-export interface PreviewPanelTargetDefinition { previewSlotId: string; workspaceId: string; urlParts: PreviewSlotUrlParts; customerSlug: string; factoryKey: string; available: boolean; }
+export interface PanelTargetFactoryReference { factoryKey: string; available: boolean; }
+export interface SessionPanelTargetDefinition { sessionId: string; workspaceId: string; factory: PanelTargetFactoryReference; }
+export interface TerminalPanelTargetDefinition { terminalId: string; workspaceId: string; factory: PanelTargetFactoryReference; }
+export interface PreviewPanelTargetDefinition { previewSlotId: string; workspaceId: string; factoryKey: string; available: boolean; }
 export interface WorkspacePanelTargetAuthoritySnapshot {
-  ready: boolean; workspaceId: string; workspaceTargets: Partial<Record<string, PanelTargetDeliveryDefinition>>;
+  ready: boolean; workspaceId: string; workspaceTargets: Partial<Record<string, PanelTargetFactoryReference>>;
   sessions: SessionPanelTargetDefinition[]; terminalsReady: boolean;
   terminals: TerminalPanelTargetDefinition[]; previews: PreviewPanelTargetDefinition[];
 }

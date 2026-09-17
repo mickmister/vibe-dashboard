@@ -12,7 +12,7 @@ import { createPanelTargetRuntimeAuthoritySnapshot, type PanelTargetRuntimeAutho
 import type { PanelTargetResolutionContext, TrustedWorkspace } from './panelTargetRegistry';
 
 type AuthorityClient = Pick<VibeKanbanServerClient,
-  'getWorkspaces' | 'getWorkspaceRepos' | 'getPanelTargetAuthority' | 'getPreviewSlotUrl'>;
+  'getWorkspaces' | 'getWorkspaceRepos' | 'getPanelTargetAuthority'>;
 type WorkspaceDetail = {
   workspace: Awaited<ReturnType<AuthorityClient['getWorkspaces']>>[number];
   repos: Awaited<ReturnType<AuthorityClient['getWorkspaceRepos']>>;
@@ -74,10 +74,11 @@ export async function createProductionPanelTargetContextProvider(
   const details: WorkspaceDetail[] = await Promise.all(current.map(async (workspace) => ({
     workspace, repos: await services.client.getWorkspaceRepos(workspace.id),
   })));
-  const backend = await loadPanelTargetBackendAuthority(services.client, current.map(({ id }) => id));
   const router = services.getRouterAuthority();
-  if (backend.status !== 'ready') throw unavailable('Panel target backend authority is not ready');
   if (router.status !== 'ready') throw unavailable('Panel target router authority is not ready');
+  if (Object.values(router.definitions.deliveryRoutes).some((value) => !value)) throw unavailable('Panel target delivery authority is not ready');
+  const backend = await loadPanelTargetBackendAuthority(services.client, current.map(({ id }) => id), router.definitions.deliveryRoutes);
+  if (backend.status !== 'ready') throw unavailable('Panel target backend authority is not ready');
   const duplicateGuard = Object.keys(backend.definitions.redirectGuards)
     .find((key) => key in router.definitions.redirectGuards);
   if (duplicateGuard) throw unavailable('Panel target redirect-guard owners conflict');
