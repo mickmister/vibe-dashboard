@@ -1,27 +1,20 @@
-import { describe, expect, it, vi } from 'vitest';
-import { Hono } from 'hono';
+import { describe, expect, it } from 'vitest';
+import { initApp } from 'springboard/server/hono_app';
+import type { KVStore, Springboard } from 'springboard/core';
 import { getProductionPanelTargetRouterAuthoritySnapshot } from '../server/panelTargetRouterAuthority';
 
-const captured = vi.hoisted(() => ({ callback: null as null | ((api: { hono: Hono }) => void) }));
-vi.mock('springboard/server/register', () => ({
-  serverRegistry: { registerServerModule: (callback: (api: { hono: Hono }) => void) => { captured.callback = callback; } },
-}));
+const kv = (): KVStore => ({ get: async () => null, set: async () => {}, getAll: async () => ({}) });
+const resources = { engine: {} as Springboard, getEnvValue: () => undefined, serveStaticFile: async () => new Response() };
 
-describe('Workflow server module delivery-owner lifecycle', () => {
-  it('publishes authority during actual module startup and revokes it safely on teardown', async () => {
+describe('Workflow server module lifecycle', () => {
+  it('binds route authority cleanup to the real Springboard application instance', async () => {
     process.env.VITE_VK_BASE_ORIGIN = 'https://vk.test';
-    const module = await import('./WorkflowServerModule');
-    const lifecycle = await import('../server/server-module-lifecycle');
-    captured.callback?.({ hono: new Hono() });
+    await import('./WorkflowServerModule');
+    const lifecycle = initApp({ remoteKV: kv(), userAgentKV: kv(), broadcastMessage: () => {} });
+    await lifecycle.injectResources(resources);
     expect(getProductionPanelTargetRouterAuthoritySnapshot().status).toBe('ready');
-    captured.callback?.({ hono: new Hono() });
-    expect(getProductionPanelTargetRouterAuthoritySnapshot().status).toBe('ready');
-    lifecycle.disposeProductionServerModules();
-    lifecycle.disposeProductionServerModules();
-    expect(getProductionPanelTargetRouterAuthoritySnapshot()).toEqual({ status: 'not-ready' });
-    captured.callback?.({ hono: new Hono() });
-    expect(getProductionPanelTargetRouterAuthoritySnapshot().status).toBe('ready');
-    module.disposeWorkflowServerModule();
+    await lifecycle.disposeServerModules();
+    await lifecycle.disposeServerModules();
     expect(getProductionPanelTargetRouterAuthoritySnapshot()).toEqual({ status: 'not-ready' });
   });
 });

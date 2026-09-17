@@ -10,7 +10,6 @@ import { registerVkWorkspaceRoutes } from '../server/vk-workspace-routes';
 import { registerVkRepoRoutes } from '../server/vk-repo-routes';
 import { registerPreviewResolverRoutes } from '../server/preview-resolver-routes';
 import { registerPanelTargetDeliveryRoutes } from '../server/panel-target-delivery-routes';
-import { registerServerModuleCleanup } from '../server/server-module-lifecycle';
 import { workflowRegistry } from '../workflows/registry';
 import type { CachedRepoAlias } from '../workflows/github-ci';
 
@@ -18,49 +17,23 @@ const execFileAsync = promisify(execFile);
 const reposRoot = process.env.VK_REPOS_ROOT || join(process.env.HOME || '/home/vkuser', 'repos');
 const pluginInstallRoot = process.env.VD_PLUGIN_INSTALL_ROOT || join(process.cwd(), 'plugins');
 let cachedGitRepos: CachedRepoAlias[] | null = null;
-let panelTargetDeliveryOwner: { dispose(): void } | null = null;
-let unregisterPanelTargetCleanup: (() => void) | null = null;
-
-export function disposeWorkflowServerModule(): void {
-  const unregister = unregisterPanelTargetCleanup;
-  unregisterPanelTargetCleanup = null;
-  if (unregister) { unregister(); return; }
-  const owner = panelTargetDeliveryOwner;
-  panelTargetDeliveryOwner = null;
-  owner?.dispose();
-}
-
 serverRegistry.registerServerModule((api) => {
-  // Revoke the prior instance before *any* restart registration side effect.
-  disposeWorkflowServerModule();
-  try {
-    registerWorkflowRoutes(api.hono, {
-      registry: workflowRegistry,
-      repoAliasCache: {
-        get: getCachedGitRepos,
-        set: setCachedGitRepos,
-        refresh: refreshCachedGitRepos,
-      },
-    });
-    registerPluginAssetRoutes(api.hono, { installRoot: pluginInstallRoot });
-    registerPluginAdminRoutes(api.hono);
-    registerVkWorkspaceRoutes(api.hono);
-    registerVkRepoRoutes(api.hono);
-    registerPreviewResolverRoutes(api.hono);
-    panelTargetDeliveryOwner = registerPanelTargetDeliveryRoutes(api.hono);
-    unregisterPanelTargetCleanup = registerServerModuleCleanup(() => {
-      const owner = panelTargetDeliveryOwner;
-      panelTargetDeliveryOwner = null;
-      owner?.dispose();
-    });
-  } catch (error) {
-    disposeWorkflowServerModule();
-    throw error;
-  }
+  registerWorkflowRoutes(api.hono, {
+    registry: workflowRegistry,
+    repoAliasCache: {
+      get: getCachedGitRepos,
+      set: setCachedGitRepos,
+      refresh: refreshCachedGitRepos,
+    },
+  });
+  registerPluginAssetRoutes(api.hono, { installRoot: pluginInstallRoot });
+  registerPluginAdminRoutes(api.hono);
+  registerVkWorkspaceRoutes(api.hono);
+  registerVkRepoRoutes(api.hono);
+  registerPreviewResolverRoutes(api.hono);
+  const panelTargetDeliveryOwner = registerPanelTargetDeliveryRoutes(api.hono);
+  return () => panelTargetDeliveryOwner.dispose();
 });
-
-const hot = (import.meta as ImportMeta & { hot?: { dispose(callback: () => void): void } }).hot;
-if (hot) hot.dispose(disposeWorkflowServerModule);
 
 async function getCachedGitRepos(): Promise<CachedRepoAlias[]> {
   cachedGitRepos ??= await hydrateLocalGitRepoAliases(reposRoot);

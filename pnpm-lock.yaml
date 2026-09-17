@@ -96,8 +96,8 @@ importers:
         specifier: ^7.8.2
         version: 7.8.2
       springboard:
-        specifier: 0.0.1-dev-jamapp-16
-        version: 0.0.1-dev-jamapp-16(crossws@0.4.4)(immer@11.1.4)(kysely@0.28.11)(react-dom@19.2.4(react@19.2.4))(react-router@7.13.0(react-dom@19.2.4(react@19.2.4))(react@19.2.4))(react@19.2.4)(rxjs@7.8.2)(vite@7.3.1(@types/node@25.2.3)(jiti@2.6.1)(lightningcss@1.30.2)(yaml@2.9.0))
+        specifier: file:vendor/springboard-0.0.1-dev-jamapp-17.tgz
+        version: file:vendor/springboard-0.0.1-dev-jamapp-17.tgz(crossws@0.4.4)(immer@11.1.4)(kysely@0.28.11)(react-dom@19.2.4(react@19.2.4))(react-router@7.13.0(react-dom@19.2.4(react@19.2.4))(react@19.2.4))(react@19.2.4)(rxjs@7.8.2)(vite@7.3.1(@types/node@25.2.3)(jiti@2.6.1)(lightningcss@1.30.2)(yaml@2.9.0))
       tailwindcss:
         specifier: ^4.1.18
         version: 4.1.18
@@ -3526,10 +3526,6 @@ packages:
     resolution: {integrity: sha512-Vw8qHK3bZM9y/P10u3Vib8o/DdkvA2OtPtZvD871QKjy74Wj1WSKFILMPRPSdUSx5RFK1arlJzEtA4PkFgnbuA==}
     engines: {node: '>=18'}
 
-  commander@14.0.3:
-    resolution: {integrity: sha512-H+y0Jo/T1RZ9qPP4Eh1pkcQcLRglraJaSLoyOtHxu6AapkjWVCy2Sit1QQ4x3Dng8qDlSsZEet7g5Pq06MvTgw==}
-    engines: {node: '>=20'}
-
   commondir@1.0.1:
     resolution: {integrity: sha512-W9pAhw0ja1Edb5GVdIF1mjZw/ASI0AlShXM83UUGe2DVr5TdAPEA1OA8m/g8zWp9x6On7gqufY+FatDbC3MDQg==}
 
@@ -5308,9 +5304,9 @@ packages:
     resolution: {integrity: sha512-UcjcJOWknrNkF6PLX83qcHM6KHgVKNkV62Y8a5uYDVv9ydGQVwAHMKqHdJje1VTWpljG0WYpCDhrCdAOYH4TWg==}
     engines: {node: '>= 10.x'}
 
-  springboard@0.0.1-dev-jamapp-16:
-    resolution: {integrity: sha512-s2JJo9nulAdhxu7iFm76JZJpvC1KjO6Qi6ec/jh+uetgoLY9YKIfOibhYvFVC/CCD995SteK1qU+8m3NlK6dHg==}
-    hasBin: true
+  springboard@file:vendor/springboard-0.0.1-dev-jamapp-17.tgz:
+    resolution: {integrity: sha512-VxGgUXDVc9Q9KQRmeKUuhY0W0EMuYO9MdllkL2w8AN2vmmeCXrIA/Lw0vLGdnK9AjynzHExbffnRXBgG4rhwXw==, tarball: file:vendor/springboard-0.0.1-dev-jamapp-17.tgz}
+    version: 0.0.1-dev-jamapp-17
     peerDependencies:
       '@tauri-apps/api': ^2.9.0
       '@tauri-apps/plugin-shell': ^2.3.3
@@ -10198,8 +10194,6 @@ snapshots:
 
   commander@12.1.0: {}
 
-  commander@14.0.3: {}
-
   commondir@1.0.1: {}
 
   compress-commons@4.1.2:
@@ -11881,9 +11875,8 @@ snapshots:
 
   split2@4.2.0: {}
 
-  springboard@0.0.1-dev-jamapp-16(crossws@0.4.4)(immer@11.1.4)(kysely@0.28.11)(react-dom@19.2.4(react@19.2.4))(react-router@7.13.0(react-dom@19.2.4(react@19.2.4))(react@19.2.4))(react@19.2.4)(rxjs@7.8.2)(vite@7.3.1(@types/node@25.2.3)(jiti@2.6.1)(lightningcss@1.30.2)(yaml@2.9.0)):
+  springboard@file:vendor/springboard-0.0.1-dev-jamapp-17.tgz(crossws@0.4.4)(immer@11.1.4)(kysely@0.28.11)(react-dom@19.2.4(react@19.2.4))(react-router@7.13.0(react-dom@19.2.4(react@19.2.4))(react@19.2.4))(react@19.2.4)(rxjs@7.8.2)(vite@7.3.1(@types/node@25.2.3)(jiti@2.6.1)(lightningcss@1.30.2)(yaml@2.9.0)):
     dependencies:
-      commander: 14.0.3
       dexie: 4.3.0
       json-rpc-2.0: 1.7.1
       reconnecting-websocket: 4.4.0
