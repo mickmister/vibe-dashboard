@@ -1,0 +1,11 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+script_dir="$(cd -- "$(dirname -- "$0")" && pwd)"
+repo_root="$(cd -- "$script_dir/.." && pwd)"
+
+if binary_path="$(command -v gc-session-vibe 2>/dev/null)" && [[ "$binary_path" != "$script_dir/gc-session-vibe" ]]; then
+  exec "$binary_path" "$@"
+fi
+
+exec go run "$repo_root/cmd/gc-session-vibe" "$@"

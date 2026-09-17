@@ -1,0 +1,16 @@
+{
+  "name": "@vibe-dashboard/integrations-env",
+  "private": true,
+  "version": "0.0.0",
+  "description": "Varlock/Doppler environment loader for VD external Kanban integrations.",
+  "scripts": {
+    "varlock:load": "varlock load --env integrations --show-all",
+    "varlock:run": "varlock run --inject vars --",
+    "dev:vd": "varlock run --inject vars -- pnpm --dir ../.. dev",
+    "start:vd": "varlock run --inject vars -- pnpm --dir ../.. start"
+  },
+  "dependencies": {
+    "@varlock/doppler-plugin": "^2.0.0",
+    "varlock": "^1.16.0"
+  }
+}

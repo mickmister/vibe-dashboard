@@ -1,7 +1,7 @@
 import type { WorkflowDefinition } from '@vibe-dashboard/workflow-core';
 import {
   selectLatestSession,
-  type ExecutionProcess,
+  type QueueFollowUpResponse,
   type RepoWithBranch,
   type Session,
   type Workspace,
@@ -40,10 +40,11 @@ export type GitHubCiWorkflowOutput =
   | { outcome: 'no_matching_workspace'; repoFullName: string; branch: string }
   | { outcome: 'no_sessions'; workspaceId: string; repoFullName: string; branch: string }
   | {
-      outcome: 'message_sent';
+      outcome: 'message_queued';
       workspaceId: string;
       sessionId: string;
-      executionProcessId: string;
+      queueItemId: string;
+      queuedCount: number;
       repoFullName: string;
       branch: string;
     };
@@ -52,7 +53,7 @@ export interface GitHubCiVkClient {
   getWorkspaces: () => Promise<Workspace[]>;
   getWorkspaceRepos: (workspaceId: string) => Promise<RepoWithBranch[]>;
   getSessions: (workspaceId: string) => Promise<Session[]>;
-  sendFollowUp: (sessionId: string, prompt: string) => Promise<ExecutionProcess>;
+  queueFollowUp: (sessionId: string, prompt: string) => Promise<QueueFollowUpResponse>;
 }
 
 export interface CreateGitHubCiFailureWorkflowOptions {
@@ -156,22 +157,24 @@ export function createGitHubCiFailureWorkflow(
       ctx.log('select_session', `Selected latest VK session ${session.id}`);
 
       const prompt = formatGitHubCiFailurePrompt(normalized);
-      let process: ExecutionProcess;
+      let queueResponse: QueueFollowUpResponse;
       try {
-        process = await options.vkClient.sendFollowUp(session.id, prompt);
+        queueResponse = await options.vkClient.queueFollowUp(session.id, prompt);
       } catch (error) {
         notifiedFailureShas.delete(normalized.sha);
         throw error;
       }
-      ctx.log('send_follow_up', `Sent CI failure prompt to session ${session.id}`, 'info', {
-        executionProcessId: process.id,
+      ctx.log('queue_follow_up', `Queued CI failure prompt to session ${session.id}`, 'info', {
+        queueItemId: queueResponse.queued_item.id,
+        queuedCount: queueResponse.status.count,
       });
 
       return {
-        outcome: 'message_sent',
+        outcome: 'message_queued',
         workspaceId: match.workspace.id,
         sessionId: session.id,
-        executionProcessId: process.id,
+        queueItemId: queueResponse.queued_item.id,
+        queuedCount: queueResponse.status.count,
         repoFullName: normalized.repoFullName,
         branch: normalized.branch,
       };

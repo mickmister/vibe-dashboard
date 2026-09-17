@@ -1,0 +1,116 @@
+{
+  "outcomes": [
+    {
+      "prompt_contains": "LV2K_STEP:simple_decide",
+      "outcome": "completed",
+      "final_message": "<decision action=\"done\"><summary>Finished simple task through real VK qa-mode XML loopback.</summary></decision>",
+      "session_id": "qa-scripted-lv2k-simple",
+      "message_id": "qa-scripted-lv2k-simple",
+      "delay_ms": 0
+    },
+    {
+      "prompt_contains": "LV2K_STEP:drt_dev_implement",
+      "outcome": "completed",
+      "final_message": "LV2K DRT Dev implemented pass one.",
+      "session_id": "qa-scripted-lv2k-drt-dev-implement-1",
+      "message_id": "qa-scripted-lv2k-drt-dev-implement-1",
+      "delay_ms": 0
+    },
+    {
+      "prompt_contains": "LV2K_STEP:drt_dev_self_review",
+      "outcome": "completed",
+      "final_message": "<decision action=\"ready_for_review\"><summary>Implemented pass one for LV2K DRT.</summary><concerns>Need reviewer eyes on edge cases.</concerns></decision>",
+      "session_id": "qa-scripted-lv2k-drt-dev-self-1",
+      "message_id": "qa-scripted-lv2k-drt-dev-self-1",
+      "delay_ms": 0
+    },
+    {
+      "prompt_contains": "LV2K_STEP:drt_review",
+      "outcome": "completed",
+      "final_message": "<decision action=\"changes_requested\"><requestedChanges>Fix the LV2K review issue before testing.</requestedChanges><concerns>Review found a representative gap.</concerns></decision>",
+      "session_id": "qa-scripted-lv2k-drt-review-changes",
+      "message_id": "qa-scripted-lv2k-drt-review-changes",
+      "delay_ms": 0
+    },
+    {
+      "prompt_contains": "LV2K_STEP:drt_dev_implement",
+      "outcome": "completed",
+      "final_message": "LV2K DRT Dev implemented requested review changes.",
+      "session_id": "qa-scripted-lv2k-drt-dev-implement-2",
+      "message_id": "qa-scripted-lv2k-drt-dev-implement-2",
+      "delay_ms": 0
+    },
+    {
+      "prompt_contains": "LV2K_STEP:drt_dev_self_review",
+      "outcome": "completed",
+      "final_message": "<decision action=\"ready_for_review\"><summary>Fixed the LV2K review issue.</summary><concerns>No remaining known concerns.</concerns></decision>",
+      "session_id": "qa-scripted-lv2k-drt-dev-self-2",
+      "message_id": "qa-scripted-lv2k-drt-dev-self-2",
+      "delay_ms": 0
+    },
+    {
+      "prompt_contains": "LV2K_STEP:drt_review",
+      "outcome": "completed",
+      "final_message": "<decision action=\"approved\"><remarks>Review approves the LV2K DRT changes after the loop.</remarks></decision>",
+      "session_id": "qa-scripted-lv2k-drt-review-approved",
+      "message_id": "qa-scripted-lv2k-drt-review-approved",
+      "delay_ms": 0
+    },
+    {
+      "prompt_contains": "LV2K_STEP:drt_tester",
+      "outcome": "completed",
+      "final_message": "<decision action=\"approved\"><testSummary>Tester approves the LV2K DRT workflow after the review loop.</testSummary></decision>",
+      "session_id": "qa-scripted-lv2k-drt-tester-approved",
+      "message_id": "qa-scripted-lv2k-drt-tester-approved",
+      "delay_ms": 0
+    },
+    {
+      "prompt_contains": "LV2K_STEP:invalid_xml_decide",
+      "outcome": "completed",
+      "final_message": "not xml from LV2K qa-mode",
+      "session_id": "qa-scripted-lv2k-invalid-first",
+      "message_id": "qa-scripted-lv2k-invalid-first",
+      "delay_ms": 0
+    },
+    {
+      "prompt_contains": "LV2K_STEP:invalid_xml_decide",
+      "outcome": "completed",
+      "final_message": "<decision action=\"unknown_action\"><summary>This action should be rejected after retry.</summary></decision>",
+      "session_id": "qa-scripted-lv2k-invalid-exhausted",
+      "message_id": "qa-scripted-lv2k-invalid-exhausted",
+      "delay_ms": 0
+    },
+    {
+      "prompt_contains": "LV2K_STEP:human_after_approval",
+      "outcome": "completed",
+      "final_message": "<decision action=\"done\"><summary>Completed LV2K human form workflow after approval.</summary></decision>",
+      "session_id": "qa-scripted-lv2k-human-after-approval",
+      "message_id": "qa-scripted-lv2k-human-after-approval",
+      "delay_ms": 0
+    },
+    {
+      "prompt_contains": "LV2K_STEP:workflow_call_child",
+      "outcome": "completed",
+      "final_message": "<decision action=\"done\"><summary>Child workflow completed the LV2K blocking call review.</summary></decision>",
+      "session_id": "qa-scripted-lv2k-workflow-call-child",
+      "message_id": "qa-scripted-lv2k-workflow-call-child",
+      "delay_ms": 0
+    },
+    {
+      "prompt_contains": "LV2K_STEP:workflow_call_parent_after_child",
+      "outcome": "completed",
+      "final_message": "<decision action=\"done\"><summary>Parent completed after expected child workflow call result.</summary></decision>",
+      "session_id": "qa-scripted-lv2k-workflow-call-parent",
+      "message_id": "qa-scripted-lv2k-workflow-call-parent",
+      "delay_ms": 0
+    },
+    {
+      "prompt_contains": "LV2K_STEP:m120c_browser_create",
+      "outcome": "completed",
+      "final_message": "<decision action=\"complete\"><summary>Browser-created workflow completed through VK qa-mode.</summary></decision>",
+      "session_id": "qa-scripted-m120c-browser-create",
+      "message_id": "qa-scripted-m120c-browser-create",
+      "delay_ms": 0
+    }
+  ]
+}

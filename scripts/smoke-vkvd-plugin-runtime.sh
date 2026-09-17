@@ -51,6 +51,9 @@ docker run -d \
   -e "MEMORY_WATCHDOG_MATTERMOST_WEBHOOK_URL=" \
   "$image" >/dev/null
 
+echo "Verifying pinned Gas City runtime tools..."
+docker exec "$container_name" /opt/vibe-kanban-vscode-web-seed/scripts/smoke-gas-city-runtime.sh
+
 echo "Waiting for generated beads-web plugin supervisor config..."
 for attempt in $(seq 1 180); do
   if docker exec "$container_name" test -f /etc/supervisor/conf.d/vd-generated/vd-plugin--vd_beads_web--web.conf; then

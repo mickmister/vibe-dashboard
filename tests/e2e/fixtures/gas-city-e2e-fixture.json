@@ -1,0 +1,19 @@
+{
+  "workspaceId": "workspace-e2e",
+  "providerAvailable": true,
+  "beads": [
+    {
+      "id": "gcw14a-bead-a",
+      "title": "Gas City fixture task",
+      "status": "open",
+      "readiness": "not_ready",
+      "workspaceId": "workspace-e2e",
+      "dependencyBeadIds": [],
+      "convoyIds": [],
+      "workflow": null,
+      "metadata": {
+        "vd.gas_city.formula": "dev-review-test"
+      }
+    }
+  ]
+}

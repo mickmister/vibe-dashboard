@@ -28,6 +28,7 @@ export const config = {
     session: (sessionId: string) => `${BASE_URL}/api/sessions/${sessionId}`,
     createSession: `${BASE_URL}/api/sessions`,
     sessionFollowUp: (sessionId: string) => `${BASE_URL}/api/sessions/${sessionId}/follow-up`,
+    sessionQueue: (sessionId: string) => `${BASE_URL}/api/sessions/${sessionId}/queue`,
     executionProcess: (processId: string) => `${BASE_URL}/api/execution-processes/${processId}`,
     info: `${BASE_URL}/api/info`,
   },

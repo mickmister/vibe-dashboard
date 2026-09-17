@@ -83,20 +83,20 @@ describe('GitHub CI failure workflow', () => {
 
     expect(result.status).toBe('completed');
     expect(result.output).toMatchObject({
-      outcome: 'message_sent',
+      outcome: 'message_queued',
       workspaceId: 'ws-new',
       sessionId: 'session-new',
-      executionProcessId: 'process-1',
+      queueItemId: 'queue-1',
     });
-    expect(vk.sendFollowUp).toHaveBeenCalledOnce();
-    const firstFollowUpCall = vk.sendFollowUp.mock.calls[0];
+    expect(vk.queueFollowUp).toHaveBeenCalledOnce();
+    const firstFollowUpCall = vk.queueFollowUp.mock.calls[0];
     expect(firstFollowUpCall?.[0]).toBe('session-new');
     expect(firstFollowUpCall?.[1]).toContain('GitHub CI failed');
     expect(result.logs.map((entry) => entry.stepId)).toEqual([
       'normalize',
       'match_workspace',
       'select_session',
-      'send_follow_up',
+      'queue_follow_up',
     ]);
   });
 
@@ -114,14 +114,14 @@ describe('GitHub CI failure workflow', () => {
       payload: workflowRunPayload({ conclusion: 'failure', workflowName: 'Build' }),
     });
 
-    expect(firstResult.output).toMatchObject({ outcome: 'message_sent' });
+    expect(firstResult.output).toMatchObject({ outcome: 'message_queued' });
     expect(duplicateResult.output).toMatchObject({
       outcome: 'duplicate_commit_failure',
       repoFullName: 'owner/repo',
       branch: 'feature/ci-break',
       sha: 'abc123',
     });
-    expect(vk.sendFollowUp).toHaveBeenCalledOnce();
+    expect(vk.queueFollowUp).toHaveBeenCalledOnce();
     expect(duplicateResult.logs.map((entry) => entry.stepId)).toEqual([
       'normalize',
       'dedupe_commit',
@@ -138,7 +138,7 @@ describe('GitHub CI failure workflow', () => {
     });
 
     expect(result.output).toMatchObject({ outcome: 'no_matching_workspace' });
-    expect(vk.sendFollowUp).not.toHaveBeenCalled();
+    expect(vk.queueFollowUp).not.toHaveBeenCalled();
     expect(result.logs.at(-1)).toMatchObject({ stepId: 'match_workspace', level: 'warn' });
   });
 
@@ -158,10 +158,10 @@ describe('GitHub CI failure workflow', () => {
     });
 
     expect(result.output).toMatchObject({
-      outcome: 'message_sent',
+      outcome: 'message_queued',
       workspaceId: 'ws-new',
     });
-    expect(vk.sendFollowUp).toHaveBeenCalledOnce();
+    expect(vk.queueFollowUp).toHaveBeenCalledOnce();
   });
 
   it('skips and logs when matching workspace has no sessions', async () => {
@@ -174,7 +174,7 @@ describe('GitHub CI failure workflow', () => {
     });
 
     expect(result.output).toMatchObject({ outcome: 'no_sessions', workspaceId: 'ws-new' });
-    expect(vk.sendFollowUp).not.toHaveBeenCalled();
+    expect(vk.queueFollowUp).not.toHaveBeenCalled();
     expect(result.logs.at(-1)).toMatchObject({ stepId: 'select_session', level: 'warn' });
   });
 
@@ -223,7 +223,31 @@ function createFakeVkClient(
       { id: 'session-old', workspace_id: 'ws-new', executor: 'CODEX' as const, created_at: '2026-01-01T00:00:00Z', updated_at: '2026-01-01T00:00:00Z' },
       { id: 'session-new', workspace_id: 'ws-new', executor: 'CODEX' as const, created_at: '2026-01-03T00:00:00Z', updated_at: '2026-01-03T00:00:00Z' },
     ]),
-    sendFollowUp: vi.fn<GitHubCiVkClient['sendFollowUp']>(async () => ({ id: 'process-1', session_id: 'session-new', status: 'running' as const })),
+    queueFollowUp: vi.fn<GitHubCiVkClient['queueFollowUp']>(async () => ({
+      queued_item: {
+        id: 'queue-1',
+        session_id: 'session-new',
+        workspace_id: 'ws-new',
+        status: 'queued',
+        source: 'workflow',
+        priority: 60,
+        data: { message: 'queued prompt', session_command: null },
+      },
+      status: {
+        status: 'queued',
+        count: 2,
+        message: {
+          id: 'queue-existing',
+          session_id: 'session-new',
+          workspace_id: 'ws-new',
+          status: 'queued',
+          source: 'from_user',
+          priority: 100,
+          data: { message: 'already queued prompt', session_command: null },
+        },
+        messages: [],
+      },
+    })),
   } satisfies GitHubCiVkClient;
   return client;
 }

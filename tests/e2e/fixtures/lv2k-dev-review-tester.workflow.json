@@ -1,0 +1,178 @@
+{
+  "schemaVersion": 1,
+  "name": "LV2K Dev / Review / Tester",
+  "description": "API-loaded inline-prompt DRT workflow fixture for real VK qa-mode XML loopback.",
+  "inputs": {
+    "featureRequest": {
+      "type": "markdown",
+      "required": true,
+      "description": "Feature request or task to implement."
+    }
+  },
+  "roles": {
+    "dev": {
+      "label": "Dev",
+      "description": "Implements changes and performs required self-review."
+    },
+    "review": {
+      "label": "Review",
+      "description": "Reviews the implementation and requests changes or approves."
+    },
+    "tester": {
+      "label": "Tester",
+      "description": "Tests the reviewed implementation."
+    }
+  },
+  "initialState": "dev",
+  "states": {
+    "dev": {
+      "owner": "dev",
+      "steps": [
+        {
+          "id": "implement",
+          "type": "agent_turn",
+          "turnType": "non_decision",
+          "prompt": {
+            "template": "LV2K_STEP:drt_dev_implement\n\nImplement {{inputs.featureRequest}}. Address any prior review or tester feedback in {{transition.parsed.requestedChanges}} {{transition.parsed.bugReport}}."
+          }
+        },
+        {
+          "id": "self_review",
+          "type": "agent_turn",
+          "turnType": "decision",
+          "prompt": {
+            "template": "LV2K_STEP:drt_dev_self_review\n\nReview your own changes and choose the next workflow action. Return final decision XML."
+          },
+          "response": {
+            "format": "xml",
+            "schema": { "format": "xsd", "source": "state_actions" },
+            "invalidXmlRetry": {
+              "maxAttempts": 1,
+              "prompt": "engine_default_with_validation_errors",
+              "onExhausted": "blocked"
+            },
+            "storeRawXml": true,
+            "rawXmlMaxChars": 20000,
+            "storeParsedFields": true,
+            "unknownFields": "reject_unless_allowed_by_result_contract"
+          }
+        }
+      ],
+      "actions": {
+        "ready_for_review": {
+          "label": "Ready for review",
+          "targetState": "review",
+          "result": {
+            "fields": {
+              "summary": { "type": "markdown" },
+              "concerns": { "type": "markdown" }
+            },
+            "required": ["summary"],
+            "unknownFields": "reject"
+          }
+        }
+      }
+    },
+    "review": {
+      "owner": "review",
+      "steps": [
+        {
+          "id": "review",
+          "type": "agent_turn",
+          "turnType": "decision",
+          "prompt": {
+            "template": "LV2K_STEP:drt_review\n\nReview the implementation and Dev self-review summary in {{transition.parsed.summary}}. Return final decision XML."
+          },
+          "response": {
+            "format": "xml",
+            "schema": { "format": "xsd", "source": "state_actions" },
+            "invalidXmlRetry": {
+              "maxAttempts": 1,
+              "prompt": "engine_default_with_validation_errors",
+              "onExhausted": "blocked"
+            },
+            "storeRawXml": true,
+            "rawXmlMaxChars": 20000,
+            "storeParsedFields": true,
+            "unknownFields": "reject_unless_allowed_by_result_contract"
+          }
+        }
+      ],
+      "actions": {
+        "approved": {
+          "label": "Approved",
+          "targetState": "tester",
+          "result": {
+            "fields": {
+              "remarks": { "type": "markdown" }
+            },
+            "unknownFields": "reject"
+          }
+        },
+        "changes_requested": {
+          "label": "Request changes",
+          "targetState": "dev",
+          "result": {
+            "fields": {
+              "requestedChanges": { "type": "markdown" },
+              "concerns": { "type": "markdown" }
+            },
+            "required": ["requestedChanges"],
+            "unknownFields": "reject"
+          }
+        }
+      }
+    },
+    "tester": {
+      "owner": "tester",
+      "steps": [
+        {
+          "id": "test",
+          "type": "agent_turn",
+          "turnType": "decision",
+          "prompt": {
+            "template": "LV2K_STEP:drt_tester\n\nTest the reviewed implementation. Return final decision XML."
+          },
+          "response": {
+            "format": "xml",
+            "schema": { "format": "xsd", "source": "state_actions" },
+            "invalidXmlRetry": {
+              "maxAttempts": 1,
+              "prompt": "engine_default_with_validation_errors",
+              "onExhausted": "blocked"
+            },
+            "storeRawXml": true,
+            "rawXmlMaxChars": 20000,
+            "storeParsedFields": true,
+            "unknownFields": "reject_unless_allowed_by_result_contract"
+          }
+        }
+      ],
+      "actions": {
+        "approved": {
+          "label": "Approved",
+          "targetState": "done",
+          "result": {
+            "fields": {
+              "testSummary": { "type": "markdown" }
+            },
+            "required": ["testSummary"],
+            "unknownFields": "reject"
+          }
+        },
+        "bug_found": {
+          "label": "Bug found",
+          "targetState": "dev",
+          "result": {
+            "fields": {
+              "bugReport": { "type": "markdown" }
+            },
+            "required": ["bugReport"],
+            "unknownFields": "reject"
+          }
+        }
+      }
+    },
+    "done": { "terminal": true }
+  }
+}

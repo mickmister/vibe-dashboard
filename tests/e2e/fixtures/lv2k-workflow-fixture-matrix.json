@@ -1,0 +1,55 @@
+{
+  "fixtures": [
+    {
+      "id": "simple-one-agent-decision",
+      "testCaseId": "TEST_CASE_LV2K_2A",
+      "workflowDefinition": "tests/e2e/fixtures/lv2k-simple-agent-decision.workflow.json",
+      "scriptedOutcome": "tests/e2e/fixtures/qa-scripted-lv2k-workflows.json",
+      "verification": "HTTP presentation endpoint",
+      "status": "implemented"
+    },
+    {
+      "id": "dev-review-tester",
+      "testCaseId": "TEST_CASE_LV2K_2B",
+      "workflowDefinition": "tests/e2e/fixtures/lv2k-dev-review-tester.workflow.json",
+      "scriptedOutcome": "tests/e2e/fixtures/qa-scripted-lv2k-workflows.json",
+      "verification": "HTTP presentation endpoint",
+      "status": "implemented"
+    },
+    {
+      "id": "invalid-xml-blocked",
+      "testCaseId": "TEST_CASE_LV2K_2F",
+      "workflowDefinition": "tests/e2e/fixtures/lv2k-invalid-xml-blocked.workflow.json",
+      "scriptedOutcome": "tests/e2e/fixtures/qa-scripted-lv2k-workflows.json",
+      "verification": "HTTP retry/blocked presentation endpoint",
+      "status": "implemented"
+    },
+    {
+      "id": "human-form-beads-form",
+      "testCaseId": "TEST_CASE_LV2K_2C",
+      "workflowDefinition": "tests/e2e/fixtures/lv2k-human-form.workflow.json",
+      "scriptedOutcome": "tests/e2e/fixtures/qa-scripted-lv2k-workflows.json",
+      "verification": "HTTP attention item, completion route, and presentation endpoint",
+      "status": "implemented"
+    },
+    {
+      "id": "blocking-workflow-call",
+      "testCaseId": "TEST_CASE_LV2K_2D",
+      "workflowDefinition": [
+        "tests/e2e/fixtures/lv2k-workflow-call-child.workflow.json",
+        "tests/e2e/fixtures/lv2k-workflow-call-parent.workflow.json"
+      ],
+      "scriptedOutcome": "tests/e2e/fixtures/qa-scripted-lv2k-workflows.json",
+      "verification": "HTTP parent/child presentation endpoints",
+      "status": "implemented"
+    },
+    {
+      "id": "github-ci-wait",
+      "testCaseId": "TEST_CASE_LV2K_2E",
+      "workflowDefinition": "pending",
+      "scriptedOutcome": "pending",
+      "verification": "HTTP CI wait presentation with mocked poll result",
+      "status": "later"
+    }
+  ]
+}

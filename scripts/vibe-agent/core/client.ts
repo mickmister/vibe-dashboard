@@ -62,6 +62,8 @@ import type {
   ApiResponse,
   CreateSessionBody,
   SendMessageBody,
+  QueueMessageBody,
+  QueueMessageResponse,
   UpdateSessionBody,
   ConversationEntry,
 } from '../types.js';
@@ -258,7 +260,15 @@ export class VibeClient {
   }
 
   async sendMessage(sessionId: string, body: SendMessageBody): Promise<ExecutionProcess> {
+    // Intentional immediate/manual path. Workflow/background callers should use queueMessage().
     return this.request<ExecutionProcess>(config.endpoints.sessionFollowUp(sessionId), {
+      method: 'POST',
+      body: JSON.stringify(body),
+    });
+  }
+
+  async queueMessage(sessionId: string, body: QueueMessageBody): Promise<QueueMessageResponse> {
+    return this.request<QueueMessageResponse>(config.endpoints.sessionQueue(sessionId), {
       method: 'POST',
       body: JSON.stringify(body),
     });

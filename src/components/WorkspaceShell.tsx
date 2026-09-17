@@ -1,8 +1,19 @@
 import React, { useState, useEffect, useRef, useMemo } from "react";
 import { useMutation } from "@tanstack/react-query";
-import { IconChevronUp, IconMenu2, IconUfo } from "@tabler/icons-react";
+import { useNavigate } from "react-router";
 import { Sidebar } from "./Sidebar";
 import { WorkspaceContentView } from "./WorkspaceContentView";
+import {
+  DuplicateCraftPromptDialog,
+  ExpandedCraftStrip,
+  MobileCraftMenu,
+  MobileCraftStrip,
+  NewVoyagePromptDialog,
+  PendingOpenCraftContent,
+  VoyageActionsMenu,
+  VoyageBarView,
+  VoyageSwitcherDialog,
+} from "./WorkspaceShellScenes";
 import { hasKnownIframeMessageSource } from "./IframePanel";
 import { hasSameBaseOrigin } from "../lib/originTrust";
 import { AddTabModal } from "./AddTabModal";
@@ -152,6 +163,19 @@ export type WorkspaceActions = {
   }) => Promise<
     { tabGroupId: string; pairId?: string; agentTabId: string } | undefined
   >;
+  openFormsForBead: (args: {
+    tabGroupId: string;
+    agentTabId: string;
+    beadId: string;
+  }) => Promise<{ tabGroupId: string; formsTabId: string } | undefined>;
+  openBeadFormsSplit?: (args: {
+    tabGroupId: string;
+    agentTabId: string;
+    beadId: string;
+    dir: string;
+    formId?: string;
+    returnTo?: string;
+  }) => Promise<{ tabGroupId: string; pairId: string; formsTabId: string } | undefined>;
   createSavedSessionForVKWorkspace: (args: {
     voyageName: string;
     taskAttemptId: string;
@@ -332,6 +356,7 @@ export function WorkspaceShell({
   savedSessions,
   currentSessionId,
 }: WorkspaceShellProps) {
+  const navigate = useNavigate();
   const [addTabModalOpen, setAddTabModalOpen] = useState(false);
   const [workspaceSearchOpen, setWorkspaceSearchOpen] = useState(false);
   const [workspaceSearchMode, setWorkspaceSearchMode] = useState<
@@ -898,13 +923,24 @@ export function WorkspaceShell({
   };
 
   const handleOpenCreateWorkspaceTab = async () => {
-    const result = await actions.ensureCreateWorkspaceTab();
+    const originSessionId = currentSessionId;
+    setVoyagePlusMenuOpen(false);
+    setWorkspaceSearchOpen(false);
+    setVoyageSwitcherOpen(false);
+    closeNewVoyagePrompt();
+
+    const result = await actions.createCreateWorkspaceCraft({
+      label: "Create Workspace",
+    });
     if (!result) return;
 
-    sessionActions.selectSessionTab(
-      result.spaceId,
-      result.tabGroupId,
-      result.tabId,
+    await addOrSelectCraftInCurrentVoyage(
+      {
+        spaceId: result.spaceId,
+        tabGroupId: result.tabGroupId,
+        tabId: result.tabId,
+      },
+      originSessionId,
     );
   };
 
@@ -2150,6 +2186,10 @@ export function WorkspaceShell({
           savedSessions={savedSessions}
           currentSessionId={currentSessionId}
           onRequestClose={() => setIsSidebarOpen(false)}
+          onOpenPluginAdmin={() => {
+            setIsSidebarOpen(false);
+            navigate("/dashboard/admin/plugins");
+          }}
           onSelectTabGroup={(tabGroupId) => {
             const space = effectiveWorkspace.spaces.find((entry) =>
               entry.tabGroupIds.includes(tabGroupId),
@@ -2242,133 +2282,49 @@ export function WorkspaceShell({
           />
         )}
         {!isDesktopVoyageBarHidden && (
-          <div className="hidden md:flex h-9 border-b border-neutral-600 bg-neutral-900 items-stretch shrink-0 [&_button]:cursor-pointer">
-            <button
-              className="inline-flex h-full w-9 shrink-0 cursor-pointer items-center justify-center border-r border-b-2 border-neutral-600 bg-neutral-900 text-sm text-neutral-200 transition-colors hover:bg-neutral-800/80"
-              onClick={() => setIsSidebarOpen(true)}
-              title="Open sidebar"
-              aria-label="Open sidebar"
-            >
-              <IconMenu2 size={16} stroke={2} aria-hidden="true" />
-            </button>
-            <button
-              className="inline-flex h-full w-9 shrink-0 cursor-pointer items-center justify-center border-r border-b-2 border-neutral-600 bg-neutral-900 text-sm text-neutral-200 transition-colors hover:bg-neutral-800/80"
-              onClick={toggleVoyagePlusMenu}
-              data-voyage-plus-trigger="true"
-              title="Voyage actions"
-              aria-label="Voyage actions"
-              aria-haspopup="menu"
-              aria-expanded={voyagePlusMenuOpen}
-            >
-              <IconUfo size={16} stroke={2} aria-hidden="true" />
-            </button>
-            <div className="flex-1 min-w-0 overflow-x-auto scrollbar-hide">
-              <div className="flex h-full items-stretch whitespace-nowrap">
-                {mobileSessionTabGroups.map(({ entry, space, tabGroup }) => {
-                  const isActive =
-                    !isPendingOpenCraftActive &&
-                    entry.id === session.activeVoyageEntryId;
-
-                  return (
-                    <div
-                      key={entry.id}
-                      draggable
-                      onDragStart={(event) =>
-                        handleSessionTabGroupDragStart(event, entry.id)
-                      }
-                      onDragOver={handleDragOver}
-                      onDrop={(event) =>
-                        handleSessionTabGroupDrop(event, entry.id)
-                      }
-                      className={`shrink-0 inline-flex h-full cursor-pointer select-none items-center border-r border-neutral-600 border-b-2 text-xs text-neutral-200 transition-colors ${
-                        isActive
-                          ? "border-b-primary-400 bg-neutral-900"
-                          : "bg-neutral-900 hover:bg-neutral-800/80"
-                      }`}
-                      title={`${space.name} / ${tabGroup.label}`}
-                    >
-                      <button
-                        className="inline-flex h-full cursor-pointer items-center gap-2 px-3 text-inherit"
-                        onClick={() => {
-                          handleToggleSessionTabGroup(
-                            entry.id,
-                            space.id,
-                            tabGroup.id,
-                          );
-                        }}
-                        onContextMenu={(event) => {
-                          event.preventDefault();
-                          event.stopPropagation();
-                          setDesktopTabMenuTarget({
-                            voyageEntryId: entry.id,
-                            spaceId: space.id,
-                            tabGroupId: tabGroup.id,
-                            position: { x: event.clientX, y: event.clientY },
-                          });
-                        }}
-                        aria-label={`Open ${tabGroup.label} in ${space.name}`}
-                        aria-haspopup="menu"
-                      >
-                        <span aria-hidden="true">
-                          {getMobileTabGroupEmoji(tabGroup)}
-                        </span>
-                        <span>{tabGroup.label}</span>
-                      </button>
-                    </div>
-                  );
-                })}
-                {pendingOpenCraftTab && (
-                  <PendingOpenCraftVoyageTab
-                    tab={pendingOpenCraftTab}
-                    compact={false}
-                    active
-                    onRetry={retryPendingOpenCraft}
-                    onClose={closePendingOpenCraftTab}
-                  />
-                )}
-              </div>
-            </div>
-            <button
-              className="inline-flex h-full w-9 shrink-0 cursor-pointer items-center justify-center border-l border-b-2 border-neutral-600 bg-neutral-900 text-neutral-300 transition-colors hover:bg-neutral-800/80"
-              onClick={() => setIsDesktopVoyageBarHidden(true)}
-              title="Hide voyage bar"
-              aria-label="Hide voyage bar"
-            >
-              <IconChevronUp size={16} stroke={2} aria-hidden="true" />
-            </button>
-          </div>
+          <VoyageBarView
+            items={mobileSessionTabGroups}
+            activeVoyageEntryId={session.activeVoyageEntryId}
+            isPendingOpenCraftActive={isPendingOpenCraftActive}
+            voyagePlusMenuOpen={voyagePlusMenuOpen}
+            pendingOpenCraftTab={pendingOpenCraftTab}
+            onOpenSidebar={() => setIsSidebarOpen(true)}
+            onToggleVoyageActions={toggleVoyagePlusMenu}
+            onHide={() => setIsDesktopVoyageBarHidden(true)}
+            onSelectItem={({ entry, space, tabGroup }) => {
+              handleToggleSessionTabGroup(entry.id, space.id, tabGroup.id);
+            }}
+            onContextMenuItem={(event, { entry, space, tabGroup }) => {
+              event.preventDefault();
+              event.stopPropagation();
+              setDesktopTabMenuTarget({
+                voyageEntryId: entry.id,
+                spaceId: space.id,
+                tabGroupId: tabGroup.id,
+                position: { x: event.clientX, y: event.clientY },
+              });
+            }}
+            onDragStartItem={handleSessionTabGroupDragStart}
+            onDragOver={handleDragOver}
+            onDropItem={handleSessionTabGroupDrop}
+            onRetryPendingOpenCraft={retryPendingOpenCraft}
+            onClosePendingOpenCraft={closePendingOpenCraftTab}
+            getEmoji={getMobileTabGroupEmoji}
+          />
         )}
         {!isDesktopVoyageBarHidden &&
           !isPendingOpenCraftActive &&
           expandedSessionTabGroup && (
-            <div className="hidden md:flex h-9 border-b border-neutral-600 bg-neutral-900 items-stretch shrink-0 [&_button]:cursor-pointer">
-              <div className="flex-1 min-w-0 overflow-x-auto scrollbar-hide">
-                <div className="flex h-full items-stretch whitespace-nowrap">
-                  {expandedSessionItems.map((item) => (
-                    <button
-                      key={item.id}
-                      className={`shrink-0 inline-flex h-full cursor-pointer items-center border-r border-b-2 border-neutral-600 px-3 text-xs text-neutral-200 transition-colors ${
-                        item.isActive
-                          ? "border-b-primary-400 bg-neutral-900"
-                          : "bg-neutral-900 hover:bg-neutral-800/80"
-                      }`}
-                      onClick={() =>
-                        handleSelectExpandedSessionItem(
-                          expandedSessionTabGroup.space.id,
-                          expandedSessionTabGroup.tabGroup.id,
-                          item,
-                        )
-                      }
-                      title={item.label}
-                    >
-                      <span className="max-w-[24rem] truncate">
-                        {item.label}
-                      </span>
-                    </button>
-                  ))}
-                </div>
-              </div>
-            </div>
+            <ExpandedCraftStrip
+              items={expandedSessionItems}
+              onSelect={(item) =>
+                handleSelectExpandedSessionItem(
+                  expandedSessionTabGroup.space.id,
+                  expandedSessionTabGroup.tabGroup.id,
+                  item,
+                )
+              }
+            />
           )}
 
         {pendingOpenCraftTab ? (
@@ -2402,154 +2358,48 @@ export function WorkspaceShell({
           />
         )}
         {!isPendingOpenCraftActive && expandedSessionTabGroup && (
-          <div
-            className="md:hidden fixed inset-x-0 z-[64] border-y border-neutral-700 bg-neutral-900/95"
-            style={{
-              bottom: "var(--mobile-footer-height)",
-              maxHeight:
-                "min(50vh, calc(100dvh - 8rem - env(safe-area-inset-bottom)))",
-            }}
-          >
-            <div className="max-h-full overflow-y-auto flex flex-col gap-px bg-neutral-700 px-2 py-2">
-              {expandedSessionItems.map((item) => (
-                <button
-                  key={item.id}
-                  className={`min-w-0 rounded-sm px-3 py-2 text-left text-xs transition-colors ${
-                    item.isActive
-                      ? "bg-neutral-700 text-neutral-100"
-                      : "bg-neutral-900 text-neutral-300"
-                  }`}
-                  onClick={() =>
-                    handleSelectExpandedSessionItem(
-                      expandedSessionTabGroup.space.id,
-                      expandedSessionTabGroup.tabGroup.id,
-                      item,
-                    )
-                  }
-                  title={item.label}
-                >
-                  <span className="block truncate">{item.label}</span>
-                  <span className="mt-1 block text-[10px] uppercase tracking-wide text-neutral-500">
-                    {item.kind === "pair" ? "Split view" : "Tab"}
-                  </span>
-                </button>
-              ))}
-            </div>
-          </div>
+          <ExpandedCraftStrip
+            items={expandedSessionItems}
+            mobile
+            onSelect={(item) =>
+              handleSelectExpandedSessionItem(
+                expandedSessionTabGroup.space.id,
+                expandedSessionTabGroup.tabGroup.id,
+                item,
+              )
+            }
+          />
         )}
 
-        <div
-          className="md:hidden fixed inset-x-0 bottom-0 z-[65] border-t border-neutral-700 bg-neutral-900 flex items-stretch shrink-0"
-          style={{
-            height: "var(--mobile-footer-height)",
-            paddingBottom: "env(safe-area-inset-bottom)",
-            boxSizing: "border-box",
+        <MobileCraftStrip
+          items={mobileSessionTabGroups}
+          activeVoyageEntryId={session.activeVoyageEntryId}
+          activeTabGroupLabel={activeTabGroup?.label}
+          isPendingOpenCraftActive={isPendingOpenCraftActive}
+          voyagePlusMenuOpen={voyagePlusMenuOpen}
+          pendingOpenCraftTab={pendingOpenCraftTab}
+          onOpenSidebar={() => setIsSidebarOpen(true)}
+          onToggleVoyageActions={toggleVoyagePlusMenu}
+          onSelectItem={({ entry, space, tabGroup }) => {
+            if (suppressMobileTabClickRef.current) {
+              suppressMobileTabClickRef.current = false;
+              return;
+            }
+            handleToggleSessionTabGroup(entry.id, space.id, tabGroup.id);
           }}
-        >
-          <button
-            className="h-full px-3 text-neutral-200 hover:bg-neutral-800 transition-colors flex items-center justify-center shrink-0 border-r border-neutral-700"
-            onClick={() => setIsSidebarOpen(true)}
-            title="Open sidebar"
-            aria-label="Open sidebar"
-          >
-            ☰
-          </button>
-          <button
-            className="h-full px-3 text-neutral-200 hover:bg-neutral-800 transition-colors flex items-center justify-center shrink-0 border-r border-neutral-700"
-            onClick={toggleVoyagePlusMenu}
-            data-voyage-plus-trigger="true"
-            title="Voyage actions"
-            aria-label="Voyage actions"
-            aria-haspopup="menu"
-            aria-expanded={voyagePlusMenuOpen}
-          >
-            <IconUfo size={18} stroke={2} aria-hidden="true" />
-          </button>
-          <div className="flex-1 min-w-0 overflow-x-auto scrollbar-hide">
-            <div className="flex h-full items-stretch whitespace-nowrap">
-              {mobileSessionTabGroups.length > 0 ? (
-                <>
-                  {mobileSessionTabGroups.map(({ entry, space, tabGroup }) => {
-                    const isActive =
-                      !isPendingOpenCraftActive &&
-                      entry.id === session.activeVoyageEntryId;
-
-                    return (
-                      <button
-                        key={entry.id}
-                        className={`shrink-0 inline-flex h-full select-none items-center gap-2 border-r border-neutral-700 px-3 text-xs text-neutral-200 transition-colors ${
-                          isActive
-                            ? "bg-neutral-800"
-                            : "bg-neutral-900 hover:bg-neutral-800/80"
-                        }`}
-                        style={{ touchAction: "manipulation" }}
-                        onClick={() => {
-                          if (suppressMobileTabClickRef.current) {
-                            suppressMobileTabClickRef.current = false;
-                            return;
-                          }
-                          handleToggleSessionTabGroup(
-                            entry.id,
-                            space.id,
-                            tabGroup.id,
-                          );
-                        }}
-                        onContextMenu={(event) => {
-                          event.preventDefault();
-                          openMobileTabMenu(entry.id, space.id, tabGroup);
-                        }}
-                        onPointerDown={(event) =>
-                          handleMobileTabPointerDown(
-                            event,
-                            entry.id,
-                            space.id,
-                            tabGroup,
-                          )
-                        }
-                        onPointerMove={handleMobileTabPointerMove}
-                        onPointerUp={clearLongPress}
-                        onPointerCancel={clearLongPress}
-                        onPointerLeave={clearLongPress}
-                        title={`${space.name} / ${tabGroup.label}`}
-                        aria-label={`Open ${tabGroup.label} in ${space.name}`}
-                        aria-haspopup="dialog"
-                      >
-                        <span aria-hidden="true">
-                          {getMobileTabGroupEmoji(tabGroup)}
-                        </span>
-                        <span>{getMobileTabGroupLabel(tabGroup)}</span>
-                      </button>
-                    );
-                  })}
-                  {pendingOpenCraftTab && (
-                    <PendingOpenCraftVoyageTab
-                      tab={pendingOpenCraftTab}
-                      compact
-                      active
-                      onRetry={retryPendingOpenCraft}
-                      onClose={closePendingOpenCraftTab}
-                    />
-                  )}
-                </>
-              ) : (
-                <>
-                  <div className="h-full inline-flex items-center px-3 text-xs text-neutral-500 border-r border-neutral-700">
-                    {activeTabGroup?.label || "No craft"}
-                  </div>
-                  {pendingOpenCraftTab && (
-                    <PendingOpenCraftVoyageTab
-                      tab={pendingOpenCraftTab}
-                      compact
-                      active
-                      onRetry={retryPendingOpenCraft}
-                      onClose={closePendingOpenCraftTab}
-                    />
-                  )}
-                </>
-              )}
-            </div>
-          </div>
-        </div>
+          onOpenItemMenu={({ entry, space, tabGroup }) => {
+            openMobileTabMenu(entry.id, space.id, tabGroup);
+          }}
+          onPointerDownItem={(event, { entry, space, tabGroup }) =>
+            handleMobileTabPointerDown(event, entry.id, space.id, tabGroup)
+          }
+          onPointerMove={handleMobileTabPointerMove}
+          onClearLongPress={clearLongPress}
+          onRetryPendingOpenCraft={retryPendingOpenCraft}
+          onClosePendingOpenCraft={closePendingOpenCraftTab}
+          getLabel={getMobileTabGroupLabel}
+          getEmoji={getMobileTabGroupEmoji}
+        />
       </div>
 
       {addTabModalOpen && (
@@ -2580,159 +2430,28 @@ export function WorkspaceShell({
       )}
 
       {voyageSwitcherOpen && (
-        <div
-          className="fixed inset-0 z-[94] flex items-center justify-center bg-black/60 p-4"
-          onClick={handleVoyageSwitcherBackdropClick}
-        >
-          <div
-            role="dialog"
-            aria-modal="true"
-            aria-label="Switch Voyage"
-            className="flex max-h-[85dvh] w-full max-w-lg flex-col rounded-xl border border-neutral-700 bg-neutral-900 p-5 shadow-2xl"
-          >
-            <div className="text-base font-semibold text-neutral-100">
-              Switch Voyage
-            </div>
-            <p className="mt-2 text-sm text-neutral-400">
-              Choose a voyage, sorted by recent activity, or open Home in the
-              current voyage.
-            </p>
-
-            <div className="mt-4 flex justify-start">
-              <button
-                className="rounded-md border border-neutral-700 bg-neutral-950 px-3 py-2 text-sm font-medium text-neutral-200 transition-colors hover:bg-neutral-800"
-                onClick={handleVoyageSwitcherOpenHome}
-              >
-                Go Home
-              </button>
-            </div>
-
-            <div className="mt-3 min-h-0 flex-1 space-y-2 overflow-y-auto pr-1">
-              {sortedVoyageSwitcherSessions.length > 0 ? (
-                sortedVoyageSwitcherSessions.map((savedSession) => {
-                  const isCurrent = savedSession.id === currentSessionId;
-                  const isRenaming =
-                    voyageSwitcherRenameSessionId === savedSession.id;
-                  const renameIsInvalid =
-                    !voyageSwitcherRenameDraft.trim() ||
-                    isReservedVoyageName(voyageSwitcherRenameDraft);
-                  return (
-                    <div
-                      key={savedSession.id}
-                      className={`w-full rounded-md border px-3 py-2 text-sm transition-colors ${
-                        isCurrent
-                          ? "border-blue-400/70 bg-blue-500/20 text-neutral-50"
-                          : "border-neutral-700 bg-neutral-800 text-neutral-200"
-                      }`}
-                    >
-                      {isRenaming ? (
-                        <form
-                          className="space-y-2"
-                          onSubmit={(event) => {
-                            event.preventDefault();
-                            submitVoyageSwitcherRename(savedSession.id);
-                          }}
-                        >
-                          <label className="block text-xs font-semibold uppercase tracking-wide text-neutral-500">
-                            Voyage name
-                          </label>
-                          <input
-                            value={voyageSwitcherRenameDraft}
-                            onChange={(event) =>
-                              setVoyageSwitcherRenameDraft(event.target.value)
-                            }
-                            onKeyDown={(event) => {
-                              if (event.key === "Escape") {
-                                event.preventDefault();
-                                cancelVoyageSwitcherRename();
-                              }
-                            }}
-                            autoFocus
-                            className="w-full rounded-md border border-neutral-600 bg-neutral-950 px-2 py-1.5 text-sm text-neutral-100 outline-none focus:border-blue-400"
-                          />
-                          <div className="flex justify-end gap-2">
-                            <button
-                              type="button"
-                              className="rounded-md border border-neutral-700 bg-neutral-900 px-2 py-1 text-xs text-neutral-300 transition-colors hover:bg-neutral-800"
-                              onClick={cancelVoyageSwitcherRename}
-                            >
-                              Cancel
-                            </button>
-                            <button
-                              type="submit"
-                              disabled={renameIsInvalid}
-                              className="rounded-md border border-blue-400/70 bg-blue-500/20 px-2 py-1 text-xs text-neutral-50 transition-colors hover:bg-blue-500/30 disabled:cursor-not-allowed disabled:border-neutral-700 disabled:bg-neutral-800 disabled:text-neutral-500"
-                            >
-                              Save
-                            </button>
-                          </div>
-                        </form>
-                      ) : (
-                        <>
-                          <div className="flex items-start justify-between gap-3">
-                            <button
-                              className="min-w-0 flex-1 rounded-sm text-left transition-colors hover:text-white"
-                              onClick={() =>
-                                handleVoyageSwitcherSelect(savedSession.id)
-                              }
-                            >
-                              <span className="block truncate font-medium">
-                                {getVoyageDisplayName(savedSession)}
-                              </span>
-                              <span className="mt-1 block text-xs text-neutral-500">
-                                Updated{" "}
-                                {new Date(
-                                  savedSession.updatedAt,
-                                ).toLocaleString()}
-                              </span>
-                            </button>
-                            <div className="flex shrink-0 items-center gap-2">
-                              {isCurrent && (
-                                <span className="text-xs text-blue-100">
-                                  Current
-                                </span>
-                              )}
-                              <button
-                                className="rounded-md border border-neutral-700 bg-neutral-900 px-2 py-1 text-xs text-neutral-300 transition-colors hover:bg-neutral-800"
-                                onClick={() =>
-                                  startVoyageSwitcherRename(savedSession)
-                                }
-                              >
-                                Rename
-                              </button>
-                            </div>
-                          </div>
-                        </>
-                      )}
-                    </div>
-                  );
-                })
-              ) : (
-                <div className="rounded-md border border-neutral-800 bg-neutral-950/40 px-3 py-4 text-sm text-neutral-500">
-                  No saved voyages yet.
-                </div>
-              )}
-            </div>
-
-            <div className="mt-5 flex justify-between gap-3">
-              <button
-                className="rounded-md border border-neutral-700 bg-neutral-950 px-3 py-2 text-sm font-medium text-neutral-200 transition-colors hover:bg-neutral-800"
-                onClick={openNewVoyagePrompt}
-              >
-                New Voyage
-              </button>
-              <button
-                className="rounded-md border border-neutral-700 bg-neutral-900 px-3 py-2 text-sm text-neutral-300 transition-colors hover:bg-neutral-800"
-                onClick={() => {
-                  setVoyageSwitcherOpen(false);
-                  cancelVoyageSwitcherRename();
-                }}
-              >
-                Cancel
-              </button>
-            </div>
-          </div>
-        </div>
+        <VoyageSwitcherDialog
+          sessions={sortedVoyageSwitcherSessions}
+          currentSessionId={currentSessionId}
+          renamingSessionId={voyageSwitcherRenameSessionId}
+          renameDraft={voyageSwitcherRenameDraft}
+          onRenameDraftChange={setVoyageSwitcherRenameDraft}
+          onSelect={handleVoyageSwitcherSelect}
+          onGoHome={handleVoyageSwitcherOpenHome}
+          onStartRename={startVoyageSwitcherRename}
+          onCancelRename={cancelVoyageSwitcherRename}
+          onSubmitRename={submitVoyageSwitcherRename}
+          onNewVoyage={openNewVoyagePrompt}
+          onCancel={() => {
+            setVoyageSwitcherOpen(false);
+            cancelVoyageSwitcherRename();
+          }}
+          onBackdropClick={handleVoyageSwitcherBackdropClick}
+          getVoyageDisplayName={getVoyageDisplayName}
+          isRenameInvalid={(draft) =>
+            !draft.trim() || isReservedVoyageName(draft)
+          }
+        />
       )}
 
       {voyagePlusMenuOpen && (
@@ -2744,108 +2463,37 @@ export function WorkspaceShell({
       )}
 
       {voyagePlusMenuOpen && (
-        <div
+        <VoyageActionsMenu
           ref={voyagePlusMenuRef}
-          role="menu"
-          aria-label="Voyage actions"
-          className="fixed z-[92] w-44 rounded-lg border border-neutral-700 bg-neutral-900 py-1 shadow-2xl"
-          style={{
-            left: voyagePlusMenuPosition?.left ?? 12,
-            top: voyagePlusMenuPosition?.top ?? 44,
+          position={voyagePlusMenuPosition}
+          onNewCraft={() => {
+            setVoyagePlusMenuOpen(false);
+            void handleOpenCreateWorkspaceTab();
           }}
-        >
-          <button
-            role="menuitem"
-            className="block w-full px-4 py-2 text-left text-sm text-neutral-200 transition-colors hover:bg-neutral-800"
-            onClick={() => {
-              setVoyagePlusMenuOpen(false);
-              void handleOpenCreateWorkspaceTab();
-            }}
-          >
-            New Craft
-          </button>
-          <button
-            role="menuitem"
-            className="block w-full px-4 py-2 text-left text-sm text-neutral-200 transition-colors hover:bg-neutral-800"
-            onClick={() => {
-              setVoyagePlusMenuOpen(false);
-              setPendingOpenCraftSessionId(null);
-              setWorkspaceSearchMode("session-add");
-              setWorkspaceSearchOpen(true);
-            }}
-          >
-            Open Craft
-          </button>
-          <button
-            role="menuitem"
-            className="block w-full px-4 py-2 text-left text-sm text-neutral-200 transition-colors hover:bg-neutral-800"
-            onClick={handleOpenVoyageSwitcher}
-          >
-            Switch Voyage
-          </button>
-        </div>
+          onOpenCraft={() => {
+            setVoyagePlusMenuOpen(false);
+            setPendingOpenCraftSessionId(null);
+            setWorkspaceSearchMode("session-add");
+            setWorkspaceSearchOpen(true);
+          }}
+          onSwitchVoyage={handleOpenVoyageSwitcher}
+        />
       )}
 
       {newVoyagePromptOpen && (
-        <div
-          className="fixed inset-0 z-[94] flex items-center justify-center bg-black/60 p-4"
-          onClick={handleNewVoyagePromptBackdropClick}
-        >
-          <div className="w-full max-w-md rounded-xl border border-neutral-700 bg-neutral-900 p-5 shadow-2xl">
-            <div className="text-base font-semibold text-neutral-100">
-              New Voyage
-            </div>
-            <p className="mt-2 text-sm text-neutral-400">
-              Name this voyage, then choose how you want to start it.
-            </p>
-
-            <label className="mt-4 block text-xs font-semibold uppercase tracking-wide text-neutral-500">
-              Voyage name
-            </label>
-            <input
-              value={newVoyageName}
-              onChange={(event) => setNewVoyageName(event.target.value)}
-              onKeyDown={(event) => {
-                if (event.key === "Escape") {
-                  closeNewVoyagePrompt();
-                }
-              }}
-              placeholder="Required voyage name"
-              autoFocus
-              className="mt-2 w-full rounded-md border border-neutral-700 bg-neutral-800 px-3 py-2 text-sm text-neutral-100 outline-none placeholder:text-neutral-500"
-            />
-
-            <div className="mt-5 grid gap-2 sm:grid-cols-2">
-              <button
-                className="rounded-md border border-blue-400/70 bg-blue-500/20 px-3 py-2 text-sm text-neutral-50 transition-colors hover:bg-blue-500/30 disabled:cursor-not-allowed disabled:border-neutral-700 disabled:bg-neutral-800 disabled:text-neutral-500"
-                disabled={isNewVoyageNameInvalid}
-                onClick={() => {
-                  void handleCreateNamedVoyage("new-task");
-                }}
-              >
-                Create New Craft
-              </button>
-              <button
-                className="rounded-md border border-neutral-700 bg-neutral-800 px-3 py-2 text-sm text-neutral-200 transition-colors hover:bg-neutral-700 disabled:cursor-not-allowed disabled:text-neutral-500 disabled:hover:bg-neutral-800"
-                disabled={isNewVoyageNameInvalid}
-                onClick={() => {
-                  void handleCreateNamedVoyage("open-craft");
-                }}
-              >
-                Open Existing Craft
-              </button>
-            </div>
-
-            <div className="mt-5 flex justify-end">
-              <button
-                className="rounded-md border border-neutral-700 bg-neutral-900 px-3 py-2 text-sm text-neutral-300 transition-colors hover:bg-neutral-800"
-                onClick={closeNewVoyagePrompt}
-              >
-                Cancel
-              </button>
-            </div>
-          </div>
-        </div>
+        <NewVoyagePromptDialog
+          name={newVoyageName}
+          isNameInvalid={isNewVoyageNameInvalid}
+          onNameChange={setNewVoyageName}
+          onCancel={closeNewVoyagePrompt}
+          onCreateNewCraft={() => {
+            void handleCreateNamedVoyage("new-task");
+          }}
+          onOpenExistingCraft={() => {
+            void handleCreateNamedVoyage("open-craft");
+          }}
+          onBackdropClick={handleNewVoyagePromptBackdropClick}
+        />
       )}
 
       {workspaceSearchOpen && (
@@ -2951,78 +2599,16 @@ export function WorkspaceShell({
           const craftLabel = tabGroup?.label || "This craft";
 
           return (
-            <div className="fixed inset-0 z-[95] flex items-center justify-center bg-black/60 p-4">
-              <div className="w-full max-w-lg rounded-xl border border-neutral-700 bg-neutral-900 p-5 shadow-2xl">
-                <div className="text-base font-semibold text-neutral-100">
-                  {craftLabel} is already embarked
-                </div>
-                <p className="mt-2 text-sm text-neutral-400">
-                  This craft is already in a Voyage. Switch to the existing
-                  embarked craft or open it in a new Voyage.
-                </p>
-
-                {duplicateCraftPrompt.currentEntries.length > 0 && (
-                  <div className="mt-4 space-y-2">
-                    <div className="text-xs font-semibold uppercase tracking-wide text-neutral-500">
-                      This voyage
-                    </div>
-                    {duplicateCraftPrompt.currentEntries.map((entry, index) => (
-                      <button
-                        key={entry.id}
-                        className="block w-full rounded-md border border-neutral-700 bg-neutral-800 px-3 py-2 text-left text-sm text-neutral-200 transition-colors hover:bg-neutral-700"
-                        onClick={() =>
-                          switchToExistingCraftInCurrentVoyage(entry.id)
-                        }
-                      >
-                        Switch to embarked craft {index + 1}
-                        {entry.id === session.activeVoyageEntryId
-                          ? " (active)"
-                          : ""}
-                      </button>
-                    ))}
-                  </div>
-                )}
-
-                {duplicateCraftPrompt.otherVoyages.length > 0 && (
-                  <div className="mt-4 space-y-2">
-                    <div className="text-xs font-semibold uppercase tracking-wide text-neutral-500">
-                      Other voyages
-                    </div>
-                    {duplicateCraftPrompt.otherVoyages.map(
-                      ({ session: savedSession, entryId }) => (
-                        <button
-                          key={`${savedSession.id}-${entryId || "legacy"}`}
-                          className="block w-full rounded-md border border-neutral-700 bg-neutral-800 px-3 py-2 text-left text-sm text-neutral-200 transition-colors hover:bg-neutral-700"
-                          onClick={() =>
-                            switchToCraftInOtherVoyage(savedSession.id, entryId)
-                          }
-                        >
-                          Switch to{" "}
-                          {savedSession.name ||
-                            savedSession.slug ||
-                            "untitled voyage"}
-                        </button>
-                      ),
-                    )}
-                  </div>
-                )}
-
-                <div className="mt-5 flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
-                  <button
-                    className="rounded-md border border-neutral-700 bg-neutral-900 px-3 py-2 text-sm text-neutral-300 transition-colors hover:bg-neutral-800"
-                    onClick={closeDuplicateCraftPrompt}
-                  >
-                    Cancel
-                  </button>
-                  <button
-                    className="rounded-md border border-blue-400/70 bg-blue-500/20 px-3 py-2 text-sm text-neutral-50 transition-colors hover:bg-blue-500/30"
-                    onClick={openCraftInNewVoyage}
-                  >
-                    Open in new Voyage
-                  </button>
-                </div>
-              </div>
-            </div>
+            <DuplicateCraftPromptDialog
+              craftLabel={craftLabel}
+              currentEntries={duplicateCraftPrompt.currentEntries}
+              activeVoyageEntryId={session.activeVoyageEntryId}
+              otherVoyages={duplicateCraftPrompt.otherVoyages}
+              onSwitchCurrent={switchToExistingCraftInCurrentVoyage}
+              onSwitchOtherVoyage={switchToCraftInOtherVoyage}
+              onOpenInNewVoyage={openCraftInNewVoyage}
+              onCancel={closeDuplicateCraftPrompt}
+            />
           );
         })()}
 
@@ -3105,128 +2691,46 @@ export function WorkspaceShell({
         })()}
 
       {mobileTabMenuTarget && mobileTabMenuTabGroup && (
-        <div className="md:hidden fixed inset-0 z-[90] bg-black/60 flex items-end">
-          <button
-            className="absolute inset-0"
-            aria-label="Close mobile tab menu"
-            onClick={() => setMobileTabMenuTarget(null)}
-          />
-          <div className="relative w-full rounded-t-2xl border-t border-neutral-700 bg-neutral-900 p-4 space-y-4">
-            <div>
-              <div className="text-sm font-semibold text-neutral-100">
-                Edit Mobile Craft
-              </div>
-              <div className="text-xs text-neutral-500 mt-1">
-                Long press opens this menu. Tap still switches craft. Closing
-                here closes the whole craft.
-              </div>
-            </div>
-
-            <div className="space-y-3">
-              <label className="block">
-                <span className="text-xs text-neutral-400">Mobile name</span>
-                <input
-                  type="text"
-                  value={mobileTabDraftLabel}
-                  onChange={(event) =>
-                    setMobileTabDraftLabel(event.target.value)
-                  }
-                  placeholder={mobileTabMenuTabGroup.label}
-                  className="mt-1 w-full rounded-md border border-neutral-700 bg-neutral-800 px-3 py-2 text-sm text-white focus:outline-none focus:border-blue-400"
-                />
-              </label>
-
-              <label className="block">
-                <span className="text-xs text-neutral-400">Emoji</span>
-                <input
-                  type="text"
-                  value={mobileTabDraftEmoji}
-                  onChange={(event) =>
-                    setMobileTabDraftEmoji(getFirstGrapheme(event.target.value))
-                  }
-                  placeholder={getMobileTabGroupEmoji(mobileTabMenuTabGroup)}
-                  className="mt-1 w-full rounded-md border border-neutral-700 bg-neutral-800 px-3 py-2 text-sm text-white focus:outline-none focus:border-blue-400"
-                />
-                <div className="mt-2 flex flex-wrap gap-2">
-                  {MOBILE_TAB_EMOJI_CHOICES.map((emoji) => (
-                    <button
-                      key={emoji}
-                      type="button"
-                      className={`rounded-md border px-2 py-1 text-base ${
-                        mobileTabDraftEmoji === emoji
-                          ? "border-blue-400 bg-blue-500/25"
-                          : "border-neutral-700 bg-neutral-800"
-                      }`}
-                      onClick={() => setMobileTabDraftEmoji(emoji)}
-                    >
-                      {emoji}
-                    </button>
-                  ))}
-                </div>
-              </label>
-            </div>
-
-            <div className="grid grid-cols-2 gap-2">
-              <button
-                className="rounded-md border border-neutral-700 bg-neutral-800 px-3 py-2 text-sm text-neutral-200"
-                onClick={() => setMobileTabMenuTarget(null)}
-              >
-                Cancel
-              </button>
-              <button
-                className="rounded-md border border-blue-400/70 bg-blue-500/20 px-3 py-2 text-sm text-neutral-50"
-                onClick={handleSaveMobileTabDisplay}
-              >
-                Save
-              </button>
-              <button
-                className="rounded-md border border-amber-500/40 bg-amber-500/15 px-3 py-2 text-sm text-amber-300 disabled:cursor-not-allowed disabled:border-neutral-700 disabled:bg-neutral-800 disabled:text-neutral-500"
-                disabled={!canMoveVoyageEntryToAnotherVoyage}
-                title={
-                  canMoveVoyageEntryToAnotherVoyage
-                    ? "Move this craft to another Voyage"
-                    : "Cannot move the only craft in a Voyage"
-                }
-                onClick={() => {
-                  handleOpenMoveVoyageEntryPrompt(
-                    mobileTabMenuTarget.voyageEntryId,
-                    mobileTabMenuTarget.tabGroupId,
-                  );
-                }}
-              >
-                Move to Voyage
-              </button>
-              <button
-                className="rounded-md border border-amber-500/40 bg-amber-500/15 px-3 py-2 text-sm text-amber-300"
-                onClick={() => {
-                  handleRemoveVoyageEntryFromSession(
-                    mobileTabMenuTarget.voyageEntryId,
-                  );
-                }}
-              >
-                Remove From Voyage
-              </button>
-            </div>
-            <button
-              className="w-full rounded-md border border-red-500/40 bg-red-500/15 px-3 py-2 text-sm text-red-300"
-              onClick={() => {
-                const { spaceId, tabGroupId } = mobileTabMenuTarget;
-                setMobileTabMenuTarget(null);
-                if (
-                  confirm(
-                    mobileTabMenuSpace?.tabGroupIds.length === 1
-                      ? `Close "${mobileTabMenuTabGroup.label}" everywhere? Because it's the last craft in this space, a replacement craft will be created automatically.`
-                      : `Close "${mobileTabMenuTabGroup.label}" everywhere? This deletes the craft, not just from the current voyage.`,
-                  )
-                ) {
-                  void handleCloseTabGroup(spaceId, tabGroupId);
-                }
-              }}
-            >
-              Close Craft
-            </button>
-          </div>
-        </div>
+        <MobileCraftMenu
+          tabGroup={mobileTabMenuTabGroup}
+          draftLabel={mobileTabDraftLabel}
+          draftEmoji={mobileTabDraftEmoji}
+          emojiChoices={MOBILE_TAB_EMOJI_CHOICES}
+          canMoveToAnotherVoyage={canMoveVoyageEntryToAnotherVoyage}
+          closeWarning={
+            mobileTabMenuSpace?.tabGroupIds.length === 1
+              ? `Close "${mobileTabMenuTabGroup.label}" everywhere? Because it's the last craft in this space, a replacement craft will be created automatically.`
+              : `Close "${mobileTabMenuTabGroup.label}" everywhere? This deletes the craft, not just from the current voyage.`
+          }
+          onDraftLabelChange={setMobileTabDraftLabel}
+          onDraftEmojiChange={(value) => setMobileTabDraftEmoji(getFirstGrapheme(value))}
+          onChooseEmoji={setMobileTabDraftEmoji}
+          onCancel={() => setMobileTabMenuTarget(null)}
+          onSave={handleSaveMobileTabDisplay}
+          onMoveToVoyage={() => {
+            handleOpenMoveVoyageEntryPrompt(
+              mobileTabMenuTarget.voyageEntryId,
+              mobileTabMenuTarget.tabGroupId,
+            );
+          }}
+          onRemoveFromVoyage={() => {
+            handleRemoveVoyageEntryFromSession(mobileTabMenuTarget.voyageEntryId);
+          }}
+          onCloseCraft={() => {
+            const { spaceId, tabGroupId } = mobileTabMenuTarget;
+            setMobileTabMenuTarget(null);
+            if (
+              confirm(
+                mobileTabMenuSpace?.tabGroupIds.length === 1
+                  ? `Close "${mobileTabMenuTabGroup.label}" everywhere? Because it's the last craft in this space, a replacement craft will be created automatically.`
+                  : `Close "${mobileTabMenuTabGroup.label}" everywhere? This deletes the craft, not just from the current voyage.`,
+              )
+            ) {
+              void handleCloseTabGroup(spaceId, tabGroupId);
+            }
+          }}
+          onCloseOverlay={() => setMobileTabMenuTarget(null)}
+        />
       )}
     </div>
   );
@@ -3241,143 +2745,6 @@ function isEditableTarget(target: EventTarget | null): boolean {
     tagName === "textarea" ||
     tagName === "select" ||
     target.isContentEditable
-  );
-}
-
-function PendingOpenCraftVoyageTab({
-  tab,
-  compact,
-  active,
-  onRetry,
-  onClose,
-}: {
-  tab: PendingOpenCraftTab;
-  compact: boolean;
-  active?: boolean;
-  onRetry: () => void;
-  onClose: () => void;
-}) {
-  const isError = tab.status === "error";
-  const label = tab.label || "craft";
-  const baseBorderClass = compact
-    ? "border-r border-neutral-700"
-    : "border-r border-neutral-600 border-b-2";
-
-  return (
-    <div
-      className={`shrink-0 inline-flex h-full max-w-[22rem] items-center gap-2 ${baseBorderClass} ${
-        isError
-          ? "border-b-red-400 bg-red-950/40 text-red-100"
-          : active
-            ? "border-b-amber-400 bg-neutral-800 text-neutral-100"
-            : "border-b-amber-400 bg-neutral-900 text-neutral-200"
-      } px-3 text-xs`}
-      role={isError ? "alert" : "status"}
-      aria-live="polite"
-      aria-label={isError ? `Failed opening ${label}` : `Opening ${label}`}
-      title={
-        isError
-          ? tab.errorMessage || `Failed opening ${label}`
-          : `Opening ${label}`
-      }
-    >
-      {isError ? (
-        <span aria-hidden="true" className="font-semibold text-red-300">
-          !
-        </span>
-      ) : (
-        <span
-          aria-hidden="true"
-          className="inline-block h-3 w-3 animate-spin rounded-full border border-neutral-500 border-t-amber-300"
-        />
-      )}
-      <span className="min-w-0 truncate">
-        {isError ? `Failed ${label}` : `Opening ${label}`}
-      </span>
-      {isError && (
-        <span className="ml-1 inline-flex shrink-0 items-center gap-1">
-          <button
-            type="button"
-            className="rounded border border-red-400/50 px-1.5 py-0.5 text-[10px] font-medium text-red-100 transition-colors hover:bg-red-500/20"
-            onClick={onRetry}
-          >
-            Retry
-          </button>
-          <button
-            type="button"
-            className="rounded border border-neutral-600 px-1.5 py-0.5 text-[10px] font-medium text-neutral-200 transition-colors hover:bg-neutral-800"
-            onClick={onClose}
-            aria-label={`Close failed ${label} tab`}
-          >
-            ×
-          </button>
-        </span>
-      )}
-    </div>
-  );
-}
-
-function PendingOpenCraftContent({
-  tab,
-  onRetry,
-  onClose,
-}: {
-  tab: PendingOpenCraftTab;
-  onRetry: () => void;
-  onClose: () => void;
-}) {
-  const isError = tab.status === "error";
-  const label = tab.label || "craft";
-
-  return (
-    <div className="flex-1 bg-neutral-950">
-      <div className="flex h-full items-center justify-center p-6 text-center">
-        <div
-          role={isError ? "alert" : "status"}
-          aria-live="polite"
-          className={`w-full max-w-md rounded-xl border p-6 shadow-2xl ${
-            isError
-              ? "border-red-500/40 bg-red-950/20"
-              : "border-amber-400/30 bg-neutral-900"
-          }`}
-        >
-          {isError ? (
-            <div className="mx-auto flex h-10 w-10 items-center justify-center rounded-full border border-red-400/50 bg-red-500/10 text-lg font-semibold text-red-200">
-              !
-            </div>
-          ) : (
-            <div className="mx-auto h-10 w-10 animate-spin rounded-full border-2 border-neutral-700 border-t-amber-300" />
-          )}
-          <h2 className="mt-4 text-base font-semibold text-neutral-100">
-            {isError ? `Could not open ${label}` : `Opening ${label}`}
-          </h2>
-          <p className="mt-2 text-sm text-neutral-400">
-            {isError
-              ? tab.errorMessage ||
-                "Open Craft failed. Please retry or close this pending craft."
-              : "Allocating the craft and preparing its workspace view…"}
-          </p>
-          {isError && (
-            <div className="mt-5 flex justify-center gap-2">
-              <button
-                type="button"
-                className="rounded-md border border-red-400/60 bg-red-500/10 px-3 py-2 text-sm font-medium text-red-100 transition-colors hover:bg-red-500/20"
-                onClick={onRetry}
-              >
-                Retry
-              </button>
-              <button
-                type="button"
-                className="rounded-md border border-neutral-700 bg-neutral-900 px-3 py-2 text-sm font-medium text-neutral-200 transition-colors hover:bg-neutral-800"
-                onClick={onClose}
-              >
-                Close
-              </button>
-            </div>
-          )}
-        </div>
-      </div>
-    </div>
   );
 }
 

@@ -7,12 +7,15 @@ import type {
   WorkspaceState,
 } from "../../../types";
 import { buildWorkspaceFolderUrl } from "../../../lib/vkWorkspaceUrl";
+import { areWorkflowFeaturesEnabled } from "../../../workflows/featureFlags";
 import type { RegisteredCraftSurfaceContribution } from "./types";
 
 export const CRAFT_SURFACE_TAB_ID_PREFIX = "craft-surface:";
 export const BUILT_IN_AGENT_TAB_ID = "agent";
 export const BUILT_IN_CODE_TAB_ID = "code";
 export const BUILT_IN_BEADS_TAB_ID = "beads";
+export const BUILT_IN_FORMS_TAB_ID = "forms";
+export const BUILT_IN_WORKFLOWS_TAB_ID = "workflows";
 export const BUILT_IN_AGENT_CODE_PAIR_ID = "agent+code";
 export const BUILT_IN_AGENT_BEADS_PAIR_ID = "agent+beads";
 
@@ -20,6 +23,8 @@ const BUILT_IN_WORKSPACE_TAB_IDS = new Set([
   BUILT_IN_AGENT_TAB_ID,
   BUILT_IN_CODE_TAB_ID,
   BUILT_IN_BEADS_TAB_ID,
+  BUILT_IN_FORMS_TAB_ID,
+  BUILT_IN_WORKFLOWS_TAB_ID,
 ]);
 const BUILT_IN_WORKSPACE_PAIR_IDS = new Set([
   BUILT_IN_AGENT_CODE_PAIR_ID,
@@ -29,11 +34,18 @@ const URL_PARSE_BASE = "https://workspace.local";
 const BEADS_WEB_DEFAULT_PORT = "3109";
 
 type BuiltInWorkspaceMetadata = NonNullable<TabGroup["workspace"]>;
+type ViteImportMeta = ImportMeta & {
+  env?: {
+    VITE_VK_BASE_ORIGIN?: string;
+    VITE_VD_WORKFLOWS_ENABLED?: string;
+  };
+};
 
 export interface CreateEffectiveWorkspaceWithCraftSurfacesInput {
   workspace: WorkspaceState;
   craftSurfaces: RegisteredCraftSurfaceContribution[];
   origin: string;
+  workflowsEnabled?: boolean;
 }
 
 export function createEffectiveWorkspaceWithCraftSurfaces(
@@ -46,6 +58,7 @@ export function createEffectiveWorkspaceWithCraftSurfaces(
         tabGroup,
         craftSurfaces: input.craftSurfaces,
         origin: input.origin,
+        workflowsEnabled: input.workflowsEnabled,
       }),
     ),
   };
@@ -55,10 +68,12 @@ function createEffectiveCraftWithSurfaces(input: {
   tabGroup: TabGroup;
   craftSurfaces: RegisteredCraftSurfaceContribution[];
   origin: string;
+  workflowsEnabled?: boolean;
 }): TabGroup {
   const tabs = getEffectiveTabs(input.tabGroup, {
     craftSurfaces: input.craftSurfaces,
     origin: input.origin,
+    workflowsEnabled: input.workflowsEnabled,
   });
   const pairs = getEffectivePairs({ ...input.tabGroup, tabs }, input.origin);
 
@@ -73,11 +88,15 @@ export function getEffectiveTabs(
   options: {
     craftSurfaces?: RegisteredCraftSurfaceContribution[];
     origin?: string;
+    workflowsEnabled?: boolean;
   } = {},
 ): Tab[] {
   const builtInWorkspaceTabs = getBuiltInWorkspaceTabs(
     tabGroup,
     options.origin ?? "",
+    options.workflowsEnabled ?? areWorkflowFeaturesEnabled({
+      VITE_VD_WORKFLOWS_ENABLED: (import.meta as ViteImportMeta).env?.VITE_VD_WORKFLOWS_ENABLED,
+    }),
   );
   const craftSurfaceTabs = getCraftSurfaceTabs({
     tabGroup,
@@ -106,7 +125,7 @@ function isEphemeralPluginSurfaceTab(
 ): boolean {
   return Boolean(
     tab?.ephemeral?.kind === "craft-surface" ||
-      tab?.id.startsWith(CRAFT_SURFACE_TAB_ID_PREFIX),
+    tab?.id.startsWith(CRAFT_SURFACE_TAB_ID_PREFIX),
   );
 }
 
@@ -180,30 +199,62 @@ export function getBuiltInWorkspaceMetadata(
   };
 }
 
-function getBuiltInWorkspaceTabs(tabGroup: TabGroup, origin: string): Tab[] {
+function getBuiltInWorkspaceTabs(
+  tabGroup: TabGroup,
+  origin: string,
+  workflowsEnabled: boolean,
+): Tab[] {
   const metadata = getBuiltInWorkspaceMetadata(tabGroup);
   if (!metadata) return [];
-  const baseOrigin = origin;
-  return [
+  const workspaceBaseOrigin = getBuiltInWorkspaceBaseOrigin(origin, {
+    allowConfiguredVkBaseOrigin: true,
+  });
+  const dashboardBaseOrigin = getBuiltInWorkspaceBaseOrigin(origin);
+  const tabs: Tab[] = [
     {
       id: BUILT_IN_AGENT_TAB_ID,
       title: "Agent",
-      url: buildWorkspaceTabUrl(baseOrigin, metadata.workspaceId),
+      url: buildWorkspaceTabUrl(workspaceBaseOrigin, metadata.workspaceId),
       pinned: true,
     },
     {
       id: BUILT_IN_CODE_TAB_ID,
       title: "Code",
-      url: buildWorkspaceFolderUrl(baseOrigin, metadata.workspaceDir),
+      url: buildWorkspaceFolderUrl(workspaceBaseOrigin, metadata.workspaceDir),
       pinned: true,
     },
     {
       id: BUILT_IN_BEADS_TAB_ID,
       title: "Beads",
-      url: buildBeadsWebUrl(baseOrigin),
+      url: buildBeadsWebUrl(dashboardBaseOrigin),
+      pinned: true,
+    },
+    {
+      id: BUILT_IN_FORMS_TAB_ID,
+      title: "Forms",
+      url: buildFormsUrl(
+        dashboardBaseOrigin,
+        metadata.workspaceId,
+        metadata.formsBeadId,
+      ),
       pinned: true,
     },
   ];
+  if (workflowsEnabled) {
+    tabs.push({
+      id: BUILT_IN_WORKFLOWS_TAB_ID,
+      title: "Workflows",
+      url: buildWorkflowsUrl(dashboardBaseOrigin, metadata.workspaceId),
+      pinned: true,
+      ephemeral: {
+        kind: "craft-surface",
+        pluginId: "vibe-dashboard",
+        surfaceKey: "workflows",
+        sourceKey: "built-in-workflows",
+      },
+    });
+  }
+  return tabs;
 }
 
 function getCraftSurfaceTabs(input: {
@@ -217,20 +268,18 @@ function getCraftSurfaceTabs(input: {
         (left.order ?? 0) - (right.order ?? 0) ||
         left.key.localeCompare(right.key),
     )
-    .map(
-      (surface): Tab => ({
-        id: getCraftSurfaceTabId(input.tabGroup.id, surface.key),
-        title: surface.defaultTitle ?? surface.title,
-        url: expandCraftSurfaceUrl(surface.urlTemplate, input.origin),
-        pinned: true,
-        ephemeral: {
-          kind: "craft-surface",
-          pluginId: surface.pluginId,
-          surfaceKey: surface.key,
-          sourceKey: surface.sourceKey,
-        },
-      }),
-    );
+    .map((surface): Tab => ({
+      id: getCraftSurfaceTabId(input.tabGroup.id, surface.key),
+      title: surface.defaultTitle ?? surface.title,
+      url: expandCraftSurfaceUrl(surface.urlTemplate, input.origin),
+      pinned: true,
+      ephemeral: {
+        kind: "craft-surface",
+        pluginId: surface.pluginId,
+        surfaceKey: surface.key,
+        sourceKey: surface.sourceKey,
+      },
+    }));
 }
 
 function getBuiltInWorkspacePairs(
@@ -402,12 +451,64 @@ function isGeneratedWorkspaceTab(
     isEphemeralCraftSurfaceTab(tab) ||
     isAgentTab(tab) ||
     isCodeTab(tab) ||
-    isBeadsTab(tab)
+    isBeadsTab(tab) ||
+    isFormsTab(tab)
   );
+}
+
+function getBuiltInWorkspaceBaseOrigin(
+  origin: string,
+  options: { allowConfiguredVkBaseOrigin?: boolean } = {},
+): string {
+  if (options.allowConfiguredVkBaseOrigin) {
+    const configuredVkBaseOrigin = getConfiguredVkBaseOrigin();
+    if (configuredVkBaseOrigin) return configuredVkBaseOrigin;
+  }
+
+  try {
+    const url = new URL(origin);
+    const portPrefixMatch = url.hostname.match(/^port-\d+\.(.+)$/);
+    if (!portPrefixMatch) return origin;
+    url.hostname = portPrefixMatch[1]!;
+    return url.origin;
+  } catch {
+    return origin;
+  }
+}
+
+function getConfiguredVkBaseOrigin(): string | null {
+  const configuredOrigin = (
+    (import.meta as ViteImportMeta).env?.VITE_VK_BASE_ORIGIN ??
+    (typeof process !== "undefined"
+      ? process.env?.VITE_VK_BASE_ORIGIN
+      : undefined)
+  )?.trim();
+  if (!configuredOrigin) return null;
+
+  try {
+    return new URL(configuredOrigin).origin;
+  } catch {
+    return null;
+  }
 }
 
 function buildWorkspaceTabUrl(baseOrigin: string, workspaceId: string): string {
   return `${baseOrigin}/workspaces/${workspaceId}`;
+}
+
+function buildWorkflowsUrl(baseOrigin: string, workspaceId: string): string {
+  const params = new URLSearchParams({ workspaceId });
+  return `${baseOrigin}/dashboard/workflows?${params.toString()}`;
+}
+
+function buildFormsUrl(
+  baseOrigin: string,
+  workspaceId: string,
+  beadId?: string,
+): string {
+  const params = new URLSearchParams({ workspace: workspaceId });
+  if (beadId) params.set("bead", beadId);
+  return `${baseOrigin}/dashboard/forms?${params.toString()}`;
 }
 
 function buildBeadsWebUrl(baseOrigin: string): string {
@@ -483,6 +584,13 @@ function isBeadsTab(tab: Pick<Tab, "id" | "title" | "url">): boolean {
   return (
     tab.id === BUILT_IN_BEADS_TAB_ID ||
     tab.title.trim().toLowerCase() === "beads"
+  );
+}
+
+function isFormsTab(tab: Pick<Tab, "id" | "title" | "url">): boolean {
+  return (
+    tab.id === BUILT_IN_FORMS_TAB_ID ||
+    tab.title.trim().toLowerCase() === "forms"
   );
 }
 

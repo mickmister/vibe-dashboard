@@ -4,3 +4,7 @@
 # server block. It is intentionally Caddy-valid when no plugins expose HTTP
 # services. The plugin service orchestrator owns edits to the deployed copy at
 # /etc/caddy/plugins.caddy.
+@vd_no_plugin_routes path /__vd-no-plugin-routes__
+handle @vd_no_plugin_routes {
+	respond "No plugin routes are configured." 404
+}

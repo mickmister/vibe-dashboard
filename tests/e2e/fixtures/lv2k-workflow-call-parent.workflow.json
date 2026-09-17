@@ -1,0 +1,73 @@
+{
+  "schemaVersion": 1,
+  "name": "LV2K Parent Blocking Workflow Call",
+  "description": "API-loaded parent workflow fixture that waits for a blocking child workflow_call.",
+  "inputs": {
+    "featureRequest": {
+      "type": "markdown",
+      "required": true,
+      "description": "Task to pass through the parent and child workflows."
+    }
+  },
+  "roles": {
+    "dev": {
+      "label": "Dev",
+      "description": "Owns the parent workflow and child session binding."
+    }
+  },
+  "initialState": "parent",
+  "states": {
+    "parent": {
+      "owner": "dev",
+      "steps": [
+        {
+          "id": "call_child",
+          "type": "workflow_call",
+          "mode": "blocking",
+          "workflow": {
+            "designId": "LV2K_CHILD_DESIGN_ID",
+            "version": 1
+          },
+          "args": {
+            "featureRequest": "{{inputs.featureRequest}}"
+          }
+        },
+        {
+          "id": "parent_decide",
+          "type": "agent_turn",
+          "turnType": "decision",
+          "prompt": {
+            "template": "LV2K_STEP:workflow_call_parent_after_child\n\nParent workflow saw child status {{child.call_child.childStatus}} and child output {{child.call_child.outputRef}}. Return final decision XML."
+          },
+          "response": {
+            "format": "xml",
+            "schema": { "format": "xsd", "source": "state_actions" },
+            "invalidXmlRetry": {
+              "maxAttempts": 1,
+              "prompt": "engine_default_with_validation_errors",
+              "onExhausted": "blocked"
+            },
+            "storeRawXml": true,
+            "rawXmlMaxChars": 20000,
+            "storeParsedFields": true,
+            "unknownFields": "reject_unless_allowed_by_result_contract"
+          }
+        }
+      ],
+      "actions": {
+        "done": {
+          "label": "Done",
+          "targetState": "done",
+          "result": {
+            "fields": {
+              "summary": { "type": "markdown" }
+            },
+            "required": ["summary"],
+            "unknownFields": "reject"
+          }
+        }
+      }
+    },
+    "done": { "terminal": true }
+  }
+}
