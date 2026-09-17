@@ -7,6 +7,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { ExternalIntegrationsDbHandle } from '../modules/plugins/kanban/server/database';
 import { resetExternalIntegrationsDbForTests } from '../modules/plugins/kanban/server/database';
 import { clearPluginRegistryForTests, createPluginManifest, registerPlugin } from '../modules/plugins/vibe-dashboard/registry';
+import { publishProductionPanelTargetRouterAuthority } from '../server/panelTargetRouterAuthority';
 import { LEGACY_SESSIONS_KEY, LEGACY_VOYAGE_MIGRATION_ID, LEGACY_WORKSPACE_KEY } from './db/data_migrations/20260917100000_migrate_legacy_voyages';
 import { initializeVoyagePersistenceAuthority } from './voyagePersistenceAuthority';
 
@@ -60,11 +61,13 @@ describe('normalized Voyage startup authority', () => {
     } }));
     const prior = { VD_DB_PATH: process.env.VD_DB_PATH, VD_KV_DB_PATH: process.env.VD_KV_DB_PATH, VIBE_API_URL: process.env.VIBE_API_URL, VITE_VK_BASE_ORIGIN: process.env.VITE_VK_BASE_ORIGIN };
     Object.assign(process.env, { VD_DB_PATH: targetPath, VD_KV_DB_PATH: sourcePath, VIBE_API_URL: 'https://vk-api.test', VITE_VK_BASE_ORIGIN: 'https://dashboard.test' });
-    const guard = (location: string) => ({ location, available: true, factoryKey: 'server-owned-panel', redirectGuard: { deliveryUrl: location, upstreamOrigin: new URL(location).origin } });
-    vi.stubGlobal('fetch', vi.fn(async (url: string) => new Response(JSON.stringify({ success: true, data: url.endsWith('/workspaces') ? [{ id: 'workspace-1', archived: false, agent_working_dir: '/trusted', panel_targets: {
-      overview: guard('https://dashboard.test/workspaces/workspace-1'), code: guard('https://dashboard.test/?folder=/trusted'), changes: guard('https://dashboard.test/workspaces/workspace-1'), beads: guard('https://dashboard.test/'), forms: guard('https://dashboard.test/dashboard/forms?workspaceId=workspace-1'),
-    } }]
-      : url.includes('/run-configs') ? { run_configs: [], preview_slots: [], preview_url_parts: [] } : [] }), { status: 200, headers: { 'content-type': 'application/json' } })));
+    const delivery = (location: string) => ({ location, available: true, factoryKey: 'server-owned-panel' });
+    const targets = { overview: delivery('/workspaces/workspace-1'), code: delivery('/workspaces/workspace-1/vscode'), changes: delivery('/workspaces/workspace-1?view=changes'), beads: delivery('/workspaces/workspace-1?view=beads'), forms: delivery('/workspaces/workspace-1?view=forms') };
+    publishProductionPanelTargetRouterAuthority({ builtInRoutes: {}, redirectGuards: {
+      'code:workspace-1': { deliveryUrl: 'https://dashboard.test/workspaces/workspace-1/vscode', upstreamOrigin: 'https://dashboard.test' },
+    } });
+    vi.stubGlobal('fetch', vi.fn(async (url: string) => new Response(JSON.stringify({ success: true, data: url.endsWith('/workspaces') ? [{ id: 'workspace-1', archived: false, agent_working_dir: '/trusted' }]
+      : url.includes('/panel-target-authority') ? { ready: true, workspaceId: 'workspace-1', workspaceTargets: targets, sessions: [], terminalsReady: true, terminals: [], previews: [] } : [] }), { status: 200, headers: { 'content-type': 'application/json' } })));
     try {
       const authority = await initializeVoyagePersistenceAuthority();
       expect(authority.sqlite.prepare('SELECT targetKind FROM VoyagePanel ORDER BY targetKind').all()).toEqual([{ targetKind: 'code' }, { targetKind: 'internal-route' }]);

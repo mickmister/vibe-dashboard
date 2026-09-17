@@ -222,6 +222,16 @@ export interface PreviewSlotUrlResponse extends PreviewSlotUrlParts {
   url: string;
 }
 
+export interface PanelTargetDeliveryDefinition { location: string; factoryKey: string; available: boolean; }
+export interface SessionPanelTargetDefinition { sessionId: string; workspaceId: string; delivery: PanelTargetDeliveryDefinition; }
+export interface TerminalPanelTargetDefinition { terminalId: string; workspaceId: string; delivery: PanelTargetDeliveryDefinition; }
+export interface PreviewPanelTargetDefinition { previewSlotId: string; workspaceId: string; urlParts: PreviewSlotUrlParts; customerSlug: string; factoryKey: string; available: boolean; }
+export interface WorkspacePanelTargetAuthoritySnapshot {
+  ready: boolean; workspaceId: string; workspaceTargets: Partial<Record<string, PanelTargetDeliveryDefinition>>;
+  sessions: SessionPanelTargetDefinition[]; terminalsReady: boolean;
+  terminals: TerminalPanelTargetDefinition[]; previews: PreviewPanelTargetDefinition[];
+}
+
 export interface CreateSessionBody {
   workspace_id: string;
   executor: Executor;
@@ -350,6 +360,10 @@ export class VibeKanbanServerClient {
 
   getRunConfigs(workspaceId: string): Promise<WorkspaceRunConfigsResponse> {
     return this.get(`/workspaces/${encodeURIComponent(workspaceId)}/execution/run-configs`);
+  }
+
+  getPanelTargetAuthority(workspaceId: string): Promise<WorkspacePanelTargetAuthoritySnapshot> {
+    return this.get(`/workspaces/${encodeURIComponent(workspaceId)}/panel-target-authority`);
   }
 
   upsertRunConfig(workspaceId: string, body: UpsertRunConfig): Promise<RunConfig> {

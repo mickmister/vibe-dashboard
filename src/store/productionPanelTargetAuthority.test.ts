@@ -16,13 +16,12 @@ function pluginSnapshot(allowed = true) {
 function client(input: { archived?: boolean; includeBackend?: boolean; mismatchedPreview?: boolean } = {}) {
   const panelTargets = { overview: delivery('https://dashboard.test/workspace'), code: delivery('https://dashboard.test/?folder=/trusted'), changes: delivery('https://dashboard.test/changes'), beads: delivery('https://dashboard.test/beads'), forms: delivery('https://dashboard.test/forms') };
   return {
-    getWorkspaces: vi.fn(async () => [{ id: 'workspace-1', archived: input.archived ?? false, agent_working_dir: '/trusted', panel_targets: panelTargets }] as never),
+    getWorkspaces: vi.fn(async () => [{ id: 'workspace-1', archived: input.archived ?? false, agent_working_dir: '/trusted' }] as never),
     getWorkspaceRepos: vi.fn(async () => [{ id: 'repo-1' }] as never),
-    getSessions: vi.fn(async () => input.includeBackend === false ? [] : [{ id: 'session-1', workspace_id: 'workspace-1',
-      panel_target: delivery('https://dashboard.test/sessions/session-1'),
-      terminal_target: { ...delivery('https://dashboard.test/terminals/terminal-1'), terminalId: 'terminal-1', allowedCraftIds: ['craft-1'], available: true },
-    }] as never),
-    getRunConfigs: vi.fn(async () => ({ run_configs: [], preview_slots: [], preview_url_parts: input.includeBackend === false ? [] : [{ previewSlotId: 'preview-1', customerSlug: 'customer', factoryKey: 'preview-slot', allowedCraftIds: ['craft-1'], redirectGuard: { deliveryUrl: 'https://dashboard.test/preview/preview-1', upstreamOrigin: 'https://preview.test' } }] }) as never),
+    getPanelTargetAuthority: vi.fn(async () => ({ ready: true, workspaceId: 'workspace-1', workspaceTargets: panelTargets, terminalsReady: true, terminals: [],
+      sessions: input.includeBackend === false ? [] : [{ sessionId: 'session-1', workspaceId: 'workspace-1', delivery: delivery('/sessions/session-1') }],
+      previews: input.includeBackend === false ? [] : [{ previewSlotId: 'preview-1', workspaceId: 'workspace-1', urlParts: { previewSlotId: 'preview-1', workspaceToken: 'token', repoSlug: 'repo', slotSlug: 'web' }, customerSlug: 'customer', factoryKey: 'preview-slot', available: true }],
+    }) as never),
     getPreviewSlotUrl: vi.fn(async () => ({ previewSlotId: input.mismatchedPreview ? 'other' : 'preview-1', workspaceToken: 'token', repoSlug: 'repo', slotSlug: 'web', customerSlug: 'customer', host: 'preview.test', url: 'https://preview.test/' }) as never),
   };
 }
@@ -39,11 +38,11 @@ describe('production Panel target authority composition', () => {
     }));
     expect(provider(craft, 'workspace-1')).toMatchObject({
       crafts: { 'craft-1': { allowedPluginTargets: ['plugin.docs/help'] } },
-      agentSessions: { 'session-1': { location: 'https://dashboard.test/sessions/session-1' } },
-      terminals: { 'terminal-1': { location: 'https://dashboard.test/terminals/terminal-1', allowedCraftIds: ['craft-1'] } },
-      previews: { 'preview-1': { location: 'https://preview.test/', factoryKey: 'preview-slot', allowedCraftIds: ['craft-1'] } },
+      agentSessions: { 'session-1': { location: '/sessions/session-1' } },
+      terminals: {},
+      previews: { 'preview-1': { location: 'https://preview.test/', factoryKey: 'preview-slot' } },
       builtInRoutes: { settings: { allowedCraftIds: ['craft-1'] } },
-      redirectGuards: { 'preview:preview-1': { upstreamOrigin: 'https://preview.test' } },
+      redirectGuards: { 'internal-route:settings': { upstreamOrigin: 'https://dashboard.test' } },
     });
   });
 
@@ -55,11 +54,11 @@ describe('production Panel target authority composition', () => {
   });
 
   it('reflects removal/tightening and distinguishes ready-empty from not-ready owners', async () => {
-    const emptyServices = createProductionPanelTargetAuthorityServices({ env: { VITE_VK_BASE_ORIGIN: 'https://dashboard.test' }, client: client({ includeBackend: false }), getPlugins: () => pluginSnapshot(false) });
+    const emptyServices = createProductionPanelTargetAuthorityServices({ env: { VITE_VK_BASE_ORIGIN: 'https://dashboard.test' }, client: client({ includeBackend: false }), getPlugins: () => pluginSnapshot(false), getRouterAuthority: () => router([]) });
     expect((await createProductionPanelTargetContextProvider(emptyServices))(craft, 'workspace-1')).toMatchObject({ agentSessions: {}, terminals: {}, previews: {}, builtInRoutes: {}, crafts: { 'craft-1': { allowedPluginTargets: [] } } });
     const unavailable = createProductionPanelTargetAuthorityServices({ env: { VITE_VK_BASE_ORIGIN: 'https://dashboard.test' }, client: client(), getPlugins: pluginSnapshot, getRouterAuthority: () => ({ status: 'not-ready' }) });
     await expect(createProductionPanelTargetContextProvider(unavailable)).rejects.toMatchObject({ code: 'MIGRATION_AUTHORITY_UNAVAILABLE' });
-    const missingWorkspaceAuthority = { ...client(), getWorkspaces: vi.fn(async () => [{ id: 'workspace-1', archived: false, agent_working_dir: '/trusted' }] as never) };
+    const missingWorkspaceAuthority = { ...client(), getPanelTargetAuthority: vi.fn(async () => ({ ready: false }) as never) };
     await expect(createProductionPanelTargetContextProvider(createProductionPanelTargetAuthorityServices({ env: { VITE_VK_BASE_ORIGIN: 'https://dashboard.test' }, client: missingWorkspaceAuthority, getPlugins: pluginSnapshot, getRouterAuthority: router })))
       .rejects.toMatchObject({ code: 'MIGRATION_AUTHORITY_UNAVAILABLE' });
     const removed = createProductionPanelTargetAuthorityServices({ env: { VITE_VK_BASE_ORIGIN: 'https://dashboard.test' }, client: client({ archived: true }), getPlugins: pluginSnapshot, getRouterAuthority: router });

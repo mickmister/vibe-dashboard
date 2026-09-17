@@ -9,6 +9,7 @@ import { registerPluginAdminRoutes } from '../server/plugin-admin-routes';
 import { registerVkWorkspaceRoutes } from '../server/vk-workspace-routes';
 import { registerVkRepoRoutes } from '../server/vk-repo-routes';
 import { registerPreviewResolverRoutes } from '../server/preview-resolver-routes';
+import { publishProductionPanelTargetRouterAuthority } from '../server/panelTargetRouterAuthority';
 import { workflowRegistry } from '../workflows/registry';
 import type { CachedRepoAlias } from '../workflows/github-ci';
 
@@ -16,6 +17,7 @@ const execFileAsync = promisify(execFile);
 const reposRoot = process.env.VK_REPOS_ROOT || join(process.env.HOME || '/home/vkuser', 'repos');
 const pluginInstallRoot = process.env.VD_PLUGIN_INSTALL_ROOT || join(process.cwd(), 'plugins');
 let cachedGitRepos: CachedRepoAlias[] | null = null;
+publishProductionPanelTargetRouterAuthority({ builtInRoutes: {}, redirectGuards: {} });
 
 serverRegistry.registerServerModule((api) => {
   registerWorkflowRoutes(api.hono, {

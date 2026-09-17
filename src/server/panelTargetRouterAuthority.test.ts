@@ -1,9 +1,12 @@
 import { describe, expect, it } from 'vitest';
-import { createPanelTargetRouterAuthoritySnapshot, getProductionPanelTargetRouterAuthoritySnapshot } from './panelTargetRouterAuthority';
+import { createPanelTargetRouterAuthoritySnapshot, PanelTargetRouterAuthorityRegistry } from './panelTargetRouterAuthority';
 
 describe('router and redirect-guard Panel authority owner', () => {
   it('publishes an explicit ready-empty production registry', () => {
-    expect(getProductionPanelTargetRouterAuthoritySnapshot()).toEqual({ status: 'ready', definitions: { builtInRoutes: {}, redirectGuards: {} } });
+    const owner = new PanelTargetRouterAuthorityRegistry();
+    expect(owner.snapshot()).toEqual({ status: 'not-ready' });
+    owner.publish({ builtInRoutes: {}, redirectGuards: {} });
+    expect(owner.snapshot()).toEqual({ status: 'ready', definitions: { builtInRoutes: {}, redirectGuards: {} } });
   });
 
   it('copies exact route allowlists and guards into an immutable snapshot', () => {

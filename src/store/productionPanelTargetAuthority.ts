@@ -2,7 +2,7 @@ import type { Craft } from '../types';
 import { getPluginRegistrySnapshot } from '../modules/plugins/vibe-dashboard/registry';
 import type { PluginRegistryState } from '../modules/plugins/vibe-dashboard/types';
 import { VibeKanbanServerClient } from '../server/vk-client';
-import { loadPanelTargetBackendAuthority, type AuthorityWorkspace } from '../server/panelTargetBackendAuthority';
+import { loadPanelTargetBackendAuthority } from '../server/panelTargetBackendAuthority';
 import {
   getProductionPanelTargetRouterAuthoritySnapshot,
   type AuthorityReadiness,
@@ -12,9 +12,9 @@ import { createPanelTargetRuntimeAuthoritySnapshot, type PanelTargetRuntimeAutho
 import type { PanelTargetResolutionContext, TrustedWorkspace } from './panelTargetRegistry';
 
 type AuthorityClient = Pick<VibeKanbanServerClient,
-  'getWorkspaces' | 'getWorkspaceRepos' | 'getSessions' | 'getRunConfigs' | 'getPreviewSlotUrl'>;
+  'getWorkspaces' | 'getWorkspaceRepos' | 'getPanelTargetAuthority' | 'getPreviewSlotUrl'>;
 type WorkspaceDetail = {
-  workspace: AuthorityWorkspace;
+  workspace: Awaited<ReturnType<AuthorityClient['getWorkspaces']>>[number];
   repos: Awaited<ReturnType<AuthorityClient['getWorkspaceRepos']>>;
 };
 const WORKSPACE_TARGET_KEYS = ['overview', 'code', 'changes', 'beads', 'forms'] as const;
@@ -58,9 +58,9 @@ export function createProductionPanelTargetAuthorityServices(input: {
 
 /**
  * Authority ownership audit:
- * - workspace ownership/locations: VK Workspace.panel_targets service;
- * - sessions/terminals: VK session service;
- * - previews: preview-slot URL resolver service;
+ * - workspace ownership/locations, sessions and explicit terminal readiness:
+ *   VK's typed workspace Panel-target authority endpoint;
+ * - previews: that endpoint's typed preview metadata plus the preview-slot URL resolver;
  * - plugin targets/grants: installed plugin/factory registry;
  * - built-in routes/redirect guards: application router/guard registry.
  * This adapter only validates, clones, combines, and filters owner snapshots.
@@ -70,15 +70,11 @@ export async function createProductionPanelTargetContextProvider(
 ): Promise<(craft: Craft, workspaceId: string) => PanelTargetResolutionContext | null> {
   const hostOrigin = services.getHostOrigin();
   const plugins = structuredClone(services.getPlugins());
-  const current = (await services.client.getWorkspaces() as AuthorityWorkspace[]).filter(({ archived }) => !archived);
-  if (current.some((workspace) => !workspace.panel_targets
-    || WORKSPACE_TARGET_KEYS.some((key) => !workspace.panel_targets?.[key]))) {
-    throw unavailable('Panel target workspace authority is not ready');
-  }
+  const current = (await services.client.getWorkspaces()).filter(({ archived }) => !archived);
   const details: WorkspaceDetail[] = await Promise.all(current.map(async (workspace) => ({
     workspace, repos: await services.client.getWorkspaceRepos(workspace.id),
   })));
-  const backend = await loadPanelTargetBackendAuthority(services.client, current);
+  const backend = await loadPanelTargetBackendAuthority(services.client, current.map(({ id }) => id));
   const router = services.getRouterAuthority();
   if (backend.status !== 'ready') throw unavailable('Panel target backend authority is not ready');
   if (router.status !== 'ready') throw unavailable('Panel target router authority is not ready');
@@ -93,13 +89,13 @@ export async function createProductionPanelTargetContextProvider(
     builtInRoutes: router.definitions.builtInRoutes,
     redirectGuards: { ...backend.definitions.redirectGuards, ...router.definitions.redirectGuards },
   });
-  return providerFromSnapshot(runtime, new Map(details.map((detail) => [detail.workspace.id, detail])));
+  return providerFromSnapshot(runtime, new Map(details.map((detail) => [detail.workspace.id, detail])), backend.definitions.workspaceTargets);
 }
 
-function providerFromSnapshot(runtime: PanelTargetRuntimeAuthoritySnapshot, byId: Map<string, WorkspaceDetail>) {
+function providerFromSnapshot(runtime: PanelTargetRuntimeAuthoritySnapshot, byId: Map<string, WorkspaceDetail>, workspaceTargets: BackendWorkspaceTargets) {
   return (craft: Craft, workspaceId: string): PanelTargetResolutionContext | null => {
     const detail = byId.get(workspaceId);
-    const targets = detail?.workspace.panel_targets;
+    const targets = workspaceTargets[workspaceId];
     if (!detail || craft.workspace?.workspaceId !== workspaceId || !detail.workspace.agent_working_dir || !targets) return null;
     const keys = WORKSPACE_TARGET_KEYS;
     if (keys.some((key) => !targets[key]?.available || !targets[key]?.location || !targets[key]?.factoryKey)) return null;
@@ -118,3 +114,5 @@ function providerFromSnapshot(runtime: PanelTargetRuntimeAuthoritySnapshot, byId
     };
   };
 }
+
+type BackendWorkspaceTargets = Record<string, Partial<Record<string, { location: string; available: boolean; factoryKey: string }>>>;
