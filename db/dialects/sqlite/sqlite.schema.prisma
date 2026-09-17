@@ -12,8 +12,15 @@ generator client {
 
 generator kysely {
   provider = "prisma-kysely"
-  output   = "../../src/store"
+  output   = "../../../src/store"
   fileName = "kysely_types.ts"
+}
+
+// Migration registry maintained by the application's Kysely migration runner.
+model Migration {
+  id        Int      @id @default(autoincrement())
+  name      String   @unique
+  createdAt DateTime @default(now())
 }
 
 model BetterAuthUser {
@@ -23,7 +30,7 @@ model BetterAuthUser {
   emailVerified Boolean  @default(false)
   image         String?
   createdAt     DateTime @default(now())
-  updatedAt     DateTime @updatedAt
+  updatedAt     DateTime @default(now()) @updatedAt
 
   sessions                    BetterAuthSession[]
   accounts                    BetterAuthAccount[]
@@ -38,7 +45,7 @@ model BetterAuthSession {
   ipAddress String?
   userAgent String?
   createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  updatedAt DateTime @default(now()) @updatedAt
 
   user BetterAuthUser @relation(fields: [userId], references: [id], onDelete: Cascade)
 
@@ -47,7 +54,7 @@ model BetterAuthSession {
 }
 
 model BetterAuthAccount {
-  id                    String   @id
+  id                    String    @id
   userId                String
   accountId             String
   providerId            String
@@ -58,10 +65,10 @@ model BetterAuthAccount {
   scope                 String?
   idToken               String?
   password              String?
-  createdAt             DateTime @default(now())
-  updatedAt             DateTime @updatedAt
+  createdAt             DateTime  @default(now())
+  updatedAt             DateTime  @default(now()) @updatedAt
 
-  user                        BetterAuthUser @relation(fields: [userId], references: [id], onDelete: Cascade)
+  user                        BetterAuthUser               @relation(fields: [userId], references: [id], onDelete: Cascade)
   externalProviderConnections ExternalProviderConnection[]
 
   @@unique([providerId, accountId])
@@ -75,7 +82,7 @@ model BetterAuthVerification {
   value      String
   expiresAt  DateTime
   createdAt  DateTime? @default(now())
-  updatedAt  DateTime? @updatedAt
+  updatedAt  DateTime? @default(now()) @updatedAt
 
   @@index([identifier])
   @@index([expiresAt])
@@ -88,15 +95,15 @@ enum ExternalProvider {
 }
 
 model ExternalProviderConnection {
-  id                  String           @id
-  userId              String
-  provider            ExternalProvider
-  betterAuthAccountId String
-  providerAccountId   String
-  displayName         String?
+  id                   String           @id
+  userId               String
+  provider             ExternalProvider
+  betterAuthAccountId  String
+  providerAccountId    String
+  displayName          String?
   resourceMetadataJson String?
-  createdAt           DateTime         @default(now())
-  updatedAt           DateTime         @updatedAt
+  createdAt            DateTime         @default(now())
+  updatedAt            DateTime         @default(now()) @updatedAt
 
   user              BetterAuthUser    @relation(fields: [userId], references: [id], onDelete: Cascade)
   betterAuthAccount BetterAuthAccount @relation(fields: [betterAuthAccountId], references: [id], onDelete: Cascade)
@@ -116,7 +123,7 @@ model ExternalIssue {
   site         String?
   metadataJson String?
   createdAt    DateTime         @default(now())
-  updatedAt    DateTime         @updatedAt
+  updatedAt    DateTime         @default(now()) @updatedAt
 
   workspaceLinks ExternalIssueWorkspaceLink[]
 
@@ -132,7 +139,7 @@ model VKWorkspace {
   displayName  String?
   metadataJson String?
   createdAt    DateTime @default(now())
-  updatedAt    DateTime @updatedAt
+  updatedAt    DateTime @default(now()) @updatedAt
 
   externalIssueLinks ExternalIssueWorkspaceLink[]
 
@@ -140,14 +147,14 @@ model VKWorkspace {
 }
 
 model ExternalIssueWorkspaceLink {
-  id              String   @id
+  id              String    @id
   externalIssueId String
   vkWorkspaceId   String
-  isPrimary       Boolean  @default(false)
+  isPrimary       Boolean   @default(false)
   lastOpenedAt    DateTime?
   metadataJson    String?
-  createdAt       DateTime @default(now())
-  updatedAt       DateTime @updatedAt
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @default(now()) @updatedAt
 
   externalIssue ExternalIssue @relation(fields: [externalIssueId], references: [id], onDelete: Cascade)
   vkWorkspace   VKWorkspace   @relation(fields: [vkWorkspaceId], references: [id], onDelete: Cascade)
@@ -168,8 +175,132 @@ model ExternalRepoProjectMapping {
   issueTypeName String?
   metadataJson  String?
   createdAt     DateTime         @default(now())
-  updatedAt     DateTime         @updatedAt
+  updatedAt     DateTime         @default(now()) @updatedAt
 
   @@unique([repoId, provider, siteHostname])
   @@index([provider, siteHostname, projectKey])
+}
+
+model Voyage {
+  id                    String    @id
+  schemaVersion         Int       @default(1)
+  revision              Int       @default(0)
+  activationSequence    Int       @default(0)
+  historyCursorSequence Int?
+  name                  String
+  mission               String?
+  lifecycleState        String    @default("active")
+  createdAt             DateTime  @default(now())
+  updatedAt             DateTime  @default(now())
+  lastOpenedAt          DateTime?
+
+  crafts               VoyageCraft[]
+  panels               VoyagePanel[]
+  layout               VoyageLayout?
+  history              VoyageHistory[]
+  layoutQuarantines    VoyageLayoutQuarantine[]
+  migrationDiagnostics VoyageMigrationDiagnostic[]
+}
+
+model VoyageCraft {
+  voyageId         String
+  /// External Vibe Kanban workspace logical ID. This intentionally has no
+  /// database foreign key to VKWorkspace: VK workspaces may live outside this
+  /// database and their lifecycle is independent from Voyage persistence.
+  craftWorkspaceId String
+  sortKey          String
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @default(now())
+
+  voyage Voyage        @relation(fields: [voyageId], references: [id], onDelete: Cascade, onUpdate: Cascade)
+  panels VoyagePanel[]
+
+  @@id([voyageId, craftWorkspaceId])
+}
+
+model VoyagePanel {
+  id                    String   @id
+  voyageId              String
+  craftWorkspaceId      String?
+  targetKind            String
+  targetVersion         Int
+  targetPayloadJson     String
+  titleMode             String
+  customTitle           String?
+  closePolicy           String
+  lastActivatedSequence Int?
+  createdAt             DateTime @default(now())
+  updatedAt             DateTime @default(now())
+
+  voyage Voyage       @relation(fields: [voyageId], references: [id], onDelete: Cascade, onUpdate: Cascade)
+  craft  VoyageCraft? @relation(fields: [voyageId, craftWorkspaceId], references: [voyageId, craftWorkspaceId], onDelete: Cascade, onUpdate: Cascade)
+
+  @@index([voyageId])
+  @@index([voyageId, craftWorkspaceId])
+}
+
+model VoyageLayout {
+  voyageId          String   @id
+  formatVersion     Int
+  dockviewVersion   String
+  aggregateRevision Int
+  snapshotJson      String
+  snapshotHash      String
+  updatedAt         DateTime @default(now())
+
+  voyage Voyage @relation(fields: [voyageId], references: [id], onDelete: Cascade, onUpdate: Cascade)
+}
+
+model VoyageHistory {
+  id                String   @id
+  voyageId          String
+  sequence          Int
+  aggregateRevision Int
+  panelsJson        String
+  snapshotJson      String
+  createdAt         DateTime @default(now())
+
+  voyage Voyage @relation(fields: [voyageId], references: [id], onDelete: Cascade, onUpdate: Cascade)
+
+  @@unique([voyageId, sequence])
+  @@index([voyageId])
+}
+
+model VoyageLayoutQuarantine {
+  id                   String    @id
+  voyageId             String
+  sourceRevision       Int
+  reasonCode           String
+  rejectedSnapshotJson String
+  createdAt            DateTime  @default(now())
+  resolvedAt           DateTime?
+
+  voyage Voyage @relation(fields: [voyageId], references: [id], onDelete: Cascade, onUpdate: Cascade)
+
+  @@index([voyageId])
+}
+
+model VoyageSettings {
+  singletonKey       String   @id @default("installation")
+  warmVoyageLimit    Int      @default(2)
+  iframeRuntimeLimit Int      @default(5)
+  historyLimit       Int      @default(50)
+  updatedAt          DateTime @default(now())
+}
+
+model VoyageMigrationDiagnostic {
+  id            String   @id
+  migrationName String
+  voyageId      String?
+  sourceKind    String
+  sourceId      String?
+  outcome       String
+  reasonCode    String
+  detailsJson   String?
+  createdAt     DateTime @default(now())
+
+  voyage Voyage? @relation(fields: [voyageId], references: [id], onDelete: SetNull, onUpdate: Cascade)
+
+  @@index([migrationName])
+  @@index([voyageId])
 }

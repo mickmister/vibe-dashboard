@@ -2,11 +2,12 @@ import { spawnSync } from 'node:child_process';
 
 const generatedPaths = [
   'db/dialects/sqlite/sqlite.schema.prisma',
+  'src/store/kysely_types.ts',
   'src/store/db/migrations',
   'src/store/db/imported_migrations',
 ];
 
-run('npm', ['run', 'db:prepare-schema']);
+run('npm', ['run', 'db:generate-schema-artifacts']);
 run('npm', ['run', 'db:generate-migration-imports']);
 run('git', ['diff', '--exit-code', '--', ...generatedPaths]);
 run('npm', ['run', 'db:smoke:external-integrations']);

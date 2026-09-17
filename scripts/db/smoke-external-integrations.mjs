@@ -3,50 +3,6 @@ import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import Database from 'better-sqlite3';
 
-function splitSqlStatements(migrationSql) {
-  const statements = [];
-  let current = '';
-  let quote;
-  let lineComment = false;
-
-  for (let index = 0; index < migrationSql.length; index += 1) {
-    const char = migrationSql[index];
-    const next = migrationSql[index + 1];
-
-    if (lineComment) {
-      current += char;
-      if (char === '\n') lineComment = false;
-      continue;
-    }
-    if (!quote && char === '-' && next === '-') {
-      lineComment = true;
-      current += char;
-      continue;
-    }
-    if (quote) {
-      current += char;
-      if (char === quote && migrationSql[index - 1] !== '\\') quote = undefined;
-      continue;
-    }
-    if (char === '"' || char === "'" || char === '`') {
-      quote = char;
-      current += char;
-      continue;
-    }
-    if (char === ';') {
-      const trimmed = current.trim();
-      if (trimmed) statements.push(trimmed);
-      current = '';
-      continue;
-    }
-    current += char;
-  }
-
-  const trimmed = current.trim();
-  if (trimmed) statements.push(trimmed);
-  return statements;
-}
-
 async function listMigrationNames() {
   const migrationsRoot = join(process.cwd(), 'db/dialects/sqlite/migrations');
   const entries = await readdir(migrationsRoot);
@@ -71,9 +27,7 @@ try {
   for (const migrationName of migrationNames) {
     const migrationPath = join(process.cwd(), 'db/dialects/sqlite/migrations', migrationName, 'migration.sql');
     const migrationSql = await readFile(migrationPath, 'utf8');
-    for (const statement of splitSqlStatements(migrationSql)) {
-      db.exec(statement);
-    }
+    db.exec(migrationSql);
     db.prepare('INSERT INTO "Migration" ("name") VALUES (?)').run(migrationName);
   }
 
@@ -88,6 +42,14 @@ try {
     'VKWorkspace',
     'ExternalIssueWorkspaceLink',
     'ExternalRepoProjectMapping',
+    'Voyage',
+    'VoyageCraft',
+    'VoyagePanel',
+    'VoyageLayout',
+    'VoyageHistory',
+    'VoyageLayoutQuarantine',
+    'VoyageSettings',
+    'VoyageMigrationDiagnostic',
     'Migration',
   ];
   const missing = requiredTables.filter((tableName) => !tableNames.has(tableName));
@@ -96,8 +58,8 @@ try {
   }
 
   db.close();
-  if (migrationNames.length !== 4) {
-    throw new Error(`Expected 4 external integration migrations, found ${migrationNames.length}`);
+  if (migrationNames.length !== 5) {
+    throw new Error(`Expected 5 database migrations, found ${migrationNames.length}`);
   }
 
   console.log(`External integrations DB smoke passed (${migrationNames.length} migrations applied)`);

@@ -91,12 +91,16 @@ describe('external integrations migrations', () => {
       ]));
 
       sqlite.prepare('INSERT INTO Voyage (id, name, lifecycleState) VALUES (?, ?, ?)').run('voyage-1', 'Today', 'active');
-      sqlite.prepare('INSERT INTO VoyageCraft (voyageId, craftWorkspaceId, sortKey) VALUES (?, ?, ?)').run('voyage-1', 'vk-workspace-1', 'a');
+      const externalWorkspaceId = 'external-vk-workspace-without-local-row';
+      expect(sqlite.prepare('SELECT 1 FROM VKWorkspace WHERE workspaceId = ?').get(externalWorkspaceId)).toBeUndefined();
+      sqlite.prepare('INSERT INTO VoyageCraft (voyageId, craftWorkspaceId, sortKey) VALUES (?, ?, ?)').run('voyage-1', externalWorkspaceId, 'a');
       sqlite.prepare('INSERT INTO VoyagePanel (id, voyageId, craftWorkspaceId, targetKind, targetVersion, targetPayloadJson, titleMode, closePolicy) VALUES (?, ?, ?, ?, ?, ?, ?, ?)')
-        .run('panel-1', 'voyage-1', 'vk-workspace-1', 'agent-session', 1, '{}', 'derived', 'closable');
+        .run('panel-1', 'voyage-1', externalWorkspaceId, 'agent-session', 1, '{}', 'derived', 'closable');
 
+      sqlite.prepare('INSERT INTO Voyage (id, name, lifecycleState) VALUES (?, ?, ?)').run('voyage-2', 'Tomorrow', 'active');
+      sqlite.prepare('INSERT INTO VoyageCraft (voyageId, craftWorkspaceId, sortKey) VALUES (?, ?, ?)').run('voyage-2', 'other-voyage-only-workspace', 'a');
       expect(() => sqlite.prepare('INSERT INTO VoyagePanel (id, voyageId, craftWorkspaceId, targetKind, targetVersion, targetPayloadJson, titleMode, closePolicy) VALUES (?, ?, ?, ?, ?, ?, ?, ?)')
-        .run('panel-wrong-membership', 'voyage-1', 'vk-workspace-other', 'code', 1, '{}', 'derived', 'closable')).toThrow();
+        .run('panel-wrong-membership', 'voyage-1', 'other-voyage-only-workspace', 'code', 1, '{}', 'derived', 'closable')).toThrow();
       expect(() => sqlite.prepare('UPDATE VoyagePanel SET lastActivatedSequence = 2 WHERE id = ?').run('panel-1')).toThrow();
       expect(() => sqlite.prepare('UPDATE Voyage SET revision = -1 WHERE id = ?').run('voyage-1')).toThrow();
 
