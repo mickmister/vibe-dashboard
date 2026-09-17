@@ -14,9 +14,10 @@ export async function loadPanelTargetBackendAuthority(client: BackendClient, wor
     if (!snapshot.ready || snapshot.workspaceId !== workspaceId || !snapshot.terminalsReady) return { status: 'not-ready' };
     const targets: Record<string, { location: string; available: boolean; factoryKey: string }> = {};
     for (const [kind, reference] of Object.entries(snapshot.workspaceTargets)) if (reference?.available && reference.factoryKey) {
-      const location = join(routes.workspacePrefix, workspaceId, kind);
+      const delivery = join(routes.workspacePrefix, workspaceId, kind);
+      const location = `${routes.workspaceUpstreamPrefix}/${encodeURIComponent(workspaceId)}${kind === 'code' ? '/vscode' : ''}`;
       targets[kind] = { location, available: true, factoryKey: reference.factoryKey };
-      setUnique(definitions.redirectGuards, `${kind === 'overview' ? 'craft-overview' : kind}:${workspaceId}`, { deliveryUrl: new URL(location, applicationOrigin).href, upstreamOrigin: routes.workspaceUpstreamOrigin });
+      setUnique(definitions.redirectGuards, `${kind === 'overview' ? 'craft-overview' : kind}:${workspaceId}`, { deliveryUrl: new URL(delivery, applicationOrigin).href, upstreamOrigin: routes.workspaceUpstreamOrigin });
     }
     setUnique(definitions.workspaceTargets, workspaceId, targets);
     // Session and terminal identities remain owner data, but no runtime route
@@ -27,7 +28,7 @@ export async function loadPanelTargetBackendAuthority(client: BackendClient, wor
         const upstreamOrigin = resolved.previewSlotId === preview.previewSlotId ? origin(resolved.url) : null;
         if (!upstreamOrigin) continue;
         const location = join(routes.previewPrefix, workspaceId, preview.previewSlotId);
-        setUnique(definitions.previews, preview.previewSlotId, { workspaceId, location, factoryKey: preview.factoryKey });
+        setUnique(definitions.previews, preview.previewSlotId, { workspaceId, location: resolved.url, factoryKey: preview.factoryKey });
         setUnique(definitions.redirectGuards, `preview:${preview.previewSlotId}`, { deliveryUrl: new URL(location, applicationOrigin).href, upstreamOrigin });
       } catch { /* unavailable preview targets are intentionally omitted */ }
     }

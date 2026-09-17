@@ -22,14 +22,14 @@ function client(input: { archived?: boolean; includeBackend?: boolean; mismatche
       sessions: input.includeBackend === false ? [] : [{ sessionId: 'session-1', workspaceId: 'workspace-1', factory: { factoryKey: 'agent-session', available: true } }],
       previews: input.includeBackend === false ? [] : [{ previewSlotId: 'preview-1', workspaceId: 'workspace-1', factoryKey: 'preview-slot', available: true }],
     }) as never),
-    getPreviewSlotUrl: vi.fn(async () => ({ previewSlotId: input.mismatchedPreview ? 'other' : 'preview-1', workspaceToken: 'token', repoSlug: 'repo', slotSlug: 'web', customerSlug: 'customer', host: 'preview.test', url: 'https://preview.test/' }) as never),
+    getPreviewSlotUrl: vi.fn(async () => ({ previewSlotId: input.mismatchedPreview ? 'other' : 'preview-1', url: 'https://preview.test/' }) as never),
   };
 }
 const craft = { id: 'craft-1', label: 'Craft', workspace: { workspaceId: 'workspace-1', workspaceDir: '/stale', factoryKey: 'plugin.docs/workspace' }, tabs: [], pairs: [], order: 0 };
 const router = (allowedCraftIds = ['craft-1']) => createPanelTargetRouterAuthoritySnapshot({
   builtInRoutes: { settings: { location: '/settings', allowedCraftIds } },
   redirectGuards: { 'internal-route:settings': { deliveryUrl: 'https://dashboard.test/settings', upstreamOrigin: 'https://dashboard.test' } },
-  deliveryRoutes: { workspacePrefix: '/w', previewPrefix: '/p', workspaceUpstreamOrigin: 'https://vk.test', previewCustomerSlug: 'customer' },
+  deliveryRoutes: { workspacePrefix: '/w', previewPrefix: '/p', workspaceUpstreamOrigin: 'https://vk.test', workspaceUpstreamPrefix: 'https://vk.test/workspaces', previewCustomerSlug: 'customer' },
 });
 
 describe('production Panel target authority composition', () => {
@@ -41,9 +41,13 @@ describe('production Panel target authority composition', () => {
       crafts: { 'craft-1': { allowedPluginTargets: ['plugin.docs/help'] } },
       agentSessions: {},
       terminals: {},
-      previews: { 'preview-1': { location: '/p/workspace-1/preview-1', factoryKey: 'preview-slot' } },
+      previews: { 'preview-1': { location: 'https://preview.test/', factoryKey: 'preview-slot' } },
       builtInRoutes: { settings: { allowedCraftIds: ['craft-1'] } },
-      redirectGuards: { 'internal-route:settings': { upstreamOrigin: 'https://dashboard.test' } },
+      redirectGuards: {
+        'internal-route:settings': { upstreamOrigin: 'https://dashboard.test' },
+        'code:workspace-1': { deliveryUrl: 'https://dashboard.test/w/workspace-1/code', upstreamOrigin: 'https://vk.test' },
+        'preview:preview-1': { deliveryUrl: 'https://dashboard.test/p/workspace-1/preview-1', upstreamOrigin: 'https://preview.test' },
+      },
     });
   });
 

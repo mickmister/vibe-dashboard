@@ -40,6 +40,17 @@ describe('production Panel target delivery route owner', () => {
     expect(getProductionPanelTargetRouterAuthoritySnapshot()).toEqual({ status: 'not-ready' });
   });
 
+  it('replaces owner policy on route restart and never retains a prior upstream', () => {
+    const first = registerPanelTargetDeliveryRoutes(new Hono(), { vkOrigin: 'https://old-vk.test', vkClient: { getPreviewSlotUrl: vi.fn() } });
+    first.dispose();
+    const second = registerPanelTargetDeliveryRoutes(new Hono(), { vkOrigin: 'https://current-vk.test', vkClient: { getPreviewSlotUrl: vi.fn() } });
+    expect(getProductionPanelTargetRouterAuthoritySnapshot()).toMatchObject({ status: 'ready', definitions: { deliveryRoutes: {
+      workspaceUpstreamOrigin: 'https://current-vk.test', workspaceUpstreamPrefix: 'https://current-vk.test/workspaces',
+    } } });
+    second.dispose();
+    expect(getProductionPanelTargetRouterAuthoritySnapshot()).toEqual({ status: 'not-ready' });
+  });
+
   it('fails closed for mismatched or unsafe preview resolution', async () => {
     const app = new Hono();
     registerPanelTargetDeliveryRoutes(app, { vkOrigin: 'https://vk.test', vkClient: { getPreviewSlotUrl: vi.fn(async () => ({ previewSlotId: 'preview-1', url: 'http://unsafe.test/' })) } as never });

@@ -8,12 +8,17 @@ export function registerPanelTargetDeliveryRoutes(app: Hono, options: { vkClient
   const client = options.vkClient ?? new VibeKanbanServerClient();
   const origin = new URL(options.vkOrigin ?? process.env.VITE_VK_BASE_ORIGIN ?? '').origin;
   const previewCustomerSlug = options.previewCustomerSlug ?? 'preview';
-  app.get(`${WORKSPACE_PREFIX}/:workspaceId/:surface`, (c) => c.redirect(new URL(c.req.param('surface') === 'code' ? `/workspaces/${encodeURIComponent(c.req.param('workspaceId'))}/vscode` : `/workspaces/${encodeURIComponent(c.req.param('workspaceId'))}`, origin).href, 302));
+  app.get(`${WORKSPACE_PREFIX}/:workspaceId/:surface`, (c) => {
+    const surface = c.req.param('surface');
+    if (!['overview', 'code', 'changes', 'beads', 'forms'].includes(surface)) return c.notFound();
+    return c.redirect(new URL(surface === 'code' ? `/workspaces/${encodeURIComponent(c.req.param('workspaceId'))}/vscode` : `/workspaces/${encodeURIComponent(c.req.param('workspaceId'))}`, origin).href, 302);
+  });
   app.get(`${PREVIEW_PREFIX}/:workspaceId/:previewId`, async (c) => { try { const resolved = await client.getPreviewSlotUrl(c.req.param('workspaceId'), c.req.param('previewId'), { customerSlug: previewCustomerSlug }); const location = resolved.previewSlotId === c.req.param('previewId') ? safeRedirect(resolved.url) : null; return location ? c.redirect(location, 302) : c.notFound(); } catch { return c.notFound(); } });
   publishProductionPanelTargetRouterAuthority({ builtInRoutes: {}, redirectGuards: {}, deliveryRoutes: Object.freeze({
     workspacePrefix: WORKSPACE_PREFIX,
     previewPrefix: PREVIEW_PREFIX,
     workspaceUpstreamOrigin: origin,
+    workspaceUpstreamPrefix: new URL('/workspaces', origin).href.replace(/\/$/, ''),
     previewCustomerSlug,
   }) });
   let disposed = false;

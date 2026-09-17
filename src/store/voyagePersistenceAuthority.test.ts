@@ -63,9 +63,7 @@ describe('normalized Voyage startup authority', () => {
     Object.assign(process.env, { VD_DB_PATH: targetPath, VD_KV_DB_PATH: sourcePath, VIBE_API_URL: 'https://vk-api.test', VITE_VK_BASE_ORIGIN: 'https://dashboard.test' });
     const delivery = (location: string) => ({ location, available: true, factoryKey: 'server-owned-panel' });
     const targets = { overview: delivery('/workspaces/workspace-1'), code: delivery('/workspaces/workspace-1/vscode'), changes: delivery('/workspaces/workspace-1?view=changes'), beads: delivery('/workspaces/workspace-1?view=beads'), forms: delivery('/workspaces/workspace-1?view=forms') };
-    publishProductionPanelTargetRouterAuthority({ builtInRoutes: {}, redirectGuards: {
-      'code:workspace-1': { deliveryUrl: 'https://dashboard.test/workspaces/workspace-1/vscode', upstreamOrigin: 'https://dashboard.test' },
-    }, deliveryRoutes: { workspacePrefix: '/internal/panel-target/workspaces', previewPrefix: '/internal/panel-target/previews', workspaceUpstreamOrigin: 'https://vk.test', previewCustomerSlug: 'customer' } });
+    publishProductionPanelTargetRouterAuthority({ builtInRoutes: {}, redirectGuards: {}, deliveryRoutes: { workspacePrefix: '/internal/panel-target/workspaces', previewPrefix: '/internal/panel-target/previews', workspaceUpstreamOrigin: 'https://vk.test', workspaceUpstreamPrefix: 'https://vk.test/workspaces', previewCustomerSlug: 'customer' } });
     vi.stubGlobal('fetch', vi.fn(async (url: string) => new Response(JSON.stringify({ success: true, data: url.endsWith('/workspaces') ? [{ id: 'workspace-1', archived: false, agent_working_dir: '/trusted' }]
       : url.includes('/panel-target-authority') ? { ready: true, workspaceId: 'workspace-1', workspaceTargets: Object.fromEntries(Object.entries(targets).map(([key, value]) => [key, { factoryKey: value.factoryKey, available: value.available }])), sessions: [], terminalsReady: true, terminals: [], previews: [] } : [] }), { status: 200, headers: { 'content-type': 'application/json' } })));
     try {

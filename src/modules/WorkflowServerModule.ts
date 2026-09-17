@@ -45,7 +45,8 @@ serverRegistry.registerServerModule((api) => {
   panelTargetDeliveryOwner = registerPanelTargetDeliveryRoutes(api.hono);
 });
 
-if (import.meta.hot) import.meta.hot.dispose(disposeWorkflowServerModule);
+const hot = (import.meta as ImportMeta & { hot?: { dispose(callback: () => void): void } }).hot;
+if (hot) hot.dispose(disposeWorkflowServerModule);
 
 async function getCachedGitRepos(): Promise<CachedRepoAlias[]> {
   cachedGitRepos ??= await hydrateLocalGitRepoAliases(reposRoot);

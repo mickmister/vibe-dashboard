@@ -10,7 +10,7 @@ function client(overrides: Record<string, unknown> = {}) {
 }
 
 describe('backend Panel target owners', () => {
-  const routes = { workspacePrefix: '/w', previewPrefix: '/p', workspaceUpstreamOrigin: 'https://vk.test', previewCustomerSlug: 'customer' };
+  const routes = { workspacePrefix: '/w', previewPrefix: '/p', workspaceUpstreamOrigin: 'https://vk.test', workspaceUpstreamPrefix: 'https://vk.test/workspaces', previewCustomerSlug: 'customer' };
   it('distinguishes successful ready-empty terminal/session/preview owners', async () => {
     await expect(loadPanelTargetBackendAuthority(client(), ['workspace-1'], routes, 'https://dashboard.test')).resolves.toEqual({
       status: 'ready', definitions: { agentSessions: {}, terminals: {}, previews: {}, redirectGuards: {}, workspaceTargets: { 'workspace-1': {} } },
@@ -28,7 +28,7 @@ describe('backend Panel target owners', () => {
       ], previews: [{ previewSlotId: 'preview', workspaceId: 'workspace-1', factoryKey: 'preview-slot', available: true }] })),
       getPreviewSlotUrl,
     }), ['workspace-1'], routes, 'https://dashboard.test');
-    expect(snapshot).toMatchObject({ status: 'ready', definitions: { agentSessions: {}, terminals: {}, previews: { preview: { location: '/p/workspace-1/preview' } }, redirectGuards: {
+    expect(snapshot).toMatchObject({ status: 'ready', definitions: { agentSessions: {}, terminals: {}, previews: { preview: { location: 'https://preview.test/' } }, redirectGuards: {
       'preview:preview': { deliveryUrl: 'https://dashboard.test/p/workspace-1/preview', upstreamOrigin: 'https://preview.test' },
     } } });
   });

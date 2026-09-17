@@ -13,6 +13,8 @@ describe('Workflow server module delivery-owner lifecycle', () => {
     const module = await import('./WorkflowServerModule');
     captured.callback?.({ hono: new Hono() });
     expect(getProductionPanelTargetRouterAuthoritySnapshot().status).toBe('ready');
+    captured.callback?.({ hono: new Hono() });
+    expect(getProductionPanelTargetRouterAuthoritySnapshot().status).toBe('ready');
     module.disposeWorkflowServerModule();
     module.disposeWorkflowServerModule();
     expect(getProductionPanelTargetRouterAuthoritySnapshot()).toEqual({ status: 'not-ready' });

@@ -4,6 +4,7 @@ export interface PanelTargetDeliveryRoutes {
   readonly workspacePrefix: string;
   readonly previewPrefix: string;
   readonly workspaceUpstreamOrigin: string;
+  readonly workspaceUpstreamPrefix: string;
   readonly previewCustomerSlug: string;
 }
 export interface PanelTargetRouterDefinitions { readonly builtInRoutes: Record<string, PanelBuiltInRoute>; readonly redirectGuards: Record<string, PanelRedirectGuard>; readonly deliveryRoutes: PanelTargetDeliveryRoutes; }
