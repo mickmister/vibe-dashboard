@@ -54,12 +54,11 @@ describe('normalized Voyage startup authority', () => {
     source.prepare('INSERT INTO kvstore VALUES (?, ?)').run(LEGACY_SESSIONS_KEY, JSON.stringify({ version: 3, data: [session] })); source.close();
     registerPlugin(createPluginManifest({ id: 'plugin.docs', displayName: 'Docs', version: '1', contributions: {
       internalRoutes: [{ key: 'help', title: 'Help', path: '/help', urlTemplate: 'https://plugin.test/help', allowedParams: [] }],
+      tabGroupFactories: [{ key: 'workspace', title: 'Workspace', description: 'Workspace', launchMode: 'vk-workspace',
+        workspaceComposition: { tabs: [{ key: 'help', title: 'Help', urlTemplate: 'internal://plugins/plugin.docs/help' }] } }],
     } }));
-    const prior = { VD_DB_PATH: process.env.VD_DB_PATH, VD_KV_DB_PATH: process.env.VD_KV_DB_PATH, VIBE_API_URL: process.env.VIBE_API_URL, VD_VOYAGE_TARGET_AUTHORITY_JSON: process.env.VD_VOYAGE_TARGET_AUTHORITY_JSON };
-    Object.assign(process.env, { VD_DB_PATH: targetPath, VD_KV_DB_PATH: sourcePath, VIBE_API_URL: 'https://vk-api.test', VD_VOYAGE_TARGET_AUTHORITY_JSON: JSON.stringify({
-      hostOrigin: 'https://dashboard.test', workspaceOrigin: 'https://vk.test', locations: { overview: '/overview', code: '/code', changes: '/changes', beads: '/beads', forms: '/forms' },
-      redirectGuards: { 'code:workspace-1': { deliveryUrl: 'https://dashboard.test/guard/code', upstreamOrigin: 'https://vk.test' } }, craftPluginAuthorizations: { 'craft-1': ['plugin.docs/help'] },
-    }) });
+    const prior = { VD_DB_PATH: process.env.VD_DB_PATH, VD_KV_DB_PATH: process.env.VD_KV_DB_PATH, VIBE_API_URL: process.env.VIBE_API_URL, VITE_VK_BASE_ORIGIN: process.env.VITE_VK_BASE_ORIGIN };
+    Object.assign(process.env, { VD_DB_PATH: targetPath, VD_KV_DB_PATH: sourcePath, VIBE_API_URL: 'https://vk-api.test', VITE_VK_BASE_ORIGIN: 'https://dashboard.test' });
     vi.stubGlobal('fetch', vi.fn(async (url: string) => new Response(JSON.stringify({ success: true, data: url.endsWith('/workspaces') ? [{ id: 'workspace-1', archived: false, agent_working_dir: '/trusted' }]
       : url.includes('/repos') ? [] : [] }), { status: 200, headers: { 'content-type': 'application/json' } })));
     try {

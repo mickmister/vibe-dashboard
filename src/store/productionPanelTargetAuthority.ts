@@ -1,92 +1,74 @@
 import type { Craft } from '../types';
 import { getPluginRegistrySnapshot } from '../modules/plugins/vibe-dashboard/registry';
+import { getEffectiveTabs } from '../modules/plugins/vibe-dashboard/craft-surfaces';
+import { parsePluginInternalUrl } from '../modules/plugins/vibe-dashboard/runtime';
 import type { PluginRegistryState } from '../modules/plugins/vibe-dashboard/types';
-import { VibeKanbanServerClient, type RepoWithBranch, type Session, type Workspace } from '../server/vk-client';
+import { VibeKanbanServerClient, type Session, type Workspace } from '../server/vk-client';
 import type { PanelTargetResolutionContext, TrustedWorkspace } from './panelTargetRegistry';
+import { getPanelTargetRuntimeRegistrySnapshot, type PanelTargetRuntimeRegistrySnapshot } from './panelTargetRuntimeRegistry';
 
 type AuthorityClient = Pick<VibeKanbanServerClient, 'getWorkspaces' | 'getWorkspaceRepos' | 'getSessions'>;
-type AuthorityConfiguration = {
-  hostOrigin: string;
-  workspaceOrigin: string;
-  locations: TrustedWorkspace['locations'];
-  redirectGuards: PanelTargetResolutionContext['redirectGuards'];
-  craftPluginAuthorizations: Record<string, string[]>;
-};
 
-function parseConfiguration(env: Record<string, string | undefined>): AuthorityConfiguration {
-  const raw = env.VD_VOYAGE_TARGET_AUTHORITY_JSON;
-  if (!raw) throw Object.assign(new Error('Voyage target authority configuration is unavailable'), { code: 'MIGRATION_AUTHORITY_UNAVAILABLE' });
-  let value: unknown;
-  try { value = JSON.parse(raw); } catch { throw Object.assign(new Error('Voyage target authority configuration is malformed'), { code: 'MIGRATION_AUTHORITY_UNAVAILABLE' }); }
-  if (!value || typeof value !== 'object' || Array.isArray(value)) throw Object.assign(new Error('Voyage target authority configuration is malformed'), { code: 'MIGRATION_AUTHORITY_UNAVAILABLE' });
-  const candidate = value as AuthorityConfiguration;
-  const locationKeys = ['overview', 'code', 'changes', 'beads', 'forms'];
-  if (!candidate.locations || locationKeys.some((key) => typeof candidate.locations[key as keyof TrustedWorkspace['locations']] !== 'string')
-    || !candidate.redirectGuards || !candidate.craftPluginAuthorizations) {
-    throw Object.assign(new Error('Voyage target authority configuration is incomplete'), { code: 'MIGRATION_AUTHORITY_UNAVAILABLE' });
-  }
-  for (const origin of [candidate.hostOrigin, candidate.workspaceOrigin]) {
-    try { if (new URL(origin).origin !== origin) throw new Error(); } catch { throw Object.assign(new Error('Voyage target authority origin is invalid'), { code: 'MIGRATION_AUTHORITY_UNAVAILABLE' }); }
-  }
-  return structuredClone(candidate);
+function productionOrigin(env: Record<string, string | undefined>): string {
+  const configured = env.VITE_VK_BASE_ORIGIN?.trim();
+  if (!configured) throw Object.assign(new Error('Canonical workspace delivery service is not ready'), { code: 'MIGRATION_AUTHORITY_UNAVAILABLE' });
+  try {
+    const parsed = new URL(configured);
+    if (!['http:', 'https:'].includes(parsed.protocol) || parsed.username || parsed.password || parsed.origin !== configured.replace(/\/$/, '')) throw new Error();
+    return parsed.origin;
+  } catch { throw Object.assign(new Error('Canonical workspace delivery service is malformed'), { code: 'MIGRATION_AUTHORITY_UNAVAILABLE' }); }
 }
 
-/** Immutable production snapshot used by migration and post-cutover commands. */
+/** Immutable snapshot of the live VK, plugin, Craft-surface and Caddy authorities used by runtime. */
 export async function createProductionPanelTargetContextProvider(options: {
   env?: Record<string, string | undefined>;
   client?: AuthorityClient;
   pluginRegistry?: PluginRegistryState;
+  runtimeRegistry?: PanelTargetRuntimeRegistrySnapshot;
 } = {}): Promise<(craft: Craft, workspaceId: string) => PanelTargetResolutionContext | null> {
-  const configuration = parseConfiguration(options.env ?? process.env);
+  const origin = productionOrigin(options.env ?? process.env);
   const client = options.client ?? new VibeKanbanServerClient();
   const plugins = structuredClone(options.pluginRegistry ?? getPluginRegistrySnapshot());
-  const contributionKeys = new Set([...Object.keys(plugins.internalRoutes), ...Object.keys(plugins.craftSurfaces)]);
-  for (const targets of Object.values(configuration.craftPluginAuthorizations)) {
-    if (!Array.isArray(targets) || targets.some((target) => typeof target !== 'string' || !contributionKeys.has(target)) || new Set(targets).size !== targets.length) {
-      throw Object.assign(new Error('Voyage target plugin authorization is invalid'), { code: 'MIGRATION_AUTHORITY_UNAVAILABLE' });
-    }
-  }
-  for (const guard of Object.values(configuration.redirectGuards)) {
-    try {
-      const delivery = new URL(guard.deliveryUrl); const upstream = new URL(guard.upstreamOrigin);
-      if (!['http:', 'https:'].includes(delivery.protocol) || !['http:', 'https:'].includes(upstream.protocol)
-        || delivery.username || delivery.password || upstream.username || upstream.password) throw new Error();
-    } catch { throw Object.assign(new Error('Voyage redirect guard configuration is invalid'), { code: 'MIGRATION_AUTHORITY_UNAVAILABLE' }); }
-  }
+  const runtime = structuredClone(options.runtimeRegistry ?? getPanelTargetRuntimeRegistrySnapshot());
   const current = (await client.getWorkspaces()).filter(({ archived }) => !archived);
-  const details = await Promise.all(current.map(async (workspace) => ({
-    workspace,
-    repos: await client.getWorkspaceRepos(workspace.id),
-    sessions: await client.getSessions(workspace.id),
-  })));
-  const workspaces = Object.fromEntries(details.map(({ workspace, repos }) => [workspace.id, trustedWorkspace(workspace, repos, configuration)]));
+  const details = await Promise.all(current.map(async (workspace) => ({ workspace,
+    repos: await client.getWorkspaceRepos(workspace.id), sessions: await client.getSessions(workspace.id) })));
+  const byId = new Map(details.map((detail) => [detail.workspace.id, detail]));
   const agentSessions = Object.fromEntries(details.flatMap(({ workspace, sessions }) => sessions.map((session) => [session.id, sessionTarget(workspace, session)])));
-  const authorizations = structuredClone(configuration.craftPluginAuthorizations);
-  const redirectGuards = structuredClone(configuration.redirectGuards);
+
   return (craft, workspaceId) => {
-    const workspace = workspaces[workspaceId];
-    if (!workspace || craft.workspace?.workspaceId !== workspaceId) return null;
+    const detail = byId.get(workspaceId);
+    if (!detail || craft.workspace?.workspaceId !== workspaceId || !detail.workspace.agent_working_dir) return null;
+    const authoritativeCraft: Craft = { ...craft, workspace: { ...craft.workspace, workspaceDir: detail.workspace.agent_working_dir } };
+    const effectiveTabs = getEffectiveTabs(authoritativeCraft, { craftSurfaces: Object.values(plugins.craftSurfaces), origin });
+    const tab = (id: string) => effectiveTabs.find((candidate) => candidate.id === id)?.url ?? '';
+    const workspace: TrustedWorkspace = {
+      id: workspaceId, available: true, directory: detail.workspace.agent_working_dir, origin,
+      repositoryIds: detail.repos.map(({ id }) => id),
+      locations: { overview: tab('agent'), code: tab('code'), changes: tab('agent'), beads: tab('beads'), forms: tab('forms') },
+    };
+    if (Object.values(workspace.locations).some((location) => !location)) return null;
+    const allowedPluginTargets = new Set(Object.keys(plugins.craftSurfaces));
+    const factoryUrls = new Set(Object.values(plugins.tabGroupFactories).flatMap(({ workspaceComposition }) => workspaceComposition?.tabs.map(({ urlTemplate }) => urlTemplate) ?? []));
+    for (const view of craft.tabs) {
+      const parsed = parsePluginInternalUrl(view.url);
+      const route = parsed && Object.values(plugins.internalRoutes).find((candidate) => candidate.pluginId === parsed.pluginId && candidate.path === parsed.routePath);
+      if (route && factoryUrls.has(view.url)) allowedPluginTargets.add(route.key);
+    }
+    const redirectGuards = Object.fromEntries(['craft-overview', 'code', 'changes', 'beads', 'forms'].map((kind) => {
+      const location = workspace.locations[kind === 'craft-overview' ? 'overview' : kind as keyof TrustedWorkspace['locations']];
+      return [`${kind}:${workspaceId}`, { deliveryUrl: location, upstreamOrigin: new URL(location, origin).origin }];
+    }));
     return {
-      craftId: craft.id,
-      hostOrigin: configuration.hostOrigin,
-      crafts: { [craft.id]: { workspaceId, allowedPluginTargets: [...(authorizations[craft.id] ?? [])] } },
-      workspaces,
-      agentSessions,
-      terminals: {}, previews: {}, builtInRoutes: {}, redirectGuards,
+      craftId: craft.id, hostOrigin: origin,
+      crafts: { [craft.id]: { workspaceId, allowedPluginTargets: [...allowedPluginTargets].sort() } },
+      workspaces: { [workspaceId]: workspace }, agentSessions,
+      terminals: runtime.terminals, previews: runtime.previews, builtInRoutes: runtime.builtInRoutes, redirectGuards,
       getPluginRegistry: () => plugins,
     };
   };
 }
 
-function trustedWorkspace(workspace: Workspace, repos: RepoWithBranch[], configuration: AuthorityConfiguration): TrustedWorkspace {
-  const expand = (template: string) => template.replaceAll('{{workspaceId}}', encodeURIComponent(workspace.id));
-  return {
-    id: workspace.id, available: true, directory: workspace.agent_working_dir ?? '', origin: configuration.workspaceOrigin,
-    repositoryIds: repos.map(({ id }) => id),
-    locations: Object.fromEntries(Object.entries(configuration.locations).map(([key, value]) => [key, expand(value)])) as TrustedWorkspace['locations'],
-  };
-}
-
 function sessionTarget(workspace: Workspace, session: Session) {
-  return { workspaceId: workspace.id, location: `/workspaces/${encodeURIComponent(workspace.id)}/sessions/${encodeURIComponent(session.id)}` };
+  return { workspaceId: workspace.id, location: `/workspaces/${encodeURIComponent(workspace.id)}` };
 }

@@ -137,6 +137,7 @@ export class NormalizedVoyageProjection {
         deltas.push({ voyageId: id, expectedRevision, delete: true, name: session.name, crafts: [], panels: [], snapshot: {}, structural: false });
         continue;
       }
+      if (JSON.stringify(session) === JSON.stringify(replacement)) continue;
       const structural = !structuralEqual(session, replacement);
       const structure = structural
         ? compileStructure(replacement, aggregate, this.workspace(), this.contextProvider)
