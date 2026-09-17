@@ -52,9 +52,18 @@ export interface EffectiveIframePolicy {
 }
 
 const KNOWN = new Set<string>(IFRAME_CAPABILITY_NAMES);
+const BUILT_IN_CEILING = new Set<IframeCapabilityName>([
+  'scripts',
+  'same-origin',
+  'forms',
+  'modals',
+  'clipboard-read',
+  'clipboard-write',
+  'fullscreen',
+]);
 const CEILINGS: Record<IframeProvenance, ReadonlySet<IframeCapabilityName>> = {
-  'vd-built-in': new Set(IFRAME_CAPABILITY_NAMES),
-  'vk-built-in': new Set(IFRAME_CAPABILITY_NAMES),
+  'vd-built-in': BUILT_IN_CEILING,
+  'vk-built-in': BUILT_IN_CEILING,
   'installed-plugin': new Set(['scripts', 'fullscreen']),
   'forwarded-project': new Set(['scripts', 'forms']),
   'external-url': new Set(['scripts']),
@@ -106,9 +115,11 @@ export function resolveIframeCapabilityPolicy(
       return { ok: false, reason: 'invalid-definition' };
     }
   }
-  const granted = new Set<IframeCapabilityName>(
-    definition.requested.filter((capability) => ceiling.has(capability)),
-  );
+  const granted = new Set<IframeCapabilityName>();
+  if (ceiling.has('scripts')) granted.add('scripts');
+  for (const capability of definition.requested) {
+    if (ceiling.has(capability)) granted.add(capability);
+  }
   if (granted.has('popup-escape') && !granted.has('popups')) {
     return { ok: false, reason: 'invalid-definition' };
   }
