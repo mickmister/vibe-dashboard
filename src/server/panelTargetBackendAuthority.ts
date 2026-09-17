@@ -21,14 +21,8 @@ export async function loadPanelTargetBackendAuthority(client: BackendClient, wor
     setUnique(definitions.workspaceTargets, workspaceId, targets);
     // Session and terminal identities remain owner data, but no runtime route
     // currently consumes them. Do not publish privileged, inert definitions.
-    for (const preview of snapshot.previews) if (preview.workspaceId === workspaceId && preview.available && preview.factoryKey) {
-      try {
-        const issued = await guardOwner.issuePreview(workspaceId, preview.previewSlotId, applicationOrigin);
-        if (!issued) continue;
-        setUnique(definitions.previews, preview.previewSlotId, { workspaceId, location: issued.location, factoryKey: preview.factoryKey });
-        setUnique(definitions.redirectGuards, `preview:${preview.previewSlotId}`, issued.guard);
-      } catch { /* unavailable preview targets are intentionally omitted */ }
-    }
+    // Preview identities remain owner data only. Until the route owner can
+    // issue an atomic delivery lease, publishing a location/guard is unsafe.
   }
   return guardOwner.isCurrent() ? { status: 'ready', definitions: freeze(structuredClone(definitions)) } : { status: 'not-ready' };
 }

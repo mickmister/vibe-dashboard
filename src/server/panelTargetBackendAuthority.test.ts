@@ -32,9 +32,7 @@ describe('backend Panel target owners', () => {
         { sessionId: 'session', workspaceId: 'workspace-1', factory: { available: true, factoryKey: 'session' } },
       ], previews: [{ previewSlotId: 'preview', workspaceId: 'workspace-1', factoryKey: 'preview-slot', available: true }] })),
     }), ['workspace-1'], routes, 'https://dashboard.test');
-    expect(snapshot).toMatchObject({ status: 'ready', definitions: { agentSessions: {}, terminals: {}, previews: { preview: { location: 'https://preview.test/' } }, redirectGuards: {
-      'preview:preview': { deliveryUrl: 'https://dashboard.test/p/workspace-1/preview', upstreamOrigin: 'https://preview.test' },
-    } } });
+    expect(snapshot).toMatchObject({ status: 'ready', definitions: { agentSessions: {}, terminals: {}, previews: {}, redirectGuards: {} } });
   });
 
   it('publishes exact guards for ambient workspace targets and rejects unresolved preview delivery', async () => {

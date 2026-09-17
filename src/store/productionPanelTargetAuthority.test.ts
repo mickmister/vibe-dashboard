@@ -29,7 +29,7 @@ const craft = { id: 'craft-1', label: 'Craft', workspace: { workspaceId: 'worksp
 const router = (allowedCraftIds = ['craft-1']) => createPanelTargetRouterAuthoritySnapshot({
   builtInRoutes: { settings: { location: '/settings', allowedCraftIds } },
   redirectGuards: { 'internal-route:settings': { deliveryUrl: 'https://dashboard.test/settings', upstreamOrigin: 'https://dashboard.test' } },
-  deliveryRoutes: { workspacePrefix: '/w', previewPrefix: '/p' },
+  deliveryRoutes: { workspacePrefix: '/w' },
   deliveryGuardOwner: {
     isCurrent: () => true,
     issueWorkspace: (kind, workspaceId, origin) => ({ location: `https://vk.test/workspaces/${workspaceId}${kind === 'code' ? '/vscode' : ''}`, guard: { deliveryUrl: `${origin}/w/${workspaceId}/${kind}`, upstreamOrigin: 'https://vk.test' } }),
@@ -46,12 +46,11 @@ describe('production Panel target authority composition', () => {
       crafts: { 'craft-1': { allowedPluginTargets: ['plugin.docs/help'] } },
       agentSessions: {},
       terminals: {},
-      previews: { 'preview-1': { location: 'https://preview.test/', factoryKey: 'preview-slot' } },
+      previews: {},
       builtInRoutes: { settings: { allowedCraftIds: ['craft-1'] } },
       redirectGuards: {
         'internal-route:settings': { upstreamOrigin: 'https://dashboard.test' },
         'code:workspace-1': { deliveryUrl: 'https://dashboard.test/w/workspace-1/code', upstreamOrigin: 'https://vk.test' },
-        'preview:preview-1': { deliveryUrl: 'https://dashboard.test/p/workspace-1/preview-1', upstreamOrigin: 'https://preview.test' },
       },
     });
   });

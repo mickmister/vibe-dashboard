@@ -7,7 +7,7 @@ export interface PanelTargetDeliveryGuardOwner {
   issuePreview(workspaceId: string, previewId: string, applicationOrigin: string): Promise<IssuedPanelDelivery | null>;
   isCurrent(): boolean;
 }
-export interface PanelTargetDeliveryRoutes { readonly workspacePrefix: string; readonly previewPrefix: string }
+export interface PanelTargetDeliveryRoutes { readonly workspacePrefix: string }
 export interface PanelTargetRouterDefinitions {
   readonly builtInRoutes: Record<string, PanelBuiltInRoute>;
   readonly redirectGuards: Record<string, PanelRedirectGuard>;

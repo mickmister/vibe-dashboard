@@ -31,28 +31,32 @@ export function disposeWorkflowServerModule(): void {
 }
 
 serverRegistry.registerServerModule((api) => {
-  registerWorkflowRoutes(api.hono, {
-    registry: workflowRegistry,
-    repoAliasCache: {
-      get: getCachedGitRepos,
-      set: setCachedGitRepos,
-      refresh: refreshCachedGitRepos,
-    },
-  });
-  registerPluginAssetRoutes(api.hono, { installRoot: pluginInstallRoot });
-  registerPluginAdminRoutes(api.hono);
-  registerVkWorkspaceRoutes(api.hono);
-  registerVkRepoRoutes(api.hono);
-  registerPreviewResolverRoutes(api.hono);
-  // Server-module re-registration (including development hot restart) replaces
-  // the route owner's authority snapshot rather than leaving stale privileges.
+  // Revoke the prior instance before *any* restart registration side effect.
   disposeWorkflowServerModule();
-  panelTargetDeliveryOwner = registerPanelTargetDeliveryRoutes(api.hono);
-  unregisterPanelTargetCleanup = registerServerModuleCleanup(() => {
-    const owner = panelTargetDeliveryOwner;
-    panelTargetDeliveryOwner = null;
-    owner?.dispose();
-  });
+  try {
+    registerWorkflowRoutes(api.hono, {
+      registry: workflowRegistry,
+      repoAliasCache: {
+        get: getCachedGitRepos,
+        set: setCachedGitRepos,
+        refresh: refreshCachedGitRepos,
+      },
+    });
+    registerPluginAssetRoutes(api.hono, { installRoot: pluginInstallRoot });
+    registerPluginAdminRoutes(api.hono);
+    registerVkWorkspaceRoutes(api.hono);
+    registerVkRepoRoutes(api.hono);
+    registerPreviewResolverRoutes(api.hono);
+    panelTargetDeliveryOwner = registerPanelTargetDeliveryRoutes(api.hono);
+    unregisterPanelTargetCleanup = registerServerModuleCleanup(() => {
+      const owner = panelTargetDeliveryOwner;
+      panelTargetDeliveryOwner = null;
+      owner?.dispose();
+    });
+  } catch (error) {
+    disposeWorkflowServerModule();
+    throw error;
+  }
 });
 
 const hot = (import.meta as ImportMeta & { hot?: { dispose(callback: () => void): void } }).hot;
