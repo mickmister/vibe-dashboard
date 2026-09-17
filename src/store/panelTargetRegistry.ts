@@ -1,3 +1,4 @@
+import { getPluginRegistrySnapshot } from '../modules/plugins/vibe-dashboard/registry';
 import type { PluginRegistryState } from '../modules/plugins/vibe-dashboard/types';
 
 export type JsonValue = null | boolean | number | string | JsonValue[] | { [key: string]: JsonValue };
@@ -35,7 +36,7 @@ export interface PanelTargetResolutionContext {
   terminals: Record<string, OwnedBackendTarget>;
   previews: Record<string, OwnedBackendTarget>;
   builtInRoutes: Record<string, BuiltInRoute>;
-  getPluginRegistry(): PluginRegistryState;
+  getPluginRegistry?: () => PluginRegistryState;
   pluginCapabilities: Record<string, unknown>;
   resolveCustomUrl?(url: URL): URL | string;
 }
@@ -57,7 +58,7 @@ export interface CapabilityPolicy {
 export type TargetRecoveryReason =
   | 'malformed' | 'unknown-kind' | 'unsupported-version' | 'craft-unavailable'
   | 'workspace-unavailable' | 'workspace-owner-mismatch' | 'target-scope-denied'
-  | 'target-unavailable' | 'plugin-unavailable' | 'unsafe-url'
+  | 'target-unavailable' | 'ambiguous-target' | 'plugin-unavailable' | 'unsafe-url'
   | 'invalid-capability-policy' | 'resolver-failed' | 'invalid-resolver-result';
 
 export interface ResolvedPanelTarget {
@@ -300,13 +301,16 @@ function resolvePlugin(value: JsonObject, context: PanelTargetResolutionContext,
   if (!craft) return recoveryResolver('craft-unavailable');
   const workspace = context.workspaces[craft.workspaceId];
   if (!workspace?.available) return recoveryResolver('workspace-unavailable');
-  const registry = context.getPluginRegistry();
+  const registry = (context.getPluginRegistry ?? getPluginRegistrySnapshot)();
   const routeId = internal ? value.routeId as string : `${value.pluginId}/${value.surfaceId}`;
   const contribution = internal ? registry.internalRoutes[routeId] : registry.craftSurfaces[routeId];
   const pluginId = internal ? routeId.slice(0, routeId.indexOf('/')) : value.pluginId as string;
   const plugin = pluginId ? registry.plugins[pluginId] : undefined;
   if (!plugin) return recoveryResolver('plugin-unavailable');
   if (!contribution || contribution.pluginId !== pluginId || contribution.key !== routeId) return recoveryResolver('target-unavailable');
+  if (internal && 'path' in contribution && Object.values(registry.internalRoutes).filter((candidate) => candidate.pluginId === pluginId && candidate.path === contribution.path).length !== 1) {
+    return recoveryResolver('ambiguous-target');
+  }
   if (!craft.allowedPluginTargets.includes(routeId)) return recoveryResolver('target-scope-denied');
   const requested = context.pluginCapabilities[routeId] ?? ['scripts'];
   if (!strings(requested)) return recoveryResolver('invalid-capability-policy');
@@ -323,7 +327,8 @@ function resolvePlugin(value: JsonObject, context: PanelTargetResolutionContext,
     rendererKey: 'plugin-iframe', factoryKey: internal ? `plugin-internal-route:${routeId}` : `plugin-surface:${routeId}`,
     payload: internal ? { pluginId, routeKey: contribution.sourceKey, routePath, params } : { pluginId, surfaceId: contribution.sourceKey, params },
     location: canonicalLocation, provenance: 'installed-plugin', requested, runtime: 'recreatable', splitClass: 'plugin-opaque',
-    equivalence: [internal ? 'plugin-internal-route' : 'plugin-surface', routeId, stable(params)], sharing: null,
+    equivalence: [internal ? 'plugin-internal-route' : 'plugin-surface', routeId, stable(params)],
+    sharing: internal ? ['plugin-internal-route', routeId] : null,
   });
 }
 
@@ -369,7 +374,7 @@ export function createPanelTargetRegistry(options: { customDefinitions?: PanelTa
   if (definitions.size !== allDefinitions.length) throw new Error('Duplicate Panel target definition');
   return {
     resolve(input: unknown, context: PanelTargetResolutionContext): PanelTargetResolution {
-      if (!object(input) || typeof input.kind !== 'string' || !Number.isSafeInteger(input.version) || !('payload' in input)) return quarantine('malformed', input);
+      if (!exact(input, ['kind', 'version', 'payload']) || typeof input.kind !== 'string' || !Number.isSafeInteger(input.version)) return quarantine('malformed', input);
       const definition = definitions.get(input.kind);
       if (!definition) return quarantine('unknown-kind', input);
       const version = input.version as number;

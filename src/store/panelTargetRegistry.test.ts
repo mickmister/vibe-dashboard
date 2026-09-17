@@ -95,15 +95,16 @@ describe('production Panel target registry', () => {
   });
 
   it('derives canonical locations, identity, provenance, and policy from current trusted state only', () => {
-    const result = createPanelTargetRegistry().resolve({
-      ...stored('code', { workspaceId: 'workspace-1', repoId: 'repo-1', folderIntent: 'repository' }),
-      canonicalLocation: 'https://evil.test', provenance: 'installed-plugin', capabilities: ['same-origin'],
-    }, context());
+    const registry = createPanelTargetRegistry();
+    const target = stored('code', { workspaceId: 'workspace-1', repoId: 'repo-1', folderIntent: 'repository' });
+    const result = registry.resolve(target, context());
     expect(result).toMatchObject({
       status: 'resolved', rendererKey: 'workspace-code', canonicalLocation: 'https://vk.example.test/?folder=%2Ftrusted%2Fproject',
       effectiveProvenance: 'vk-built-in', equivalenceIdentity: 'code\0workspace-1\0repo-1\0repository',
       backendSharingIdentity: 'workspace\0workspace-1', capabilityPolicy: { sameOrigin: true },
     });
+    expect(registry.resolve({ ...target, canonicalLocation: 'https://evil.test', provenance: 'installed-plugin', capabilities: ['same-origin'] }, context()))
+      .toMatchObject({ status: 'quarantined', reason: 'malformed', capabilityPolicy: { scripts: false, sameOrigin: false } });
   });
 
   it('enforces authoritative Craft ownership, workspace scope, repositories, and backend ownership', () => {
@@ -121,6 +122,10 @@ describe('production Panel target registry', () => {
     const route = registry.resolve(stored('internal-route', { routeId: 'plugin.docs/help', params: { topic: 'api' } }), context());
     expect(route).toMatchObject({ status: 'resolved', factoryKey: 'plugin-internal-route:plugin.docs/help', canonicalLocation: 'https://dashboard.example.test/dashboard/plugins/plugin.docs/2.0.0/frontend_assets/help.html?topic=api', canonicalPayload: { pluginId: 'plugin.docs', routeKey: 'help', routePath: '/help' } });
     expect(registry.resolve(stored('internal-route', { routeId: 'plugin.docs/missing', params: {} }), context())).toMatchObject({ reason: 'target-unavailable' });
+    const ambiguous = plugins();
+    ambiguous.internalRoutes['plugin.docs/help-copy'] = { ...ambiguous.internalRoutes['plugin.docs/help']!, key: 'plugin.docs/help-copy', sourceKey: 'help-copy' };
+    expect(registry.resolve(stored('internal-route', { routeId: 'plugin.docs/help', params: {} }), context({ getPluginRegistry: () => ambiguous })))
+      .toMatchObject({ reason: 'ambiguous-target' });
   });
 
   it('immediately removes privileges for removed/tightened plugins and validates capability arrays', () => {
@@ -129,6 +134,8 @@ describe('production Panel target registry', () => {
     const registry = createPanelTargetRegistry();
     const target = stored('plugin-surface', { pluginId: 'plugin.docs', surfaceId: 'site', params: {} });
     expect(registry.resolve(target, context({ getPluginRegistry }))).toMatchObject({ capabilityPolicy: { fullscreen: true } });
+    expect(registry.resolve(target, context({ getPluginRegistry, pluginCapabilities: { 'plugin.docs/site': ['scripts'] } })))
+      .toMatchObject({ status: 'resolved', capabilityPolicy: { scripts: true, fullscreen: false, sameOrigin: false } });
     expect(registry.resolve(target, context({ getPluginRegistry, pluginCapabilities: { 'plugin.docs/site': ['scripts', 'bogus'] } as never }))).toMatchObject({ reason: 'invalid-capability-policy' });
     snapshot = createEmptyPluginRegistryState();
     expect(registry.resolve(target, context({ getPluginRegistry }))).toMatchObject({ reason: 'plugin-unavailable', capabilityPolicy: { scripts: false, sameOrigin: false } });
@@ -140,6 +147,8 @@ describe('production Panel target registry', () => {
       expect(registry.resolve(stored('custom-url', { url }), context())).toMatchObject({ reason: 'unsafe-url' });
     }
     expect(registry.resolve(stored('custom-url', { url: 'https://ok.example.test' }), context({ resolveCustomUrl: () => { throw new Error('boom'); } }))).toMatchObject({ reason: 'resolver-failed' });
+    expect(registry.resolve(stored('internal-route', { routeId: 'settings', params: {} }), context({ builtInRoutes: { settings: { location: '/settings', allowedCraftIds: ['craft-1'], capabilities: ['scripts', 'unknown'] } } })))
+      .toMatchObject({ reason: 'invalid-capability-policy' });
   });
 
   it('derives generic Split compatibility and backend sharing from resolved capabilities', () => {
