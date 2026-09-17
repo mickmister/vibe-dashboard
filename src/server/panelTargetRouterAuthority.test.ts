@@ -5,7 +5,7 @@ describe('router and redirect-guard Panel authority owner', () => {
   it('publishes an explicit ready-empty production registry', () => {
     const owner = new PanelTargetRouterAuthorityRegistry();
     expect(owner.snapshot()).toEqual({ status: 'not-ready' });
-    owner.publish({ builtInRoutes: {}, redirectGuards: {}, deliveryRoutes: { workspacePrefix: '/w', agentSessionPrefix: '/s', terminalPrefix: '/t', previewPrefix: '/p' } });
+    owner.publish({ builtInRoutes: {}, redirectGuards: {}, deliveryRoutes: { workspacePrefix: '/w', previewPrefix: '/p', workspaceUpstreamOrigin: 'https://vk.test', previewCustomerSlug: 'customer' } });
     expect(owner.snapshot()).toMatchObject({ status: 'ready', definitions: { builtInRoutes: {}, redirectGuards: {} } });
   });
 
@@ -13,7 +13,7 @@ describe('router and redirect-guard Panel authority owner', () => {
     const snapshot = createPanelTargetRouterAuthoritySnapshot({
       builtInRoutes: { settings: { location: '/settings', allowedCraftIds: ['craft-1'] } },
       redirectGuards: { settings: { deliveryUrl: 'https://dashboard.test/settings', upstreamOrigin: 'https://dashboard.test' } },
-      deliveryRoutes: { workspacePrefix: '/w', agentSessionPrefix: '/s', terminalPrefix: '/t', previewPrefix: '/p' },
+      deliveryRoutes: { workspacePrefix: '/w', previewPrefix: '/p', workspaceUpstreamOrigin: 'https://vk.test', previewCustomerSlug: 'customer' },
     });
     expect(snapshot).toMatchObject({ status: 'ready', definitions: { builtInRoutes: { settings: { allowedCraftIds: ['craft-1'] } } } });
     if (snapshot.status === 'ready') expect(Object.isFrozen(snapshot.definitions.builtInRoutes.settings?.allowedCraftIds)).toBe(true);

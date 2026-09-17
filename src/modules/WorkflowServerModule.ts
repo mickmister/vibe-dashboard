@@ -17,6 +17,13 @@ const execFileAsync = promisify(execFile);
 const reposRoot = process.env.VK_REPOS_ROOT || join(process.env.HOME || '/home/vkuser', 'repos');
 const pluginInstallRoot = process.env.VD_PLUGIN_INSTALL_ROOT || join(process.cwd(), 'plugins');
 let cachedGitRepos: CachedRepoAlias[] | null = null;
+let panelTargetDeliveryOwner: { dispose(): void } | null = null;
+
+export function disposeWorkflowServerModule(): void {
+  const owner = panelTargetDeliveryOwner;
+  panelTargetDeliveryOwner = null;
+  owner?.dispose();
+}
 
 serverRegistry.registerServerModule((api) => {
   registerWorkflowRoutes(api.hono, {
@@ -32,8 +39,13 @@ serverRegistry.registerServerModule((api) => {
   registerVkWorkspaceRoutes(api.hono);
   registerVkRepoRoutes(api.hono);
   registerPreviewResolverRoutes(api.hono);
-  registerPanelTargetDeliveryRoutes(api.hono);
+  // Server-module re-registration (including development hot restart) replaces
+  // the route owner's authority snapshot rather than leaving stale privileges.
+  disposeWorkflowServerModule();
+  panelTargetDeliveryOwner = registerPanelTargetDeliveryRoutes(api.hono);
 });
+
+if (import.meta.hot) import.meta.hot.dispose(disposeWorkflowServerModule);
 
 async function getCachedGitRepos(): Promise<CachedRepoAlias[]> {
   cachedGitRepos ??= await hydrateLocalGitRepoAliases(reposRoot);

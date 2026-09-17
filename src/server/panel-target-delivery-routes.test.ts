@@ -22,11 +22,22 @@ describe('production Panel target delivery route owner', () => {
     expect(JSON.stringify(getPreviewSlotUrl.mock.calls)).not.toContain('workspaceToken');
   });
 
-  it('uses a distinct agent-session query and never overloads Voyage session', async () => {
+  it('does not publish or register an inert agent-session delivery route', async () => {
     const app = new Hono();
     registerPanelTargetDeliveryRoutes(app, { vkOrigin: 'https://vk.test', vkClient: { getPreviewSlotUrl: vi.fn() } });
     const response = await app.request('/internal/panel-target/agent-sessions/workspace-1/agent-1');
-    expect(response.headers.get('location')).toBe('https://vk.test/workspaces/workspace-1?agentSessionId=agent-1');
+    expect(response.status).toBe(404);
+    expect(JSON.stringify(getProductionPanelTargetRouterAuthoritySnapshot())).not.toContain('agentSession');
+  });
+
+  it('publishes lifecycle-owned delivery policy and revokes it exactly once', () => {
+    const owner = registerPanelTargetDeliveryRoutes(new Hono(), { vkOrigin: 'https://vk.test', previewCustomerSlug: 'customer', vkClient: { getPreviewSlotUrl: vi.fn() } });
+    expect(getProductionPanelTargetRouterAuthoritySnapshot()).toMatchObject({ status: 'ready', definitions: { deliveryRoutes: {
+      workspaceUpstreamOrigin: 'https://vk.test', previewCustomerSlug: 'customer',
+    } } });
+    owner.dispose();
+    owner.dispose();
+    expect(getProductionPanelTargetRouterAuthoritySnapshot()).toEqual({ status: 'not-ready' });
   });
 
   it('fails closed for mismatched or unsafe preview resolution', async () => {

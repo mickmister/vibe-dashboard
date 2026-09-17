@@ -29,7 +29,7 @@ const craft = { id: 'craft-1', label: 'Craft', workspace: { workspaceId: 'worksp
 const router = (allowedCraftIds = ['craft-1']) => createPanelTargetRouterAuthoritySnapshot({
   builtInRoutes: { settings: { location: '/settings', allowedCraftIds } },
   redirectGuards: { 'internal-route:settings': { deliveryUrl: 'https://dashboard.test/settings', upstreamOrigin: 'https://dashboard.test' } },
-  deliveryRoutes: { workspacePrefix: '/w', agentSessionPrefix: '/s', terminalPrefix: '/t', previewPrefix: '/p' },
+  deliveryRoutes: { workspacePrefix: '/w', previewPrefix: '/p', workspaceUpstreamOrigin: 'https://vk.test', previewCustomerSlug: 'customer' },
 });
 
 describe('production Panel target authority composition', () => {
@@ -39,7 +39,7 @@ describe('production Panel target authority composition', () => {
     }));
     expect(provider(craft, 'workspace-1')).toMatchObject({
       crafts: { 'craft-1': { allowedPluginTargets: ['plugin.docs/help'] } },
-      agentSessions: { 'session-1': { location: '/s/workspace-1/session-1' } },
+      agentSessions: {},
       terminals: {},
       previews: { 'preview-1': { location: '/p/workspace-1/preview-1', factoryKey: 'preview-slot' } },
       builtInRoutes: { settings: { allowedCraftIds: ['craft-1'] } },
