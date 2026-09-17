@@ -60,7 +60,10 @@ describe('normalized Voyage startup authority', () => {
     } }));
     const prior = { VD_DB_PATH: process.env.VD_DB_PATH, VD_KV_DB_PATH: process.env.VD_KV_DB_PATH, VIBE_API_URL: process.env.VIBE_API_URL, VITE_VK_BASE_ORIGIN: process.env.VITE_VK_BASE_ORIGIN };
     Object.assign(process.env, { VD_DB_PATH: targetPath, VD_KV_DB_PATH: sourcePath, VIBE_API_URL: 'https://vk-api.test', VITE_VK_BASE_ORIGIN: 'https://dashboard.test' });
-    vi.stubGlobal('fetch', vi.fn(async (url: string) => new Response(JSON.stringify({ success: true, data: url.endsWith('/workspaces') ? [{ id: 'workspace-1', archived: false, agent_working_dir: '/trusted' }]
+    const guard = (location: string) => ({ location, available: true, factoryKey: 'server-owned-panel', redirectGuard: { deliveryUrl: location, upstreamOrigin: new URL(location).origin } });
+    vi.stubGlobal('fetch', vi.fn(async (url: string) => new Response(JSON.stringify({ success: true, data: url.endsWith('/workspaces') ? [{ id: 'workspace-1', archived: false, agent_working_dir: '/trusted', panel_targets: {
+      overview: guard('https://dashboard.test/workspaces/workspace-1'), code: guard('https://dashboard.test/?folder=/trusted'), changes: guard('https://dashboard.test/workspaces/workspace-1'), beads: guard('https://dashboard.test/'), forms: guard('https://dashboard.test/dashboard/forms?workspaceId=workspace-1'),
+    } }]
       : url.includes('/run-configs') ? { run_configs: [], preview_slots: [], preview_url_parts: [] } : [] }), { status: 200, headers: { 'content-type': 'application/json' } })));
     try {
       const authority = await initializeVoyagePersistenceAuthority();

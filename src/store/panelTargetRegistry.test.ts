@@ -138,6 +138,9 @@ describe('production Panel target registry', () => {
     expect(registry.resolve(stored('code', { workspaceId: 'workspace-1', repoId: 'foreign' }), context())).toMatchObject({ reason: 'target-scope-denied' });
     expect(registry.resolve(stored('agent-session', { workspaceId: 'workspace-1', sessionId: 'missing' }), context())).toMatchObject({ reason: 'target-unavailable' });
     expect(registry.resolve(stored('terminal', { workspaceId: 'workspace-1', terminalId: 'terminal-1' }), context({ craftId: 'missing' }))).toMatchObject({ reason: 'craft-unavailable' });
+    expect(registry.resolve(stored('terminal', { workspaceId: 'workspace-1', terminalId: 'terminal-1' }), context({
+      terminals: { 'terminal-1': { workspaceId: 'workspace-1', location: '/terminals/terminal-1', allowedCraftIds: ['craft-2'] } },
+    }))).toMatchObject({ reason: 'target-unavailable' });
   });
 
   it('uses exact production plugin contribution identity and denies plugin same-origin in v1', () => {

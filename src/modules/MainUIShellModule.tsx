@@ -34,7 +34,6 @@ import {
   type PluginAdminStatus,
 } from "../lib/pluginAdminApi";
 import { getCraftPluginAuthorizationSnapshot, usePluginRegistry } from "./plugins/vibe-dashboard/registry";
-import { DASHBOARD_HOME_PANEL_ROUTE } from "../server/panelTargetRuntimeAuthority";
 import type { ResolvedWorkspaceComposition } from "./plugins/vibe-dashboard/workspace-composition";
 import { createEffectiveWorkspaceWithCraftSurfaces } from "./plugins/vibe-dashboard/craft-surfaces";
 import { VibeIntlProvider } from "../i18n";
@@ -1215,7 +1214,7 @@ springboard.registerModule("MainUIShell", {}, async (moduleAPI) => {
 
   // Root is the canonical dashboard route so PWA installs/bookmarks start from
   // a stable app-home path while query params carry Voyage navigation state.
-  moduleAPI.registerRoute(DASHBOARD_HOME_PANEL_ROUTE, { hideApplicationShell: true }, DashboardRoute);
+  moduleAPI.registerRoute("/", { hideApplicationShell: true }, DashboardRoute);
 
   // Compatibility dashboard route. It renders the same app and canonical URL
   // sync redirects Voyage links back to root with the query params intact.

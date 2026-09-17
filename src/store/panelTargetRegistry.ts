@@ -29,7 +29,7 @@ export interface TrustedWorkspace {
   locations: { overview: string; code: string; changes: string; beads: string; forms: string };
 }
 
-interface OwnedBackendTarget { workspaceId: string; location: string }
+interface OwnedBackendTarget { workspaceId: string; location: string; factoryKey?: string; allowedCraftIds?: string[] }
 interface BuiltInRoute { location: string; allowedCraftIds: string[]; capabilities?: unknown }
 
 export interface PanelTargetResolutionContext {
@@ -226,10 +226,11 @@ function backendDefinition(kind: 'agent-session' | 'terminal' | 'preview', idNam
       const id = value[idName] as string;
       const source = kind === 'agent-session' ? context.agentSessions : kind === 'terminal' ? context.terminals : context.previews;
       const target = source[id];
-      if (!target || target.workspaceId !== owned.workspaceId) return recoveryResolver('target-unavailable');
+      if (!target || target.workspaceId !== owned.workspaceId
+        || (target.allowedCraftIds && !target.allowedCraftIds.includes(context.craftId))) return recoveryResolver('target-unavailable');
       const location = absolute(target.location, owned.workspace.origin);
       if (!location) return recoveryResolver('target-unavailable');
-      return authorizedResult({ targetKey: `${kind}:${id}`, rendererKey: kind, payload: value, location, provenance: kind === 'preview' ? 'forwarded-project' : 'vk-built-in', requested: ['scripts', 'same-origin', 'forms', 'clipboard-read', 'clipboard-write', 'fullscreen'], equivalence: [kind, id], sharing: [kind, id] }, context);
+      return authorizedResult({ targetKey: `${kind}:${id}`, rendererKey: kind, factoryKey: target.factoryKey ?? kind, payload: value, location, provenance: kind === 'preview' ? 'forwarded-project' : 'vk-built-in', requested: ['scripts', 'same-origin', 'forms', 'clipboard-read', 'clipboard-write', 'fullscreen'], equivalence: [kind, id], sharing: [kind, id] }, context);
     },
   };
 }

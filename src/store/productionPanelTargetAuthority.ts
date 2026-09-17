@@ -1,28 +1,29 @@
 import type { Craft } from '../types';
 import { getPluginRegistrySnapshot } from '../modules/plugins/vibe-dashboard/registry';
-import { getEffectiveTabs } from '../modules/plugins/vibe-dashboard/craft-surfaces';
 import type { PluginRegistryState } from '../modules/plugins/vibe-dashboard/types';
-import { VibeKanbanServerClient, type Session, type Workspace } from '../server/vk-client';
+import { VibeKanbanServerClient } from '../server/vk-client';
+import { loadPanelTargetBackendAuthority, type AuthorityWorkspace } from '../server/panelTargetBackendAuthority';
 import {
-  createPanelTargetRuntimeAuthoritySnapshot,
-  createServerPanelTargetDeliverySnapshot,
-  type PanelTargetRuntimeAuthoritySnapshot,
-} from '../server/panelTargetRuntimeAuthority';
+  getProductionPanelTargetRouterAuthoritySnapshot,
+  type AuthorityReadiness,
+  type PanelTargetRouterDefinitions,
+} from '../server/panelTargetRouterAuthority';
+import { createPanelTargetRuntimeAuthoritySnapshot, type PanelTargetRuntimeAuthoritySnapshot } from '../server/panelTargetRuntimeAuthority';
 import type { PanelTargetResolutionContext, TrustedWorkspace } from './panelTargetRegistry';
 
 type AuthorityClient = Pick<VibeKanbanServerClient,
-  'getWorkspaces' | 'getWorkspaceRepos' | 'getSessions' | 'getRunConfigs'>;
+  'getWorkspaces' | 'getWorkspaceRepos' | 'getSessions' | 'getRunConfigs' | 'getPreviewSlotUrl'>;
 type WorkspaceDetail = {
-  workspace: Workspace;
+  workspace: AuthorityWorkspace;
   repos: Awaited<ReturnType<AuthorityClient['getWorkspaceRepos']>>;
-  sessions: Awaited<ReturnType<AuthorityClient['getSessions']>>;
-  runConfigs: Awaited<ReturnType<AuthorityClient['getRunConfigs']>>;
 };
+const WORKSPACE_TARGET_KEYS = ['overview', 'code', 'changes', 'beads', 'forms'] as const;
 
 export interface ProductionPanelTargetAuthorityServices {
   readonly client: AuthorityClient;
   readonly getPlugins: () => PluginRegistryState;
   readonly getHostOrigin: () => string;
+  readonly getRouterAuthority: () => AuthorityReadiness<PanelTargetRouterDefinitions>;
 }
 
 function unavailable(message: string): Error {
@@ -39,92 +40,81 @@ function configuredHostOrigin(env: Record<string, string | undefined>): string {
   } catch { throw unavailable('Canonical workspace delivery service is malformed'); }
 }
 
-/** The real application composition boundary; it contains no migration-only configuration. */
+/** Real application composition; every privilege-bearing field has a named owner. */
 export function createProductionPanelTargetAuthorityServices(input: {
   env?: Record<string, string | undefined>;
   client?: AuthorityClient;
   getPlugins?: () => PluginRegistryState;
+  getRouterAuthority?: () => AuthorityReadiness<PanelTargetRouterDefinitions>;
 } = {}): ProductionPanelTargetAuthorityServices {
   const env = input.env ?? process.env;
   return {
     client: input.client ?? new VibeKanbanServerClient(),
     getPlugins: input.getPlugins ?? getPluginRegistrySnapshot,
     getHostOrigin: () => configuredHostOrigin(env),
+    getRouterAuthority: input.getRouterAuthority ?? getProductionPanelTargetRouterAuthoritySnapshot,
   };
 }
 
-/** Snapshots the exact authority shared by migration and live target resolution. */
+/**
+ * Authority ownership audit:
+ * - workspace ownership/locations: VK Workspace.panel_targets service;
+ * - sessions/terminals: VK session service;
+ * - previews: preview-slot URL resolver service;
+ * - plugin targets/grants: installed plugin/factory registry;
+ * - built-in routes/redirect guards: application router/guard registry.
+ * This adapter only validates, clones, combines, and filters owner snapshots.
+ */
 export async function createProductionPanelTargetContextProvider(
   services: ProductionPanelTargetAuthorityServices = createProductionPanelTargetAuthorityServices(),
 ): Promise<(craft: Craft, workspaceId: string) => PanelTargetResolutionContext | null> {
   const hostOrigin = services.getHostOrigin();
   const plugins = structuredClone(services.getPlugins());
-  const current = (await services.client.getWorkspaces()).filter(({ archived }) => !archived);
-  const details: WorkspaceDetail[] = await Promise.all(current.map(async (workspace) => {
-    const [repos, sessions, runConfigs] = await Promise.all([
-      services.client.getWorkspaceRepos(workspace.id),
-      services.client.getSessions(workspace.id),
-      services.client.getRunConfigs(workspace.id),
-    ]);
-    return { workspace, repos, sessions, runConfigs };
-  }));
-  const byId = new Map(details.map((detail) => [detail.workspace.id, detail]));
-  const agentSessions = Object.fromEntries(details.flatMap(({ workspace, sessions }) =>
-    sessions.map((session) => [session.id, sessionTarget(workspace, session)])));
-  const previews = Object.fromEntries(details.flatMap(({ workspace, runConfigs }) =>
-    runConfigs.preview_slots.map((slot) => [slot.id, {
-      workspaceId: workspace.id,
-      location: `/api/preview/resolve?workspaceId=${encodeURIComponent(workspace.id)}&previewSlotId=${encodeURIComponent(slot.id)}`,
-    }])));
-  const delivery = createServerPanelTargetDeliverySnapshot({
-    hostOrigin,
-    workspaces: details.flatMap(({ workspace }) => workspace.agent_working_dir
-      ? [{ id: workspace.id, directory: workspace.agent_working_dir }] : []),
-    agentSessions,
-    previews,
-  });
-
-  // There is currently no terminal target service or registered host-internal
-  // Panel route. These are explicit ready-empty production categories.
+  const current = (await services.client.getWorkspaces() as AuthorityWorkspace[]).filter(({ archived }) => !archived);
+  if (current.some((workspace) => !workspace.panel_targets
+    || WORKSPACE_TARGET_KEYS.some((key) => !workspace.panel_targets?.[key]))) {
+    throw unavailable('Panel target workspace authority is not ready');
+  }
+  const details: WorkspaceDetail[] = await Promise.all(current.map(async (workspace) => ({
+    workspace, repos: await services.client.getWorkspaceRepos(workspace.id),
+  })));
+  const backend = await loadPanelTargetBackendAuthority(services.client, current);
+  const router = services.getRouterAuthority();
+  if (backend.status !== 'ready') throw unavailable('Panel target backend authority is not ready');
+  if (router.status !== 'ready') throw unavailable('Panel target router authority is not ready');
+  const duplicateGuard = Object.keys(backend.definitions.redirectGuards)
+    .find((key) => key in router.definitions.redirectGuards);
+  if (duplicateGuard) throw unavailable('Panel target redirect-guard owners conflict');
   const runtime = createPanelTargetRuntimeAuthoritySnapshot({
-    hostOrigin, plugins, terminals: {}, previews, ...delivery,
+    hostOrigin, plugins,
+    agentSessions: backend.definitions.agentSessions,
+    terminals: backend.definitions.terminals,
+    previews: backend.definitions.previews,
+    builtInRoutes: router.definitions.builtInRoutes,
+    redirectGuards: { ...backend.definitions.redirectGuards, ...router.definitions.redirectGuards },
   });
-  return providerFromSnapshot(runtime, byId, agentSessions);
+  return providerFromSnapshot(runtime, new Map(details.map((detail) => [detail.workspace.id, detail])));
 }
 
-function providerFromSnapshot(
-  runtime: PanelTargetRuntimeAuthoritySnapshot,
-  byId: Map<string, WorkspaceDetail>,
-  agentSessions: PanelTargetResolutionContext['agentSessions'],
-): (craft: Craft, workspaceId: string) => PanelTargetResolutionContext | null {
-  return (craft, workspaceId) => {
+function providerFromSnapshot(runtime: PanelTargetRuntimeAuthoritySnapshot, byId: Map<string, WorkspaceDetail>) {
+  return (craft: Craft, workspaceId: string): PanelTargetResolutionContext | null => {
     const detail = byId.get(workspaceId);
-    if (!detail || craft.workspace?.workspaceId !== workspaceId || !detail.workspace.agent_working_dir) return null;
-    const authoritativeCraft: Craft = { ...craft, workspace: { ...craft.workspace, workspaceDir: detail.workspace.agent_working_dir } };
-    const allowedPluginTargets = [...runtime.allowedPluginTargets(authoritativeCraft)];
-    const effectiveTabs = getEffectiveTabs(authoritativeCraft, {
-      craftSurfaces: Object.values(runtime.plugins.craftSurfaces)
-        .filter((surface) => allowedPluginTargets.includes(surface.key)),
-      origin: runtime.hostOrigin,
-    });
-    const tab = (id: string) => effectiveTabs.find((candidate) => candidate.id === id)?.url ?? '';
+    const targets = detail?.workspace.panel_targets;
+    if (!detail || craft.workspace?.workspaceId !== workspaceId || !detail.workspace.agent_working_dir || !targets) return null;
+    const keys = WORKSPACE_TARGET_KEYS;
+    if (keys.some((key) => !targets[key]?.available || !targets[key]?.location || !targets[key]?.factoryKey)) return null;
     const workspace: TrustedWorkspace = {
       id: workspaceId, available: true, directory: detail.workspace.agent_working_dir,
       origin: runtime.hostOrigin, repositoryIds: detail.repos.map(({ id }) => id),
-      locations: { overview: tab('agent'), code: tab('code'), changes: tab('agent'), beads: tab('beads'), forms: tab('forms') },
+      locations: Object.fromEntries(keys.map((key) => [key, targets[key]!.location])) as TrustedWorkspace['locations'],
     };
-    if (Object.values(workspace.locations).some((location) => !location)) return null;
+    const allowedPluginTargets = [...runtime.allowedPluginTargets(craft)];
     return {
       craftId: craft.id, hostOrigin: runtime.hostOrigin,
-      crafts: { [craft.id]: { workspaceId, allowedPluginTargets } },
-      workspaces: { [workspaceId]: workspace }, agentSessions,
-      terminals: runtime.terminals, previews: runtime.previews,
+      crafts: { [craft.id]: { workspaceId, allowedPluginTargets } }, workspaces: { [workspaceId]: workspace },
+      agentSessions: runtime.agentSessions, terminals: runtime.terminals, previews: runtime.previews,
       builtInRoutes: runtime.builtInRoutesForCraft(craft), redirectGuards: runtime.redirectGuards,
       getPluginRegistry: () => runtime.plugins,
     };
   };
-}
-
-function sessionTarget(workspace: Workspace, _session: Session) {
-  return { workspaceId: workspace.id, location: `/workspaces/${encodeURIComponent(workspace.id)}` };
 }

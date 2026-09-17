@@ -1,30 +1,26 @@
+/* eslint-disable formatjs/no-literal-string-in-object -- exact authority fixture */
 import { describe, expect, it } from 'vitest';
 import { createEmptyPluginRegistryState } from '../modules/plugins/vibe-dashboard/types';
-import { createPanelTargetRuntimeAuthoritySnapshot, createServerPanelTargetDeliverySnapshot } from './panelTargetRuntimeAuthority';
+import { createPanelTargetRuntimeAuthoritySnapshot } from './panelTargetRuntimeAuthority';
+
+const base = { hostOrigin: 'https://dashboard.test', plugins: createEmptyPluginRegistryState(), agentSessions: {}, terminals: {}, previews: {}, builtInRoutes: {}, redirectGuards: {} };
 
 describe('runtime Panel target authority', () => {
-  it('publishes immutable ready-empty categories and server-owned live guards', () => {
-    const delivery = createServerPanelTargetDeliverySnapshot({
-      hostOrigin: 'https://dashboard.test',
-      workspaces: [{ id: 'workspace-1', directory: '/work' }],
-      agentSessions: {},
-      previews: { preview: { workspaceId: 'workspace-1', location: '/api/preview' } },
+  it('copies immutable owner definitions and preserves built-in allowlists', () => {
+    const snapshot = createPanelTargetRuntimeAuthoritySnapshot({ ...base,
+      builtInRoutes: {
+        allowed: { location: '/allowed', allowedCraftIds: ['craft-1'] },
+        denied: { location: '/denied', allowedCraftIds: ['craft-2'] },
+        nobody: { location: '/nobody', allowedCraftIds: [] },
+      },
     });
-    const snapshot = createPanelTargetRuntimeAuthoritySnapshot({
-      hostOrigin: 'https://dashboard.test', plugins: createEmptyPluginRegistryState(),
-      terminals: {}, previews: {}, ...delivery,
-    });
-    expect(snapshot).toMatchObject({ terminals: {}, previews: {}, builtInRoutes: { 'dashboard-home': expect.any(Object) } });
-    expect(snapshot.redirectGuards).toMatchObject({
-      'code:workspace-1': expect.any(Object),
-      'preview:preview': expect.any(Object),
-      'internal-route:dashboard-home': expect.any(Object),
-    });
-    expect(Object.isFrozen(snapshot.redirectGuards)).toBe(true);
+    const craft = { id: 'craft-1', label: 'Craft', tabs: [], pairs: [], order: 0 };
+    expect(snapshot.builtInRoutesForCraft(craft)).toEqual({ allowed: { location: '/allowed', allowedCraftIds: ['craft-1'] } });
+    expect(snapshot.builtInRoutes.denied?.allowedCraftIds).toEqual(['craft-2']);
+    expect(Object.isFrozen(snapshot.builtInRoutes)).toBe(true);
   });
 
-  it('rejects missing readiness categories and unsafe origins', () => {
-    const base = { hostOrigin: 'https://dashboard.test', plugins: createEmptyPluginRegistryState(), terminals: {}, previews: {}, builtInRoutes: {}, redirectGuards: {} };
+  it('rejects missing owner categories and unsafe origins', () => {
     expect(() => createPanelTargetRuntimeAuthoritySnapshot({ ...base, previews: undefined as never })).toThrow('not ready');
     expect(() => createPanelTargetRuntimeAuthoritySnapshot({ ...base, hostOrigin: 'https://user:secret@dashboard.test' })).toThrow('not ready');
   });

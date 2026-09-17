@@ -3,13 +3,14 @@ import type { PluginRegistryState } from '../modules/plugins/vibe-dashboard/type
 import { getAllowedPluginTargetsForCraft } from '../modules/plugins/vibe-dashboard/registry';
 import type { PanelTargetResolutionContext } from '../store/panelTargetRegistry';
 
-export type OwnedPanelBackendTarget = { workspaceId: string; location: string };
+export type OwnedPanelBackendTarget = { workspaceId: string; location: string; factoryKey?: string; allowedCraftIds?: string[] };
 export type PanelBuiltInRoute = { location: string; allowedCraftIds: string[]; capabilities?: unknown };
 export type PanelRedirectGuard = { deliveryUrl: string; upstreamOrigin: string };
 
 export interface PanelTargetRuntimeAuthoritySnapshot {
   readonly hostOrigin: string;
   readonly plugins: PluginRegistryState;
+  readonly agentSessions: Record<string, OwnedPanelBackendTarget>;
   readonly terminals: Record<string, OwnedPanelBackendTarget>;
   readonly previews: Record<string, OwnedPanelBackendTarget>;
   readonly builtInRoutes: Record<string, PanelBuiltInRoute>;
@@ -21,38 +22,11 @@ export interface PanelTargetRuntimeAuthoritySnapshot {
 export interface PanelTargetRuntimeAuthorityInputs {
   hostOrigin: string;
   plugins: PluginRegistryState;
+  agentSessions: Record<string, OwnedPanelBackendTarget>;
   terminals: Record<string, OwnedPanelBackendTarget>;
   previews: Record<string, OwnedPanelBackendTarget>;
   builtInRoutes: Record<string, PanelBuiltInRoute>;
   redirectGuards: Record<string, PanelRedirectGuard>;
-}
-
-export interface WorkspacePanelDeliveryDefinition { id: string; directory: string }
-export const DASHBOARD_HOME_PANEL_ROUTE = '/';
-
-/** Canonical server-route delivery policy; consumers never manufacture guards. */
-export function createServerPanelTargetDeliverySnapshot(input: {
-  hostOrigin: string;
-  workspaces: readonly WorkspacePanelDeliveryDefinition[];
-  agentSessions: Record<string, OwnedPanelBackendTarget>;
-  previews: Record<string, OwnedPanelBackendTarget>;
-}): Pick<PanelTargetRuntimeAuthorityInputs, 'builtInRoutes' | 'redirectGuards'> {
-  const redirectGuards: Record<string, PanelRedirectGuard> = {};
-  const add = (key: string, location: string) => {
-    const resolved = new URL(location, input.hostOrigin);
-    redirectGuards[key] = { deliveryUrl: resolved.href, upstreamOrigin: resolved.origin };
-  };
-  add('internal-route:dashboard-home', DASHBOARD_HOME_PANEL_ROUTE);
-  for (const workspace of input.workspaces) {
-    add(`craft-overview:${workspace.id}`, `/workspaces/${encodeURIComponent(workspace.id)}`);
-    add(`code:${workspace.id}`, `/?folder=${encodeURIComponent(workspace.directory)}`);
-    add(`changes:${workspace.id}`, `/workspaces/${encodeURIComponent(workspace.id)}`);
-    add(`beads:${workspace.id}`, '/');
-    add(`forms:${workspace.id}`, `/dashboard/forms?workspaceId=${encodeURIComponent(workspace.id)}`);
-  }
-  for (const [id, target] of Object.entries(input.agentSessions)) add(`agent-session:${id}`, target.location);
-  for (const [id, target] of Object.entries(input.previews)) add(`preview:${id}`, target.location);
-  return { builtInRoutes: { 'dashboard-home': { location: DASHBOARD_HOME_PANEL_ROUTE, allowedCraftIds: [] } }, redirectGuards };
 }
 
 function unavailable(message: string): Error {
@@ -77,7 +51,7 @@ function deepFreeze<T>(value: T): T {
 export function createPanelTargetRuntimeAuthoritySnapshot(
   input: PanelTargetRuntimeAuthorityInputs,
 ): PanelTargetRuntimeAuthoritySnapshot {
-  for (const category of ['plugins', 'terminals', 'previews', 'builtInRoutes', 'redirectGuards'] as const) {
+  for (const category of ['plugins', 'agentSessions', 'terminals', 'previews', 'builtInRoutes', 'redirectGuards'] as const) {
     if (!input[category] || typeof input[category] !== 'object') throw unavailable(`Panel target ${category} authority is not ready`);
   }
   let origin: string;
@@ -91,6 +65,7 @@ export function createPanelTargetRuntimeAuthoritySnapshot(
   return Object.freeze({
     hostOrigin: origin,
     plugins,
+    agentSessions: deepFreeze(clone(input.agentSessions)),
     terminals: deepFreeze(clone(input.terminals)),
     previews: deepFreeze(clone(input.previews)),
     builtInRoutes: deepFreeze(clone(input.builtInRoutes)),
@@ -99,9 +74,9 @@ export function createPanelTargetRuntimeAuthoritySnapshot(
       return getAllowedPluginTargetsForCraft(plugins, craft);
     },
     builtInRoutesForCraft(craft: Craft): Record<string, PanelBuiltInRoute> {
-      return Object.fromEntries(Object.entries(input.builtInRoutes).map(([key, route]) => [key, {
-        ...clone(route), allowedCraftIds: [craft.id],
-      }]));
+      return deepFreeze(Object.fromEntries(Object.entries(input.builtInRoutes)
+        .filter(([, route]) => route.allowedCraftIds.includes(craft.id))
+        .map(([key, route]) => [key, clone(route)])));
     },
   });
 }
