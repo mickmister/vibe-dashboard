@@ -110,11 +110,6 @@ function panelId(...parts: string[]): string {
   return `panel-${(hash >>> 0).toString(16).padStart(8, '0')}`;
 }
 
-function projectedWorkspaceIds(session: SavedWorkspaceSession, workspace: WorkspaceState): string[] {
-  return session.voyageEntries.map((entry) => getBuiltInWorkspaceMetadata(workspace.tabGroups.find(({ id }) => id === entry.tabGroupId) ?? { tabs: [] })?.workspaceId
-    ?? (entry.id.startsWith('normalized:') ? entry.id.slice('normalized:'.length) : '')).filter(Boolean);
-}
-
 /** Read-only UI projection whose only write path is repository CAS. */
 export class NormalizedVoyageProjection {
   constructor(private readonly repository: VoyageRepository, private readonly workspace: () => WorkspaceState,
@@ -131,73 +126,43 @@ export class NormalizedVoyageProjection {
   async replace(previous: NormalizedVoyageProjectionSnapshot, next: Extract<SavedWorkspaceSessionState, { version: 3 }>): Promise<NormalizedVoyageProjectionSnapshot> {
     const before = new Map(previous.state.data.map((session) => [session.id, session]));
     const after = new Map(next.data.map((session) => [session.id, session]));
-    await Promise.all([...before.keys()].map(async (id) => {
-      const expected = previous.revisions.get(id);
-      if (expected === undefined || (await this.repository.loadVoyage(id)).revision !== expected) throw new VoyageConflictError(id, expected ?? -1);
-    }));
-    const creations = [...after].filter(([id]) => !before.has(id)).map(([id, session]) => ({ id, session,
-      structure: compileStructure(session, null, this.workspace(), this.contextProvider) }));
-    if (creations.length > 1) throw new VoyageInvariantError('Compatibility projection creates one Voyage per command');
-    for (const creation of creations) await this.repository.createVoyage({ id: creation.id, name: creation.session.name, ...creation.structure });
-    const structuralHandled = new Set<string>();
-    const revisionOverrides = new Map<string, number>();
-    const removed = [...before].flatMap(([id, session]) => {
-      const nextSession = after.get(id);
-      if (!nextSession) return [];
-      const nextIds = new Set(projectedWorkspaceIds(nextSession, this.workspace()));
-      return projectedWorkspaceIds(session, this.workspace()).filter((workspaceId) => !nextIds.has(workspaceId)).map((workspaceId) => ({ id, workspaceId }));
-    });
-    const added = [...after].flatMap(([id, session]) => {
-      const oldSession = before.get(id);
-      if (!oldSession) return [];
-      const oldIds = new Set(projectedWorkspaceIds(oldSession, this.workspace()));
-      return projectedWorkspaceIds(session, this.workspace()).filter((workspaceId) => !oldIds.has(workspaceId)).map((workspaceId) => ({ id, workspaceId }));
-    });
-    if (removed.length && added.length) {
-      if (removed.length !== 1 || added.length !== 1 || removed[0]!.workspaceId !== added[0]!.workspaceId || removed[0]!.id === added[0]!.id) {
-        throw new VoyageInvariantError('Compatibility projection supports only one atomic Craft move at a time');
-      }
-      const source = await this.repository.loadVoyage(removed[0]!.id);
-      const destination = await this.repository.loadVoyage(added[0]!.id);
-      const movedPanelIds = source.panels.filter(({ craftWorkspaceId }) => craftWorkspaceId === removed[0]!.workspaceId).map(({ id }) => id);
-      const sourcePanelIds = source.panels.filter(({ id }) => !movedPanelIds.includes(id)).map(({ id }) => id);
-      const destinationPanelIds = [...destination.panels.map(({ id }) => id), ...movedPanelIds];
-      await this.repository.moveCraft({
-        sourceVoyageId: source.id, destinationVoyageId: destination.id, craftWorkspaceId: removed[0]!.workspaceId,
-        sourceExpectedRevision: previous.revisions.get(source.id)!, destinationExpectedRevision: previous.revisions.get(destination.id)!,
-        destinationSortKey: String(projectedWorkspaceIds(after.get(destination.id)!, this.workspace()).indexOf(removed[0]!.workspaceId)).padStart(8, '0'),
-        sourceSnapshot: buildMigratedDockviewSnapshot({ panelIds: sourcePanelIds, pairs: [], activePanelId: null }),
-        destinationSnapshot: buildMigratedDockviewSnapshot({ panelIds: destinationPanelIds, pairs: [], activePanelId: null }),
-      });
-      structuralHandled.add(source.id); structuralHandled.add(destination.id);
-      revisionOverrides.set(source.id, source.revision + 1); revisionOverrides.set(destination.id, destination.revision + 1);
-    }
+    const aggregates = new Map(await Promise.all([...before.keys()].map(async (id) => [id, await this.repository.loadVoyage(id)] as const)));
+    const deltas = [];
     for (const [id, session] of before) {
-      const revision = revisionOverrides.get(id) ?? previous.revisions.get(id);
-      if (revision === undefined) throw new VoyageConflictError(id, -1);
+      const aggregate = aggregates.get(id)!;
+      const expectedRevision = previous.revisions.get(id);
+      if (expectedRevision === undefined) throw new VoyageConflictError(id, -1);
       const replacement = after.get(id);
       if (!replacement) {
-        await this.repository.deleteVoyage(id, revision);
+        deltas.push({ voyageId: id, expectedRevision, delete: true, name: session.name, crafts: [], panels: [], snapshot: {}, structural: false });
         continue;
       }
-      let currentRevision = revision;
-      if (!structuralHandled.has(id) && !structuralEqual(session, replacement)) {
-        const aggregate = await this.repository.loadVoyage(id);
-        const structure = compileStructure(replacement, aggregate, this.workspace(), this.contextProvider);
-        currentRevision = (await this.repository.commitMembershipMutation({ voyageId: id, expectedRevision: currentRevision, ...structure })).revision;
-      }
-      if (session.name !== replacement.name) currentRevision = await this.repository.updateMetadata({ voyageId: id, expectedRevision: currentRevision, name: replacement.name });
-      if (session.activeVoyageEntryId !== replacement.activeVoyageEntryId || JSON.stringify(session.activeItemsByVoyageEntryId) !== JSON.stringify(replacement.activeItemsByVoyageEntryId)) {
-        const entry = replacement.voyageEntries.find(({ id: entryId }) => entryId === replacement.activeVoyageEntryId);
-        const item = entry && replacement.activeItemsByVoyageEntryId[entry.id];
-        const aggregate = await this.repository.loadVoyage(id);
-        const panel = aggregate.panels.find((candidate) => candidate.craftWorkspaceId
-          && entry?.id === `normalized:${candidate.craftWorkspaceId}`
-          && legacyViewId(candidate, this.workspace()) === item);
-        if (!panel) throw new VoyageInvariantError('Projected activation must resolve to a normalized Panel');
-        await this.repository.recordActivation(id, panel.id, currentRevision);
-      }
+      const structural = !structuralEqual(session, replacement);
+      const structure = structural
+        ? compileStructure(replacement, aggregate, this.workspace(), this.contextProvider)
+        : { crafts: aggregate.crafts, panels: aggregate.panels.map(({ lastActivatedSequence: _sequence, ...panel }) => panel), snapshot: aggregate.layout.snapshot };
+      deltas.push({ voyageId: id, expectedRevision, name: replacement.name, ...structure, structural,
+        activationPanelId: activationPanelId(session, replacement, structure.panels, this.workspace()) });
     }
+    for (const [id, session] of after) if (!before.has(id)) {
+      const structure = compileStructure(session, null, this.workspace(), this.contextProvider);
+      deltas.push({ voyageId: id, expectedRevision: null, name: session.name, ...structure, structural: true,
+        activationPanelId: activationPanelId(null, session, structure.panels, this.workspace()) });
+    }
+    await this.repository.applyProjectionReplace(deltas);
     return this.load();
   }
+}
+
+function activationPanelId(before: SavedWorkspaceSession | null, after: SavedWorkspaceSession,
+  panels: Array<Omit<VoyageAggregate['panels'][number], 'lastActivatedSequence'>>, workspace: WorkspaceState): string | undefined {
+  if (before && before.activeVoyageEntryId === after.activeVoyageEntryId
+    && JSON.stringify(before.activeItemsByVoyageEntryId) === JSON.stringify(after.activeItemsByVoyageEntryId)) return undefined;
+  const entry = after.voyageEntries.find(({ id }) => id === after.activeVoyageEntryId);
+  const item = entry && after.activeItemsByVoyageEntryId[entry.id];
+  const workspaceId = entry && (getBuiltInWorkspaceMetadata(workspace.tabGroups.find(({ id }) => id === entry.tabGroupId) ?? { tabs: [] })?.workspaceId
+    ?? (entry.id.startsWith('normalized:') ? entry.id.slice('normalized:'.length) : ''));
+  const panel = panels.find((candidate) => candidate.craftWorkspaceId === workspaceId && legacyViewId({ ...candidate, lastActivatedSequence: null }, workspace) === item);
+  if (!panel) throw new VoyageInvariantError('Projected activation must resolve to a normalized Panel');
+  return panel.id;
 }

@@ -122,7 +122,7 @@ type VoyageTransaction = Transaction<DB>;
 export interface VoyageRepositoryOptions {
   snapshotCodec: VoyageSnapshotCodec;
   onCoordinatorAcquired?: (voyageId: string) => void;
-  failureInjector?: (phase: VoyageFailurePhase) => void;
+  failureInjector?: (phase: VoyageFailurePhase | ProjectionReplaceFailurePhase) => void;
 }
 
 export type VoyageFailurePhase =
@@ -139,6 +139,11 @@ export type VoyageFailurePhase =
   | 'dual:after-destination-layout'
   | 'dual:after-source-history'
   | 'dual:after-destination-history';
+
+export type ProjectionReplaceFailurePhase =
+  | 'replace:after-preflight' | 'replace:after-create' | 'replace:after-cas'
+  | 'replace:after-domain' | 'replace:after-layout' | 'replace:after-history'
+  | 'replace:after-metadata' | 'replace:after-activation' | 'replace:before-commit';
 
 const membershipUndoTokenBrand: unique symbol = Symbol('MembershipUndoToken');
 
@@ -167,6 +172,18 @@ export interface MoveCraftInput {
   destinationSortKey: string;
   sourceSnapshot: unknown;
   destinationSnapshot: unknown;
+}
+
+export interface ProjectionAggregateDelta {
+  voyageId: string;
+  expectedRevision: number | null;
+  delete?: boolean;
+  name: string;
+  crafts: VoyageCraftRecord[];
+  panels: StructuralPanelHistoryRecord[];
+  snapshot: unknown;
+  structural: boolean;
+  activationPanelId?: string;
 }
 
 class VoyageCoordinatorLocks {
@@ -232,6 +249,73 @@ export class VoyageRepository {
         await transaction.updateTable('Voyage').set({ historyCursorSequence: 0 }).where('id', '=', input.id).execute();
       });
     });
+  }
+
+  async applyProjectionReplace(deltas: readonly ProjectionAggregateDelta[]): Promise<ReadonlyMap<string, number>> {
+    if (!deltas.length) return new Map();
+    if (new Set(deltas.map(({ voyageId }) => voyageId)).size !== deltas.length) throw new VoyageInvariantError('Projection delta Voyage identities must be unique');
+    const prepared = deltas.map((delta) => {
+      if (!delta.voyageId || !delta.name.trim()) throw new VoyageInvariantError('Voyage ID and name are required');
+      if (delta.delete) return { ...delta, layout: null };
+      validateAggregate(delta.crafts, delta.panels);
+      const layout = this.snapshotCodec.validateAndCanonicalize(delta.snapshot);
+      assertSnapshotMatchesPanels(layout, delta.panels, 'projection replacement');
+      if (delta.activationPanelId !== undefined && !delta.panels.some(({ id }) => id === delta.activationPanelId)) throw new VoyageInvariantError('Activation intent must reference a resulting Panel');
+      return { ...delta, layout };
+    });
+    return coordinatorLocks.run(prepared.map(({ voyageId }) => voyageId), this.options.onCoordinatorAcquired, () =>
+      this.db.transaction().execute(async (transaction) => {
+        for (const delta of prepared) {
+          const row = await transaction.selectFrom('Voyage').select(['revision']).where('id', '=', delta.voyageId).executeTakeFirst();
+          if (delta.expectedRevision === null) {
+            if (row) throw new VoyageConflictError(delta.voyageId, -1);
+          } else if (!row || row.revision !== delta.expectedRevision) throw new VoyageConflictError(delta.voyageId, delta.expectedRevision);
+        }
+        this.failProjection('replace:after-preflight');
+        const revisions = new Map<string, number>();
+        for (const delta of prepared) {
+          if (delta.delete) {
+            await transaction.deleteFrom('Voyage').where('id', '=', delta.voyageId).execute();
+            continue;
+          }
+          const currentPanels = delta.expectedRevision === null ? [] : await loadPanels(transaction, delta.voyageId);
+          const currentRecency = new Map(currentPanels.map((panel) => [panel.id, panel.lastActivatedSequence]));
+          let activationSequence = delta.expectedRevision === null ? 0 : (await transaction.selectFrom('Voyage').select('activationSequence').where('id', '=', delta.voyageId).executeTakeFirstOrThrow()).activationSequence;
+          const panels = delta.panels.map((panel) => ({ ...panel, lastActivatedSequence: currentRecency.get(panel.id) ?? null }));
+          if (delta.activationPanelId !== undefined) {
+            activationSequence += 1;
+            panels.find(({ id }) => id === delta.activationPanelId)!.lastActivatedSequence = activationSequence;
+          }
+          let revision: number;
+          if (delta.expectedRevision === null) {
+            revision = 0;
+            await transaction.insertInto('Voyage').values({ id: delta.voyageId, name: delta.name, activationSequence }).execute();
+            this.failProjection('replace:after-create');
+          } else {
+            revision = await advanceRevision(transaction, delta.voyageId, delta.expectedRevision, activationSequence);
+            this.failProjection('replace:after-cas');
+          }
+          if (delta.structural || delta.expectedRevision === null) {
+            await syncDomainRows(transaction, delta.voyageId, delta.crafts, panels);
+            this.failProjection('replace:after-domain');
+            await writeLayout(transaction, delta.voyageId, revision, delta.layout!);
+            this.failProjection('replace:after-layout');
+            await resetHistoryBaseline(transaction, delta.voyageId, revision, delta.layout!);
+            this.failProjection('replace:after-history');
+          }
+          await transaction.updateTable('Voyage').set({ name: delta.name }).where('id', '=', delta.voyageId).execute();
+          this.failProjection('replace:after-metadata');
+          if (delta.activationPanelId !== undefined) {
+            await transaction.updateTable('VoyagePanel').set({ lastActivatedSequence: activationSequence })
+              .where('voyageId', '=', delta.voyageId).where('id', '=', delta.activationPanelId).execute();
+            this.failProjection('replace:after-activation');
+          }
+          revisions.set(delta.voyageId, revision);
+        }
+        this.failProjection('replace:before-commit');
+        return revisions;
+      }),
+    );
   }
 
   async loadVoyage(voyageId: string): Promise<VoyageAggregate> {
@@ -514,6 +598,10 @@ export class VoyageRepository {
   }
 
   private fail(phase: VoyageFailurePhase): void {
+    this.options.failureInjector?.(phase);
+  }
+
+  private failProjection(phase: ProjectionReplaceFailurePhase): void {
     this.options.failureInjector?.(phase);
   }
 

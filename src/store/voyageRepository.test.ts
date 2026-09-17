@@ -5,6 +5,7 @@ import { migrateExternalIntegrationsDb } from '../modules/plugins/kanban/server/
 import type { DB } from './kysely_types';
 import {
   createVoyageSnapshotCodec,
+  type ProjectionReplaceFailurePhase,
   type VoyageFailurePhase,
   VoyageConflictError,
   VoyageInvariantError,
@@ -265,5 +266,36 @@ describe('VoyageRepository', () => {
       sourceSnapshot: snapshot([]), destinationSnapshot: snapshot(['voyage-a-panel', 'voyage-z-panel']),
     })).rejects.toThrow(`injected ${phase}`);
     expect(dump()).toEqual(before);
+  });
+
+  const replacePhases: ProjectionReplaceFailurePhase[] = [
+    'replace:after-preflight', 'replace:after-create', 'replace:after-cas', 'replace:after-domain',
+    'replace:after-layout', 'replace:after-history', 'replace:after-metadata',
+    'replace:after-activation', 'replace:before-commit',
+  ];
+
+  it.each(replacePhases)('atomically rolls back create-from-source replacement at %s', async (phase) => {
+    await create('source', 'craft-a');
+    const before = dump();
+    repository = new VoyageRepository(db, { snapshotCodec,
+      failureInjector: (candidate) => { if (candidate === phase) throw new Error(`injected ${phase}`); } });
+    await expect(repository.applyProjectionReplace([
+      { voyageId: 'source', expectedRevision: 0, name: 'Source', crafts: [], panels: [], snapshot: snapshot([]), structural: true },
+      { voyageId: 'destination', expectedRevision: null, name: 'Destination', crafts: [{ craftWorkspaceId: 'craft-a', sortKey: 'a' }],
+        panels: [panel('destination-panel', 'craft-a')], snapshot: snapshot(['destination-panel']), structural: true, activationPanelId: 'destination-panel' },
+    ])).rejects.toThrow(`injected ${phase}`);
+    expect(dump()).toEqual(before);
+  });
+
+  it('rejects stale replacement before creating its destination', async () => {
+    await create('source', 'craft-a');
+    await repository.updateMetadata({ voyageId: 'source', expectedRevision: 0, name: 'Winner' });
+    await expect(repository.applyProjectionReplace([
+      { voyageId: 'source', expectedRevision: 0, name: 'Source', crafts: [], panels: [], snapshot: snapshot([]), structural: true },
+      { voyageId: 'destination', expectedRevision: null, name: 'Destination', crafts: [{ craftWorkspaceId: 'craft-a', sortKey: 'a' }],
+        panels: [panel('destination-panel', 'craft-a')], snapshot: snapshot(['destination-panel']), structural: true },
+    ])).rejects.toBeInstanceOf(VoyageConflictError);
+    expect(sqlite.prepare("SELECT COUNT(*) AS count FROM Voyage WHERE id = 'destination'").get()).toEqual({ count: 0 });
+    expect((await repository.loadVoyage('source')).metadata.name).toBe('Winner');
   });
 });
