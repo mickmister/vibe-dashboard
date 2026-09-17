@@ -5,6 +5,10 @@ import { Kysely, SqliteDialect } from 'kysely';
 import type { DB } from '../../../../store/kysely_types';
 import { dataMigrations as productionDataMigrations } from '../../../../store/db/data_migrations/registry';
 import {
+  LEGACY_VOYAGE_MIGRATION_ID,
+  readLegacyVoyageSource,
+} from '../../../../store/db/data_migrations/20260917100000_migrate_legacy_voyages';
+import {
   runDataMigrations,
   type DataMigration,
   type DataMigrationDependencies,
@@ -63,7 +67,13 @@ export async function initExternalIntegrationsDb(options: {
           sourcePath: options.sourcePath ?? getLegacyKvDbPath(),
           targetPath: databasePath,
         },
-        dependencies: options.dataMigrationDependencies,
+        dependencies: {
+          ...options.dataMigrationDependencies,
+          readSource: options.dataMigrationDependencies?.readSource
+            ?? ((paths, migrationId) => migrationId === LEGACY_VOYAGE_MIGRATION_ID
+              ? readLegacyVoyageSource(paths)
+              : Promise.reject(Object.assign(new Error('No source reader registered'), { code: 'SOURCE_READER_UNAVAILABLE' }))),
+        },
       });
     return { db, sqlite, path: databasePath, appliedMigrations, appliedDataMigrations };
   } catch (error) {

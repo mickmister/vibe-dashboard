@@ -1,5 +1,4 @@
 import type { DataMigration } from './runner';
+import { migrateLegacyVoyages } from './20260917100000_migrate_legacy_voyages';
 
-// M2.4 establishes the production runner. M2.5 owns the first production
-// migration: importing legacy Springboard/Voyage data.
-export const dataMigrations: readonly DataMigration[] = [];
+export const dataMigrations: readonly DataMigration[] = [migrateLegacyVoyages];

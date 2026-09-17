@@ -509,6 +509,24 @@ export function classifyLegacyPanelRepresentation(input: {
   return { outcome: 'durable-candidate' };
 }
 
+/** Converts only audited durable legacy producers into current stored targets. */
+export function getLegacyStoredPanelTarget(input: {
+  view: { id: string; url: string };
+  workspaceId: string;
+}): StoredPanelTarget | null {
+  const payload = { workspaceId: input.workspaceId };
+  if (input.view.id === 'code') return { kind: 'code', version: 1, payload: { ...payload, folderIntent: 'workspace-root' } };
+  if (input.view.id === 'changes') return { kind: 'changes', version: 1, payload };
+  if (input.view.id === 'beads') return { kind: 'beads', version: 1, payload };
+  if (input.view.id === 'forms') return { kind: 'forms', version: 1, payload };
+  if (input.view.id === 'overview' || input.view.id === 'craft-overview') return { kind: 'craft-overview', version: 1, payload };
+  try {
+    const url = new URL(input.view.url);
+    if (!['http:', 'https:'].includes(url.protocol) || url.username || url.password) return null;
+    return { kind: 'custom-url', version: 1, payload: { url: url.href } };
+  } catch { return null; }
+}
+
 function exactLegacyView(value: unknown): value is { id: string; title: string; url: string; pinned?: boolean; ephemeral?: { kind?: string } } {
   if (!object(value) || typeof value.id !== 'string' || typeof value.title !== 'string' || typeof value.url !== 'string') return false;
   if (value.pinned !== undefined && typeof value.pinned !== 'boolean') return false;

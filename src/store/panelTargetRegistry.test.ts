@@ -5,6 +5,7 @@ import {
   classifyLegacyPanelRepresentation,
   createPanelTargetRegistry,
   findSplitCompatibleTargets,
+  getLegacyStoredPanelTarget,
   type PanelTargetResolutionContext,
   type StoredPanelTarget,
 } from './panelTargetRegistry';
@@ -244,6 +245,17 @@ describe('production Panel target registry', () => {
 });
 
 describe('approved migration classification boundary', () => {
+  it('derives stored legacy targets only from audited stable identities', () => {
+    expect(getLegacyStoredPanelTarget({ view: { id: 'code', url: 'https://attacker.invalid/path' }, workspaceId: 'workspace-1' }))
+      .toEqual(stored('code', { workspaceId: 'workspace-1', folderIntent: 'workspace-root' }));
+    expect(getLegacyStoredPanelTarget({ view: { id: 'docs', url: 'https://docs.example.test/path' }, workspaceId: 'workspace-1' }))
+      .toEqual(stored('custom-url', { url: 'https://docs.example.test/path' }));
+    expect(getLegacyStoredPanelTarget({ view: { id: 'agent', url: '/legacy-agent-without-session-id' }, workspaceId: 'workspace-1' }))
+      .toBeNull();
+    expect(getLegacyStoredPanelTarget({ view: { id: 'unsafe', url: 'https://user:password@example.test' }, workspaceId: 'workspace-1' }))
+      .toBeNull();
+  });
+
   it.each([
     [{ groupId: 'tg_home', view: { id: 'x', url: 'https://example.test' } }, 'homepage-representation'],
     [{ groupId: 'craft', view: { id: 'tab_overview', url: 'https://example.test' } }, 'homepage-representation'],
