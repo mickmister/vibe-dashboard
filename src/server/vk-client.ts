@@ -22,6 +22,26 @@ export interface Workspace {
   name: string | null;
 }
 
+export interface WorkspaceSummary {
+  workspace_id: string;
+  latest_session_id: string | null;
+  has_pending_approval: boolean;
+  files_changed: number | null;
+  lines_added: number | null;
+  lines_removed: number | null;
+  latest_process_completed_at?: string | null;
+  latest_process_status?: 'running' | 'completed' | 'failed' | 'killed' | null;
+  has_running_dev_server: boolean;
+  has_unseen_turns: boolean;
+  pr_status?: string | null;
+  pr_number?: number | null;
+  pr_url?: string | null;
+}
+
+export interface WorkspaceSummaryResponse {
+  summaries: WorkspaceSummary[];
+}
+
 export interface RepoWithBranch {
   id: string;
   name: string;
@@ -51,6 +71,121 @@ export interface ExecutionProcess {
   executor_action?: unknown;
 }
 
+export interface RawLogEntry {
+  type: 'STDOUT' | 'STDERR';
+  content: string;
+}
+
+export interface PreviewResolveRequest {
+  host: string;
+  workspaceToken: string;
+  repoSlug: string;
+  slotSlug: string;
+  customerSlug: string;
+  ensure: boolean;
+  method: string;
+  path: string;
+}
+
+export interface PreviewResolveResponse {
+  status: 'ready' | 'starting' | 'not_found' | 'capacity_full' | 'failed' | 'unavailable' | 'error';
+  upstream?: string | null;
+  message?: string | null;
+  executionProcessId?: string | null;
+  workspaceId?: string | null;
+  previewSlotId?: string | null;
+}
+
+export type RunConfigKind = 'long_running' | 'one_shot' | 'test';
+
+export interface RunConfig {
+  id: string;
+  repo_id: string;
+  slug: string;
+  name: string;
+  description?: string | null;
+  command: string;
+  working_dir?: string | null;
+  kind: RunConfigKind;
+  enabled: boolean;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface UpsertRunConfig {
+  id?: string | null;
+  repo_id: string;
+  slug: string;
+  name: string;
+  description?: string | null;
+  command: string;
+  working_dir?: string | null;
+  kind: RunConfigKind;
+  enabled?: boolean;
+}
+
+export interface PreviewSlot {
+  id: string;
+  repo_id: string;
+  run_config_id: string;
+  slot_slug: string;
+  title: string;
+  description?: string | null;
+  enabled: boolean;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface UpsertPreviewSlot {
+  id?: string | null;
+  repo_id: string;
+  run_config_id: string;
+  slot_slug: string;
+  title: string;
+  description?: string | null;
+  enabled?: boolean;
+}
+
+export interface PreviewProcessLink {
+  id: string;
+  workspace_id: string;
+  repo_id: string;
+  run_config_id: string;
+  preview_slot_id?: string | null;
+  execution_process_id: string;
+  assigned_port: number;
+  status_snapshot: 'starting' | 'ready' | 'failed' | 'stopped';
+  started_at: string;
+  updated_at: string;
+  ended_at?: string | null;
+}
+
+export interface RunConfigStartResponse {
+  execution_process: ExecutionProcess;
+  preview_process_link: PreviewProcessLink;
+  upstream: string;
+}
+
+export interface PreviewSlotUrlParts {
+  previewSlotId: string;
+  workspaceToken: string;
+  repoSlug: string;
+  slotSlug: string;
+}
+
+export interface WorkspaceRunConfigsResponse {
+  run_configs: RunConfig[];
+  preview_slots: PreviewSlot[];
+  preview_url_parts: PreviewSlotUrlParts[];
+  preview_process_links?: PreviewProcessLink[];
+}
+
+export interface PreviewSlotUrlResponse extends PreviewSlotUrlParts {
+  customerSlug: string;
+  host: string;
+  url: string;
+}
+
 export interface CreateSessionBody {
   workspace_id: string;
   executor: Executor;
@@ -64,10 +199,16 @@ interface ApiEnvelope<T> {
 }
 
 type FetchLike = (input: string, init?: RequestInit) => Promise<Response>;
+type WebSocketLike = {
+  close: () => void;
+  addEventListener: (type: 'message' | 'error', listener: (event: { data?: unknown }) => void) => void;
+};
+type WebSocketFactory = (url: string) => WebSocketLike;
 
 export interface VibeKanbanServerClientOptions {
   baseUrl?: string;
   fetch?: FetchLike;
+  webSocketFactory?: WebSocketFactory;
 }
 
 export class VkApiError extends Error {
@@ -103,14 +244,25 @@ export function resolveVibeApiBaseUrl(
 export class VibeKanbanServerClient {
   private readonly baseUrl: string;
   private readonly fetchImpl: FetchLike;
+  private readonly webSocketFactory?: WebSocketFactory;
 
   constructor(options: VibeKanbanServerClientOptions = {}) {
     this.baseUrl = (options.baseUrl ?? resolveVibeApiBaseUrl()).replace(/\/+$/, '');
     this.fetchImpl = options.fetch ?? fetch;
+    this.webSocketFactory = options.webSocketFactory;
   }
 
   getWorkspaces(): Promise<Workspace[]> {
     return this.get('/workspaces');
+  }
+
+  getWorkspaceSummaries(archived = false): Promise<WorkspaceSummary[]> {
+    return this.post<WorkspaceSummaryResponse>('/workspaces/summaries', { archived })
+      .then((response) => response.summaries);
+  }
+
+  getWorkspace(workspaceId: string): Promise<Workspace> {
+    return this.get(`/workspaces/${encodeURIComponent(workspaceId)}`);
   }
 
   getWorkspaceRepos(workspaceId: string): Promise<RepoWithBranch[]> {
@@ -127,6 +279,141 @@ export class VibeKanbanServerClient {
 
   createSession(body: CreateSessionBody): Promise<Session> {
     return this.post('/sessions', body);
+  }
+
+  getExecutionProcess(processId: string): Promise<ExecutionProcess> {
+    return this.get(`/execution-processes/${encodeURIComponent(processId)}`);
+  }
+
+  async stopExecutionProcess(processId: string): Promise<void> {
+    await this.post(`/execution-processes/${encodeURIComponent(processId)}/stop`, {});
+  }
+
+  fetchRawExecutionLogs(
+    processId: string,
+    options: { timeoutMs?: number; maxEntries?: number } = {},
+  ): Promise<RawLogEntry[]> {
+    const timeoutMs = clampInteger(options.timeoutMs ?? 1500, 100, 10_000);
+    const maxEntries = clampInteger(options.maxEntries ?? 200, 1, 1_000);
+    const webSocketFactory = this.webSocketFactory ?? defaultWebSocketFactory();
+    const url = `${this.baseUrl.replace(/^http/i, 'ws')}/execution-processes/${encodeURIComponent(processId)}/raw-logs/ws`;
+
+    return new Promise((resolve, reject) => {
+      const logs: RawLogEntry[] = [];
+      let settled = false;
+      let ws: WebSocketLike | null = null;
+      const finish = (result: RawLogEntry[]) => {
+        if (settled) return;
+        settled = true;
+        clearTimeout(timeout);
+        try {
+          ws?.close();
+        } catch {
+          // Ignore close errors after the log request has already succeeded.
+        }
+        resolve(result.slice(-maxEntries));
+      };
+      const fail = (error: unknown) => {
+        if (settled) return;
+        settled = true;
+        clearTimeout(timeout);
+        try {
+          ws?.close();
+        } catch {
+          // Ignore close errors while surfacing the original failure.
+        }
+        reject(error);
+      };
+      const timeout = setTimeout(() => finish(logs), timeoutMs);
+
+      try {
+        ws = webSocketFactory(url);
+      } catch (error) {
+        clearTimeout(timeout);
+        reject(error);
+        return;
+      }
+
+      ws.addEventListener('message', (event) => {
+        try {
+          const message = JSON.parse(String(event.data ?? '{}')) as {
+            JsonPatch?: Array<{ value?: { type?: unknown; content?: unknown } }>;
+            Ready?: unknown;
+            finished?: unknown;
+          };
+          for (const op of message.JsonPatch ?? []) {
+            const value = op.value;
+            if (
+              (value?.type === 'STDOUT' || value?.type === 'STDERR') &&
+              typeof value.content === 'string'
+            ) {
+              logs.push({ type: value.type, content: value.content });
+            }
+          }
+          if (message.Ready !== undefined || message.finished === true) {
+            finish(logs);
+          }
+        } catch (error) {
+          fail(error);
+        }
+      });
+      ws.addEventListener('error', (event) => {
+        fail(new VkApiError({
+          message: `VK execution log stream failed for process ${processId}`,
+          errorData: event,
+        }));
+      });
+    });
+  }
+
+  async checkHealth(): Promise<void> {
+    await this.get('/health');
+  }
+
+  async getInfo(): Promise<unknown> {
+    return this.get('/info');
+  }
+
+  resolvePreview(request: PreviewResolveRequest): Promise<PreviewResolveResponse> {
+    return this.post('/preview/resolve', request);
+  }
+
+  getRunConfigs(workspaceId: string): Promise<WorkspaceRunConfigsResponse> {
+    return this.get(`/workspaces/${encodeURIComponent(workspaceId)}/execution/run-configs`);
+  }
+
+  upsertRunConfig(workspaceId: string, body: UpsertRunConfig): Promise<RunConfig> {
+    return this.post(`/workspaces/${encodeURIComponent(workspaceId)}/execution/run-configs`, body);
+  }
+
+  upsertPreviewSlot(workspaceId: string, body: UpsertPreviewSlot): Promise<PreviewSlot> {
+    return this.post(`/workspaces/${encodeURIComponent(workspaceId)}/execution/preview-slots`, body);
+  }
+
+  startRunConfig(workspaceId: string, runConfigId: string): Promise<RunConfigStartResponse> {
+    return this.post(
+      `/workspaces/${encodeURIComponent(workspaceId)}/execution/run-configs/${encodeURIComponent(runConfigId)}/start`,
+      {},
+    );
+  }
+
+  startPreviewSlot(workspaceId: string, previewSlotId: string): Promise<RunConfigStartResponse> {
+    return this.post(
+      `/workspaces/${encodeURIComponent(workspaceId)}/execution/preview-slots/${encodeURIComponent(previewSlotId)}/start`,
+      {},
+    );
+  }
+
+  getPreviewSlotUrl(
+    workspaceId: string,
+    previewSlotId: string,
+    args: { customerSlug: string; baseDomain?: string },
+  ): Promise<PreviewSlotUrlResponse> {
+    const params = new URLSearchParams({ customerSlug: args.customerSlug });
+    if (args.baseDomain) params.set('baseDomain', args.baseDomain);
+    return this.get(
+      `/workspaces/${encodeURIComponent(workspaceId)}/execution/preview-slots/${encodeURIComponent(previewSlotId)}/url?${params}`,
+    );
   }
 
   async sendFollowUp(
@@ -209,4 +496,17 @@ export function selectLatestSession(sessions: Session[]): Session | null {
 function parseTimestamp(value: string): number {
   const parsed = new Date(value).getTime();
   return Number.isFinite(parsed) ? parsed : 0;
+}
+
+function clampInteger(value: number, min: number, max: number): number {
+  if (!Number.isFinite(value)) return min;
+  return Math.min(max, Math.max(min, Math.trunc(value)));
+}
+
+function defaultWebSocketFactory(): WebSocketFactory {
+  const WebSocketConstructor = globalThis.WebSocket;
+  if (!WebSocketConstructor) {
+    throw new VkApiError({ message: 'VK execution log stream is unavailable in this runtime' });
+  }
+  return (url) => new WebSocketConstructor(url);
 }

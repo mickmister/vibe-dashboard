@@ -1,0 +1,160 @@
+# Encoded preview host routing
+
+Vibe Dashboard preview hosts use a first-level encoded hostname so Cloudflare TLS
+and wildcard routing only need to cover `*.vibedashboard.dev`:
+
+```text
+{slotSlug}-{repoSlug}-{workspaceToken}-{customerSlug}.vibedashboard.dev
+```
+
+Example:
+
+```text
+web-vibekanban-0123456789abcdef-mickmister.vibedashboard.dev
+```
+
+The encoded data must fit in the first DNS label, so V1 uses fixed separators
+and dashless lowercase alphanumeric slugs:
+
+- `slotSlug`: 1–10 lowercase alphanumeric characters.
+- `repoSlug`: 1–18 lowercase alphanumeric characters.
+- `workspaceToken`: exactly 16 lowercase hexadecimal characters (`[a-f0-9]{16}`).
+- `customerSlug`: 1–16 lowercase alphanumeric characters.
+
+The full first-label budget is `16 + 18 + 10 + 16 + 3 separators = 63`
+characters. Old `preview-{workspace}-{slot}--{customer}` numeric hosts are
+intentionally rejected; this branch is a hard break with no backwards
+compatibility for numeric slots.
+Resolver routing does not configure or compare a base domain. The strict first
+label is recognized under any non-empty parent domain. Base-domain selection is
+still required when generating a public URL, but it is separate from routing.
+
+This compact first-label pattern is reserved wherever the resolver is deployed.
+Customer hostnames that merely contain dashes are not preview hosts unless the
+first label satisfies the full `slotSlug-repoSlug-workspaceToken-customerSlug`
+grammar.
+
+For one migration window, the Caddyfile adapter accepts a legacy `base_domain`
+option but ignores it, and accepts an existing configuration without `routing`.
+Generated and deployed configurations no longer emit `base_domain` and do emit
+`routing domain-independent-v1`, which is the new-binary capability gate. This
+supports deploying the binary before the configuration without a routing gap.
+
+## Runtime request flow
+
+1. The public Cloudflare Worker receives the encoded preview host.
+2. The Worker resolves the customer part to the canonical customer hostname and
+   forwards traffic through the customer tunnel.
+3. The Worker preserves the original encoded hostname in `X-Vibe-Requested-Host`
+   for the private-sandbox V1 deployment.
+4. The custom Caddy `vk_preview_resolver` handler reads the requested hostname
+   from `X-Vibe-Requested-Host` when present. Otherwise, it ignores generic
+   forwarded host headers and uses the actual request `Host`.
+5. If the hostname matches the preview syntax, Caddy calls the local resolver API.
+6. The resolver returns `ready` with an upstream, `starting`, `not_found`,
+   `capacity_full`, or `failed`/`unavailable`.
+7. Caddy proxies ready traffic or serves a startup/unavailable response.
+
+When VK has an authoritative preview process link, starting and process-failure
+pages include an **Open logs in VD** action. The link carries the workspace and
+preview-slot identities, never a client-selected process ID. VD reloads the
+latest server-side process link for that slot and does not fetch raw logs until
+the user explicitly clicks **Logs**.
+
+## Hard-break compatibility contract
+
+The named-host shape is the only supported Preview URL contract for this branch.
+Backend and Worker code must be deployed with the same grammar:
+
+- Caddy no longer sends `workspaceId`, numeric `slot`, or `customer`.
+- The resolver must map `workspaceToken` to the durable VK workspace ID.
+- `repoSlug` and `slotSlug` are lookup slugs for the repo-level run config and
+  preview slot; they are not database IDs.
+- `customerSlug` is the customer alias used by the Worker/control plane to find
+  the canonical customer runtime.
+- The Worker must parse or preserve the full encoded preview host, route it to
+  the matching canonical customer runtime, and forward the original host in
+  `X-Vibe-Requested-Host`. V1 intentionally does not use a requested-host
+  shared secret because the deployment is limited to the private/Cloudflare
+  Access-protected sandbox. The proper per-customer/runtime secret model is
+  tracked separately.
+
+## Resolver API
+
+`vk_preview_resolver` sends a local-only JSON POST to the configured
+`resolver_url`:
+
+```json
+{
+  "host": "web-vibekanban-0123456789abcdef-mickmister.vibedashboard.dev",
+  "workspaceToken": "0123456789abcdef",
+  "repoSlug": "vibekanban",
+  "slotSlug": "web",
+  "customerSlug": "mickmister",
+  "ensure": true,
+  "method": "GET",
+  "path": "/"
+}
+```
+
+`ensure` is only true for page-load navigations: `GET`, not a protocol upgrade,
+and `Sec-Fetch-Mode: navigate` or `Sec-Fetch-Dest: document`. Asset, API, and
+WebSocket requests do not start preview servers by themselves.
+
+Expected response:
+
+```json
+{ "status": "ready", "upstream": "http://127.0.0.1:4567" }
+```
+
+Other statuses:
+
+- `starting`: render startup page for navigations, plain 503 for non-document requests.
+- `not_found`: 404.
+- `capacity_full`: 503.
+- `failed`, `unavailable`, `error`: 502.
+
+The resolver owns workspace validation, preview process state, max-running-server
+capacity, and eviction policy. The Caddy module owns request parsing and proxying.
+
+Log authorization is narrower than ordinary workspace process access: VD first
+requires the requested execution process to appear in VK's latest
+`preview_process_link` data for the requested workspace, then verifies the
+process session belongs to that workspace. Missing or unrelated associations return
+a readable not-found state without opening the raw-log WebSocket.
+
+When proxying a ready preview upstream, Caddy forwards preview metadata headers:
+
+- `X-Vibe-Requested-Host`
+- `X-Vibe-Preview-Workspace-Token`
+- `X-Vibe-Preview-Repo`
+- `X-Vibe-Preview-Slot`
+- `X-Vibe-Preview-Customer`
+
+Before setting those canonical metadata headers, Caddy removes inbound
+`Forwarded`, `X-Forwarded-Host`, `X-Vibe-Requested-Host`, and
+`X-Vibe-Preview-*` headers so preview apps cannot receive spoofed preview
+metadata from clients.
+
+## Requested-host header trust model
+
+Direct clients can set arbitrary `X-Forwarded-Host` or `X-Vibe-Requested-Host`
+headers. For V1, Preview URLs are limited to the private/Cloudflare
+Access-protected sandbox, so Caddy accepts `X-Vibe-Requested-Host` as the Worker
+preserved-host signal and still ignores generic `X-Forwarded-Host`.
+
+Release guard: do not deploy this no-secret requested-host mode on a public or
+direct-origin path. The customer runtime/Caddy ingress must be reachable only
+through the private/Cloudflare Access-protected sandbox routing boundary until
+`vkvw-murh — Design proper per-customer Preview URL secret seeding` (or an
+equivalent platform attestation design) is implemented. If a deployment can
+receive public direct-origin traffic, requested-host trust must be disabled or
+replaced with stronger attestation before release.
+
+Worker request to Caddy:
+
+- `X-Vibe-Requested-Host: {slotSlug}-{repoSlug}-{workspaceToken}-{customerSlug}.vibedashboard.dev`
+
+Advanced deployments may override the requested-host header name with
+`PREVIEW_REQUESTED_HOST_HEADER` or the equivalent Caddyfile option
+`trusted_requested_host_header`.

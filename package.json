@@ -5,8 +5,15 @@
   "packageManager": "pnpm@10.13.1",
   "scripts": {
     "dev": "vite",
+    "dev:vk-mocked-sandbox": "node --experimental-strip-types scripts/vk-mocked-sandbox.ts start",
+    "dev:vk-mocked-sandbox:ci-release": "VK_MOCKED_VK_BACKEND=ci-release node --experimental-strip-types scripts/vk-mocked-sandbox.ts start",
+    "e2e:vk-mocked-sandbox:reset": "node --experimental-strip-types scripts/e2e-vk-mocked-sandbox-fixtures.ts reset",
+    "e2e:vk-mocked-sandbox:snapshot": "node --experimental-strip-types scripts/e2e-vk-mocked-sandbox-fixtures.ts snapshot",
+    "e2e:vk-mocked-sandbox:validate": "node --experimental-strip-types scripts/e2e-vk-mocked-sandbox-fixtures.ts validate",
+    "prepare:vk-mocked-sandbox": "node --experimental-strip-types scripts/vk-mocked-sandbox.ts prepare",
+    "prepare:vk-mocked-sandbox:ci-release": "VK_MOCKED_VK_BACKEND=ci-release node --experimental-strip-types scripts/vk-mocked-sandbox.ts prepare",
     "start": "node dist/node/node-entry.mjs",
-    "build": "npm run build:web && npm run build:node && npm run build:vibe-agent-cli",
+    "build": "npm run build:beads-form && npm run build:web && npm run build:node && npm run build:vibe-agent-cli",
     "build:plugin-orchestrator": "vite build --config plugins/orchestrator/vite.config.ts",
     "build:vibe-agent-cli": "vite build --config scripts/vibe-agent/vite.config.ts",
     "build:web": "SPRINGBOARD_PLATFORM=web vite build",
@@ -33,9 +40,21 @@
     "plugin-instance:apply-enable:beads-web": "node --experimental-strip-types plugins/orchestrator/plugin-instance-config-cli.ts apply-enable --approved true --config-repo-dir /var/lib/vd/instance-config --plugin-id vd.beads-web",
     "test:server": "vitest run --config vitest.server.config.ts",
     "test:e2e": "playwright test",
+    "test:e2e:vk-mocked-sandbox": "playwright test --config playwright.vk-mocked-sandbox.config.ts",
     "test:e2e:install": "playwright install chromium",
+    "playwright:cli": "PLAYWRIGHT_MCP_SANDBOX=false playwright-cli",
     "hotswap": "npm run build && ./scripts/hotswap-dashboard-dist.sh deploy",
-    "plugin-services:refresh:beads-web:requires-tag": "node --experimental-strip-types plugins/orchestrator/plugin-service-orchestrator-cli.ts refresh-github-release --plugin-id vd.beads-web --catalog plugins/builtin.plugins.json --catalog plugins/fixtures/beads-web.plugins.json --plugin plugins/fixtures/beads-web.plugin.json"
+    "plugin-services:refresh:beads-web:requires-tag": "node --experimental-strip-types plugins/orchestrator/plugin-service-orchestrator-cli.ts refresh-github-release --plugin-id vd.beads-web --catalog plugins/builtin.plugins.json --catalog plugins/fixtures/beads-web.plugins.json --plugin plugins/fixtures/beads-web.plugin.json",
+    "beads-form:preview": "node --experimental-strip-types scripts/beads-form/preview.ts",
+    "dev:beads-form-preview": "node --experimental-strip-types scripts/beads-form/preview.ts",
+    "beads-form": "node --experimental-strip-types scripts/beads-form/cli.ts",
+    "dev:beads-form-preview:shared": "node --experimental-strip-types scripts/beads-form/shared-preview.ts",
+    "hotswap:vkvd": "node --experimental-strip-types scripts/hotswap-vkvd.ts",
+    "vk:batch-build": "bash scripts/vk-batch-stage-validate-build.sh",
+    "vk:batch-hotswap": "bash scripts/vk-batch-stage-hotswap-apply.sh",
+    "vk:batch-hotswap-gh": "bash scripts/vk-batch-stage-gh-artifact.sh",
+    "vk:batch-rollback": "bash scripts/vk-batch-stage-rollback.sh",
+    "build:beads-form": "pnpm --filter @vibe-dashboard/beads-form build"
   },
   "dependencies": {
     "@heroui/react": "^2.8.9",
@@ -46,6 +65,7 @@
     "@vitejs/plugin-react": "^5.1.4",
     "better-sqlite3": "^12.6.2",
     "crossws": "^0.4.4",
+    "dompurify": "^3.4.11",
     "framer-motion": "^12.34.0",
     "hono": "^4.11.9",
     "immer": "^11.1.4",
@@ -57,10 +77,12 @@
     "rxjs": "^7.8.2",
     "springboard": "0.0.1-dev-jamapp-12",
     "tailwindcss": "^4.1.18",
-    "@tanstack/react-query": "^5.101.0"
+    "@tanstack/react-query": "^5.101.0",
+    "@vibe-dashboard/beads-form": "workspace:*"
   },
   "devDependencies": {
     "@chromatic-com/storybook": "^5.0.1",
+    "@playwright/cli": "0.1.18",
     "@storybook/addon-a11y": "^10.2.10",
     "@storybook/addon-docs": "^10.2.10",
     "@storybook/addon-onboarding": "^10.2.10",
@@ -85,6 +107,7 @@
   },
   "bin": {
     "vibe-agent": "./bin/vibe-agent",
-    "vk": "./bin/vk"
+    "vk": "./bin/vk",
+    "beads-form": "./bin/beads-form"
   }
 }

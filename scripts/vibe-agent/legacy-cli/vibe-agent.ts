@@ -2148,7 +2148,9 @@ function onboarding(): void {
   console.log(`Vibe agent onboarding
 
 Core workflow:
-  - Use bd for task tracking in this repo. Create or update beads for meaningful work.
+  - Use bd from PATH for task tracking in this repo. In VD images, bd/beads are wrapped to stamp workspace/session metadata.
+  - Create or update beads in the repo where the work belongs. For multi-repo workspaces, choose the relevant repo.
+  - If the relevant repo is not bead-initialized, run bd init in that repo. Do not create a parent git repo just to hold beads.
   - Always reference beads by id and title, for example: vkvw-3516 — Vendor vibe-agent and vk CLIs with onboarding.
   - Filter to branch-relevant beads before choosing work. Useful commands:
       bd list --json

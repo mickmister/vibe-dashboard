@@ -27,3 +27,6 @@ CGO_ENABLED=0 xcaddy build "$caddy_version" \
   --with "$module_import=."
 chmod +x "$output_path"
 "$output_path" list-modules | grep -q 'http.handlers.vibe_kanban_rewriter'
+"$output_path" list-modules | grep -q 'http.handlers.vibe_preview_resolver'
+printf ':0 {\n vk_preview_resolver {\n  resolver_url http://127.0.0.1:1/resolve\n  grammar slot-repo-workspace-customer-v1\n  routing domain-independent-v1\n }\n}\n' \
+  | "$output_path" adapt --adapter caddyfile --config - >/dev/null

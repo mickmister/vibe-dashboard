@@ -13,6 +13,7 @@ export const CRAFT_SURFACE_TAB_ID_PREFIX = "craft-surface:";
 export const BUILT_IN_AGENT_TAB_ID = "agent";
 export const BUILT_IN_CODE_TAB_ID = "code";
 export const BUILT_IN_BEADS_TAB_ID = "beads";
+export const BUILT_IN_FORMS_TAB_ID = "forms";
 export const BUILT_IN_AGENT_CODE_PAIR_ID = "agent+code";
 export const BUILT_IN_AGENT_BEADS_PAIR_ID = "agent+beads";
 
@@ -20,6 +21,7 @@ const BUILT_IN_WORKSPACE_TAB_IDS = new Set([
   BUILT_IN_AGENT_TAB_ID,
   BUILT_IN_CODE_TAB_ID,
   BUILT_IN_BEADS_TAB_ID,
+  BUILT_IN_FORMS_TAB_ID,
 ]);
 const BUILT_IN_WORKSPACE_PAIR_IDS = new Set([
   BUILT_IN_AGENT_CODE_PAIR_ID,
@@ -29,6 +31,11 @@ const URL_PARSE_BASE = "https://workspace.local";
 const BEADS_WEB_DEFAULT_PORT = "3109";
 
 type BuiltInWorkspaceMetadata = NonNullable<TabGroup["workspace"]>;
+type ViteImportMeta = ImportMeta & {
+  env?: {
+    VITE_VK_BASE_ORIGIN?: string;
+  };
+};
 
 export interface CreateEffectiveWorkspaceWithCraftSurfacesInput {
   workspace: WorkspaceState;
@@ -183,24 +190,33 @@ export function getBuiltInWorkspaceMetadata(
 function getBuiltInWorkspaceTabs(tabGroup: TabGroup, origin: string): Tab[] {
   const metadata = getBuiltInWorkspaceMetadata(tabGroup);
   if (!metadata) return [];
-  const baseOrigin = origin;
+  const workspaceBaseOrigin = getBuiltInWorkspaceBaseOrigin(origin, {
+    allowConfiguredVkBaseOrigin: true,
+  });
+  const dashboardBaseOrigin = getBuiltInWorkspaceBaseOrigin(origin);
   return [
     {
       id: BUILT_IN_AGENT_TAB_ID,
       title: "Agent",
-      url: buildWorkspaceTabUrl(baseOrigin, metadata.workspaceId),
+      url: buildWorkspaceTabUrl(workspaceBaseOrigin, metadata.workspaceId),
       pinned: true,
     },
     {
       id: BUILT_IN_CODE_TAB_ID,
       title: "Code",
-      url: buildWorkspaceFolderUrl(baseOrigin, metadata.workspaceDir),
+      url: buildWorkspaceFolderUrl(workspaceBaseOrigin, metadata.workspaceDir),
       pinned: true,
     },
     {
       id: BUILT_IN_BEADS_TAB_ID,
       title: "Beads",
-      url: buildBeadsWebUrl(baseOrigin),
+      url: buildBeadsWebUrl(dashboardBaseOrigin),
+      pinned: true,
+    },
+    {
+      id: BUILT_IN_FORMS_TAB_ID,
+      title: "Forms",
+      url: buildFormsUrl(dashboardBaseOrigin, metadata.workspaceId, metadata.formsBeadId),
       pinned: true,
     },
   ];
@@ -280,6 +296,10 @@ export function isEphemeralCraftSurfaceTabId(tabId: string): boolean {
     tabId.startsWith(CRAFT_SURFACE_TAB_ID_PREFIX) ||
     isBuiltInWorkspaceTabId(tabId)
   );
+}
+
+export function isRuntimeCraftSurfaceTabId(tabId: string): boolean {
+  return tabId.startsWith(CRAFT_SURFACE_TAB_ID_PREFIX);
 }
 
 export function tabGroupHasEphemeralCraftSurfaceTab(
@@ -387,6 +407,51 @@ export function stripEphemeralCraftSurfaceSessionRefs(input: {
   return { voyageEntries, activeItemsByVoyageEntryId };
 }
 
+export function sanitizeRuntimeCraftSurfaceSavedSessionRefs(input: {
+  workspace: WorkspaceState;
+  session: SavedWorkspaceSession;
+}): SavedWorkspaceSession {
+  const tabGroupsById = new Map(
+    input.workspace.tabGroups.map((tabGroup) => [tabGroup.id, tabGroup]),
+  );
+  const voyageEntries = input.session.voyageEntries.map((entry) => {
+    const tabGroup = tabGroupsById.get(entry.tabGroupId);
+    const persistentViewIds = sanitizeRuntimeViewIdsForSavedVoyageEntry(
+      tabGroup,
+      entry.viewIds,
+    );
+    return {
+      ...entry,
+      viewIds: persistentViewIds.length
+        ? persistentViewIds
+        : getDefaultPersistentViewIdsForSavedVoyage(tabGroup),
+    };
+  });
+  const entriesById = new Map(voyageEntries.map((entry) => [entry.id, entry]));
+  const activeItemsByVoyageEntryId = Object.fromEntries(
+    Object.entries(input.session.activeItemsByVoyageEntryId ?? {}).flatMap(
+      ([entryId, itemId]) => {
+        const entry = entriesById.get(entryId);
+        if (!entry) return [];
+        if (!isRuntimeCraftSurfaceTabId(itemId)) {
+          return [[entryId, itemId]];
+        }
+        const fallbackItemId = getDefaultActiveItemIdForSavedVoyageEntry(
+          tabGroupsById.get(entry.tabGroupId),
+          entry.viewIds,
+        );
+        return fallbackItemId ? [[entryId, fallbackItemId]] : [];
+      },
+    ),
+  );
+
+  return {
+    ...input.session,
+    voyageEntries,
+    activeItemsByVoyageEntryId,
+  };
+}
+
 export function isBuiltInWorkspaceTabId(tabId: string): boolean {
   return BUILT_IN_WORKSPACE_TAB_IDS.has(tabId);
 }
@@ -402,12 +467,112 @@ function isGeneratedWorkspaceTab(
     isEphemeralCraftSurfaceTab(tab) ||
     isAgentTab(tab) ||
     isCodeTab(tab) ||
-    isBeadsTab(tab)
+    isBeadsTab(tab) ||
+    isFormsTab(tab)
   );
+}
+
+function sanitizeRuntimeViewIdsForSavedVoyageEntry(
+  tabGroup: TabGroup | undefined,
+  viewIds: string[],
+): string[] {
+  if (!tabGroup) return [];
+  const persistentTabIds = getPersistentSavedVoyageTabIds(tabGroup);
+  return viewIds.filter(
+    (viewId) =>
+      !isRuntimeCraftSurfaceTabId(viewId) && persistentTabIds.has(viewId),
+  );
+}
+
+function getDefaultPersistentViewIdsForSavedVoyage(
+  tabGroup: TabGroup | undefined,
+): string[] {
+  if (!tabGroup) return [];
+  if (tabGroup.workspace?.workspaceId) return [BUILT_IN_AGENT_TAB_ID];
+  const persistentTabId = tabGroup.tabs.find(
+    (tab) => !isRuntimeCraftSurfaceTabId(tab.id),
+  )?.id;
+  if (persistentTabId) return [persistentTabId];
+  const persistentPair = tabGroup.pairs.find((pair) =>
+    pair.tabIds.every((tabId) => !isRuntimeCraftSurfaceTabId(tabId)),
+  );
+  return persistentPair?.tabIds ? [...persistentPair.tabIds] : [];
+}
+
+function getDefaultActiveItemIdForSavedVoyageEntry(
+  tabGroup: TabGroup | undefined,
+  viewIds: string[],
+): string {
+  if (!tabGroup) return viewIds[0] ?? "";
+  if (viewIds.length > 1) {
+    const pair = tabGroup.pairs.find(
+      (entry) =>
+        entry.tabIds.length === viewIds.length &&
+        entry.tabIds.every((tabId, index) => tabId === viewIds[index]),
+    );
+    if (pair && !isRuntimeCraftSurfaceTabId(pair.id)) return pair.id;
+  }
+  return viewIds[0] ?? "";
+}
+
+function getPersistentSavedVoyageTabIds(tabGroup: TabGroup): Set<string> {
+  const persistentTabIds = new Set(
+    tabGroup.tabs
+      .filter((tab) => !isRuntimeCraftSurfaceTabId(tab.id))
+      .map((tab) => tab.id),
+  );
+  if (tabGroup.workspace?.workspaceId) {
+    for (const tabId of BUILT_IN_WORKSPACE_TAB_IDS) {
+      persistentTabIds.add(tabId);
+    }
+  }
+  return persistentTabIds;
+}
+
+function getBuiltInWorkspaceBaseOrigin(
+  origin: string,
+  options: { allowConfiguredVkBaseOrigin?: boolean } = {},
+): string {
+  if (options.allowConfiguredVkBaseOrigin) {
+    const configuredVkBaseOrigin = getConfiguredVkBaseOrigin();
+    if (configuredVkBaseOrigin) return configuredVkBaseOrigin;
+  }
+
+  try {
+    const url = new URL(origin);
+    const portPrefixMatch = url.hostname.match(/^port-\d+\.(.+)$/);
+    if (!portPrefixMatch) return origin;
+    url.hostname = portPrefixMatch[1]!;
+    return url.origin;
+  } catch {
+    return origin;
+  }
+}
+
+function getConfiguredVkBaseOrigin(): string | null {
+  const configuredOrigin = (
+    (import.meta as ViteImportMeta).env?.VITE_VK_BASE_ORIGIN ??
+    (typeof process !== "undefined"
+      ? process.env?.VITE_VK_BASE_ORIGIN
+      : undefined)
+  )?.trim();
+  if (!configuredOrigin) return null;
+
+  try {
+    return new URL(configuredOrigin).origin;
+  } catch {
+    return null;
+  }
 }
 
 function buildWorkspaceTabUrl(baseOrigin: string, workspaceId: string): string {
   return `${baseOrigin}/workspaces/${workspaceId}`;
+}
+
+function buildFormsUrl(baseOrigin: string, workspaceId: string, beadId?: string): string {
+  const params = new URLSearchParams({ workspace: workspaceId });
+  if (beadId) params.set("bead", beadId);
+  return `${baseOrigin}/dashboard/forms?${params.toString()}`;
 }
 
 function buildBeadsWebUrl(baseOrigin: string): string {
@@ -483,6 +648,13 @@ function isBeadsTab(tab: Pick<Tab, "id" | "title" | "url">): boolean {
   return (
     tab.id === BUILT_IN_BEADS_TAB_ID ||
     tab.title.trim().toLowerCase() === "beads"
+  );
+}
+
+function isFormsTab(tab: Pick<Tab, "id" | "title" | "url">): boolean {
+  return (
+    tab.id === BUILT_IN_FORMS_TAB_ID ||
+    tab.title.trim().toLowerCase() === "forms"
   );
 }
 

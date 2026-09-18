@@ -1,6 +1,7 @@
 import type {
   Craft,
   SavedWorkspaceSession,
+  Tab,
   VoyageEntry,
   WorkspaceState,
 } from '../types';
@@ -103,8 +104,36 @@ export function buildViewParam(label: string, id: string, peerIds: string[] = [i
   return `${slugifyPart(label)}-${getShortIdToken(id, peerIds)}`;
 }
 
+function encodeRuntimeViewTokenPart(value: string): string {
+  return encodeURIComponent(value).replaceAll('%2F', '/');
+}
+
+export function getRuntimeCraftSurfaceViewToken(
+  tab: Pick<Tab, 'ephemeral'> | undefined,
+): string | null {
+  if (tab?.ephemeral?.kind !== 'craft-surface') return null;
+  const sourceKey = tab.ephemeral.sourceKey || tab.ephemeral.surfaceKey;
+  if (!(tab.ephemeral.pluginId && sourceKey)) return null;
+  return `runtime:${encodeRuntimeViewTokenPart(tab.ephemeral.pluginId)}/${encodeRuntimeViewTokenPart(sourceKey)}`;
+}
+
+export function buildViewParamForTab(
+  tab: Pick<Tab, 'id' | 'title' | 'ephemeral'>,
+  peerTabs: Array<Pick<Tab, 'id'>>,
+): string {
+  return (
+    getRuntimeCraftSurfaceViewToken(tab) ||
+    buildViewParam(
+      tab.title,
+      tab.id,
+      peerTabs.map((candidate) => candidate.id),
+    )
+  );
+}
+
 export function parseViewParam(value: string | null | undefined): string | null {
   if (!value) return null;
+  if (value.startsWith('runtime:')) return value;
   const parts = value.split('-').filter(Boolean);
   return parts[parts.length - 1] || null;
 }
@@ -115,6 +144,30 @@ export function parseViewsParam(value: string | null | undefined): string[] {
     .split(',')
     .map((entry) => parseViewParam(entry.trim()))
     .filter((entry): entry is string => Boolean(entry));
+}
+
+export function resolveViewIdsFromViewParam(
+  tabs: Array<Pick<Tab, 'id' | 'title' | 'ephemeral'>>,
+  value: string | null | undefined,
+): string[] {
+  const tokens = parseViewsParam(value);
+  if (!tokens.length) return [];
+
+  const tabIds = tabs.map((tab) => tab.id);
+  return tokens
+    .map((token) => {
+      const runtimeMatch = tabs.find(
+        (tab) => getRuntimeCraftSurfaceViewToken(tab) === token,
+      );
+      if (runtimeMatch) return runtimeMatch.id;
+      if (token.startsWith('runtime:')) return undefined;
+
+      return tabs.find((tab) => {
+        if (getRuntimeCraftSurfaceViewToken(tab)) return false;
+        return shortIdTokenMatches(tab.id, token, tabIds);
+      })?.id;
+    })
+    .filter((id): id is string => Boolean(id));
 }
 
 export function buildCanonicalDashboardPath(
@@ -184,13 +237,7 @@ export function buildSavedVoyageDashboardPath({
       ? selectedViewIds
           .map((viewId) => {
             const tab = tabGroup.tabs.find((candidate) => candidate.id === viewId);
-            return tab
-              ? buildViewParam(
-                  tab.title,
-                  tab.id,
-                  tabGroup.tabs.map((candidate) => candidate.id),
-                )
-              : null;
+            return tab ? buildViewParamForTab(tab, tabGroup.tabs) : null;
           })
           .filter((token): token is string => Boolean(token))
       : undefined;
