@@ -24,6 +24,7 @@ import { BASE_ROLES, isValidRole } from '../config.js';
 import {
   createCallback,
   DEFAULT_CALLBACK_REGISTRY_PATH,
+  failCallbackStart,
   updateCallback,
 } from '../nudge/callback-registry.js';
 
@@ -243,6 +244,11 @@ export function hasActiveSessionTurn(processes: SessionTurnProcess[]): boolean {
     if (TERMINAL_PROCESS_STATUSES.has(process.status)) return false;
     return process.completed_at == null;
   });
+}
+
+export function uniqueActiveProcessId(processes: SessionTurnProcess[]): string | null {
+  const active = processes.filter(process => hasActiveSessionTurn([process]));
+  return active.length === 1 ? active[0]?.id ?? null : null;
 }
 
 function sleep(ms: number): Promise<void> {
@@ -951,6 +957,7 @@ function getCommitSummariesForTurn(
 
 
 async function callback(args: string[]): Promise<void> {
+  let registeredCallback: { id: string; registryPath: string } | null = null;
   let parsed: ParsedCallbackArgs;
   try {
     parsed = parseCallbackArgs(args);
@@ -989,13 +996,18 @@ async function callback(args: string[]): Promise<void> {
       timeoutMs,
     };
 
+    const sourceProcessId = uniqueActiveProcessId(await client.getSessionProcesses(sessionId));
+
     createCallback(payload.registryPath, {
       id: payload.callbackId,
       sessionId,
       command: commandToRun,
       startedAt: new Date().toISOString(),
       ...(timeoutMs === undefined ? {} : { timeoutMs }),
+      sourceProcessId,
+      triggerProcessId: sourceProcessId,
     });
+    registeredCallback = { id: payload.callbackId, registryPath: payload.registryPath };
 
     const runner = spawn(process.execPath, [fileURLToPath(import.meta.url), '__callback-runner', JSON.stringify(payload)], {
       detached: true,
@@ -1004,6 +1016,12 @@ async function callback(args: string[]): Promise<void> {
       cwd: process.cwd(),
     });
     updateCallback(payload.registryPath, payload.callbackId, { runnerPid: runner.pid ?? null });
+    runner.once('error', (error) => {
+      try { failCallbackStart(payload.registryPath, payload.callbackId, error); }
+      catch (registryError) {
+        fs.appendFileSync(payload.outputFile, `\n[vibe-agent callback failed to record spawn error: ${(registryError as Error).message}]\n`);
+      }
+    });
     runner.unref();
 
     if (jsonOutput) {
@@ -1016,6 +1034,7 @@ async function callback(args: string[]): Promise<void> {
         runner_pid: runner.pid,
         timeout_ms: timeoutMs ?? null,
         callback_id: payload.callbackId,
+        source_process_id: sourceProcessId,
       }, null, 2));
     } else {
       console.log('Callback command started in the background.');
@@ -1033,6 +1052,15 @@ async function callback(args: string[]): Promise<void> {
       }
     }
   } catch (err) {
+    if (registeredCallback) {
+      try {
+        updateCallback(registeredCallback.registryPath, registeredCallback.id, {
+          status: 'failed', finishedAt: new Date().toISOString(), error: (err as Error).message,
+        });
+      } catch {
+        // Preserve the original callback setup error.
+      }
+    }
     console.error(`Error: ${(err as Error).message}`);
     process.exit(1);
   }

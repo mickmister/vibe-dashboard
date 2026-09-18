@@ -4,7 +4,16 @@ import {
   getAdvanceableFullSummaryProcessIds,
   mapWithConcurrency,
   parseFullSummaryArgs,
+  uniqueActiveProcessId,
 } from './vibe-agent.js';
+
+describe('uniqueActiveProcessId', () => {
+  it('correlates only a uniquely active invoking process', () => {
+    expect(uniqueActiveProcessId([{ id: 'one', status: 'running', completed_at: null }])).toBe('one');
+    expect(uniqueActiveProcessId([{ id: 'one', status: 'running', completed_at: null }, { id: 'two', status: 'running', completed_at: null }])).toBeNull();
+    expect(uniqueActiveProcessId([{ id: 'done', status: 'completed', completed_at: '2026-09-18T00:00:00Z' }])).toBeNull();
+  });
+});
 
 describe('parseFullSummaryArgs', () => {
   it('uses bounded defaults for large workspaces', () => {

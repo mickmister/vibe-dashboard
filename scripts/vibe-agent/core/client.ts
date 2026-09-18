@@ -271,7 +271,7 @@ export class VibeClient {
 
 
 
-  async fetchConversation(processId: string, timeoutMs = 30 * 60 * 1000): Promise<ConversationEntry[]> {
+  async fetchConversation(processId: string, timeoutMs = 30 * 60 * 1000, signal?: AbortSignal): Promise<ConversationEntry[]> {
     return new Promise((resolve, reject) => {
       const ws = new WebSocket(config.wsEndpoints.executionLogs(processId));
       const doc: { entries: ConversationEntry[] } = { entries: [] };
@@ -282,7 +282,16 @@ export class VibeClient {
         settled = true;
         clearTimeout(timeout);
         ws.terminate();
+        signal?.removeEventListener('abort', abort);
         resolve(doc.entries);
+      };
+
+      const abort = () => {
+        if (settled) return;
+        settled = true;
+        clearTimeout(timeout);
+        ws.terminate();
+        reject(new Error(`Cancelled while waiting for process ${processId}`));
       };
 
       const applyPatch = (op: any) => {
@@ -313,6 +322,7 @@ export class VibeClient {
       const timeout = setTimeout(() => {
         if (settled) return;
         settled = true;
+        signal?.removeEventListener('abort', abort);
         ws.terminate();
         reject(new Error(`Timed out waiting for process ${processId} after ${timeoutMs}ms`));
       }, timeoutMs);
@@ -336,12 +346,15 @@ export class VibeClient {
         settled = true;
         clearTimeout(timeout);
         ws.terminate();
+        signal?.removeEventListener('abort', abort);
         reject(err);
       });
 
       ws.on('close', () => {
         finish();
       });
+      if (signal?.aborted) abort();
+      else signal?.addEventListener('abort', abort, { once: true });
     });
   }
 

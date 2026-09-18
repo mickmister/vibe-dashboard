@@ -90,6 +90,15 @@ describe('first-party service plugin inventory and golden supervisor config', ()
     );
   });
 
+  it('requires the configured auto-nudge flag and never starts the legacy managed daemon', () => {
+    const nudge = getSupervisorProgramBlock(goldenSupervisor, 'vibe-agent-nudge-daemon');
+    expect(nudge).toContain('VD_AUTO_NUDGE_ENABLED');
+    expect(nudge).toContain('VD_AUTO_NUDGE_CONFIG is required');
+    expect(nudge).toContain('nudge/auto-nudge.js');
+    expect(nudge).not.toContain('VD_NUDGE_DAEMON_ENABLED');
+    expect(nudge).not.toContain('nudge/daemon.js');
+  });
+
   it('keeps Caddy startup non-blocking while plugin runtime apply runs after supervisor starts', () => {
     expectCaddyEnvDefault(goldenCaddyfile, 'CADDY_ADMIN', 'localhost:2019');
     expectCaddyEnvDefault(goldenCaddyfile, 'CADDY_PLUGINS_CADDY', '/etc/caddy/plugins.caddy');

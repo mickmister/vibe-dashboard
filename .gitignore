@@ -25,3 +25,6 @@ src/storybook-fixtures/external-jira/*.generated.json
 
 .vk-mocked-sandbox
 .playwright-cli
+
+# Local GitNexus analysis artifacts
+.gitnexus/

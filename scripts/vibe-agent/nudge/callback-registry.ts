@@ -2,6 +2,7 @@ import * as fs from 'node:fs';
 import * as path from 'node:path';
 
 export const DEFAULT_CALLBACK_REGISTRY_PATH = '/var/lib/vd/auto-nudge/callbacks.json';
+export const CALLBACK_NULL_PID_GRACE_MS = 30_000;
 
 export type CallbackStatus = 'running' | 'completed' | 'failed' | 'timed-out';
 
@@ -15,22 +16,41 @@ export interface CallbackRecord {
   finishedAt: string | null;
   completionProcessId: string | null;
   runnerPid: number | null;
+  sourceProcessId: string | null;
+  triggerProcessId: string | null;
   error: string | null;
 }
 
 export interface CallbackRegistry {
-  version: 1;
+  version: 2;
   callbacks: CallbackRecord[];
 }
 
 export function readCallbackRegistry(filePath: string): CallbackRegistry {
+  let raw: string;
   try {
-    const value = JSON.parse(fs.readFileSync(filePath, 'utf8')) as CallbackRegistry;
-    if (value.version === 1 && Array.isArray(value.callbacks)) return value;
-  } catch {
-    // A missing registry means no callbacks. Corruption is surfaced by writes, which preserve the old file.
+    raw = fs.readFileSync(filePath, 'utf8');
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === 'ENOENT') return { version: 2, callbacks: [] };
+    throw error;
   }
-  return { version: 1, callbacks: [] };
+  let value: unknown;
+  try { value = JSON.parse(raw); } catch (error) { throw new Error(`Invalid callback registry JSON at ${filePath}: ${(error as Error).message}`); }
+  if (!value || typeof value !== 'object' || !Array.isArray((value as any).callbacks)) throw new Error(`Invalid callback registry schema at ${filePath}`);
+  const version = (value as any).version;
+  if (version !== 1 && version !== 2) throw new Error(`Unsupported callback registry version ${String(version)} at ${filePath}`);
+  const callbacks = (value as any).callbacks.map((item: any, index: number): CallbackRecord => {
+    if (!item || typeof item.id !== 'string' || typeof item.sessionId !== 'string' || typeof item.command !== 'string'
+      || typeof item.startedAt !== 'string' || !['running', 'completed', 'failed', 'timed-out'].includes(item.status)
+      || (item.timeoutMs != null && typeof item.timeoutMs !== 'number')
+      || (item.runnerPid != null && typeof item.runnerPid !== 'number')
+      || (item.sourceProcessId != null && typeof item.sourceProcessId !== 'string')
+      || (item.triggerProcessId != null && typeof item.triggerProcessId !== 'string')) {
+      throw new Error(`Invalid callback record ${index} at ${filePath}`);
+    }
+    return { ...item, runnerPid: item.runnerPid ?? null, sourceProcessId: item.sourceProcessId ?? null, triggerProcessId: item.triggerProcessId ?? item.sourceProcessId ?? null };
+  });
+  return { version: 2, callbacks };
 }
 
 export function writeCallbackRegistry(filePath: string, registry: CallbackRegistry): void {
@@ -65,7 +85,7 @@ function withRegistryLock<T>(filePath: string, operation: () => T): T {
 
 export function createCallback(
   filePath: string,
-  input: Pick<CallbackRecord, 'id' | 'sessionId' | 'command' | 'startedAt'> & { timeoutMs?: number },
+  input: Pick<CallbackRecord, 'id' | 'sessionId' | 'command' | 'startedAt'> & { timeoutMs?: number; sourceProcessId?: string | null; triggerProcessId?: string | null },
 ): CallbackRecord {
   return withRegistryLock(filePath, () => {
     const registry = readCallbackRegistry(filePath);
@@ -77,6 +97,8 @@ export function createCallback(
       finishedAt: null,
       completionProcessId: null,
       runnerPid: null,
+      sourceProcessId: input.sourceProcessId ?? null,
+      triggerProcessId: input.triggerProcessId ?? input.sourceProcessId ?? null,
       error: null,
     };
     registry.callbacks.push(record);
@@ -97,7 +119,11 @@ export function updateCallback(filePath: string, id: string, update: Partial<Cal
   });
 }
 
-export function callbacksForSession(filePath: string, sessionId: string, now = new Date()): CallbackRecord[] {
+export function failCallbackStart(filePath: string, id: string, error: Error, now = new Date()): CallbackRecord {
+  return updateCallback(filePath, id, { status: 'failed', finishedAt: now.toISOString(), error: `failed to spawn callback runner: ${error.message}` });
+}
+
+export function callbacksForSession(filePath: string, sessionId: string, now = new Date(), recover = true): CallbackRecord[] {
   const registry = readCallbackRegistry(filePath);
   let changed = false;
   for (const callback of registry.callbacks) {
@@ -106,20 +132,29 @@ export function callbacksForSession(filePath: string, sessionId: string, now = n
     if (callback.runnerPid != null) {
       try { process.kill(callback.runnerPid, 0); } catch { runnerDead = true; }
     }
+    const nullPidStale = callback.runnerPid == null
+      && now.getTime() > new Date(callback.startedAt).getTime() + CALLBACK_NULL_PID_GRACE_MS;
     const exceededTimeout = callback.timeoutMs != null
       && now.getTime() > new Date(callback.startedAt).getTime() + callback.timeoutMs + 10_000;
-    if (!runnerDead && !exceededTimeout) continue;
+    if (!runnerDead && !nullPidStale && !exceededTimeout) continue;
     callback.status = 'timed-out';
     callback.finishedAt = now.toISOString();
     callback.error = runnerDead
       ? 'callback runner exited without updating the registry'
-      : 'callback runner exceeded its timeout without updating the registry';
+      : nullPidStale ? 'callback runner was never assigned a process ID' : 'callback runner exceeded its timeout without updating the registry';
     changed = true;
   }
-  if (changed) {
+  if (changed && recover) {
     for (const callback of registry.callbacks.filter(item => item.sessionId === sessionId && item.status === 'timed-out')) {
       updateCallback(filePath, callback.id, callback);
     }
   }
   return registry.callbacks.filter(item => item.sessionId === sessionId);
+}
+
+export function callbacksForTrigger(filePath: string, processId: string, now = new Date(), recover = true): CallbackRecord[] {
+  const registry = readCallbackRegistry(filePath);
+  const sessionIds = [...new Set(registry.callbacks.filter(item => item.sourceProcessId === processId || item.triggerProcessId === processId).map(item => item.sessionId))];
+  return sessionIds.flatMap(sessionId => callbacksForSession(filePath, sessionId, now, recover))
+    .filter(item => item.sourceProcessId === processId || item.triggerProcessId === processId);
 }
