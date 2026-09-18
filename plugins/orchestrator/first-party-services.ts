@@ -192,7 +192,7 @@ directory=/home/vkuser/.local/share/vibe-dashboard-runtime`;
 
 const VIBE_AGENT_NUDGE_SUPERVISOR = `; vibe-agent nudge daemon (continues newly-stopped coding agent turns)
 [program:vibe-agent-nudge-daemon]
-command=sh -c 'if [ "\${VD_NUDGE_DAEMON_ENABLED:-}" != "true" ]; then echo "vibe-agent nudge daemon disabled (VD_NUDGE_DAEMON_ENABLED != true)"; exec tail -f /dev/null; fi; exec node /opt/vibe-kanban-vscode-web-seed/dist/vibe-agent/nudge/daemon.js'
+command=sh -c 'if [ "\${VD_AUTO_NUDGE_ENABLED:-}" = "true" ]; then if [ "\${VD_NUDGE_DAEMON_ENABLED:-}" = "true" ]; then echo "refusing to run both auto-nudge owners" >&2; exit 1; fi; exec node /opt/vibe-kanban-vscode-web-seed/dist/vibe-agent/nudge/auto-nudge.js --config "\${VD_AUTO_NUDGE_CONFIG:?VD_AUTO_NUDGE_CONFIG is required}"; fi; if [ "\${VD_NUDGE_DAEMON_ENABLED:-}" = "true" ]; then exec node /opt/vibe-kanban-vscode-web-seed/dist/vibe-agent/nudge/daemon.js; fi; echo "vibe-agent nudge daemons disabled"; exec tail -f /dev/null'
 autostart=true
 autorestart=true
 startsecs=0
@@ -371,8 +371,8 @@ export const BUILTIN_FIRST_PARTY_SERVICE_PLUGINS: FirstPartyServicePlugin[] = [
       id: 'first-party.vibe-agent-nudge-daemon',
       displayName: 'Vibe Agent Nudge Daemon',
       version: 'bundled',
-      requestedCapabilities: { vkHttpApi: 'agentPrompt', hostShell: { commands: ['node /opt/vibe-kanban-vscode-web-seed/dist/vibe-agent/nudge/daemon.js'] }, filesystem: [{ scope: 'absolute', path: '/var/lib/vd/nudge-daemon', access: 'readWrite' }], network: { mode: 'egress' }, env: ['VD_NUDGE_DAEMON_ENABLED'] },
-      components: { services: [{ id: 'vibe-agent-nudge-daemon', runtime: 'supervisor', command: 'node /opt/vibe-kanban-vscode-web-seed/dist/vibe-agent/nudge/daemon.js' }] },
+      requestedCapabilities: { vkHttpApi: 'agentPrompt', hostShell: { commands: ['node /opt/vibe-kanban-vscode-web-seed/dist/vibe-agent/nudge/daemon.js', 'node /opt/vibe-kanban-vscode-web-seed/dist/vibe-agent/nudge/auto-nudge.js'] }, filesystem: [{ scope: 'absolute', path: '/var/lib/vd/nudge-daemon', access: 'readWrite' }, { scope: 'absolute', path: '/var/lib/vd/auto-nudge', access: 'readWrite' }], network: { mode: 'egress' }, env: ['VD_NUDGE_DAEMON_ENABLED', 'VD_AUTO_NUDGE_ENABLED', 'VD_AUTO_NUDGE_CONFIG', 'VD_CALLBACK_REGISTRY_PATH', 'DISCORD_WEBHOOK_URL', 'VK_ORIGIN'] },
+      components: { services: [{ id: 'vibe-agent-nudge-daemon', runtime: 'supervisor', command: 'node /opt/vibe-kanban-vscode-web-seed/dist/vibe-agent/nudge/auto-nudge.js' }] },
     }),
     privilegeTier: 'core-control-plane', bootCritical: false, supervisorPrograms: ['vibe-agent-nudge-daemon'], supervisorConfig: VIBE_AGENT_NUDGE_SUPERVISOR, installStrategy: 'bundled-runtime-artifact', desiredVersion: 'bundled', stagingRequired: true, rollbackable: true,
   },

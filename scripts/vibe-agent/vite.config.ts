@@ -18,6 +18,7 @@ export default defineConfig({
         'legacy-cli/vibe-agent': resolve(__dirname, 'legacy-cli/vibe-agent.ts'),
         'cli/vk': resolve(__dirname, 'cli/vk.ts'),
         'nudge/daemon': resolve(__dirname, 'nudge/daemon.ts'),
+        'nudge/auto-nudge': resolve(__dirname, 'nudge/auto-nudge.ts'),
       },
       output: {
         entryFileNames: '[name].js',

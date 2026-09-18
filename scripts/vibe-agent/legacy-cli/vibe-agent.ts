@@ -5,6 +5,7 @@ import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
 import { execFileSync, spawn } from 'child_process';
+import { randomUUID } from 'crypto';
 import { fileURLToPath } from 'url';
 import { client } from '../core/client.js';
 import type { ConversationEntry, ExecutionProcess, Session } from '../types.js';
@@ -20,6 +21,11 @@ import {
   roleToExecutor,
 } from '../core/context.js';
 import { BASE_ROLES, isValidRole } from '../config.js';
+import {
+  createCallback,
+  DEFAULT_CALLBACK_REGISTRY_PATH,
+  updateCallback,
+} from '../nudge/callback-registry.js';
 
 // Message helpers
 
@@ -291,6 +297,8 @@ async function waitForSessionQuiet(sessionId: string, outputFile: string, quietW
 // Command handlers
 
 interface CallbackRunnerPayload {
+  callbackId: string;
+  registryPath: string;
   command: string;
   completionMessage?: string;
   outputFile: string;
@@ -971,6 +979,8 @@ async function callback(args: string[]): Promise<void> {
     fs.closeSync(fs.openSync(outputFile, 'w'));
 
     const payload: CallbackRunnerPayload = {
+      callbackId: randomUUID(),
+      registryPath: process.env.VD_CALLBACK_REGISTRY_PATH ?? DEFAULT_CALLBACK_REGISTRY_PATH,
       command: commandToRun,
       completionMessage,
       outputFile,
@@ -979,12 +989,21 @@ async function callback(args: string[]): Promise<void> {
       timeoutMs,
     };
 
+    createCallback(payload.registryPath, {
+      id: payload.callbackId,
+      sessionId,
+      command: commandToRun,
+      startedAt: new Date().toISOString(),
+      ...(timeoutMs === undefined ? {} : { timeoutMs }),
+    });
+
     const runner = spawn(process.execPath, [fileURLToPath(import.meta.url), '__callback-runner', JSON.stringify(payload)], {
       detached: true,
       stdio: 'ignore',
       env: process.env,
       cwd: process.cwd(),
     });
+    updateCallback(payload.registryPath, payload.callbackId, { runnerPid: runner.pid ?? null });
     runner.unref();
 
     if (jsonOutput) {
@@ -996,6 +1015,7 @@ async function callback(args: string[]): Promise<void> {
         session_id: sessionId,
         runner_pid: runner.pid,
         timeout_ms: timeoutMs ?? null,
+        callback_id: payload.callbackId,
       }, null, 2));
     } else {
       console.log('Callback command started in the background.');
@@ -1129,7 +1149,7 @@ async function callbackRunner(args: string[]): Promise<void> {
   try {
     await waitForSessionIdle(payload.sessionId, payload.outputFile);
     const session = await client.getSession(payload.sessionId);
-    await client.sendMessage(payload.sessionId, {
+    const completionProcess = await client.sendMessage(payload.sessionId, {
       prompt: message,
       executor_config: {
         executor: session.executor,
@@ -1138,7 +1158,22 @@ async function callbackRunner(args: string[]): Promise<void> {
       force_when_dirty: null,
       perform_git_reset: null,
     });
+    updateCallback(payload.registryPath, payload.callbackId, {
+      status: timedOut ? 'timed-out' : exitCode === 0 ? 'completed' : 'failed',
+      finishedAt: finishedAt.toISOString(),
+      completionProcessId: completionProcess.id,
+      error: exitCode === 0 && !timedOut ? null : exitSummary,
+    });
   } catch (err) {
+    try {
+      updateCallback(payload.registryPath, payload.callbackId, {
+        status: timedOut ? 'timed-out' : 'failed',
+        finishedAt: finishedAt.toISOString(),
+        error: (err as Error).message,
+      });
+    } catch {
+      // Preserve the original callback delivery error in the output log.
+    }
     fs.appendFileSync(
       payload.outputFile,
       `\n[vibe-agent callback failed to send completion message: ${(err as Error).message}]\n`
