@@ -25,14 +25,20 @@ The full first-label budget is `16 + 18 + 10 + 16 + 3 separators = 63`
 characters. Old `preview-{workspace}-{slot}--{customer}` numeric hosts are
 intentionally rejected; this branch is a hard break with no backwards
 compatibility for numeric slots.
-The Caddy handler defaults to this `vibedashboard.dev` base domain via
-`PREVIEW_BASE_DOMAIN`; local/dev deployments using another customer base domain
-must set that variable explicitly.
+Resolver routing does not configure or compare a base domain. The strict first
+label is recognized under any non-empty parent domain. Base-domain selection is
+still required when generating a public URL, but it is separate from routing.
 
-This compact first-label pattern is reserved under `PREVIEW_BASE_DOMAIN`.
+This compact first-label pattern is reserved wherever the resolver is deployed.
 Customer hostnames that merely contain dashes are not preview hosts unless the
 first label satisfies the full `slotSlug-repoSlug-workspaceToken-customerSlug`
 grammar.
+
+For one migration window, the Caddyfile adapter accepts a legacy `base_domain`
+option but ignores it, and accepts an existing configuration without `routing`.
+Generated and deployed configurations no longer emit `base_domain` and do emit
+`routing domain-independent-v1`, which is the new-binary capability gate. This
+supports deploying the binary before the configuration without a routing gap.
 
 ## Runtime request flow
 

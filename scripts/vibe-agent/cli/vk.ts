@@ -948,7 +948,6 @@ async function commandPreviewUrlLocalCaddy(positional: string[], flags: FlagMap)
         return;
       }
       console.log(`Local PreviewServer Caddy is running at ${state.url}`);
-      console.log(`Preview URL base domain: ${state.baseDomain}`);
       console.log(`Resolver: ${buildPreviewResolverUrlForDisplay(state.dashboardPort)}`);
       console.log(`PID: ${state.pid}`);
       break;

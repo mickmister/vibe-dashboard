@@ -64,8 +64,8 @@ func TestPreviewResolverAdaptsBeforeCatchAllHandle(t *testing.T) {
 	caddyfileBody := []byte(`:3001 {
 	vk_preview_resolver {
 		resolver_url http://127.0.0.1:3005/internal/preview/resolve
-		base_domain localhost
 		grammar slot-repo-workspace-customer-v1
+		routing domain-independent-v1
 	}
 
 	handle /* {
@@ -105,8 +105,15 @@ func TestPreviewResolverAdaptsBeforeCatchAllHandle(t *testing.T) {
 	}
 }
 
+func TestPreviewResolverAcceptsDeprecatedIgnoredBaseDomain(t *testing.T) {
+	body := []byte(":3001 {\n vk_preview_resolver {\n resolver_url http://127.0.0.1:1/resolve\n base_domain legacy.example\n grammar slot-repo-workspace-customer-v1\n }\n}")
+	if _, _, err := (caddyfile.Adapter{ServerType: httpcaddyfile.ServerType{}}).Adapt(body, nil); err != nil {
+		t.Fatalf("deprecated base_domain should adapt during migration: %v", err)
+	}
+}
+
 func TestPreviewResolverRejectsObsoleteGrammarCapability(t *testing.T) {
-	caddyfileBody := []byte(":3001 {\n\tvk_preview_resolver {\n\t\tresolver_url http://127.0.0.1:3005/internal/preview/resolve\n\t\tbase_domain localhost\n\t\tgrammar workspace-repo-slot-customer-v0\n\t}\n}")
+	caddyfileBody := []byte(":3001 {\n\tvk_preview_resolver {\n\t\tresolver_url http://127.0.0.1:3005/internal/preview/resolve\n\t\tgrammar workspace-repo-slot-customer-v0\n\t\trouting domain-independent-v1\n\t}\n}")
 	if _, _, err := (caddyfile.Adapter{ServerType: httpcaddyfile.ServerType{}}).Adapt(caddyfileBody, nil); err == nil {
 		t.Fatal("expected obsolete grammar capability to fail")
 	}

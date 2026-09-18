@@ -11,8 +11,8 @@
 	# The handler falls through unless it sees {slotSlug}-{repoSlug}-{workspaceToken}-{customerSlug}.
 	vk_preview_resolver {
 		resolver_url {$PREVIEW_RESOLVER_URL:http://127.0.0.1:3005/internal/preview/resolve}
-		base_domain {$PREVIEW_BASE_DOMAIN:vibedashboard.dev}
 		grammar slot-repo-workspace-customer-v1
+		routing domain-independent-v1
 		startup_page /etc/caddy/startup.html
 		timeout {$PREVIEW_RESOLVER_TIMEOUT:2s}
 	}

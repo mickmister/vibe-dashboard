@@ -25,7 +25,6 @@ describe('preview-local-caddy', () => {
       CADDY_PORT: '55743',
       BACKEND_PORT: '3007',
       DASHBOARD_PORT: '3005',
-      PREVIEW_BASE_DOMAIN: 'localhost',
       PREVIEW_RESOLVER_URL: 'http://127.0.0.1:3005/internal/preview/resolve',
       CADDY_PLUGINS_CADDY: '/tmp/plugins.caddy',
       CADDY_ACCESS_LOG: '/tmp/access.log',
@@ -56,7 +55,6 @@ describe('preview-local-caddy', () => {
       backendPort: 3007,
       caddyPort: 55743,
       dashboardPort: 3005,
-      baseDomain: 'localhost',
       readinessTimeoutMs: 5000,
       caddyBin: expect.stringMatching(/\.cache\/vibe-dashboard\/preview-caddy\/slot-repo-workspace-customer-v1\/caddy$/),
     });
@@ -99,7 +97,8 @@ describe('preview-local-caddy', () => {
     expect(caddyfile).not.toContain('http://127.0.0.1:{$CADDY_PORT');
     expect(caddyfile).toContain('vk_preview_resolver');
     expect(caddyfile).toContain('resolver_url {$PREVIEW_RESOLVER_URL}');
-    expect(caddyfile).toContain('base_domain {$PREVIEW_BASE_DOMAIN:localhost}');
+    expect(caddyfile).not.toContain('base_domain');
+    expect(caddyfile).toContain('routing domain-independent-v1');
     expect(caddyfile).toContain('grammar slot-repo-workspace-customer-v1');
     expect(caddyfile).toContain('@vibe_dashboard_assets');
     expect(caddyfile).toContain('@vk_workspace_assets');
@@ -114,28 +113,36 @@ describe('preview-local-caddy', () => {
           backendPort: 3007,
           caddyPort: 3001,
           dashboardPort: 3005,
-          baseDomain: 'localhost',
           caddyBin: 'caddy',
         },
         {
           backendPort: 3007,
           caddyPort: 55743,
           dashboardPort: 3005,
-          baseDomain: 'localhost',
           caddyBin: 'caddy',
         },
       ),
     ).toEqual(['caddyPort=3001 (requested 55743)']);
   });
 
+  it('ignores a legacy baseDomain state field during migration', () => {
+    const legacyState = { backendPort: 3007, caddyPort: 3001, dashboardPort: 3005, caddyBin: 'caddy', baseDomain: 'localhost' };
+    expect(getLocalCaddyOptionMismatches(
+      legacyState,
+      { backendPort: 3007, caddyPort: 3001, dashboardPort: 3005, caddyBin: 'caddy' },
+    )).toEqual([]);
+  });
+
   it('reuses only an unchanged compatible executable identity', () => {
-    const state = { executableIdentity: { sha256: 'same', grammar: 'slot-repo-workspace-customer-v1' as const } };
+    const state = { executableIdentity: { sha256: 'same', grammar: 'slot-repo-workspace-customer-v1' as const, routing: 'domain-independent-v1' as const } };
     expect(getLocalCaddyReuseDecision(state, state.executableIdentity, true)).toEqual({ kind: 'reuse' });
     expect(getLocalCaddyReuseDecision(state, { ...state.executableIdentity, sha256: 'replacement' }, true)).toMatchObject({ kind: 'conflict' });
   });
 
   it('requires restart for legacy running state but permits stale-state migration', () => {
-    expect(getLocalCaddyReuseDecision({}, { sha256: 'current', grammar: 'slot-repo-workspace-customer-v1' }, true)).toMatchObject({ kind: 'conflict' });
-    expect(getLocalCaddyReuseDecision({}, { sha256: 'current', grammar: 'slot-repo-workspace-customer-v1' }, false)).toEqual({ kind: 'stale' });
+    const current = { sha256: 'current', grammar: 'slot-repo-workspace-customer-v1' as const, routing: 'domain-independent-v1' as const };
+    expect(getLocalCaddyReuseDecision({}, current, true)).toMatchObject({ kind: 'conflict' });
+    expect(getLocalCaddyReuseDecision({}, current, false)).toEqual({ kind: 'stale' });
+    expect(getLocalCaddyReuseDecision({ executableIdentity: { sha256: 'current', grammar: 'slot-repo-workspace-customer-v1' } }, current, true)).toMatchObject({ kind: 'conflict' });
   });
 });

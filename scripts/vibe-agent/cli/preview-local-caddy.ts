@@ -6,11 +6,15 @@ import { homedir, tmpdir } from 'os';
 import { dirname, resolve } from 'path';
 import type { PreviewSlotUrlResponse } from './vk-service.js';
 
-export const LOCAL_PREVIEW_BASE_DOMAIN = 'localhost';
 const STATE_FILE = resolve(tmpdir(), 'vk-preview-local-caddy.json');
 const PREVIEW_CADDY_GRAMMAR = 'slot-repo-workspace-customer-v1' as const;
+const PREVIEW_CADDY_ROUTING = 'domain-independent-v1' as const;
 const DEFAULT_CUSTOM_CADDY = resolve(process.env.XDG_CACHE_HOME || resolve(homedir(), '.cache'), 'vibe-dashboard', 'preview-caddy', PREVIEW_CADDY_GRAMMAR, 'caddy');
-export interface LocalCaddyExecutableIdentity { sha256: string; grammar: typeof PREVIEW_CADDY_GRAMMAR }
+export interface LocalCaddyExecutableIdentity {
+  sha256: string;
+  grammar: typeof PREVIEW_CADDY_GRAMMAR;
+  routing: typeof PREVIEW_CADDY_ROUTING;
+}
 
 type CaddyCommandResult = { status: number | null; stdout: string; stderr: string; error?: Error };
 type CaddyCommandRunner = (command: string, args: string[], input?: string) => CaddyCommandResult;
@@ -27,13 +31,12 @@ export interface LocalCaddyStartOptions {
   backendPort: number;
   caddyPort: number;
   dashboardPort: number;
-  baseDomain: 'localhost';
   caddyBin: string;
   readinessTimeoutMs: number;
 }
 
 export interface LocalCaddyState extends LocalCaddyStartOptions {
-  executableIdentity?: LocalCaddyExecutableIdentity;
+  executableIdentity?: LocalCaddyExecutableIdentity | Omit<LocalCaddyExecutableIdentity, 'routing'>;
   pid: number;
   startedAt: string;
   runDir: string;
@@ -58,7 +61,6 @@ export function normalizeLocalCaddyStartOptions(
     backendPort: parsePort(input.backendPort, 'backend-port', 3007),
     caddyPort: parsePort(input.caddyPort, 'caddy-port', 3001),
     dashboardPort: parsePort(input.dashboardPort, 'dashboard-port', 3005),
-    baseDomain: LOCAL_PREVIEW_BASE_DOMAIN,
     caddyBin: resolve(input.caddyBin || process.env.CADDY_BIN || DEFAULT_CUSTOM_CADDY),
     readinessTimeoutMs: parsePositiveInteger(
       input.readinessTimeoutMs,
@@ -80,7 +82,6 @@ export function buildLocalCaddyEnv(input: {
     CADDY_PORT: String(input.caddyPort),
     BACKEND_PORT: String(input.backendPort),
     DASHBOARD_PORT: String(input.dashboardPort),
-    PREVIEW_BASE_DOMAIN: LOCAL_PREVIEW_BASE_DOMAIN,
     PREVIEW_RESOLVER_URL: `http://127.0.0.1:${input.dashboardPort}/internal/preview/resolve`,
     CADDY_PLUGINS_CADDY: input.pluginsCaddyPath,
     CADDY_ACCESS_LOG: input.accessLogPath,
@@ -102,8 +103,8 @@ http://:{\$CADDY_PORT:3001} {
 
 \tvk_preview_resolver {
 \t\tresolver_url {\$PREVIEW_RESOLVER_URL}
-\t\tbase_domain {\$PREVIEW_BASE_DOMAIN:localhost}
 \t\tgrammar ${PREVIEW_CADDY_GRAMMAR}
+\t\trouting ${PREVIEW_CADDY_ROUTING}
 \t\ttimeout 2s
 \t}
 
@@ -276,7 +277,11 @@ export async function startLocalPreviewCaddy(
 }
 
 export async function getLocalCaddyExecutableIdentity(caddyBin: string): Promise<LocalCaddyExecutableIdentity> {
-  return { sha256: createHash('sha256').update(await readFile(caddyBin)).digest('hex'), grammar: PREVIEW_CADDY_GRAMMAR };
+  return {
+    sha256: createHash('sha256').update(await readFile(caddyBin)).digest('hex'),
+    grammar: PREVIEW_CADDY_GRAMMAR,
+    routing: PREVIEW_CADDY_ROUTING,
+  };
 }
 
 export function getLocalCaddyReuseDecision(
@@ -286,7 +291,12 @@ export function getLocalCaddyReuseDecision(
 ): { kind: 'reuse' } | { kind: 'stale' } | { kind: 'conflict'; reason: string } {
   if (!running) return { kind: 'stale' };
   if (!state.executableIdentity) return { kind: 'conflict', reason: 'Running local PreviewServer Caddy has legacy state without executable identity.' };
-  if (state.executableIdentity.sha256 !== current.sha256 || state.executableIdentity.grammar !== current.grammar) {
+  if (
+    state.executableIdentity.sha256 !== current.sha256 ||
+    state.executableIdentity.grammar !== current.grammar ||
+    !('routing' in state.executableIdentity) ||
+    state.executableIdentity.routing !== current.routing
+  ) {
     return { kind: 'conflict', reason: 'Running local PreviewServer Caddy executable differs from the currently validated binary.' };
   }
   return { kind: 'reuse' };
@@ -304,7 +314,7 @@ export function verifyLocalCaddyCompatibility(
     throw incompatibleCaddyError(caddyBin, modules);
   }
 
-  const capabilityCaddyfile = `:0 {\n\tvk_preview_resolver {\n\t\tresolver_url http://127.0.0.1:1/resolve\n\t\tbase_domain localhost\n\t\tgrammar ${PREVIEW_CADDY_GRAMMAR}\n\t}\n}`;
+  const capabilityCaddyfile = `:0 {\n\tvk_preview_resolver {\n\t\tresolver_url http://127.0.0.1:1/resolve\n\t\tgrammar ${PREVIEW_CADDY_GRAMMAR}\n\t\trouting ${PREVIEW_CADDY_ROUTING}\n\t}\n}`;
   const capability = runner(
     caddyBin,
     ['adapt', '--adapter', 'caddyfile', '--config', '-'],
@@ -329,7 +339,7 @@ function runCaddyCommand(command: string, args: string[], input?: string): Caddy
 function incompatibleCaddyError(caddyBin: string, result: CaddyCommandResult): Error {
   const detail = result.error?.message || result.stderr.trim() || `exit status ${result.status ?? 'unknown'}`;
   return new Error(
-    `Incompatible PreviewServer Caddy binary ${caddyBin}: expected http.handlers.vibe_preview_resolver with ${PREVIEW_CADDY_GRAMMAR} capability (${detail}). Build the current repo binary with "scripts/bootstrap-custom-caddy.sh" or pass --caddy-bin /absolute/path/to/current/caddy.`,
+    `Incompatible PreviewServer Caddy binary ${caddyBin}: expected http.handlers.vibe_preview_resolver with ${PREVIEW_CADDY_GRAMMAR} grammar and ${PREVIEW_CADDY_ROUTING} routing capabilities (${detail}). Build the current repo binary with "scripts/bootstrap-custom-caddy.sh" or pass --caddy-bin /absolute/path/to/current/caddy.`,
   );
 }
 
@@ -374,18 +384,17 @@ export async function readLocalCaddyStatus(): Promise<LocalCaddyStatus> {
 export function getLocalCaddyOptionMismatches(
   state: Pick<
     LocalCaddyState,
-    'backendPort' | 'caddyPort' | 'dashboardPort' | 'baseDomain' | 'caddyBin'
+    'backendPort' | 'caddyPort' | 'dashboardPort' | 'caddyBin'
   >,
   options: Pick<
     LocalCaddyStartOptions,
-    'backendPort' | 'caddyPort' | 'dashboardPort' | 'baseDomain' | 'caddyBin'
+    'backendPort' | 'caddyPort' | 'dashboardPort' | 'caddyBin'
   >,
 ): string[] {
   const keys = [
     'backendPort',
     'caddyPort',
     'dashboardPort',
-    'baseDomain',
     'caddyBin',
   ] as const;
   return keys.flatMap((key) =>

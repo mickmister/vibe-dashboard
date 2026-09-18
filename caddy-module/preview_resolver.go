@@ -25,6 +25,7 @@ import (
 const defaultPreviewResolverTimeout = 2 * time.Second
 const defaultTrustedRequestedHostHeader = "X-Vibe-Requested-Host"
 const previewHostnameGrammar = "slot-repo-workspace-customer-v1"
+const previewRoutingCapability = "domain-independent-v1"
 
 var encodedPreviewLabelPattern = regexp.MustCompile(`^([a-z0-9]{1,10})-([a-z0-9]{1,18})-([a-f0-9]{16})-([a-z0-9]{1,16})$`)
 
@@ -32,9 +33,9 @@ var encodedPreviewLabelPattern = regexp.MustCompile(`^([a-z0-9]{1,10})-([a-z0-9]
 type PreviewResolver struct {
 	ResolverURL                string         `json:"resolver_url,omitempty"`
 	StartupPage                string         `json:"startup_page,omitempty"`
-	BaseDomain                 string         `json:"base_domain,omitempty"`
 	TrustedRequestedHostHeader string         `json:"trusted_requested_host_header,omitempty"`
 	Grammar                    string         `json:"grammar,omitempty"`
+	Routing                    string         `json:"routing,omitempty"`
 	Timeout                    caddy.Duration `json:"timeout,omitempty"`
 
 	logger *zap.Logger
@@ -86,11 +87,17 @@ func (p *PreviewResolver) Provision(ctx caddy.Context) error {
 	if p.Grammar != previewHostnameGrammar {
 		return fmt.Errorf("grammar must be %q", previewHostnameGrammar)
 	}
+	if p.Routing == "" {
+		// Migration compatibility for already-deployed Caddy JSON/Caddyfiles.
+		p.Routing = previewRoutingCapability
+	}
+	if p.Routing != previewRoutingCapability {
+		return fmt.Errorf("routing must be %q", previewRoutingCapability)
+	}
 	parsed, err := url.Parse(p.ResolverURL)
 	if err != nil || parsed.Scheme == "" || parsed.Host == "" {
 		return fmt.Errorf("resolver_url must be an absolute URL")
 	}
-	p.BaseDomain = normalizePreviewHost(p.BaseDomain)
 	p.TrustedRequestedHostHeader = firstNonEmpty(
 		strings.TrimSpace(p.TrustedRequestedHostHeader),
 		strings.TrimSpace(os.Getenv("PREVIEW_REQUESTED_HOST_HEADER")),
@@ -107,7 +114,7 @@ func (p *PreviewResolver) Provision(ctx caddy.Context) error {
 // ServeHTTP implements caddyhttp.MiddlewareHandler.
 func (p *PreviewResolver) ServeHTTP(w http.ResponseWriter, r *http.Request, next caddyhttp.Handler) error {
 	requestedHost := p.previewRequestedHost(r)
-	match, ok := parseEncodedPreviewHost(requestedHost, p.BaseDomain)
+	match, ok := parseEncodedPreviewHost(requestedHost)
 	if !ok {
 		return next.ServeHTTP(w, r)
 	}
@@ -159,7 +166,9 @@ func parsePreviewResolverCaddyfile(h httpcaddyfile.Helper) (caddyhttp.Middleware
 					return nil, h.ArgErr()
 				}
 			case "base_domain":
-				if !h.Args(&p.BaseDomain) {
+				// Deprecated migration compatibility; intentionally ignored.
+				var ignored string
+				if !h.Args(&ignored) {
 					return nil, h.ArgErr()
 				}
 			case "trusted_requested_host_header":
@@ -172,6 +181,13 @@ func parsePreviewResolverCaddyfile(h httpcaddyfile.Helper) (caddyhttp.Middleware
 				}
 				if p.Grammar != previewHostnameGrammar {
 					return nil, h.Errf("grammar must be %q", previewHostnameGrammar)
+				}
+			case "routing":
+				if !h.Args(&p.Routing) {
+					return nil, h.ArgErr()
+				}
+				if p.Routing != previewRoutingCapability {
+					return nil, h.Errf("routing must be %q", previewRoutingCapability)
 				}
 			case "timeout":
 				var raw string
@@ -227,16 +243,13 @@ func normalizePreviewHost(host string) string {
 	return host
 }
 
-func parseEncodedPreviewHost(host string, baseDomain string) (previewHostMatch, bool) {
+func parseEncodedPreviewHost(host string) (previewHostMatch, bool) {
 	host = normalizePreviewHost(host)
 	if host == "" {
 		return previewHostMatch{}, false
 	}
 	firstLabel, rest, ok := strings.Cut(host, ".")
 	if !ok || rest == "" {
-		return previewHostMatch{}, false
-	}
-	if baseDomain != "" && rest != baseDomain {
 		return previewHostMatch{}, false
 	}
 	if strings.Count(firstLabel, "-") != 3 {
@@ -386,13 +399,15 @@ func (p *PreviewResolver) previewLogsURL(r *http.Request, decision previewResolv
 		return ""
 	}
 	host := r.Host
-	if p.BaseDomain == "localhost" {
+	requestedHost := p.previewRequestedHost(r)
+	_, requestedParent, requestedIsPreview := splitEncodedPreviewHost(requestedHost)
+	if requestedIsPreview && requestedParent == "localhost" {
 		_, port, err := net.SplitHostPort(r.Host)
 		if err != nil || port == "" {
 			return ""
 		}
 		host = net.JoinHostPort("localhost", port)
-	} else if normalizePreviewHost(r.Host) == normalizePreviewHost(p.previewRequestedHost(r)) {
+	} else if _, _, actualIsPreview := splitEncodedPreviewHost(r.Host); actualIsPreview || normalizePreviewHost(r.Host) == normalizePreviewHost(requestedHost) {
 		// Without a distinct Worker-preserved host, linking back to the preview
 		// hostname would re-enter the resolver instead of opening VD.
 		return ""
@@ -407,6 +422,13 @@ func (p *PreviewResolver) previewLogsURL(r *http.Request, decision previewResolv
 		"previewSlotId":      {decision.PreviewSlotID},
 	}
 	return (&url.URL{Scheme: scheme, Host: host, Path: "/", RawQuery: query.Encode()}).String()
+}
+
+func splitEncodedPreviewHost(host string) (previewHostMatch, string, bool) {
+	normalized := normalizePreviewHost(host)
+	_, parent, hasParent := strings.Cut(normalized, ".")
+	match, matched := parseEncodedPreviewHost(normalized)
+	return match, parent, hasParent && matched
 }
 
 func (p *PreviewResolver) writePreviewPlain(w http.ResponseWriter, status int, message string) {
