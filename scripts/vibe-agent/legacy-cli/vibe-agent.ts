@@ -251,6 +251,19 @@ export function uniqueActiveProcessId(processes: SessionTurnProcess[]): string |
   return active.length === 1 ? active[0]?.id ?? null : null;
 }
 
+export async function resolveCallbackSourceProcessId(
+  sessionId: string,
+  dependencies: { getProcesses: (sessionId: string) => Promise<SessionTurnProcess[]>; delay: (ms: number) => Promise<void> },
+  attempts = 3,
+  retryDelayMs = 100,
+): Promise<string | null> {
+  for (let attempt = 0; attempt < attempts; attempt++) {
+    try { return uniqueActiveProcessId(await dependencies.getProcesses(sessionId)); }
+    catch { if (attempt + 1 < attempts) await dependencies.delay(retryDelayMs); }
+  }
+  return null;
+}
+
 function sleep(ms: number): Promise<void> {
   return new Promise(resolve => setTimeout(resolve, ms));
 }
@@ -302,7 +315,7 @@ async function waitForSessionQuiet(sessionId: string, outputFile: string, quietW
 
 // Command handlers
 
-interface CallbackRunnerPayload {
+export interface CallbackRunnerPayload {
   callbackId: string;
   registryPath: string;
   command: string;
@@ -311,6 +324,46 @@ interface CallbackRunnerPayload {
   sessionId: string;
   cwd: string;
   timeoutMs?: number;
+}
+
+interface CallbackRunnerHandle {
+  pid?: number;
+  kill?(): unknown;
+  unref(): void;
+  once(event: 'error', listener: (error: Error) => void): unknown;
+}
+
+export function startRegisteredCallbackRunner(
+  payload: CallbackRunnerPayload,
+  sourceProcessId: string | null,
+  dependencies: {
+    create: typeof createCallback;
+    update: typeof updateCallback;
+    fail: typeof failCallbackStart;
+    spawn: () => CallbackRunnerHandle;
+    onAsyncRegistryError?: (error: Error) => void;
+  },
+): CallbackRunnerHandle {
+  dependencies.create(payload.registryPath, {
+    id: payload.callbackId, sessionId: payload.sessionId, command: payload.command,
+    startedAt: new Date().toISOString(), ...(payload.timeoutMs === undefined ? {} : { timeoutMs: payload.timeoutMs }),
+    sourceProcessId, triggerProcessId: sourceProcessId,
+  });
+  let runner: CallbackRunnerHandle;
+  try { runner = dependencies.spawn(); }
+  catch (error) { dependencies.fail(payload.registryPath, payload.callbackId, error as Error); throw error; }
+  try { dependencies.update(payload.registryPath, payload.callbackId, { runnerPid: runner.pid ?? null }); }
+  catch (error) {
+    runner.kill?.();
+    try { dependencies.fail(payload.registryPath, payload.callbackId, error as Error); } catch { /* Preserve PID persistence failure. */ }
+    throw error;
+  }
+  runner.once('error', (error) => {
+    try { dependencies.fail(payload.registryPath, payload.callbackId, error); }
+    catch (registryError) { dependencies.onAsyncRegistryError?.(registryError as Error); }
+  });
+  runner.unref();
+  return runner;
 }
 
 interface RespondRunnerPayload {
@@ -996,33 +1049,19 @@ async function callback(args: string[]): Promise<void> {
       timeoutMs,
     };
 
-    const sourceProcessId = uniqueActiveProcessId(await client.getSessionProcesses(sessionId));
+    const sourceProcessId = await resolveCallbackSourceProcessId(sessionId, {
+      getProcesses: id => client.getSessionProcesses(id),
+      delay: sleep,
+    });
 
-    createCallback(payload.registryPath, {
-      id: payload.callbackId,
-      sessionId,
-      command: commandToRun,
-      startedAt: new Date().toISOString(),
-      ...(timeoutMs === undefined ? {} : { timeoutMs }),
-      sourceProcessId,
-      triggerProcessId: sourceProcessId,
+    const runner = startRegisteredCallbackRunner(payload, sourceProcessId, {
+      create: createCallback, update: updateCallback, fail: failCallbackStart,
+      spawn: () => spawn(process.execPath, [fileURLToPath(import.meta.url), '__callback-runner', JSON.stringify(payload)], {
+        detached: true, stdio: 'ignore', env: process.env, cwd: process.cwd(),
+      }),
+      onAsyncRegistryError: error => fs.appendFileSync(payload.outputFile, `\n[vibe-agent callback failed to record spawn error: ${error.message}]\n`),
     });
     registeredCallback = { id: payload.callbackId, registryPath: payload.registryPath };
-
-    const runner = spawn(process.execPath, [fileURLToPath(import.meta.url), '__callback-runner', JSON.stringify(payload)], {
-      detached: true,
-      stdio: 'ignore',
-      env: process.env,
-      cwd: process.cwd(),
-    });
-    updateCallback(payload.registryPath, payload.callbackId, { runnerPid: runner.pid ?? null });
-    runner.once('error', (error) => {
-      try { failCallbackStart(payload.registryPath, payload.callbackId, error); }
-      catch (registryError) {
-        fs.appendFileSync(payload.outputFile, `\n[vibe-agent callback failed to record spawn error: ${(registryError as Error).message}]\n`);
-      }
-    });
-    runner.unref();
 
     if (jsonOutput) {
       console.log(JSON.stringify({

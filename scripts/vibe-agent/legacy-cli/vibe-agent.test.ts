@@ -4,14 +4,76 @@ import {
   getAdvanceableFullSummaryProcessIds,
   mapWithConcurrency,
   parseFullSummaryArgs,
+  resolveCallbackSourceProcessId,
+  startRegisteredCallbackRunner,
   uniqueActiveProcessId,
 } from './vibe-agent.js';
+
+const callbackPayload = {
+  callbackId: 'callback', registryPath: '/tmp/callbacks.json', command: 'ci', outputFile: '/tmp/output',
+  sessionId: 'session', cwd: '/tmp',
+};
 
 describe('uniqueActiveProcessId', () => {
   it('correlates only a uniquely active invoking process', () => {
     expect(uniqueActiveProcessId([{ id: 'one', status: 'running', completed_at: null }])).toBe('one');
     expect(uniqueActiveProcessId([{ id: 'one', status: 'running', completed_at: null }, { id: 'two', status: 'running', completed_at: null }])).toBeNull();
     expect(uniqueActiveProcessId([{ id: 'done', status: 'completed', completed_at: '2026-09-18T00:00:00Z' }])).toBeNull();
+  });
+});
+
+describe('resolveCallbackSourceProcessId', () => {
+  it('retries transient lookup failure and resolves a unique process', async () => {
+    let calls = 0;
+    const result = await resolveCallbackSourceProcessId('session', {
+      async getProcesses() { if (++calls === 1) throw new Error('temporary'); return [{ id: 'source', status: 'running', completed_at: null }]; },
+      async delay() {},
+    });
+    expect(result).toBe('source');
+    expect(calls).toBe(2);
+  });
+
+  it('falls back to an uncorrelated callback after bounded lookup failures', async () => {
+    let calls = 0;
+    const result = await resolveCallbackSourceProcessId('session', {
+      async getProcesses() { calls++; throw new Error('offline'); }, async delay() {},
+    });
+    expect(result).toBeNull();
+    expect(calls).toBe(3);
+  });
+});
+
+describe('startRegisteredCallbackRunner', () => {
+  it('keeps registry failure fatal and does not spawn', () => {
+    let spawned = false;
+    expect(() => startRegisteredCallbackRunner(callbackPayload, null, {
+      create() { throw new Error('registry unavailable'); }, update() { throw new Error('unexpected'); }, fail() { throw new Error('unexpected'); },
+      spawn() { spawned = true; throw new Error('unexpected'); },
+    })).toThrow('registry unavailable');
+    expect(spawned).toBe(false);
+  });
+
+  it('records synchronous spawn failure', () => {
+    const failures: string[] = [];
+    expect(() => startRegisteredCallbackRunner(callbackPayload, 'source', {
+      create: (() => ({})) as any, update: (() => ({})) as any,
+      fail: ((_path: string, _id: string, error: Error) => { failures.push(error.message); return {} as any; }) as any,
+      spawn() { throw new Error('spawn failed'); },
+    })).toThrow('spawn failed');
+    expect(failures).toEqual(['spawn failed']);
+  });
+
+  it('persists PID and records asynchronous spawn failure', () => {
+    const updates: unknown[] = []; const failures: string[] = []; let errorListener: ((error: Error) => void) | undefined;
+    startRegisteredCallbackRunner(callbackPayload, 'source', {
+      create: (() => ({})) as any,
+      update: ((_path: string, _id: string, update: unknown) => { updates.push(update); return {} as any; }) as any,
+      fail: ((_path: string, _id: string, error: Error) => { failures.push(error.message); return {} as any; }) as any,
+      spawn: () => ({ pid: 123, unref() {}, once(_event, listener) { errorListener = listener; } }),
+    });
+    expect(updates).toEqual([{ runnerPid: 123 }]);
+    errorListener?.(new Error('later failure'));
+    expect(failures).toEqual(['later failure']);
   });
 });
 

@@ -1,10 +1,10 @@
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { ConversationEntry, ExecutionProcess, SendMessageBody, Session } from '../types.js';
 import {
-  acquireLock, createAutoNudgeClient, loadAutoNudgeConfig, readAutoNudgeState, runAutoNudgeCycle, writeAutoNudgeState,
+  abortableDelay, acquireLock, createAutoNudgeClient, loadAutoNudgeConfig, readAutoNudgeState, runAutoNudgeCycle, runWithOwnerLock, writeAutoNudgeState,
   type AutoNudgeClient, type AutoNudgeOptions,
 } from './auto-nudge.js';
 
@@ -38,9 +38,9 @@ function fake(input: { processes: Record<string, ExecutionProcess[]>; entries?: 
   const client: AutoNudgeClient = {
     async getSessions() { return [session('overseer', 'overseer'), session('impl', 'impl')]; },
     async getSessionProcesses(id) { return input.processes[id] ?? []; },
-    async fetchConversation(id) { return input.entries?.[id] ?? []; },
-    async sendMessage(id, body) { sent.push({ sessionId: id, body }); return proc(`sent-${sent.length}`, id, 'running', 10); },
-    async sendAndWaitForFinalResponse(id, body) { sent.push({ sessionId: id, body }); return { process: proc('checkpoint', id, 'completed', 10), response: input.response ?? 'Continuing' }; },
+    async fetchConversation(id) { return id === 'checkpoint' ? [msg(input.response ?? 'Continuing')] : input.entries?.[id] ?? []; },
+    async sendMessage(id, body) { sent.push({ sessionId: id, body }); return proc(id === 'overseer' ? 'checkpoint' : `sent-${sent.length}`, id, 'running', 10); },
+    async getExecutionProcess(id) { return proc(id, 'overseer', 'completed', 10); },
   };
   return { client, sent };
 }
@@ -85,6 +85,15 @@ describe('auto nudge', () => {
     expect(sent).toEqual([]);
   });
 
+  it('executes at most one deterministic recovery for two failed sessions', async () => {
+    const { options } = setup();
+    const older = proc('older', 'impl', 'failed', 7); const newer = proc('newer', 'review', 'failed', 8);
+    const { client, sent } = fake({ processes: { impl: [older], review: [newer], overseer: [] }, entries: { older: [tool], newer: [tool] } });
+    client.getSessions = async () => [session('overseer', 'overseer'), session('impl', 'impl'), session('review', 'review')];
+    await runAutoNudgeCycle(client, options);
+    expect(sent).toEqual([expect.objectContaining({ sessionId: 'review' })]);
+  });
+
   it('treats newer teammate progress as acknowledgement before checkpointing', async () => {
     const { options } = setup();
     const completed = proc('complete', 'impl', 'completed', 5);
@@ -94,7 +103,7 @@ describe('auto nudge', () => {
     await runAutoNudgeCycle(client, options);
     expect(sent).toHaveLength(1);
     const state = readAutoNudgeState(options.statePath);
-    expect(state.triggers.complete?.status).toBe('delegated');
+    expect(state.triggers.complete).toBeUndefined();
     expect(state.triggers.reviewed).toBeDefined();
   });
 
@@ -188,9 +197,62 @@ describe('auto nudge', () => {
     const { options } = setup();
     const complete = proc('complete', 'impl', 'completed', 5);
     const { client } = fake({ processes: { impl: [complete], overseer: [] }, entries: { complete: [msg('Finished')] } });
-    client.sendAndWaitForFinalResponse = async () => { throw new Error('response timed out'); };
+    options.responseTimeoutMs = 5; options.checkpointPollMs = 1;
+    client.getExecutionProcess = async id => proc(id, 'overseer', 'running', 10);
     await runAutoNudgeCycle(client, options);
-    expect(readAutoNudgeState(options.statePath).triggers.complete).toMatchObject({ status: 'retryable-failure', error: 'response timed out' });
+    expect(readAutoNudgeState(options.statePath).triggers.complete).toMatchObject({ status: 'checkpoint-sent', checkpointProcessId: 'checkpoint' });
+  });
+
+  it.each([
+    ['completed', 'DONE', 'done', 'persisted'],
+    ['failed', '', 'retryable-failure', null],
+    ['killed', '', 'retryable-failure', null],
+  ] as const)('reconciles a persisted %s checkpoint without resending', async (status, response, expectedStatus, expectedId) => {
+    const { options } = setup();
+    const complete = proc('complete', 'impl', 'completed', 5);
+    const state = readAutoNudgeState(options.statePath);
+    state.triggers.complete = { processId: 'complete', workspaceId: 'w1', sessionId: 'impl', observedAt: iso(6), status: 'checkpoint-sent', checkpointProcessId: 'persisted', baselineProcessIds: ['complete'], updatedAt: iso(6), error: null };
+    writeAutoNudgeState(options.statePath, state);
+    const { client, sent } = fake({ processes: { impl: [complete], overseer: [] }, entries: { complete: [msg('Finished')], persisted: response ? [msg(response)] : [] } });
+    client.getExecutionProcess = async () => proc('persisted', 'overseer', status, 8);
+    await runAutoNudgeCycle(client, options);
+    expect(sent).toEqual([]);
+    expect(readAutoNudgeState(options.statePath).triggers.complete).toMatchObject({ status: expectedStatus, checkpointProcessId: expectedId });
+  });
+
+  it('resumes polling a persisted running checkpoint instead of resending', async () => {
+    const { options } = setup(); options.checkpointPollMs = 1;
+    const complete = proc('complete', 'impl', 'completed', 5);
+    const state = readAutoNudgeState(options.statePath);
+    state.triggers.complete = { processId: 'complete', workspaceId: 'w1', sessionId: 'impl', observedAt: iso(6), status: 'checkpoint-sent', checkpointProcessId: 'persisted', baselineProcessIds: ['complete'], updatedAt: iso(6), error: null };
+    writeAutoNudgeState(options.statePath, state);
+    const { client, sent } = fake({ processes: { impl: [complete], overseer: [proc('persisted', 'overseer', 'running', 8)] }, entries: { complete: [msg('Finished')], persisted: [msg('DONE')] } });
+    let reads = 0;
+    client.getExecutionProcess = async () => proc('persisted', 'overseer', ++reads === 1 ? 'running' : 'completed', 8);
+    await runAutoNudgeCycle(client, options);
+    expect(sent).toEqual([]);
+    expect(reads).toBe(2);
+    expect(readAutoNudgeState(options.statePath).triggers.complete?.status).toBe('done');
+  });
+
+  it('fails closed when a persisted checkpoint is missing', async () => {
+    const { options } = setup(); const complete = proc('complete', 'impl', 'completed', 5);
+    const state = readAutoNudgeState(options.statePath);
+    state.triggers.complete = { processId: 'complete', workspaceId: 'w1', sessionId: 'impl', observedAt: iso(6), status: 'checkpoint-sent', checkpointProcessId: 'missing', baselineProcessIds: ['complete'], updatedAt: iso(6), error: null };
+    writeAutoNudgeState(options.statePath, state);
+    const { client, sent } = fake({ processes: { impl: [complete], overseer: [] }, entries: { complete: [msg('Finished')] } });
+    client.getExecutionProcess = async () => { throw new Error('Not found'); };
+    await runAutoNudgeCycle(client, options);
+    expect(sent).toEqual([]);
+    expect(readAutoNudgeState(options.statePath).triggers.complete).toMatchObject({ status: 'checkpoint-sent', checkpointProcessId: 'missing', error: 'Not found' });
+  });
+
+  it('persists checkpoint identity before a wait failure', async () => {
+    const { options } = setup(); const complete = proc('complete', 'impl', 'completed', 5);
+    const { client } = fake({ processes: { impl: [complete], overseer: [] }, entries: { complete: [msg('Finished')] } });
+    client.getExecutionProcess = async () => { throw new Error('connection lost'); };
+    await runAutoNudgeCycle(client, options);
+    expect(readAutoNudgeState(options.statePath).triggers.complete).toMatchObject({ status: 'checkpoint-sent', checkpointProcessId: 'checkpoint' });
   });
 
   it('bounds concurrent workspace inspection', async () => {
@@ -201,7 +263,7 @@ describe('auto nudge', () => {
     const client: AutoNudgeClient = {
       async getSessions(workspaceId) { active++; maximum = Math.max(maximum, active); await new Promise(resolve => setTimeout(resolve, 5)); active--; return [session(`overseer-${workspaceId}`, 'overseer')]; },
       async getSessionProcesses() { return []; }, async fetchConversation() { return []; },
-      async sendMessage() { throw new Error('unexpected'); }, async sendAndWaitForFinalResponse() { throw new Error('unexpected'); },
+      async getExecutionProcess() { throw new Error('unexpected'); }, async sendMessage() { throw new Error('unexpected'); },
     };
     expect((await runAutoNudgeCycle(client, options)).workspaces).toBe(3);
     expect(maximum).toBe(2);
@@ -217,38 +279,20 @@ describe('auto nudge', () => {
     expect(() => acquireLock(staleLock)()).not.toThrow();
   });
 
-  it('correlates the real-client adapter to the exact terminal process and supports cancellation', async () => {
+  it('uses the existing REST client for exact process send/status and keeps logs separate', async () => {
     const sentProcess = proc('checkpoint', 'overseer', 'running', 8);
     const terminalProcess = proc('checkpoint', 'overseer', 'completed', 9);
-    let observedSignal: AbortSignal | undefined;
     let observedTimeout: number | undefined;
     const adapter = createAutoNudgeClient({
       async getSessions() { return []; }, async getSessionProcesses() { return []; },
       async sendMessage() { return sentProcess; },
-      async fetchConversation(_id, timeout, signal) { observedTimeout = timeout; observedSignal = signal; return [msg('DONE')]; },
+      async fetchConversation(_id, timeout) { observedTimeout = timeout; return [msg('DONE')]; },
       async getExecutionProcess(id) { expect(id).toBe('checkpoint'); return terminalProcess; },
     });
-    const controller = new AbortController();
-    const result = await adapter.sendAndWaitForFinalResponse('overseer', {} as SendMessageBody, 100, controller.signal);
-    expect(result).toEqual({ process: terminalProcess, response: 'DONE' });
-    expect(observedSignal).toBe(controller.signal);
+    expect((await adapter.sendMessage('overseer', {} as SendMessageBody)).id).toBe('checkpoint');
+    expect(await adapter.getExecutionProcess('checkpoint')).toBe(terminalProcess);
+    await adapter.fetchConversation('checkpoint', 100);
     expect(observedTimeout).toBe(100);
-  });
-
-  it('cancels a controlled real-client response wait during shutdown', async () => {
-    const adapter = createAutoNudgeClient({
-      async getSessions() { return []; }, async getSessionProcesses() { return []; },
-      async sendMessage() { return proc('checkpoint', 'overseer', 'running', 8); },
-      async fetchConversation(_id, _timeout, signal) {
-        if (signal?.aborted) throw new Error('cancelled');
-        return new Promise((_resolve, reject) => signal?.addEventListener('abort', () => reject(new Error('cancelled')), { once: true }));
-      },
-      async getExecutionProcess() { throw new Error('must not reach terminal lookup'); },
-    });
-    const controller = new AbortController();
-    const waiting = adapter.sendAndWaitForFinalResponse('overseer', {} as SendMessageBody, 100, controller.signal);
-    controller.abort();
-    await expect(waiting).rejects.toThrow('cancelled');
   });
 
   it('keeps checkpoint dry-run state and outbox byte-for-byte unchanged', async () => {
@@ -262,5 +306,16 @@ describe('auto nudge', () => {
     expect((await runAutoNudgeCycle(client, options)).checkpoints).toBe(1);
     expect(readFileSync(options.statePath, 'utf8')).toBe(before);
     expect(sent).toEqual([]);
+  });
+
+  it('aborts poll delay promptly and releases the owner lock', async () => {
+    vi.useFakeTimers();
+    const { dir } = setup(); const lock = join(dir, 'owner.lock'); const controller = new AbortController();
+    const running = runWithOwnerLock(lock, async () => abortableDelay(300_000, controller.signal));
+    expect(existsSync(lock)).toBe(true);
+    controller.abort();
+    await expect(running).rejects.toThrow('Cancelled');
+    expect(existsSync(lock)).toBe(false);
+    vi.useRealTimers();
   });
 });
