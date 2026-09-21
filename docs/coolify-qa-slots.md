@@ -10,7 +10,7 @@ This repo has a first-pass fixed-slot QA flow for VK/VD deployments.
 - Container env values are only for runtime configuration (`VKVD_IMAGE_VERSION`, `CADDY_PORT`, `QA_SLOT_ID`, etc.).
 - The intended QA compose is `docker-compose.qa.yaml`, which strips staging-only services and uses explicit slot-scoped named volumes.
 - The Coolify Docker host must have `sysbox-runc` installed and registered. QA uses the same Sysbox-backed inner Docker daemon as the release deployment. It does not mount the host Docker socket.
-- Before a QA rollout, run `docker info --format '{{json .Runtimes}}' | grep sysbox-runc` on the Coolify host. After startup, run `./scripts/smoke-sysbox-dind.sh` against the QA service to verify nested Docker.
+- Before a QA rollout, run `docker info --format '{{json .Runtimes}}' | grep sysbox-runc` on the Coolify host.
 
 ## Commands
 
@@ -42,6 +42,31 @@ npm exec -- varlock run -- npm run coolify:qa -- deploy \
   --compose-location /docker-compose.qa.yaml \
   --wait-image \
   --confirm
+```
+
+Verify nested Docker in the deployed slot from the Coolify Docker host. Set
+`app_uuid` to the slot application's UUID shown by the `status` command above.
+The Compose project and service labels select the deployed `code-vibe` container,
+and the environment check prevents a different slot from being tested.
+
+```bash
+slot=1
+app_uuid=zg44c04o44cosk8o4sgw48c4
+
+container="$(docker ps \
+  --filter "label=com.docker.compose.project=${app_uuid}" \
+  --filter "label=com.docker.compose.service=code-vibe" \
+  --format '{{.ID}}')"
+container_count="$(printf '%s\n' "$container" | awk 'NF { count++ } END { print count + 0 }')"
+if [ "$container_count" -ne 1 ]; then
+  echo "Expected one running code-vibe container for Coolify application ${app_uuid}; found ${container_count}." >&2
+  exit 1
+fi
+
+docker inspect --format '{{range .Config.Env}}{{println .}}{{end}}' "$container" \
+  | grep -Fx "QA_SLOT_ID=slot-${slot}"
+docker exec "$container" docker info
+docker exec "$container" docker run --rm alpine:3.20 true
 ```
 
 ## Proven API findings
