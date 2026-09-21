@@ -281,9 +281,9 @@ export function chooseBestContainingBranch(
     remoteName,
   );
   const defaults = [
-    `${remoteName}/main`,
     defaultBranch?.startsWith(`${remoteName}/`) ? defaultBranch : null,
     remoteDefaultBranch,
+    `${remoteName}/main`,
     remoteName === "origin" ? "main" : null,
   ].filter((branch): branch is string => Boolean(branch));
 
@@ -347,25 +347,35 @@ export function findWorkspaceIdForPr(
   parsedPr: ParsedGithubPrUrl,
   prInfo?: PullRequestDetail,
 ): string | null {
+  return findWorkspaceIdsForPr(summaries, parsedPr, prInfo)[0] ?? null;
+}
+
+export function findWorkspaceIdsForPr(
+  summaries: WorkspaceSummary[],
+  parsedPr: ParsedGithubPrUrl,
+  prInfo?: PullRequestDetail,
+): string[] {
   const candidateUrls = new Set(
     [parsedPr.normalizedPrUrl, prInfo?.url]
       .filter((url): url is string => Boolean(url))
       .map(normalizeGithubPrUrl),
   );
 
-  const exactMatch = summaries.find((summary) => {
+  const exactMatches = summaries.filter((summary) => {
     if (!summary.pr_url) return false;
     return candidateUrls.has(normalizeGithubPrUrl(summary.pr_url));
   });
-  if (exactMatch) return exactMatch.workspace_id;
+  if (exactMatches.length > 0) {
+    return [...new Set(exactMatches.map((summary) => summary.workspace_id))];
+  }
 
-  const numberMatch = summaries.find(
+  const numberMatches = summaries.filter(
     (summary) =>
       summary.pr_number === parsedPr.number &&
       summary.pr_url != null &&
       normalizeGithubRepoIdentity(summary.pr_url) === parsedPr.normalizedRepo,
   );
-  return numberMatch?.workspace_id ?? null;
+  return [...new Set(numberMatches.map((summary) => summary.workspace_id))];
 }
 
 export function findOpenWorkspaceLocation(
@@ -498,9 +508,9 @@ export function selectPreferredRemoteBranch(
     remoteName,
   );
   const preferences = [
-    `${remoteName}/main`,
     defaultBranch?.startsWith(`${remoteName}/`) ? defaultBranch : null,
     remoteDefaultBranch,
+    `${remoteName}/main`,
     remoteName === "origin" ? "main" : null,
   ].filter((branch): branch is string => Boolean(branch));
 

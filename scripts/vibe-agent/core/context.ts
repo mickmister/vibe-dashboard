@@ -61,7 +61,6 @@ export async function getAgentContext(): Promise<AgentContext> {
   const projectId = process.env.VK_PROJECT_ID ?? null;
   const projectName = process.env.VK_PROJECT_NAME ?? null;
   const taskId = process.env.VK_TASK_ID ?? null;
-  const workspaceBranch = process.env.VK_WORKSPACE_BRANCH ?? null;
 
   // Try to discover session ID
   let sessionId: string | null = null;
@@ -86,7 +85,6 @@ export async function getAgentContext(): Promise<AgentContext> {
     projectName,
     taskId,
     workspaceId,
-    workspaceBranch,
     sessionId,
     role,
   };

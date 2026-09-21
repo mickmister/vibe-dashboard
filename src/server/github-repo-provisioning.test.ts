@@ -2,7 +2,10 @@ import { mkdtemp, mkdir, rm } from 'node:fs/promises';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { ensureGithubRepoRegistered } from './github-repo-provisioning';
+import {
+  ensureGithubRepoRegistered,
+  inspectGithubRepoAccess,
+} from './github-repo-provisioning';
 import type { Repo } from './vk-client';
 
 describe('ensureGithubRepoRegistered', () => {
@@ -37,7 +40,7 @@ describe('ensureGithubRepoRegistered', () => {
     expect(execFile).toHaveBeenCalledWith('git', [
       'clone',
       'https://github.com/owner/repo.git',
-      join(reposRoot, 'repo'),
+      expect.stringContaining('.vd-clone-'),
     ]);
     expect(vkClient.registerRepo).toHaveBeenCalledWith({
       path: join(reposRoot, 'repo'),
@@ -116,7 +119,11 @@ describe('ensureGithubRepoRegistered', () => {
       { reposRoot, execFile, vkClient },
     );
 
-    expect(execFile).toHaveBeenCalledWith('git', ['clone', 'https://github.com/owner/repo.git', expectedPath]);
+    expect(execFile).toHaveBeenCalledWith('git', [
+      'clone',
+      'https://github.com/owner/repo.git',
+      expect.stringContaining('.vd-clone-'),
+    ]);
     expect(result.path).toBe(expectedPath);
   });
 
@@ -138,6 +145,42 @@ describe('ensureGithubRepoRegistered', () => {
         },
       ),
     ).rejects.toThrow(/Check GitHub access, credentials, and network connectivity.*Repository not found/);
+  });
+
+  it('uses gh API metadata to find push access and writable forks without pushing', async () => {
+    const execFile = vi.fn(async (_file: string, args: readonly string[]) => {
+      const command = args.join(' ');
+      if (command.includes('api user')) return { stdout: 'mick\n', stderr: '' };
+      if (command.includes('repos/owner/repo/forks')) {
+        return {
+          stdout: '{"fullName":"mick/repo","cloneUrl":"https://github.com/mick/repo.git"}\n',
+          stderr: '',
+        };
+      }
+      if (command.includes('repos/owner/repo')) {
+        return {
+          stdout: '{"fullName":"owner/repo","cloneUrl":"https://github.com/owner/repo.git","canPush":false}\n',
+          stderr: '',
+        };
+      }
+      throw new Error(`unexpected gh ${command}`);
+    });
+
+    await expect(
+      inspectGithubRepoAccess('https://github.com/Owner/Repo', { execFile }),
+    ).resolves.toEqual({
+      viewer: 'mick',
+      sourceCanPush: false,
+      writableForks: [
+        {
+          fullName: 'mick/repo',
+          cloneUrl: 'https://github.com/mick/repo.git',
+        },
+      ],
+      forkUrl: 'https://github.com/owner/repo/fork',
+    });
+    expect(execFile.mock.calls.every(([file]) => file === 'gh')).toBe(true);
+    expect(execFile.mock.calls.flatMap(([, args]) => args)).not.toContain('push');
   });
 
   async function tempRoot(): Promise<string> {

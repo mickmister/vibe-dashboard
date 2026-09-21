@@ -6,7 +6,7 @@ import {
   chooseBestContainingBranch,
   findMatchingRepoRemotes,
   findOpenWorkspaceLocation,
-  findWorkspaceIdForPr,
+  findWorkspaceIdsForPr,
   getRemoteDefaultBranch,
   getOpenFromGithubUrl,
   parseGithubOpenUrl,
@@ -16,6 +16,7 @@ import {
   selectPreferredRemoteBranch,
   type MatchingRepoRemote,
   type ParsedGithubIssueUrl,
+  type ParsedGithubPrUrl,
   type ParsedGithubTreeBlobUrl,
   type OpenWorkspaceLocation,
   type ResolvedGithubTreeBlobTarget,
@@ -91,18 +92,30 @@ type PendingTarget =
       type: "create-issue";
       match: MatchingRepoRemote;
       issue: ParsedGithubIssueUrl;
+      targetBranch?: string;
+      checkoutBranch?: string;
+      createBranch?: boolean;
+      workspaceName?: string;
     }
   | {
       type: "create-tree-blob";
       match: MatchingRepoRemote;
       target: ResolvedGithubTreeBlobTarget;
       targetBranch: string;
+      checkoutBranch?: string;
+      createBranch?: boolean;
+      workspaceName?: string;
     };
 
 type ExistingVoyageChoice = {
   savedVoyage: SavedWorkspaceSession;
   voyageEntryId?: string;
 };
+
+type UnclonedTarget =
+  | { type: "pr"; parsed: ParsedGithubPrUrl; prInfo: PullRequestDetail }
+  | { type: "issue"; issue: ParsedGithubIssueUrl }
+  | { type: "tree-blob"; target: ParsedGithubTreeBlobUrl };
 
 type DialogState =
   | null
@@ -127,6 +140,15 @@ type DialogState =
       message: string;
     }
   | {
+      type: "choose-work-mode";
+      target:
+        | Extract<PendingTarget, { type: "create-issue" }>
+        | Extract<PendingTarget, { type: "create-tree-blob" }>;
+      branches: string[];
+      selectedBranch: string;
+      defaultCreateBranch: boolean;
+    }
+  | {
       type: "choose-space";
       target: PendingTarget;
     }
@@ -149,6 +171,25 @@ type DialogState =
       type: "confirm-reopen-archived";
       workspace: VkWorkspace;
       issue: ParsedGithubIssueUrl;
+    }
+  | {
+      type: "choose-pr-workspace";
+      workspaces: VkWorkspace[];
+      prInfo: PullRequestDetail;
+    }
+  | { type: "choose-clone-intent"; target: UnclonedTarget }
+  | {
+      type: "choose-fork";
+      target: UnclonedTarget;
+      sourceRepoUrl: string;
+      forks: Array<{ fullName: string; cloneUrl: string }>;
+    }
+  | {
+      type: "await-fork";
+      target: UnclonedTarget;
+      sourceRepoUrl: string;
+      forkUrl: string;
+      viewer: string;
     }
   | {
       type: "stale-issue-mapping";
@@ -306,6 +347,13 @@ export function OpenFromGitHub({
   };
 
   const chooseVoyageForTarget = (target: PendingTarget) => {
+    if (
+      (target.type === "create-issue" || target.type === "create-tree-blob") &&
+      target.createBranch === undefined
+    ) {
+      void showWorkMode(target);
+      return;
+    }
     setDialog({
       type: "choose-voyage",
       title: `${getTargetVerb(target)} in Voyage`,
@@ -317,6 +365,44 @@ export function OpenFromGitHub({
         target,
       },
     });
+  };
+
+  const showWorkMode = async (
+    target:
+      | Extract<PendingTarget, { type: "create-issue" }>
+      | Extract<PendingTarget, { type: "create-tree-blob" }>,
+  ) => {
+    try {
+      const branches = await vkClient.getRepoBranches(target.match.repo.id);
+      const available = branches
+        .map((branch) => branch.name)
+        .filter((branch) => branchBelongsToRemoteOrLocal(branch, target.match.remote.name));
+      const selectedBranch = target.type === "create-tree-blob"
+        ? target.targetBranch
+        : await getIssueTargetBranch(target.match);
+      const configuredDefault = getRemoteDefaultBranch(
+        target.match.repo.default_target_branch,
+        target.match.remote.name,
+      );
+      const defaultCreateBranch =
+        selectedBranch === configuredDefault ||
+        selectedBranch === `${target.match.remote.name}/main`;
+      setDialog({
+        type: "choose-work-mode",
+        target,
+        branches: available.includes(selectedBranch)
+          ? available
+          : [selectedBranch, ...available],
+        selectedBranch,
+        defaultCreateBranch,
+      });
+    } catch (error) {
+      setDialog({
+        type: "error",
+        title: "Could not load repository branches",
+        message: error instanceof Error ? error.message : "Unknown branch lookup error.",
+      });
+    }
   };
 
   const selectVoyageForDialog = async (choice: ExistingVoyageChoice) => {
@@ -569,6 +655,9 @@ export function OpenFromGitHub({
           kind: target.target.kind,
           path: target.target.path,
           permalink_commit: target.target.permalinkCommit,
+          create_branch: target.createBranch ?? true,
+          checkout_branch: target.createBranch === false ? target.checkoutBranch : null,
+          name: target.workspaceName,
         })
       ).workspace;
       if (!isCurrentTarget()) throw new StaleOpenFromGithubRunError();
@@ -576,25 +665,9 @@ export function OpenFromGitHub({
     }
 
     if (target.type === "create-issue") {
-      const targetBranch = await getIssueTargetBranch(target.match);
+      const targetBranch = target.targetBranch ?? await getIssueTargetBranch(target.match);
       if (!isCurrentTarget()) throw new StaleOpenFromGithubRunError();
-      const workspace = (
-        await vkClient.createWorkspaceFromIssue({
-          repo_id: target.match.repo.id,
-          target_branch: targetBranch,
-          issue_url: target.issue.normalizedIssueUrl,
-          issue_number: target.issue.number,
-          run_setup: true,
-        })
-      ).workspace;
-      if (!isCurrentTarget()) throw new StaleOpenFromGithubRunError();
-      await vkClient.putGithubIssueWorkspaceMapping({
-        owner: target.issue.owner.toLowerCase(),
-        repo: target.issue.repo.toLowerCase(),
-        number: target.issue.number,
-        workspaceId: workspace.id,
-        branch: workspace.branch,
-      });
+      const workspace = await createIssueWorkspaceOnce(target, targetBranch);
       if (!isCurrentTarget()) throw new StaleOpenFromGithubRunError();
       return workspace;
     }
@@ -614,6 +687,115 @@ export function OpenFromGitHub({
     if (!isCurrentTarget()) throw new StaleOpenFromGithubRunError();
     return workspace;
   };
+
+  const finishProvisionedTarget = async (
+    target: UnclonedTarget,
+    repoUrl: string,
+    upstreamRepoUrl?: string,
+  ) => {
+    setDialog({
+      type: "processing",
+      title: "Preparing GitHub repository",
+      message: `Cloning and registering ${repoUrl}`,
+    });
+    const ensured = upstreamRepoUrl
+      ? await vkClient.ensureGithubRepo(repoUrl, upstreamRepoUrl)
+      : await vkClient.ensureGithubRepo(repoUrl);
+    const remotes = await vkClient.getRepoRemotes(ensured.repo.id).catch(() => []);
+    const source = target.type === "pr" ? target.parsed : target.type === "issue" ? target.issue : target.target;
+    const matches = findMatchingRepoRemotes(
+      [ensured.repo],
+      new Map([[ensured.repo.id, remotes]]),
+      source,
+    );
+    const match = matches[0] ?? {
+      repo: ensured.repo,
+      remote: {
+        name: upstreamRepoUrl ? "upstream" : "origin",
+        url: upstreamRepoUrl ?? repoUrl,
+      },
+    };
+
+    if (target.type === "pr") {
+      chooseVoyageForTarget({ type: "create", match, prInfo: target.prInfo });
+    } else if (target.type === "issue") {
+      chooseVoyageForTarget({ type: "create-issue", match, issue: target.issue });
+    } else {
+      await resolveTreeBlobMatch(match, target.target, () => false);
+    }
+  };
+
+  const chooseCloneIntent = async (
+    target: UnclonedTarget,
+    intent: "analysis" | "changes",
+  ) => {
+    const sourceRepoUrl = `https://github.com/${
+      target.type === "pr"
+        ? target.parsed.normalizedRepo
+        : target.type === "issue"
+          ? target.issue.normalizedRepo
+          : target.target.normalizedRepo
+    }`;
+    try {
+      if (intent === "analysis") {
+        await finishProvisionedTarget(target, sourceRepoUrl);
+        return;
+      }
+
+      setDialog({
+        type: "processing",
+        title: "Checking GitHub access",
+        message: `Checking push access with gh CLI for ${sourceRepoUrl}`,
+      });
+      const access = await vkClient.getGithubRepoAccess(sourceRepoUrl);
+      if (access.sourceCanPush) {
+        await finishProvisionedTarget(target, sourceRepoUrl);
+      } else if (access.writableForks.length === 1 && access.writableForks[0]) {
+        await finishProvisionedTarget(
+          target,
+          `https://github.com/${access.writableForks[0].fullName}`,
+          sourceRepoUrl,
+        );
+      } else if (access.writableForks.length > 1) {
+        setDialog({
+          type: "choose-fork",
+          target,
+          sourceRepoUrl,
+          forks: access.writableForks,
+        });
+      } else {
+        window.open(access.forkUrl, "_blank", "noopener,noreferrer");
+        setDialog({
+          type: "await-fork",
+          target,
+          sourceRepoUrl,
+          forkUrl: access.forkUrl,
+          viewer: access.viewer,
+        });
+      }
+    } catch (error) {
+      setDialog({
+        type: "error",
+        title: "Could not prepare GitHub repository",
+        message: error instanceof Error ? error.message : "Unknown GitHub repository error.",
+      });
+    }
+  };
+
+  useEffect(() => {
+    if (dialog?.type !== "await-fork") return;
+    const recheck = () => {
+      if (document.visibilityState === "visible") {
+        void chooseCloneIntent(dialog.target, "changes");
+      }
+    };
+    window.addEventListener("focus", recheck);
+    document.addEventListener("visibilitychange", recheck);
+    return () => {
+      window.removeEventListener("focus", recheck);
+      document.removeEventListener("visibilitychange", recheck);
+    };
+  }, [dialog]);
 
   const createSpaceAndOpen = async (name: string) => {
     if (dialog?.type !== "choose-space") return;
@@ -655,6 +837,9 @@ export function OpenFromGitHub({
           if (isCancelled()) return;
         } catch (error) {
           if (isCancelled()) return;
+          if (!isNotFoundError(error)) {
+            throw error;
+          }
           setDialog({
             type: "stale-issue-mapping",
             issue,
@@ -731,24 +916,8 @@ export function OpenFromGitHub({
     const matches = findMatchingRepoRemotes(repos, remotesByRepoId, issue);
     if (matches.length > 0) return matches;
 
-    setDialog({
-      type: "processing",
-      title: "Opening GitHub issue",
-      message: `Cloning and registering ${issue.normalizedRepo}`,
-    });
-    const ensured = await vkClient.ensureGithubRepo(
-      `https://github.com/${issue.normalizedRepo}`,
-    );
-    if (isCancelled()) return [];
-    const ensuredRemotes = await vkClient
-      .getRepoRemotes(ensured.repo.id)
-      .catch(() => []);
-    if (isCancelled()) return [];
-    return findMatchingRepoRemotes(
-      [ensured.repo],
-      new Map([[ensured.repo.id, ensuredRemotes]]),
-      issue,
-    );
+    setDialog({ type: "choose-clone-intent", target: { type: "issue", issue } });
+    return null;
   };
 
   const showCreateIssueOptions = async (
@@ -757,6 +926,7 @@ export function OpenFromGitHub({
   ) => {
     const matches = await findOrEnsureIssueRepo(issue, isCancelled);
     if (isCancelled()) return;
+    if (matches === null) return;
     if (matches.length === 1 && matches[0]) {
       chooseVoyageForTarget({ type: "create-issue", match: matches[0], issue });
       return;
@@ -835,6 +1005,7 @@ export function OpenFromGitHub({
     try {
       const matches = await findOrEnsureTreeBlobRepo(target, isCancelled);
       if (isCancelled()) return;
+      if (matches === null) return;
 
       if (matches.length === 1 && matches[0]) {
         await resolveTreeBlobMatch(matches[0], target, isCancelled);
@@ -894,34 +1065,10 @@ export function OpenFromGitHub({
     if (matches.length > 0) return matches;
 
     setDialog({
-      type: "processing",
-      title: "Opening GitHub URL",
-      message: `Cloning and registering ${target.normalizedRepo}`,
+      type: "choose-clone-intent",
+      target: { type: "tree-blob", target },
     });
-    const ensured = await vkClient.ensureGithubRepo(
-      `https://github.com/${target.normalizedRepo}`,
-    );
-    if (isCancelled()) return [];
-    const ensuredRemotes = await vkClient
-      .getRepoRemotes(ensured.repo.id)
-      .catch(() => []);
-    if (isCancelled()) return [];
-    const ensuredMatches = findMatchingRepoRemotes(
-      [ensured.repo],
-      new Map([[ensured.repo.id, ensuredRemotes]]),
-      target,
-    );
-    return ensuredMatches.length > 0
-      ? ensuredMatches
-      : [
-          {
-            repo: ensured.repo,
-            remote: {
-              name: "origin",
-              url: `https://github.com/${target.normalizedRepo}.git`,
-            },
-          },
-        ];
+    return null;
   };
 
   const resolveTreeBlobMatch = async (
@@ -960,9 +1107,7 @@ export function OpenFromGitHub({
         match.remote.name,
       );
       if (preferredBranch) {
-        setDialog({
-          type: "choose-space",
-          target: {
+        chooseVoyageForTarget({
             type: "create-tree-blob",
             match,
             target: {
@@ -978,8 +1123,7 @@ export function OpenFromGitHub({
               normalizedUrl: target.normalizedUrl,
               permalinkCommit: null,
             },
-            targetBranch: preferredBranch,
-          },
+          targetBranch: preferredBranch,
         });
         return;
       }
@@ -991,14 +1135,11 @@ export function OpenFromGitHub({
       match.remote.name,
     );
     if (branchResult) {
-      setDialog({
-        type: "choose-space",
-        target: {
+      chooseVoyageForTarget({
           type: "create-tree-blob",
           match,
           target: branchResult.resolved,
-          targetBranch: branchResult.targetBranch,
-        },
+        targetBranch: branchResult.targetBranch,
       });
       return;
     }
@@ -1043,14 +1184,11 @@ export function OpenFromGitHub({
       match.remote.name,
     );
     if (bestBranch) {
-      setDialog({
-        type: "choose-space",
-        target: {
+      chooseVoyageForTarget({
           type: "create-tree-blob",
           match,
           target: commitTarget,
-          targetBranch: bestBranch,
-        },
+        targetBranch: bestBranch,
       });
       return;
     }
@@ -1127,15 +1265,34 @@ export function OpenFromGitHub({
       try {
         const prInfo = await vkClient.getPrInfo(parsedPr.normalizedPrUrl);
         if (cancelled) return;
-        const summaries = await vkClient.getWorkspaceSummaries(false);
-        const existingWorkspaceId = findWorkspaceIdForPr(
-          summaries.summaries,
+        const [activeSummaries, archivedSummaries] = await Promise.all([
+          vkClient.getWorkspaceSummaries(false),
+          vkClient.getWorkspaceSummaries(true),
+        ]);
+        const existingWorkspaceIds = findWorkspaceIdsForPr(
+          [...activeSummaries.summaries, ...archivedSummaries.summaries],
           parsedPr,
           prInfo,
         );
 
         if (cancelled) return;
 
+        if (existingWorkspaceIds.length > 1) {
+          const existingWorkspaces = await Promise.all(
+            existingWorkspaceIds.map((id) => vkClient.getWorkspace(id)),
+          );
+          if (cancelled) return;
+          setDialog({
+            type: "choose-pr-workspace",
+            workspaces: existingWorkspaces.sort(
+              (left, right) => Number(left.archived) - Number(right.archived),
+            ),
+            prInfo,
+          });
+          return;
+        }
+
+        const existingWorkspaceId = existingWorkspaceIds[0];
         if (existingWorkspaceId) {
           const openLocation = findOpenWorkspaceLocation(
             latestRuntimeRef.current.workspace,
@@ -1186,34 +1343,9 @@ export function OpenFromGitHub({
 
         if (matches.length === 0) {
           setDialog({
-            type: "processing",
-            title: "Opening GitHub PR",
-            message: `Cloning and registering ${parsedPr.normalizedRepo}`,
+            type: "choose-clone-intent",
+            target: { type: "pr", parsed: parsedPr, prInfo },
           });
-          const ensured = await vkClient.ensureGithubRepo(
-            `https://github.com/${parsedPr.normalizedRepo}`,
-          );
-          if (cancelled) return;
-          const remoteResults = await Promise.allSettled([
-            vkClient.getRepoRemotes(ensured.repo.id),
-          ]);
-          const ensuredRemotes =
-            remoteResults[0]?.status === "fulfilled"
-              ? remoteResults[0].value
-              : [];
-          const ensuredMatches = findMatchingRepoRemotes(
-            [ensured.repo],
-            new Map([[ensured.repo.id, ensuredRemotes]]),
-            parsedPr,
-          );
-          const match = ensuredMatches[0] ?? {
-            repo: ensured.repo,
-            remote: {
-              name: "origin",
-              url: `https://github.com/${parsedPr.normalizedRepo}.git`,
-            },
-          };
-          chooseVoyageForTarget({ type: "create", match, prInfo });
           return;
         }
 
@@ -1289,16 +1421,51 @@ export function OpenFromGitHub({
           );
         });
       }}
+      onSelectPrWorkspace={(selectedWorkspace) => {
+        if (dialog?.type !== "choose-pr-workspace") return;
+        chooseVoyageForTarget({
+          type: "existing",
+          workspace: selectedWorkspace,
+          prInfo: dialog.prInfo,
+        });
+      }}
+      onSelectCloneIntent={(intent) => {
+        if (dialog?.type !== "choose-clone-intent") return;
+        void chooseCloneIntent(dialog.target, intent);
+      }}
+      onSelectFork={(fork) => {
+        if (dialog?.type !== "choose-fork") return;
+        void finishProvisionedTarget(
+          dialog.target,
+          `https://github.com/${fork.fullName}`,
+          dialog.sourceRepoUrl,
+        );
+      }}
+      onRecheckFork={() => {
+        if (dialog?.type !== "await-fork") return;
+        void chooseCloneIntent(dialog.target, "changes");
+      }}
       onSelectBranch={(branch) => {
         if (dialog?.type !== "choose-branch") return;
-        setDialog({
-          type: "choose-space",
-          target: {
+        chooseVoyageForTarget({
             type: "create-tree-blob",
             match: dialog.match,
             target: dialog.target,
-            targetBranch: branch,
-          },
+          targetBranch: branch,
+        });
+      }}
+      onConfirmWorkMode={({ branch, createBranch, workspaceName }) => {
+        if (dialog?.type !== "choose-work-mode") return;
+        const configuredDefault = getRemoteDefaultBranch(
+          dialog.target.match.repo.default_target_branch,
+          dialog.target.match.remote.name,
+        ) ?? `${dialog.target.match.remote.name}/main`;
+        chooseVoyageForTarget({
+          ...dialog.target,
+          targetBranch: createBranch ? branch : configuredDefault,
+          checkoutBranch: createBranch ? undefined : branch,
+          createBranch,
+          workspaceName,
         });
       }}
       onSelectSpace={(spaceId) => {
@@ -1377,6 +1544,70 @@ class StaleOpenFromGithubRunError extends Error {
     super("Stale external_view_url run");
     this.name = "StaleOpenFromGithubRunError";
   }
+}
+
+function isNotFoundError(error: unknown): boolean {
+  return Boolean(
+    error &&
+      typeof error === "object" &&
+      "status" in error &&
+      (error as { status?: unknown }).status === 404,
+  );
+}
+
+const issueWorkspaceCreations = new Map<string, Promise<VkWorkspace>>();
+
+function createIssueWorkspaceOnce(
+  target: Extract<PendingTarget, { type: "create-issue" }>,
+  targetBranch: string,
+): Promise<VkWorkspace> {
+  const key = `${target.issue.owner.toLowerCase()}/${target.issue.repo.toLowerCase()}#${target.issue.number}`;
+  const active = issueWorkspaceCreations.get(key);
+  if (active) return active;
+
+  const creation = (async () => {
+    const workspace = (
+      await vkClient.createWorkspaceFromIssue({
+        repo_id: target.match.repo.id,
+        target_branch: targetBranch,
+        issue_url: target.issue.normalizedIssueUrl,
+        issue_number: target.issue.number,
+        run_setup: true,
+        create_branch: target.createBranch ?? true,
+        checkout_branch: target.createBranch === false ? target.checkoutBranch : null,
+        name: target.workspaceName,
+      })
+    ).workspace;
+
+    let lastError: unknown;
+    for (let attempt = 1; attempt <= 3; attempt += 1) {
+      try {
+        await vkClient.putGithubIssueWorkspaceMapping({
+          owner: target.issue.owner.toLowerCase(),
+          repo: target.issue.repo.toLowerCase(),
+          number: target.issue.number,
+          workspaceId: workspace.id,
+          branch: workspace.branch,
+        });
+        return workspace;
+      } catch (error) {
+        lastError = error;
+        if (attempt < 3) {
+          await new Promise((resolve) => setTimeout(resolve, attempt * 250));
+        }
+      }
+    }
+
+    const detail = lastError instanceof Error ? ` ${lastError.message}` : "";
+    throw new Error(
+      `Workspace ${workspace.name || workspace.id} was created, but VD could not save its GitHub issue mapping after three attempts. The workspace was left intact. Open it from VK and retry the issue later.${detail}`,
+    );
+  })().finally(() => {
+    issueWorkspaceCreations.delete(key);
+  });
+
+  issueWorkspaceCreations.set(key, creation);
+  return creation;
 }
 
 function getGithubRefForTargetBranchName(
@@ -1469,9 +1700,14 @@ function OpenFromGithubDialog({
   workspace,
   onClose,
   onSelectRepo,
+  onSelectPrWorkspace,
+  onSelectCloneIntent,
+  onSelectFork,
+  onRecheckFork,
   onSelectSpace,
   onSelectVoyage,
   onSelectBranch,
+  onConfirmWorkMode,
   onCreateSpace,
   onCreateVoyage,
   onConfirmReopenArchived,
@@ -1481,9 +1717,18 @@ function OpenFromGithubDialog({
   workspace: WorkspaceState;
   onClose: () => void;
   onSelectRepo: (match: MatchingRepoRemote) => void;
+  onSelectPrWorkspace: (workspace: VkWorkspace) => void;
+  onSelectCloneIntent: (intent: "analysis" | "changes") => void;
+  onSelectFork: (fork: { fullName: string; cloneUrl: string }) => void;
+  onRecheckFork: () => void;
   onSelectSpace: (spaceId: string) => void;
   onSelectVoyage: (choice: ExistingVoyageChoice) => void;
   onSelectBranch: (branch: string) => void;
+  onConfirmWorkMode: (args: {
+    branch: string;
+    createBranch: boolean;
+    workspaceName: string;
+  }) => void;
   onCreateSpace: (name: string) => void;
   onCreateVoyage: (name: string) => void;
   onConfirmReopenArchived: () => void;
@@ -1491,6 +1736,20 @@ function OpenFromGithubDialog({
 }) {
   const [newSpaceName, setNewSpaceName] = useState("");
   const [newVoyageName, setNewVoyageName] = useState("");
+  const [workModeBranch, setWorkModeBranch] = useState("");
+  const [createWorkBranch, setCreateWorkBranch] = useState(true);
+  const [workspaceName, setWorkspaceName] = useState("");
+
+  useEffect(() => {
+    if (state?.type !== "choose-work-mode") return;
+    setWorkModeBranch(state.selectedBranch);
+    setCreateWorkBranch(state.defaultCreateBranch);
+    setWorkspaceName(
+      state.target.type === "create-issue"
+        ? `Issue #${state.target.issue.number}`
+        : `GitHub ${state.target.target.kind} ${state.target.target.ref}`,
+    );
+  }, [state]);
 
   if (!state) return null;
 
@@ -1498,6 +1757,16 @@ function OpenFromGithubDialog({
   const title =
     state.type === "choose-repo"
       ? "Choose repository"
+      : state.type === "choose-pr-workspace"
+        ? "Choose PR workspace"
+      : state.type === "choose-clone-intent"
+        ? "How will you use this repository?"
+      : state.type === "choose-fork"
+        ? "Choose a writable fork"
+      : state.type === "await-fork"
+        ? "Create a GitHub fork"
+      : state.type === "choose-work-mode"
+        ? "Choose branch and workspace mode"
       : state.type === "choose-space"
         ? `${getTargetVerb(state.target)} in space`
         : state.type === "confirm-reopen-archived"
@@ -1516,9 +1785,21 @@ function OpenFromGithubDialog({
         : state.target.type === "issue"
           ? `Multiple VK repos match issue #${state.target.issue.number}: ${state.target.issue.normalizedIssueUrl}`
           : `Multiple VK repos match ${state.target.target.normalizedUrl}`
+      : state.type === "choose-pr-workspace"
+        ? `Multiple workspaces match PR #${state.prInfo.number}. Choose the workspace to open.`
+      : state.type === "choose-clone-intent"
+        ? "This repository is not cloned yet. Analysis clones the source repository. Making changes checks your gh CLI account for push access or a writable fork."
+      : state.type === "choose-fork"
+        ? "Several writable forks are available to your authenticated gh CLI account."
+      : state.type === "await-fork"
+        ? `No writable fork was found for ${state.viewer}. Create one on GitHub, then return to this window. VD rechecks automatically on focus.`
+      : state.type === "choose-work-mode"
+        ? "Choose a branch. Non-default branches work directly by default. Protected or default base branches create a new editable workspace branch by default."
       : state.type === "choose-space"
         ? state.target.type === "create-tree-blob"
-          ? `V1 creates a new VK workspace branch from ${state.target.targetBranch} so your existing GitHub branch or permalink commit is not checked out and edited directly. Direct reuse of arbitrary non-PR branches is not supported yet.`
+          ? state.target.createBranch === false
+            ? `Work directly on ${state.target.checkoutBranch}. Changes will target ${state.target.targetBranch}.`
+            : `Create an editable workspace branch from ${state.target.targetBranch}.`
           : `Choose a space for ${getTargetTitle(state.target)}`
         : state.type === "confirm-reopen-archived"
           ? `GitHub issue ${state.issue.normalizedIssueUrl} is mapped to archived workspace ${state.workspace.name || state.workspace.branch}. Reopen and unarchive it instead of creating a duplicate branch?`
@@ -1567,6 +1848,79 @@ function OpenFromGithubDialog({
                 </div>
               </button>
             ))}
+          </div>
+        ) : null}
+
+        {state.type === "choose-pr-workspace" ? (
+          <div className="space-y-2">
+            {state.workspaces.map((candidate) => (
+              <button
+                key={candidate.id}
+                type="button"
+                className="w-full rounded-lg border border-neutral-700 bg-neutral-800 p-3 text-left transition-colors hover:bg-neutral-700"
+                onClick={() => onSelectPrWorkspace(candidate)}
+              >
+                <div className="text-sm font-medium text-white">
+                  {candidate.name || candidate.branch}
+                </div>
+                <div className="mt-1 text-xs text-neutral-400">
+                  {candidate.archived ? "Archived" : "Active"}
+                </div>
+              </button>
+            ))}
+          </div>
+        ) : null}
+
+        {state.type === "choose-clone-intent" ? (
+          <div className="space-y-2">
+            <button type="button" className="w-full rounded-lg border border-neutral-700 bg-neutral-800 p-3 text-left hover:bg-neutral-700" onClick={() => onSelectCloneIntent("changes")}>
+              <div className="text-sm font-medium text-white">Make changes</div>
+              <div className="mt-1 text-xs text-neutral-400">Use a writable source repository or fork.</div>
+            </button>
+            <button type="button" className="w-full rounded-lg border border-neutral-700 bg-neutral-800 p-3 text-left hover:bg-neutral-700" onClick={() => onSelectCloneIntent("analysis")}>
+              <div className="text-sm font-medium text-white">Analyze only</div>
+              <div className="mt-1 text-xs text-neutral-400">Clone the linked source repository without requiring a fork.</div>
+            </button>
+          </div>
+        ) : null}
+
+        {state.type === "choose-fork" ? (
+          <div className="space-y-2">
+            {state.forks.map((fork) => (
+              <button key={fork.fullName} type="button" className="w-full rounded-lg border border-neutral-700 bg-neutral-800 p-3 text-left hover:bg-neutral-700" onClick={() => onSelectFork(fork)}>
+                <div className="text-sm font-medium text-white">{fork.fullName}</div>
+              </button>
+            ))}
+          </div>
+        ) : null}
+
+        {state.type === "await-fork" ? (
+          <div className="space-y-2">
+            <a href={state.forkUrl} target="_blank" rel="noreferrer" className="block w-full rounded-lg bg-blue-600 px-3 py-2 text-center text-sm font-medium text-white hover:bg-blue-500">Open GitHub fork page</a>
+            <button type="button" className="w-full rounded-lg border border-neutral-700 px-3 py-2 text-sm text-white hover:bg-neutral-800" onClick={onRecheckFork}>Check again</button>
+            <button type="button" className="w-full rounded-lg border border-neutral-700 px-3 py-2 text-sm text-neutral-300 hover:bg-neutral-800" onClick={() => onSelectCloneIntent("analysis")}>Continue as analysis only</button>
+          </div>
+        ) : null}
+
+        {state.type === "choose-work-mode" ? (
+          <div className="space-y-3">
+            <label className="block text-sm text-neutral-300">
+              Branch
+              <select value={workModeBranch} onChange={(event) => setWorkModeBranch(event.target.value)} className="mt-1 w-full rounded-lg border border-neutral-700 bg-neutral-800 p-2 text-white">
+                {state.branches.map((branch) => <option key={branch} value={branch}>{branch}</option>)}
+              </select>
+            </label>
+            <label className="flex items-start gap-2 rounded-lg border border-neutral-700 bg-neutral-800 p-3 text-sm text-white">
+              <input type="checkbox" checked={createWorkBranch} onChange={(event) => setCreateWorkBranch(event.target.checked)} />
+              <span>Create a new branch from this base. Clear this to work directly on the selected branch.</span>
+            </label>
+            {createWorkBranch ? (
+              <label className="block text-sm text-neutral-300">
+                Suggested workspace name
+                <input value={workspaceName} onChange={(event) => setWorkspaceName(event.target.value)} className="mt-1 w-full rounded-lg border border-neutral-700 bg-neutral-800 p-2 text-white" />
+              </label>
+            ) : null}
+            <button type="button" className="w-full rounded-lg bg-blue-600 px-3 py-2 text-sm font-medium text-white hover:bg-blue-500" disabled={!workModeBranch || (createWorkBranch && !workspaceName.trim())} onClick={() => onConfirmWorkMode({ branch: workModeBranch, createBranch: createWorkBranch, workspaceName: workspaceName.trim() || `Direct ${workModeBranch}` })}>Continue</button>
           </div>
         ) : null}
 

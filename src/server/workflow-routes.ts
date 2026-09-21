@@ -8,11 +8,15 @@ import {
 import { verifyGitHubWebhookSignature } from './github-signature';
 import type { CachedRepoAlias } from '../workflows/github-ci';
 import {
-  GithubIssueWorkspaceMapStore,
   type GithubIssueIdentity,
 } from './github-issue-workspace-map';
 import {
+  GithubIssueWorkspaceDbStore,
+  type GithubIssueWorkspaceStore,
+} from './github-issue-workspace-db';
+import {
   ensureGithubRepoRegistered,
+  inspectGithubRepoAccess,
   GithubRepoProvisioningError,
   type EnsureGithubRepoOptions,
 } from './github-repo-provisioning';
@@ -32,7 +36,7 @@ export interface RegisterWorkflowRoutesOptions {
   githubBranchLookup?: FindBranchesContainingCommitOptions & {
     vkClient?: Pick<VibeKanbanServerClient, 'getRepos'>;
   };
-  githubIssueWorkspaceMap?: GithubIssueWorkspaceMapStore;
+  githubIssueWorkspaceMap?: GithubIssueWorkspaceStore;
 }
 
 export interface RepoAliasCache {
@@ -57,7 +61,7 @@ export function registerWorkflowRoutes(
   });
 
   const issueWorkspaceMap =
-    options.githubIssueWorkspaceMap ?? new GithubIssueWorkspaceMapStore();
+    options.githubIssueWorkspaceMap ?? new GithubIssueWorkspaceDbStore();
 
   hono.get(
     '/dashboard/api/github/issue-workspaces/:owner/:repo/:number',
@@ -165,12 +169,13 @@ export function registerWorkflowRoutes(
     try {
       const body = await readJsonBody(c.req.raw);
       const repoUrl = asString(asRecord(body)?.repoUrl);
+      const upstreamRepoUrl = asString(asRecord(body)?.upstreamRepoUrl);
       if (!repoUrl) {
         return c.json({ error: 'repoUrl is required' }, 400);
       }
 
       const result = await ensureGithubRepoRegistered(
-        { repoUrl },
+        { repoUrl, ...(upstreamRepoUrl ? { upstreamRepoUrl } : {}) },
         options.githubRepoProvisioning,
       );
       return c.json({
@@ -190,6 +195,23 @@ export function registerWorkflowRoutes(
         { error: 'Internal GitHub repo provisioning route error' },
         500,
       );
+    }
+  });
+
+  hono.post('/dashboard/api/github/repo-access', async (c) => {
+    try {
+      const body = await readJsonBody(c.req.raw);
+      const repoUrl = asString(asRecord(body)?.repoUrl);
+      if (!repoUrl) return c.json({ error: 'repoUrl is required' }, 400);
+      return c.json(await inspectGithubRepoAccess(repoUrl, {
+        execFile: options.githubRepoProvisioning?.execFile,
+      }));
+    } catch (error) {
+      if (error instanceof GithubRepoProvisioningError) {
+        return c.json({ error: error.message }, error.status as 400 | 500 | 503);
+      }
+      console.error('GitHub repository access route failed', error);
+      return c.json({ error: 'Internal GitHub repository access error' }, 500);
     }
   });
 

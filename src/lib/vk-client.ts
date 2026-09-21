@@ -79,6 +79,13 @@ export interface EnsureGithubRepoResponse {
   registered: boolean;
 }
 
+export interface GithubRepoAccessResponse {
+  viewer: string;
+  sourceCanPush: boolean;
+  writableForks: Array<{ fullName: string; cloneUrl: string }>;
+  forkUrl: string;
+}
+
 export interface CreateWorkspaceFromPrBody {
   repo_id: string;
   pr_number: number;
@@ -115,6 +122,19 @@ export interface CreateWorkspaceFromIssueBody {
   issue_url: string;
   issue_number: number;
   run_setup: boolean;
+  create_branch?: boolean;
+  checkout_branch?: string | null;
+  name?: string;
+}
+
+export class VkClientHttpError extends Error {
+  readonly status: number;
+
+  constructor(message: string, status: number) {
+    super(message);
+    this.name = "VkClientHttpError";
+    this.status = status;
+  }
 }
 
 export interface CreateWorkspaceFromIssueResponse {
@@ -129,6 +149,9 @@ export interface CreateWorkspaceFromTreeBlobBody {
   kind: "tree" | "blob";
   path: string | null;
   permalink_commit: string | null;
+  create_branch?: boolean;
+  checkout_branch?: string | null;
+  name?: string;
 }
 
 export interface GitBranchesContainingCommitResponse {
@@ -152,7 +175,10 @@ export class VibeKanbanClient {
   private async get<T>(path: string): Promise<T> {
     const res = await fetch(`${this.baseUrl}${path}`);
     if (!res.ok) {
-      throw new Error(`GET ${path} failed: ${res.statusText}`);
+      throw new VkClientHttpError(
+        `GET ${path} failed: ${res.statusText}`,
+        res.status,
+      );
     }
     const json: ApiResponse<T> = await res.json();
     if (!json.success) {
@@ -180,7 +206,10 @@ export class VibeKanbanClient {
       body: JSON.stringify(body),
     });
     if (!res.ok) {
-      throw new Error(`${method} ${path} failed: ${res.statusText}`);
+      throw new VkClientHttpError(
+        `${method} ${path} failed: ${res.statusText}`,
+        res.status,
+      );
     }
     const json: ApiResponse<T> = await res.json();
     if (!json.success) {
@@ -305,8 +334,18 @@ export class VibeKanbanClient {
     );
   }
 
-  ensureGithubRepo(repoUrl: string): Promise<EnsureGithubRepoResponse> {
-    return this.dashboardPost("/dashboard/api/github/ensure-repo", { repoUrl });
+  ensureGithubRepo(
+    repoUrl: string,
+    upstreamRepoUrl?: string,
+  ): Promise<EnsureGithubRepoResponse> {
+    return this.dashboardPost("/dashboard/api/github/ensure-repo", {
+      repoUrl,
+      ...(upstreamRepoUrl ? { upstreamRepoUrl } : {}),
+    });
+  }
+
+  getGithubRepoAccess(repoUrl: string): Promise<GithubRepoAccessResponse> {
+    return this.dashboardPost("/dashboard/api/github/repo-access", { repoUrl });
   }
 
   getGitBranchesContainingCommit(args: {
@@ -328,12 +367,13 @@ export class VibeKanbanClient {
     body: CreateWorkspaceFromIssueBody,
   ): Promise<CreateWorkspaceFromIssueResponse> {
     return this.post<{ workspace: Workspace }>("/workspaces/start", {
-      name: `Issue #${body.issue_number}`,
+      name: body.name ?? `Issue #${body.issue_number}`,
       repos: [
         {
           repo_id: body.repo_id,
           target_branch: body.target_branch,
-          create_branch: true,
+          create_branch: body.create_branch ?? true,
+          checkout_branch: body.checkout_branch ?? null,
         },
       ],
       linked_issue: null,
@@ -356,17 +396,18 @@ export class VibeKanbanClient {
       : "";
 
     return this.post<{ workspace: Workspace }>("/workspaces/start", {
-      name: `GitHub ${body.kind} ${body.ref}`,
+      name: body.name ?? `GitHub ${body.kind} ${body.ref}`,
       repos: [
         {
           repo_id: body.repo_id,
           target_branch: body.target_branch,
-          create_branch: true,
+          create_branch: body.create_branch ?? true,
+          checkout_branch: body.checkout_branch ?? null,
         },
       ],
       linked_issue: null,
       executor_config: { executor: "CODEX" },
-      prompt: `Open GitHub ${body.kind} URL ${body.normalized_url}. Create a new VK workspace branch from ${body.target_branch}; do not check out or edit the referenced GitHub branch directly. Review ${location} from ref ${body.ref}.${permalinkContext}`,
+      prompt: `Open GitHub ${body.kind} URL ${body.normalized_url}. ${body.create_branch === false ? `Work directly on ${body.checkout_branch ?? body.target_branch}.` : `Create a new VK workspace branch from ${body.target_branch}.`} Review ${location} from ref ${body.ref}.${permalinkContext}`,
       attachment_ids: null,
     }).then((response: { workspace: Workspace }) => ({
       workspace: response.workspace,

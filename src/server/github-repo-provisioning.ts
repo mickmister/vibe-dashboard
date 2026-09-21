@@ -1,4 +1,4 @@
-import { mkdir, stat } from 'node:fs/promises';
+import { mkdir, mkdtemp, rename, rm, stat } from 'node:fs/promises';
 import { join, resolve } from 'node:path';
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
@@ -9,9 +9,23 @@ import {
 } from './vk-client';
 
 const execFileAsync = promisify(execFile);
+const repoProvisioning = new Map<string, Promise<EnsureGithubRepoResult>>();
 
 export interface EnsureGithubRepoRequest {
   repoUrl: string;
+  upstreamRepoUrl?: string;
+}
+
+export interface GithubWritableRepo {
+  fullName: string;
+  cloneUrl: string;
+}
+
+export interface GithubRepoAccessResult {
+  viewer: string;
+  sourceCanPush: boolean;
+  writableForks: GithubWritableRepo[];
+  forkUrl: string;
 }
 
 export interface EnsureGithubRepoResult {
@@ -62,6 +76,26 @@ export async function ensureGithubRepoRegistered(
     );
   }
 
+  const upstreamIdentity = request.upstreamRepoUrl
+    ? parseGithubRepoUrl(request.upstreamRepoUrl)
+    : null;
+  const provisioningKey = `${identity.normalizedRepo}:${upstreamIdentity?.normalizedRepo ?? ''}`;
+  const keyedActive = repoProvisioning.get(provisioningKey);
+  if (keyedActive) return keyedActive;
+
+  const provisioning = provisionGithubRepo(identity, options, upstreamIdentity).finally(() => {
+    repoProvisioning.delete(provisioningKey);
+  });
+  repoProvisioning.set(provisioningKey, provisioning);
+  return provisioning;
+}
+
+async function provisionGithubRepo(
+  identity: GithubRepoIdentity,
+  options: EnsureGithubRepoOptions,
+  upstreamIdentity: GithubRepoIdentity | null,
+): Promise<EnsureGithubRepoResult> {
+
   const reposRoot = resolve(
     options.reposRoot ?? join(process.env.HOME || '/home/vkuser', 'repos'),
   );
@@ -74,8 +108,34 @@ export async function ensureGithubRepoRegistered(
 
   if (existed) {
     await refreshExistingClone(localPath, exec);
+    if (
+      upstreamIdentity &&
+      upstreamIdentity.normalizedRepo !== identity.normalizedRepo
+    ) {
+      await ensureUpstreamRemote(localPath, upstreamIdentity.cloneUrl, exec);
+    }
   } else {
-    await cloneGithubRepo(identity.cloneUrl, localPath, exec);
+    const temporaryPath = await mkdtemp(join(reposRoot, '.vd-clone-'));
+    try {
+      await cloneGithubRepo(identity.cloneUrl, temporaryPath, exec);
+      if (
+        upstreamIdentity &&
+        upstreamIdentity.normalizedRepo !== identity.normalizedRepo
+      ) {
+        await exec('git', [
+          '-C',
+          temporaryPath,
+          'remote',
+          'add',
+          'upstream',
+          upstreamIdentity.cloneUrl,
+        ]);
+      }
+      await rename(temporaryPath, localPath);
+    } catch (error) {
+      await rm(temporaryPath, { recursive: true, force: true });
+      throw error;
+    }
   }
 
   const repos = await vkClient.getRepos();
@@ -104,6 +164,71 @@ export async function ensureGithubRepoRegistered(
     refreshed: existed,
     registered: true,
   };
+}
+
+async function ensureUpstreamRemote(
+  path: string,
+  upstreamUrl: string,
+  exec: ExecFileLike,
+): Promise<void> {
+  try {
+    await exec('git', ['-C', path, 'remote', 'get-url', 'upstream']);
+    await exec('git', ['-C', path, 'remote', 'set-url', 'upstream', upstreamUrl]);
+  } catch {
+    await exec('git', ['-C', path, 'remote', 'add', 'upstream', upstreamUrl]);
+  }
+}
+
+export async function inspectGithubRepoAccess(
+  repoUrl: string,
+  options: Pick<EnsureGithubRepoOptions, 'execFile'> = {},
+): Promise<GithubRepoAccessResult> {
+  const identity = parseGithubRepoUrl(repoUrl);
+  if (!identity) {
+    throw new GithubRepoProvisioningError('A valid github.com repository URL is required.', 400);
+  }
+  const exec = options.execFile ?? defaultExecFile;
+
+  try {
+    const [{ stdout: viewerStdout }, { stdout: sourceStdout }, { stdout: forksStdout }] =
+      await Promise.all([
+        exec('gh', ['api', 'user', '--jq', '.login']),
+        exec('gh', [
+          'api',
+          `repos/${identity.normalizedRepo}`,
+          '--jq',
+          '{fullName: .full_name, cloneUrl: .clone_url, canPush: .permissions.push}',
+        ]),
+        exec('gh', [
+          'api',
+          '--paginate',
+          `repos/${identity.normalizedRepo}/forks`,
+          '--jq',
+          '.[] | select(.permissions.push == true) | {fullName: .full_name, cloneUrl: .clone_url}',
+        ]),
+      ]);
+    const source = JSON.parse(sourceStdout.trim()) as {
+      canPush?: boolean;
+    };
+    const writableForks = forksStdout
+      .split(/\r?\n/)
+      .map((line) => line.trim())
+      .filter(Boolean)
+      .map((line) => JSON.parse(line) as GithubWritableRepo)
+      .filter((fork) => fork.fullName && fork.cloneUrl);
+
+    return {
+      viewer: viewerStdout.trim(),
+      sourceCanPush: source.canPush === true,
+      writableForks,
+      forkUrl: `https://github.com/${identity.normalizedRepo}/fork`,
+    };
+  } catch (error) {
+    throw new GithubRepoProvisioningError(
+      `Could not check GitHub access with gh CLI. Run 'gh auth login' and try again. ${formatExecError(error)}`,
+      503,
+    );
+  }
 }
 
 export function parseGithubRepoUrl(value: string): GithubRepoIdentity | null {

@@ -1190,9 +1190,6 @@ async function whoami(args: string[]): Promise<void> {
       if (ctx.projectName) {
         console.log(`Project:   ${ctx.projectName}`);
       }
-      if (ctx.workspaceBranch) {
-        console.log(`Branch:    ${ctx.workspaceBranch}`);
-      }
     }
   } catch (err) {
     console.error(`Error: ${(err as Error).message}`);
@@ -2139,7 +2136,6 @@ Environment variables:
   VK_PROJECT_ID      Project ID
   VK_PROJECT_NAME    Project name
   VK_TASK_ID         Task ID
-  VK_WORKSPACE_BRANCH  Workspace branch
   VIBE_API_URL       VK API URL (default: http://localhost:3007)
 `);
 }
