@@ -73,6 +73,9 @@ export class VibeClient {
     this.baseUrl = baseUrl;
   }
 
+  private url(path: string): string { return `${this.baseUrl.replace(/\/$/, '')}${path}`; }
+  private wsUrl(path: string): string { return this.url(path).replace(/^http/, 'ws'); }
+
   private async request<T>(url: string, options?: RequestInit): Promise<T> {
     const response = await fetch(url, {
       ...options,
@@ -109,11 +112,16 @@ export class VibeClient {
 
   async getSessionProcesses(sessionId: string): Promise<ExecutionProcess[]> {
     return new Promise((resolve, reject) => {
-      const ws = new WebSocket(config.wsEndpoints.sessionProcesses(sessionId));
+      const ws = new WebSocket(this.wsUrl(`/api/execution-processes/stream/session/ws?session_id=${encodeURIComponent(sessionId)}`));
       const processesById = new Map<string, ExecutionProcess>();
+      let settled = false;
+      let timeout: NodeJS.Timeout | undefined;
+      const finish = () => { if (settled) return; settled = true; if (timeout) clearTimeout(timeout); ws.terminate(); resolve(Array.from(processesById.values())); };
+      const fail = (error: Error) => { if (settled) return; settled = true; if (timeout) clearTimeout(timeout); ws.terminate(); reject(error); };
 
       ws.on('message', (data) => {
-        const msg = JSON.parse(data.toString());
+        let msg: any;
+        try { msg = JSON.parse(data.toString()); } catch (error) { fail(new Error(`Invalid session process WebSocket message: ${(error as Error).message}`)); return; }
 
         if (msg.JsonPatch) {
           for (const op of msg.JsonPatch) {
@@ -134,20 +142,14 @@ export class VibeClient {
         }
 
         if (msg.Ready !== undefined) {
-          ws.terminate();
-          resolve(Array.from(processesById.values()));
+          finish();
         }
       });
 
-      ws.on('error', (err) => {
-        ws.terminate();
-        reject(err);
-      });
+      ws.on('error', fail);
+      ws.on('close', () => fail(new Error(`Session process WebSocket closed before Ready for ${sessionId}`)));
 
-      setTimeout(() => {
-        ws.terminate();
-        resolve(Array.from(processesById.values()));
-      }, 2000);
+      timeout = setTimeout(finish, 2000);
     });
   }
 
@@ -180,7 +182,7 @@ export class VibeClient {
   }
 
   async getAllWorkspaces(): Promise<Workspace[]> {
-    return this.request<Workspace[]>(config.endpoints.workspaces);
+    return this.request<Workspace[]>(this.url('/api/workspaces'));
   }
 
   async getWorkspaceSummary(workspaceIds: string[]): Promise<WorkspaceSummary[]> {
@@ -214,6 +216,7 @@ export class VibeClient {
         const latestProcess = processes.sort(
           (a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime()
         )[0];
+        if (!latestProcess) return null;
 
         return {
           workspace_id: workspaceId,
@@ -236,29 +239,29 @@ export class VibeClient {
 
   // Sessions
   async getSessions(workspaceId: string): Promise<Session[]> {
-    return this.request<Session[]>(config.endpoints.sessions(workspaceId));
+    return this.request<Session[]>(this.url(`/api/sessions?workspace_id=${encodeURIComponent(workspaceId)}`));
   }
 
   async getSession(sessionId: string): Promise<Session> {
-    return this.request<Session>(config.endpoints.session(sessionId));
+    return this.request<Session>(this.url(`/api/sessions/${encodeURIComponent(sessionId)}`));
   }
 
   async createSession(body: CreateSessionBody): Promise<Session> {
-    return this.request<Session>(config.endpoints.createSession, {
+    return this.request<Session>(this.url('/api/sessions'), {
       method: 'POST',
       body: JSON.stringify(body),
     });
   }
 
   async updateSession(sessionId: string, body: UpdateSessionBody): Promise<Session> {
-    return this.request<Session>(config.endpoints.session(sessionId), {
+    return this.request<Session>(this.url(`/api/sessions/${encodeURIComponent(sessionId)}`), {
       method: 'PUT',
       body: JSON.stringify(body),
     });
   }
 
   async sendMessage(sessionId: string, body: SendMessageBody): Promise<ExecutionProcess> {
-    return this.request<ExecutionProcess>(config.endpoints.sessionFollowUp(sessionId), {
+    return this.request<ExecutionProcess>(this.url(`/api/sessions/${encodeURIComponent(sessionId)}/follow-up`), {
       method: 'POST',
       body: JSON.stringify(body),
     });
@@ -266,14 +269,14 @@ export class VibeClient {
 
   // Execution Processes
   async getExecutionProcess(processId: string): Promise<ExecutionProcess> {
-    return this.request<ExecutionProcess>(config.endpoints.executionProcess(processId));
+    return this.request<ExecutionProcess>(this.url(`/api/execution-processes/${encodeURIComponent(processId)}`));
   }
 
 
 
   async fetchConversation(processId: string, timeoutMs = 30 * 60 * 1000, signal?: AbortSignal): Promise<ConversationEntry[]> {
     return new Promise((resolve, reject) => {
-      const ws = new WebSocket(config.wsEndpoints.executionLogs(processId));
+      const ws = new WebSocket(this.wsUrl(`/api/execution-processes/${encodeURIComponent(processId)}/normalized-logs/ws`));
       const doc: { entries: ConversationEntry[] } = { entries: [] };
       let settled = false;
 
@@ -286,6 +289,15 @@ export class VibeClient {
         resolve(doc.entries);
       };
 
+      const fail = (error: Error) => {
+        if (settled) return;
+        settled = true;
+        clearTimeout(timeout);
+        ws.terminate();
+        signal?.removeEventListener('abort', abort);
+        reject(error);
+      };
+
       const abort = () => {
         if (settled) return;
         settled = true;
@@ -295,6 +307,7 @@ export class VibeClient {
       };
 
       const applyPatch = (op: any) => {
+        if (!['add', 'replace', 'remove'].includes(String(op.op))) throw new Error(`Invalid normalized-log patch operation: ${String(op.op)}`);
         const pathParts = String(op.path ?? '').split('/').filter(Boolean);
         if (pathParts[0] !== 'entries') return;
 
@@ -306,7 +319,7 @@ export class VibeClient {
         }
 
         if (pathParts.length === 2) {
-          const idx = Number.parseInt(pathParts[1], 10);
+          const idx = Number.parseInt(pathParts[1]!, 10);
           if (!Number.isInteger(idx)) return;
 
           if (op.op === 'add') {
@@ -328,12 +341,12 @@ export class VibeClient {
       }, timeoutMs);
 
       ws.on('message', (data) => {
-        const msg = JSON.parse(data.toString());
+        let msg: any;
+        try { msg = JSON.parse(data.toString()); } catch (error) { fail(new Error(`Invalid normalized-log WebSocket message: ${(error as Error).message}`)); return; }
 
         if (msg.JsonPatch) {
-          for (const op of msg.JsonPatch) {
-            applyPatch(op);
-          }
+          try { for (const op of msg.JsonPatch) applyPatch(op); }
+          catch (error) { fail(error as Error); return; }
         }
 
         if (msg.Ready !== undefined || msg.finished !== undefined) {
@@ -341,17 +354,10 @@ export class VibeClient {
         }
       });
 
-      ws.on('error', (err) => {
-        if (settled) return;
-        settled = true;
-        clearTimeout(timeout);
-        ws.terminate();
-        signal?.removeEventListener('abort', abort);
-        reject(err);
-      });
+      ws.on('error', fail);
 
       ws.on('close', () => {
-        finish();
+        fail(new Error(`Normalized-log WebSocket closed before Ready for ${processId}`));
       });
       if (signal?.aborted) abort();
       else signal?.addEventListener('abort', abort, { once: true });

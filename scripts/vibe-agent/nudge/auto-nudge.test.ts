@@ -247,6 +247,23 @@ describe('auto nudge', () => {
     expect(readAutoNudgeState(options.statePath).triggers.complete).toMatchObject({ status: 'checkpoint-sent', checkpointProcessId: 'missing', error: 'Not found' });
   });
 
+  it('converts a null-ID checkpoint to durable indeterminate state and never resends', async () => {
+    const { options } = setup(); const complete = proc('complete', 'impl', 'completed', 5);
+    const state = readAutoNudgeState(options.statePath);
+    state.triggers.complete = { processId: 'complete', workspaceId: 'w1', sessionId: 'impl', observedAt: iso(6), status: 'checkpoint-sent', checkpointProcessId: null, baselineProcessIds: ['complete'], updatedAt: iso(6), error: null };
+    writeAutoNudgeState(options.statePath, state);
+    const { client, sent } = fake({ processes: { impl: [complete], overseer: [] }, entries: { complete: [msg('Finished')] } });
+    const first = await runAutoNudgeCycle(client, options);
+    const second = await runAutoNudgeCycle(client, options);
+    expect(sent).toEqual([]);
+    expect(first.errors[0]).toMatch(/indeterminate.*manual recovery/);
+    expect(second.errors[0]).toMatch(/indeterminate.*manual recovery/);
+    expect(readAutoNudgeState(options.statePath).triggers.complete).toMatchObject({
+      status: 'checkpoint-indeterminate', checkpointProcessId: null,
+      error: expect.stringMatching(/automatic resend is disabled/),
+    });
+  });
+
   it('persists checkpoint identity before a wait failure', async () => {
     const { options } = setup(); const complete = proc('complete', 'impl', 'completed', 5);
     const { client } = fake({ processes: { impl: [complete], overseer: [] }, entries: { complete: [msg('Finished')] } });

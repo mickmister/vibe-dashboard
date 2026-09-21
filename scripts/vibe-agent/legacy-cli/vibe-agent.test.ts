@@ -1,5 +1,6 @@
-import { describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
+  deliverCallbackCompletion,
   formatFullSummaryText,
   getAdvanceableFullSummaryProcessIds,
   mapWithConcurrency,
@@ -13,6 +14,7 @@ const callbackPayload = {
   callbackId: 'callback', registryPath: '/tmp/callbacks.json', command: 'ci', outputFile: '/tmp/output',
   sessionId: 'session', cwd: '/tmp',
 };
+afterEach(() => vi.useRealTimers());
 
 describe('uniqueActiveProcessId', () => {
   it('correlates only a uniquely active invoking process', () => {
@@ -40,6 +42,62 @@ describe('resolveCallbackSourceProcessId', () => {
     });
     expect(result).toBeNull();
     expect(calls).toBe(3);
+  });
+
+  it('times out never-settling attempts and ignores late settlement', async () => {
+    vi.useFakeTimers();
+    let calls = 0;
+    const pending: Array<(value: any) => void> = [];
+    const resultPromise = resolveCallbackSourceProcessId('session', {
+      getProcesses() { calls++; return new Promise(resolve => pending.push(resolve)); },
+      delay(ms) { return new Promise(resolve => setTimeout(resolve, ms)); },
+    }, 3, 100, 2_000);
+    await vi.advanceTimersByTimeAsync(6_200);
+    const result = await resultPromise;
+    expect(result).toBeNull();
+    expect(calls).toBe(3);
+    expect(vi.getTimerCount()).toBe(0);
+    pending.forEach(resolve => resolve([{ id: 'late', status: 'running' }]));
+    await Promise.resolve();
+    expect(result).toBeNull();
+    expect(vi.getTimerCount()).toBe(0);
+    vi.useRealTimers();
+  });
+});
+
+describe('deliverCallbackCompletion', () => {
+  const completed = { exitCode: 0, signal: null, timedOut: false, finishedAt: new Date('2026-09-18T00:00:00Z'), message: 'done', exitSummary: 'exit code 0' } as const;
+  function dependencies(input: { sendError?: Error; updateError?: Error } = {}) {
+    const updates: any[] = []; const logs: string[] = [];
+    return { updates, logs, value: {
+      async waitForIdle() {}, async getSession() { return { id: 'session', executor: 'CODEX' } as any; },
+      async sendMessage() { if (input.sendError) throw input.sendError; return { id: 'completion' } as any; },
+      update(_path: string, _id: string, update: any) { if (input.updateError) throw input.updateError; updates.push(update); return {} as any; },
+      append(_file: string, text: string) { logs.push(text); },
+    }};
+  }
+
+  it.each([
+    [completed, 'completed', null],
+    [{ ...completed, exitCode: 2, exitSummary: 'exit code 2' }, 'failed', 'exit code 2'],
+    [{ ...completed, timedOut: true, exitSummary: 'timed out after 5ms' }, 'timed-out', 'timed out after 5ms'],
+  ])('records command completion lifecycle %#', async (result, status, error) => {
+    const deps = dependencies();
+    await deliverCallbackCompletion(callbackPayload, result, deps.value as any);
+    expect(deps.updates).toEqual([expect.objectContaining({ status, error, completionProcessId: 'completion' })]);
+  });
+
+  it('records delivery failure', async () => {
+    const deps = dependencies({ sendError: new Error('delivery offline') });
+    await deliverCallbackCompletion(callbackPayload, completed, deps.value as any);
+    expect(deps.updates).toEqual([expect.objectContaining({ status: 'failed', error: 'delivery offline' })]);
+    expect(deps.logs.join('')).toContain('delivery offline');
+  });
+
+  it('surfaces registry update failure in the callback output', async () => {
+    const deps = dependencies({ updateError: new Error('registry readonly') });
+    await deliverCallbackCompletion(callbackPayload, completed, deps.value as any);
+    expect(deps.logs.join('')).toContain('callback registry update failed after completion delivery: registry readonly');
   });
 });
 

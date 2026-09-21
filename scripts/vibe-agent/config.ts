@@ -106,7 +106,7 @@ export function parseRole(role: string): { base: BaseRole; suffix: string | null
   const suffixMatch = role.match(ROLE_WITH_SUFFIX_PATTERN);
   if (suffixMatch) {
     const base = suffixMatch[1] as BaseRole;
-    const suffix = suffixMatch[2];
+    const suffix = suffixMatch[2] ?? null;
     return { base, suffix };
   }
 
@@ -210,6 +210,7 @@ function findWorktreeRoot(cwd: string): string | null {
   if (worktreesIdx === -1) return null;
   const afterWorktrees = cwd.slice(worktreesIdx + '/worktrees/'.length);
   const worktreeName = afterWorktrees.split('/')[0];
+  if (!worktreeName) return null;
   return cwd.slice(0, worktreesIdx + '/worktrees/'.length + worktreeName.length);
 }
 
@@ -220,7 +221,7 @@ function parseYamlVariant(contents: string): string | null {
     if (!trimmed || trimmed.startsWith('#')) continue;
     const match = trimmed.match(/^variant\s*:\s*(.+)\s*$/);
     if (match) {
-      return match[1].replace(/^['"]|['"]$/g, '').trim();
+      return match[1]!.replace(/^['"]|['"]$/g, '').trim();
     }
   }
   return null;

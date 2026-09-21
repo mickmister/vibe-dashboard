@@ -224,6 +224,7 @@ export function buildNoAssistantResponseLogMessage(processId: string): string {
 
 const TERMINAL_PROCESS_STATUSES = new Set(['completed', 'failed', 'killed']);
 const CALLBACK_IDLE_POLL_INTERVAL_MS = 2_000;
+const CALLBACK_SOURCE_LOOKUP_TIMEOUT_MS = 2_000;
 const REQUEST_REVIEW_QUIET_WINDOW_MS = 10_000;
 const FULL_SUMMARY_DEFAULT_LIMIT_TURNS = 100;
 const FULL_SUMMARY_DEFAULT_LIMIT_SESSIONS = 25;
@@ -256,10 +257,21 @@ export async function resolveCallbackSourceProcessId(
   dependencies: { getProcesses: (sessionId: string) => Promise<SessionTurnProcess[]>; delay: (ms: number) => Promise<void> },
   attempts = 3,
   retryDelayMs = 100,
+  attemptTimeoutMs = CALLBACK_SOURCE_LOOKUP_TIMEOUT_MS,
 ): Promise<string | null> {
   for (let attempt = 0; attempt < attempts; attempt++) {
-    try { return uniqueActiveProcessId(await dependencies.getProcesses(sessionId)); }
+    let timer: NodeJS.Timeout | undefined;
+    try {
+      const processes = await Promise.race([
+        dependencies.getProcesses(sessionId),
+        new Promise<SessionTurnProcess[]>((_, reject) => {
+          timer = setTimeout(() => reject(new Error(`callback source lookup timed out after ${attemptTimeoutMs}ms`)), attemptTimeoutMs);
+        }),
+      ]);
+      return uniqueActiveProcessId(processes);
+    }
     catch { if (attempt + 1 < attempts) await dependencies.delay(retryDelayMs); }
+    finally { if (timer) clearTimeout(timer); }
   }
   return null;
 }
@@ -380,6 +392,57 @@ interface RequestReviewRunnerPayload {
   outputFile: string;
   cwd: string;
   quietWindowMs?: number;
+}
+
+export interface CallbackCompletionResult {
+  exitCode: number | null;
+  signal: NodeJS.Signals | null;
+  timedOut: boolean;
+  finishedAt: Date;
+  message: string;
+  exitSummary: string;
+}
+
+export async function deliverCallbackCompletion(
+  payload: CallbackRunnerPayload,
+  result: CallbackCompletionResult,
+  dependencies: {
+    waitForIdle: (sessionId: string, outputFile: string) => Promise<void>;
+    getSession: (sessionId: string) => Promise<Session>;
+    sendMessage: typeof client.sendMessage;
+    update: typeof updateCallback;
+    append: (file: string, text: string) => void;
+  },
+): Promise<void> {
+  let completionProcess: ExecutionProcess;
+  try {
+    await dependencies.waitForIdle(payload.sessionId, payload.outputFile);
+    const session = await dependencies.getSession(payload.sessionId);
+    completionProcess = await dependencies.sendMessage(payload.sessionId, {
+      prompt: result.message, executor_config: { executor: session.executor },
+      retry_process_id: null, force_when_dirty: null, perform_git_reset: null,
+    });
+  } catch (error) {
+    try {
+      dependencies.update(payload.registryPath, payload.callbackId, {
+        status: result.timedOut ? 'timed-out' : 'failed',
+        finishedAt: result.finishedAt.toISOString(), error: (error as Error).message,
+      });
+    } catch (registryError) {
+      dependencies.append(payload.outputFile, `\n[vibe-agent callback registry update failed: ${(registryError as Error).message}]\n`);
+    }
+    dependencies.append(payload.outputFile, `\n[vibe-agent callback failed to send completion message: ${(error as Error).message}]\n`);
+    return;
+  }
+  try {
+    dependencies.update(payload.registryPath, payload.callbackId, {
+      status: result.timedOut ? 'timed-out' : result.exitCode === 0 ? 'completed' : 'failed',
+      finishedAt: result.finishedAt.toISOString(), completionProcessId: completionProcess.id,
+      error: result.exitCode === 0 && !result.timedOut ? null : result.exitSummary,
+    });
+  } catch (registryError) {
+    dependencies.append(payload.outputFile, `\n[vibe-agent callback registry update failed after completion delivery: ${(registryError as Error).message}]\n`);
+  }
 }
 
 export interface ParsedCallbackArgs {
@@ -1213,39 +1276,13 @@ async function callbackRunner(args: string[]): Promise<void> {
   ].join('\n');
   const message = payload.completionMessage ?? defaultMessage;
 
-  try {
-    await waitForSessionIdle(payload.sessionId, payload.outputFile);
-    const session = await client.getSession(payload.sessionId);
-    const completionProcess = await client.sendMessage(payload.sessionId, {
-      prompt: message,
-      executor_config: {
-        executor: session.executor,
-      },
-      retry_process_id: null,
-      force_when_dirty: null,
-      perform_git_reset: null,
-    });
-    updateCallback(payload.registryPath, payload.callbackId, {
-      status: timedOut ? 'timed-out' : exitCode === 0 ? 'completed' : 'failed',
-      finishedAt: finishedAt.toISOString(),
-      completionProcessId: completionProcess.id,
-      error: exitCode === 0 && !timedOut ? null : exitSummary,
-    });
-  } catch (err) {
-    try {
-      updateCallback(payload.registryPath, payload.callbackId, {
-        status: timedOut ? 'timed-out' : 'failed',
-        finishedAt: finishedAt.toISOString(),
-        error: (err as Error).message,
-      });
-    } catch {
-      // Preserve the original callback delivery error in the output log.
-    }
-    fs.appendFileSync(
-      payload.outputFile,
-      `\n[vibe-agent callback failed to send completion message: ${(err as Error).message}]\n`
-    );
-  }
+  await deliverCallbackCompletion(payload, { exitCode, signal, timedOut, finishedAt, message, exitSummary }, {
+    waitForIdle: waitForSessionIdle,
+    getSession: id => client.getSession(id),
+    sendMessage: (id, request) => client.sendMessage(id, request),
+    update: updateCallback,
+    append: (file, text) => fs.appendFileSync(file, text),
+  });
 }
 
 

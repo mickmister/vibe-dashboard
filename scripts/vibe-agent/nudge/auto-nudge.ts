@@ -21,7 +21,7 @@ export interface AutoNudgeConfig {
   discord?: { enabled: boolean };
   workspaces: Array<{ workspaceId: string; overseerSessionId: string }>;
 }
-export type TriggerStatus = 'observed' | 'checkpoint-sent' | 'done' | 'delegated' | 'waiting-callback' | 'rate-limited' | 'retryable-failure';
+export type TriggerStatus = 'observed' | 'checkpoint-sent' | 'checkpoint-indeterminate' | 'done' | 'delegated' | 'waiting-callback' | 'rate-limited' | 'retryable-failure';
 export interface TriggerState { processId: string; workspaceId: string; sessionId: string; observedAt: string; status: TriggerStatus; checkpointProcessId: string | null; baselineProcessIds?: string[]; updatedAt: string; error: string | null }
 export interface OutboxItem { id: string; workspaceId: string; content: string; createdAt: string; deliveredAt: string | null; attempts: number }
 export interface AutoNudgeState { version: 1; nudgedProcessIds: string[]; triggers: Record<string, TriggerState>; outbox: Record<string, OutboxItem> }
@@ -74,7 +74,7 @@ export function readAutoNudgeState(filePath: string): AutoNudgeState {
     && typeof (item as TriggerState).processId === 'string' && typeof (item as TriggerState).workspaceId === 'string'
     && typeof (item as TriggerState).sessionId === 'string' && typeof (item as TriggerState).observedAt === 'string'
     && typeof (item as TriggerState).updatedAt === 'string'
-    && ['observed', 'checkpoint-sent', 'done', 'delegated', 'waiting-callback', 'rate-limited', 'retryable-failure'].includes((item as TriggerState).status)
+    && ['observed', 'checkpoint-sent', 'checkpoint-indeterminate', 'done', 'delegated', 'waiting-callback', 'rate-limited', 'retryable-failure'].includes((item as TriggerState).status)
     && ((item as TriggerState).checkpointProcessId == null || typeof (item as TriggerState).checkpointProcessId === 'string')
     && ((item as TriggerState).baselineProcessIds == null || (Array.isArray((item as TriggerState).baselineProcessIds) && (item as TriggerState).baselineProcessIds!.every(id => typeof id === 'string')))
     && ((item as TriggerState).error == null || typeof (item as TriggerState).error === 'string'));
@@ -99,7 +99,7 @@ export function writeAutoNudgeState(filePath: string, state: AutoNudgeState): vo
 function body(prompt: string, session: Session): SendMessageBody { return { prompt, executor_config: { executor: session.executor }, retry_process_id: null, force_when_dirty: null, perform_git_reset: null }; }
 function finalMessage(entries: ConversationEntry[]): string | null {
   const messages = entries.filter(entry => conversationEntryType(entry) === 'assistant_message').map(conversationEntryText).map(text => text.trim()).filter(Boolean);
-  return messages.length ? messages[messages.length - 1] : null;
+  return messages.at(-1) ?? null;
 }
 function terminalTime(process: ExecutionProcess): number { return new Date(process.completed_at ?? process.updated_at ?? process.created_at).getTime(); }
 async function deadline<T>(promise: Promise<T>, ms: number, label: string): Promise<T> {
@@ -125,7 +125,7 @@ async function processOutbox(options: AutoNudgeOptions, state: AutoNudgeState, r
 }
 async function mapLimit<T>(values: T[], limit: number, task: (value: T) => Promise<void>): Promise<void> {
   let index = 0;
-  await Promise.all(Array.from({ length: Math.min(limit, values.length) }, async () => { while (index < values.length) { const value = values[index++]; await task(value); } }));
+  await Promise.all(Array.from({ length: Math.min(limit, values.length) }, async () => { while (index < values.length) { const value = values[index++]; if (value !== undefined) await task(value); } }));
 }
 
 export function abortableDelay(ms: number, signal?: AbortSignal): Promise<void> {
@@ -167,6 +167,25 @@ export async function runAutoNudgeCycle(client: AutoNudgeClient, options: AutoNu
       const teammateProcesses = sessions.filter(item => item.id !== overseer.id)
         .flatMap(item => processMap.get(item.id) ?? [])
         .filter(item => item.run_reason === 'codingagent' && !item.dropped);
+      const orphanedCheckpoint = Object.values(state.triggers)
+        .find(trigger => trigger.workspaceId === configured.workspaceId
+          && trigger.status === 'checkpoint-sent' && trigger.checkpointProcessId === null);
+      if (orphanedCheckpoint) {
+        if (!options.dryRun) {
+          orphanedCheckpoint.status = 'checkpoint-indeterminate';
+          orphanedCheckpoint.error = 'checkpoint delivery outcome is indeterminate; automatic resend is disabled and manual recovery is required';
+          orphanedCheckpoint.updatedAt = options.now().toISOString();
+          writeAutoNudgeState(options.statePath, state);
+        }
+        result.errors.push(`workspace ${configured.workspaceId}: checkpoint delivery outcome is indeterminate; automatic resend is disabled and manual recovery is required`);
+        return;
+      }
+      const indeterminateCheckpoint = Object.values(state.triggers)
+        .find(trigger => trigger.workspaceId === configured.workspaceId && trigger.status === 'checkpoint-indeterminate');
+      if (indeterminateCheckpoint) {
+        result.errors.push(`workspace ${configured.workspaceId}: ${indeterminateCheckpoint.error ?? 'checkpoint delivery outcome is indeterminate; manual recovery is required'}`);
+        return;
+      }
       const reconcileCheckpoint = async (trigger: TriggerState): Promise<void> => {
         if (!trigger.checkpointProcessId) return;
         const baselineIds = new Set(trigger.baselineProcessIds ?? []);
@@ -309,12 +328,14 @@ async function main(): Promise<void> {
   const args = parseArgs(process.argv.slice(2)); const config = loadAutoNudgeConfig(args.configPath);
   const origin = requiredString(process.env.VK_ORIGIN, 'VK_ORIGIN');
   if (config.discord?.enabled) requiredString(process.env.DISCORD_WEBHOOK_URL, 'DISCORD_WEBHOOK_URL');
-  await runWithOwnerLock(DEFAULT_LOCK_PATH, async () => {
-    let stopping = false; const abortController = new AbortController();
+  let stopping = false;
+  await runWithOwnerLock(process.env.VD_AUTO_NUDGE_LOCK_PATH ?? DEFAULT_LOCK_PATH, async () => {
+    const abortController = new AbortController();
     const stop = () => { stopping = true; abortController.abort(); }; process.once('SIGINT', stop); process.once('SIGTERM', stop);
     const options: AutoNudgeOptions = { config, statePath: args.statePath, callbackRegistryPath: process.env.VD_CALLBACK_REGISTRY_PATH ?? DEFAULT_CALLBACK_REGISTRY_PATH, now: () => new Date(), unacknowledgedAfterMs: 60_000, operationTimeoutMs: 15_000, responseTimeoutMs: 30 * 60_000, concurrency: 4, dryRun: args.dryRun, discordWebhookUrl: process.env.DISCORD_WEBHOOK_URL, signal: abortController.signal };
     void origin;
     do { const result = await runAutoNudgeCycle(makeClient(), options); console.log(JSON.stringify({ type: 'auto-nudge-cycle', at: new Date().toISOString(), ...result })); if (!args.once && !stopping) { try { await abortableDelay(DEFAULT_POLL_MS, abortController.signal); } catch { /* Shutdown aborts the poll delay. */ } } } while (!args.once && !stopping);
   });
+  if (stopping || args.once) process.exit(0);
 }
 if (process.argv[1] && fileURLToPath(import.meta.url) === process.argv[1]) void main().catch(error => { console.error(`auto-nudge failed: ${(error as Error).message}`); process.exitCode = 1; });

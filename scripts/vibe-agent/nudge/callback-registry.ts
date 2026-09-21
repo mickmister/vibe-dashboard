@@ -112,7 +112,9 @@ export function updateCallback(filePath: string, id: string, update: Partial<Cal
     const registry = readCallbackRegistry(filePath);
     const index = registry.callbacks.findIndex(item => item.id === id);
     if (index < 0) throw new Error(`Callback ${id} was not found`);
-    const next = { ...registry.callbacks[index], ...update, id };
+    const current = registry.callbacks[index];
+    if (!current) throw new Error(`Callback ${id} was not found`);
+    const next: CallbackRecord = { ...current, ...update, id };
     registry.callbacks[index] = next;
     writeCallbackRegistry(filePath, registry);
     return next;
