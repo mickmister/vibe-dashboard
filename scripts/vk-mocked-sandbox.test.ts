@@ -1,5 +1,12 @@
 import { describe, expect, it } from 'vitest';
-import { chmod, mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import {
+  chmod,
+  mkdir,
+  mkdtemp,
+  readFile,
+  rm,
+  writeFile,
+} from 'node:fs/promises';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { createHash } from 'node:crypto';
@@ -8,6 +15,7 @@ import {
   allocatePorts,
   childProcessSignalTarget,
   createSandboxPlan,
+  runCommandToCompletion,
   downloadCiReleaseArtifactFromEnv,
   findFreePort,
   loadSandboxCaddyfile,
@@ -17,6 +25,35 @@ import {
 import { isSandboxRuntimeProcessLine } from './e2e-vk-mocked-sandbox-fixtures';
 
 describe('VK mocked sandbox helpers', () => {
+  it('terminates a timed-out setup command instead of orphaning it', async () => {
+    const runDir = await mkdtemp(join(tmpdir(), 'vk-mocked-setup-timeout-'));
+    const pidFile = join(runDir, 'pid');
+    try {
+      await expect(
+        runCommandToCompletion(
+          {
+            name: 'never-ending-setup',
+            cwd: runDir,
+            command: process.execPath,
+            args: [
+              '-e',
+              `require('node:fs').writeFileSync(${JSON.stringify(pidFile)}, String(process.pid)); setInterval(() => {}, 1000)`,
+            ],
+            env: {},
+          },
+          250,
+        ),
+      ).rejects.toThrow('never-ending-setup timed out after 250ms');
+
+      const pid = Number.parseInt(await readFile(pidFile, 'utf8'), 10);
+      expect(() => process.kill(pid, 0)).toThrow(
+        expect.objectContaining({ code: 'ESRCH' }),
+      );
+    } finally {
+      await rm(runDir, { recursive: true, force: true });
+    }
+  });
+
   it('finds the first available port at or above the requested start', async () => {
     const checked: number[] = [];
     const allocator: PortAllocator = {

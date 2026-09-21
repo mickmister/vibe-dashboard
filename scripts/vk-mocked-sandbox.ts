@@ -58,6 +58,7 @@ const DEFAULT_PORT_START = 50_000;
 const MAX_PORT = 65_535;
 const SANDBOX_CADDYFILE_NAME = 'Caddyfile';
 const CHILD_SHUTDOWN_TIMEOUT_MS = 5_000;
+const DEFAULT_SETUP_TIMEOUT_MS = 30 * 60 * 1_000;
 const CI_RELEASE_BACKEND_MODE = 'ci-release';
 const FULL_SHA_PATTERN = /^[0-9a-f]{40}$/i;
 const DEFAULT_VK_GH_REPO = 'mickmister/vibe-kanban';
@@ -74,6 +75,20 @@ function envInt(name: string, fallback: number, env = process.env): number {
   const parsed = Number.parseInt(raw, 10);
   if (!Number.isInteger(parsed) || parsed <= 0 || parsed > MAX_PORT) {
     throw new Error(`${name} must be a TCP port number, got ${raw}`);
+  }
+  return parsed;
+}
+
+function positiveDurationMs(
+  name: string,
+  fallback: number,
+  env = process.env,
+): number {
+  const raw = env[name]?.trim();
+  if (!raw) return fallback;
+  const parsed = Number.parseInt(raw, 10);
+  if (!Number.isInteger(parsed) || parsed <= 0) {
+    throw new Error(`${name} must be a positive integer duration in milliseconds, got ${raw}`);
   }
   return parsed;
 }
@@ -755,20 +770,50 @@ function printPlan(plan: SandboxPlan): void {
   }
 }
 
-function runCommandToCompletion(spec: CommandSpec): Promise<void> {
+export function runCommandToCompletion(
+  spec: CommandSpec,
+  timeoutMs = positiveDurationMs(
+    'VK_MOCKED_SETUP_TIMEOUT_MS',
+    DEFAULT_SETUP_TIMEOUT_MS,
+  ),
+): Promise<void> {
   return new Promise((resolveCommand, rejectCommand) => {
     const child = spawn(spec.command, spec.args, {
       cwd: spec.cwd,
       env: { ...process.env, ...spec.env },
       stdio: ['ignore', 'pipe', 'pipe'],
+      detached: process.platform !== 'win32',
     });
     const prefix = `[${spec.name}]`;
+    let settled = false;
+    const timeout = setTimeout(() => {
+      if (settled) return;
+      settled = true;
+      signalChild(child, 'SIGTERM');
+      void waitForChildExit(child, CHILD_SHUTDOWN_TIMEOUT_MS).then(
+        async (result) => {
+          if (result === 'timeout') {
+            signalChild(child, 'SIGKILL');
+            await waitForChildExit(child, CHILD_SHUTDOWN_TIMEOUT_MS);
+          }
+          rejectCommand(
+            new Error(`${spec.name} timed out after ${timeoutMs}ms`),
+          );
+        },
+      );
+    }, timeoutMs);
     child.stdout?.on('data', (chunk) => process.stdout.write(`${prefix} ${chunk}`));
     child.stderr?.on('data', (chunk) => process.stderr.write(`${prefix} ${chunk}`));
     child.on('error', (error) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timeout);
       rejectCommand(new Error(`${spec.name} failed to start: ${error.message}`));
     });
     child.on('exit', (code, signal) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timeout);
       console.log(`${prefix} exited code=${code ?? 'null'} signal=${signal ?? 'null'}`);
       if (code === 0) {
         resolveCommand();

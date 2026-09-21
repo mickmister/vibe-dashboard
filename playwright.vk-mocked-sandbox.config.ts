@@ -2,6 +2,13 @@ import { defineConfig, devices } from 'playwright/test';
 
 const sandboxUrl = process.env.VK_MOCKED_SANDBOX_URL ?? 'http://localhost:50005';
 const sandboxUrlPort = new URL(sandboxUrl).port || '50005';
+const webServerTimeout = Number.parseInt(
+  process.env.VK_MOCKED_WEB_SERVER_TIMEOUT_MS ?? '300000',
+  10,
+);
+if (!Number.isInteger(webServerTimeout) || webServerTimeout <= 0) {
+  throw new Error('VK_MOCKED_WEB_SERVER_TIMEOUT_MS must be a positive integer');
+}
 const fixedSandboxPorts = {
   VK_MOCKED_BACKEND_PORT: process.env.VK_MOCKED_BACKEND_PORT ?? '50000',
   VK_MOCKED_FRONTEND_PORT: process.env.VK_MOCKED_FRONTEND_PORT ?? '50001',
@@ -35,14 +42,17 @@ export default defineConfig({
     ? undefined
     : {
         command:
-          'npm run e2e:vk-mocked-sandbox:reset -- --variant basic-seeded' +
-          ` && ${sandboxEnv} npm run dev:vk-mocked-sandbox`,
+          `${sandboxEnv} VK_MOCKED_SKIP_SETUP_COMMANDS=1 ` +
+          'node --experimental-strip-types scripts/vk-mocked-sandbox.ts start',
         // Wait for a VK-backed route, not just the VD dev server, so local
         // Rust builds finish before the browser tests begin. CI prepares and
         // starts the sandbox explicitly before invoking Playwright.
         url: `${sandboxUrl}/workspaces`,
         reuseExistingServer: false,
-        timeout: 600_000,
+        // The npm pre-script performs cold compilation before Playwright owns
+        // the server lifecycle. This finite timeout therefore covers startup,
+        // and can be raised for unusually slow hosts without changing config.
+        timeout: webServerTimeout,
       },
   projects: [
     {
