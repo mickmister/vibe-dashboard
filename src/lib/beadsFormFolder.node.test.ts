@@ -1,4 +1,4 @@
-import { mkdtemp, readFile, symlink, writeFile } from 'node:fs/promises';
+import { mkdtemp, readFile, realpath, symlink, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
@@ -61,8 +61,9 @@ describe('loadBeadsFormsFromFolder', () => {
       { notes: 'second' },
       '2026-07-15T00:01:00.000Z',
     );
+    const canonicalFolder = await realpath(folder);
 
-    expect(first.sidecarPath).toBe(join(folder, '.beads-form-responses', 'review_unsafe.responses.json'));
+    expect(first.sidecarPath).toBe(join(canonicalFolder, '.beads-form-responses', 'review_unsafe.responses.json'));
     expect(second.sidecarPath).toBe(first.sidecarPath);
     expect(second.responses).toEqual([
       { formId: 'review/../../unsafe', submittedAt: '2026-07-15T00:00:00.000Z', values: { notes: 'first' } },

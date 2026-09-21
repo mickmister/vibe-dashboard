@@ -9,6 +9,8 @@ This repo has a first-pass fixed-slot QA flow for VK/VD deployments.
 - Slot state that operators need to inspect is stored in the Coolify application name/description, not in container env values.
 - Container env values are only for runtime configuration (`VKVD_IMAGE_VERSION`, `CADDY_PORT`, `QA_SLOT_ID`, etc.).
 - The intended QA compose is `docker-compose.qa.yaml`, which strips staging-only services and uses explicit slot-scoped named volumes.
+- The Coolify Docker host must have `sysbox-runc` installed and registered. QA uses the same Sysbox-backed inner Docker daemon as the release deployment. It does not mount the host Docker socket.
+- Before a QA rollout, run `docker info --format '{{json .Runtimes}}' | grep sysbox-runc` on the Coolify host. After startup, run `./scripts/smoke-sysbox-dind.sh` against the QA service to verify nested Docker.
 
 ## Commands
 

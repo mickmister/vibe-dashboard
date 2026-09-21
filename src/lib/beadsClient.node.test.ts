@@ -1,4 +1,4 @@
-import { mkdir, mkdtemp } from 'node:fs/promises';
+import { mkdir, mkdtemp, realpath } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { describe, expect, it, vi } from 'vitest';
@@ -343,17 +343,18 @@ describe('BeadsClient', () => {
     const client = new BeadsClient({ execFile: exec });
 
     const result = await client.listPendingBeadsFormQueue({ reposRoot, repoLimit: 2 });
+    const canonicalReposRoot = await realpath(reposRoot);
 
     expect(result.reposScanned).toBe(2);
     expect(result.repoLimit).toBe(2);
-    expect(result.reposRoot).toBe(reposRoot);
+    expect(result.reposRoot).toBe(canonicalReposRoot);
     expect(result.entries).toEqual([{
-      repoDir: join(reposRoot, 'repo-a'),
+      repoDir: join(canonicalReposRoot, 'repo-a'),
       repoName: 'repo-a',
       bead: { id: 'pending', title: 'Pending bead' },
       form: { id: 'review', title: 'Review', responseCount: 0 },
     }]);
-    expect(result.skipped).toEqual([{ repoDir: join(reposRoot, 'repo-b'), reason: 'not initialized for beads' }]);
+    expect(result.skipped).toEqual([{ repoDir: join(canonicalReposRoot, 'repo-b'), reason: 'not initialized for beads' }]);
     expect(result.updateStrategy.mode).toBe('explicit-refresh');
     expect(exec.mock.calls.some(([, args]) => args.includes('update'))).toBe(false);
     expect(exec.mock.calls.some(([, args]) => args.includes('show'))).toBe(false);

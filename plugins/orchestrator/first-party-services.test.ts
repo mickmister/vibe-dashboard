@@ -19,6 +19,7 @@ import { validatePluginManifest } from './manifest';
 const goldenSupervisor = readFileSync(resolve(process.cwd(), 'supervisord.vkvd.conf'), 'utf8');
 const goldenDockerfile = readFileSync(resolve(process.cwd(), 'Dockerfile.vkvd'), 'utf8');
 const goldenDockerCompose = readFileSync(resolve(process.cwd(), 'docker-compose.yaml'), 'utf8');
+const qaDockerCompose = readFileSync(resolve(process.cwd(), 'docker-compose.qa.yaml'), 'utf8');
 const goldenCaddyfile = readFileSync(resolve(process.cwd(), 'Caddyfile'), 'utf8');
 const rootPackageJson = JSON.parse(readFileSync(resolve(process.cwd(), 'package.json'), 'utf8')) as {
   scripts: Record<string, string>;
@@ -180,10 +181,17 @@ describe('first-party service plugin inventory and golden supervisor config', ()
   });
 
   it('uses Sysbox-backed Docker-in-Docker without mounting the host Docker socket', () => {
-    expect(goldenDockerCompose).toContain('runtime: ${VKVD_CONTAINER_RUNTIME:-sysbox-runc}');
-    expect(goldenDockerCompose).toContain('VKVD_ALLOW_NON_SYSBOX_RUNTIME: ${VKVD_ALLOW_NON_SYSBOX_RUNTIME:-false}');
-    expect(goldenDockerCompose).toContain('docker-data:/var/lib/docker');
-    expect(goldenDockerCompose).not.toContain('/var/run/docker.sock:/var/run/docker.sock');
+    for (const [name, compose] of [
+      ['default', goldenDockerCompose],
+      ['QA', qaDockerCompose],
+    ] as const) {
+      expect(compose, `${name} compose runtime`).toContain('runtime: ${VKVD_CONTAINER_RUNTIME:-sysbox-runc}');
+      expect(compose, `${name} compose preflight setting`).toContain(
+        'VKVD_ALLOW_NON_SYSBOX_RUNTIME: ${VKVD_ALLOW_NON_SYSBOX_RUNTIME:-false}',
+      );
+      expect(compose, `${name} compose inner Docker data`).toContain('docker-data:/var/lib/docker');
+      expect(compose, `${name} compose host socket`).not.toContain('/var/run/docker.sock:/var/run/docker.sock');
+    }
     expect(goldenDockerfile).toContain('docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin');
     expect(goldenDockerfile).toContain('usermod -aG vkadmin,sudo,docker vkuser');
     expect(dockerEntrypoint).toContain('prepare inner docker daemon');
