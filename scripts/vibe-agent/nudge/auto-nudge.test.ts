@@ -150,6 +150,23 @@ describe('auto nudge', () => {
     expect(readAutoNudgeState(options.statePath).triggers.complete?.status).toBe('waiting-callback');
   });
 
+  it('takes no later workspace action while a correlated callback is running', async () => {
+    const { options } = setup();
+    const callbackSource = proc('callback-source', 'impl', 'completed', 9);
+    const otherCompletion = proc('other-complete', 'other', 'completed', 8);
+    writeFileSync(options.callbackRegistryPath, JSON.stringify({ version: 2, callbacks: [{ id: 'cb', sessionId: 'impl', command: 'ci', status: 'running', startedAt: iso(9), timeoutMs: null, finishedAt: null, completionProcessId: null, runnerPid: process.pid, sourceProcessId: 'callback-source', triggerProcessId: 'callback-source', error: null }] }));
+    const sent: string[] = [];
+    const client: AutoNudgeClient = {
+      async getSessions() { return [session('overseer', 'overseer'), session('impl', 'impl'), session('other', 'other')]; },
+      async getSessionProcesses(id) { return id === 'impl' ? [callbackSource] : id === 'other' ? [otherCompletion] : []; },
+      async fetchConversation() { return [msg('Finished')]; }, async getExecutionProcess() { throw new Error('unexpected'); },
+      async sendMessage(id) { sent.push(id); return proc('sent', id, 'running', 10); },
+    };
+    await runAutoNudgeCycle(client, options);
+    expect(sent).toEqual([]);
+    expect(readAutoNudgeState(options.statePath).triggers['callback-source']?.status).toBe('waiting-callback');
+  });
+
   it('ignores an unrelated session callback', async () => {
     const { options } = setup();
     writeFileSync(options.callbackRegistryPath, JSON.stringify({ version: 2, callbacks: [{ id: 'cb', sessionId: 'impl', command: 'ci', status: 'running', startedAt: iso(1), timeoutMs: null, finishedAt: null, completionProcessId: null, runnerPid: process.pid, sourceProcessId: 'other', triggerProcessId: 'other', error: null }] }));

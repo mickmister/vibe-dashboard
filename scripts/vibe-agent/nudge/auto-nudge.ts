@@ -257,7 +257,7 @@ export async function runAutoNudgeCycle(client: AutoNudgeClient, options: AutoNu
         if (callbacks.some(item => item.status === 'running')) {
           trigger.status = 'waiting-callback'; trigger.updatedAt = now;
           if (!options.dryRun) writeAutoNudgeState(options.statePath, state);
-          continue;
+          return;
         }
         if (options.dryRun) { result.checkpoints++; return; }
         const baselineIds = new Set(trigger.baselineProcessIds ?? teammateProcesses.map(item => item.id));
