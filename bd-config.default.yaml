@@ -1,0 +1,7 @@
+no-git-ops: true
+no-push: true
+
+dolt:
+  shared-server: true
+  auto-commit: on
+  auto-push: false

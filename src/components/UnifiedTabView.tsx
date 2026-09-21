@@ -7,6 +7,7 @@ import type {
   SavedWorkspaceSession,
 } from '../types';
 import type { WorkspaceActions, SessionActions } from './WorkspaceShell';
+import { BUILT_IN_AGENT_TAB_ID } from '../modules/plugins/vibe-dashboard/craft-surfaces';
 
 interface UnifiedTabViewProps {
   tabGroups: TabGroup[];
@@ -94,6 +95,19 @@ export function UnifiedTabView({
             onStartNewSession={onStartNewSession}
             onNavigateToTabGroup={onNavigateToTabGroup}
             onOpenVKWorkspace={onOpenVKWorkspace}
+            onBeadReferenceClick={async (agentTabId, beadId) => {
+              const result = await actions.openFormsForBead({
+                tabGroupId: activeTabGroup.id,
+                agentTabId,
+                beadId,
+              });
+              if (result) {
+                sessionActions.selectTab(result.tabGroupId, result.formsTabId);
+              }
+            }}
+            onBeadFormSubmitted={() => {
+              sessionActions.selectTab(activeTabGroup.id, BUILT_IN_AGENT_TAB_ID);
+            }}
           />
         ) : (
           <div className="flex-1 flex items-center justify-center text-neutral-500">

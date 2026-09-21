@@ -8,7 +8,8 @@
     "resolveJsonModule": true,
     "allowImportingTsExtensions": true,
     "paths": {
-      "@vibe-dashboard/workflow-core": ["./packages/workflow-core/src/index.ts"]
+      "@vibe-dashboard/workflow-core": ["./packages/workflow-core/src/index.ts"],
+      "@vibe-dashboard/beads-form": ["./packages/beads-form/src/index.ts"]
     },
 
     // File Layout
