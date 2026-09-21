@@ -60,34 +60,81 @@ ensure_vkuser_shared_dir() {
     done
 }
 
-# Fix docker group GID to match the mounted socket
-startup_step_begin "configure docker socket group"
-if [ -S /var/run/docker.sock ]; then
-    DOCKER_SOCK_GID=$(stat -c '%g' /var/run/docker.sock)
+vkvd_sysbox_marker_detected() {
+    grep -RqiE 'sysbox|sysboxfs' /proc/self/mountinfo /proc/1/mountinfo /proc/self/cgroup /proc/1/cgroup 2>/dev/null
+}
 
-    # Check if docker group exists
-    if getent group docker > /dev/null 2>&1; then
-        CURRENT_DOCKER_GID=$(getent group docker | cut -d: -f3)
-
-        # If GIDs don't match, update the docker group
-        if [ "$CURRENT_DOCKER_GID" != "$DOCKER_SOCK_GID" ]; then
-            echo "Updating docker group GID from $CURRENT_DOCKER_GID to $DOCKER_SOCK_GID to match socket"
-            groupmod -g "$DOCKER_SOCK_GID" docker
-        fi
-    else
-        # Create docker group with correct GID
-        # First check if the GID is already used by another group
-        EXISTING_GROUP=$(getent group "$DOCKER_SOCK_GID" | cut -d: -f1)
-        if [ -n "$EXISTING_GROUP" ]; then
-            echo "GID $DOCKER_SOCK_GID already used by group '$EXISTING_GROUP', renaming it to docker"
-            groupmod -n docker "$EXISTING_GROUP"
-        else
-            echo "Creating docker group with GID $DOCKER_SOCK_GID to match socket"
-            groupadd -g "$DOCKER_SOCK_GID" docker
-        fi
-        usermod -aG docker vkuser
+vkvd_system_container_capability_detected() {
+    local probe_dir="/tmp/vkvd-sysbox-preflight"
+    mkdir -p "$probe_dir"
+    if mount -t tmpfs tmpfs "$probe_dir" 2>/dev/null; then
+        umount "$probe_dir" 2>/dev/null || true
+        rmdir "$probe_dir" 2>/dev/null || true
+        return 0
     fi
+    rmdir "$probe_dir" 2>/dev/null || true
+    return 1
+}
+
+# Fail fast when the outer container is not running as a Sysbox/ECI system
+# container. Docker Desktop Enhanced Container Isolation may ignore explicit
+# runtime flags, so detect Sysbox behavior/markers from inside the container
+# rather than trusting the compose runtime value. Operators can bypass only for
+# deliberate diagnostics with VKVD_ALLOW_NON_SYSBOX_RUNTIME=true.
+startup_step_begin "verify Sysbox runtime"
+if [ "${VKVD_ALLOW_NON_SYSBOX_RUNTIME:-false}" = "true" ]; then
+    startup_log "WARNING: VKVD_ALLOW_NON_SYSBOX_RUNTIME=true; skipping Sysbox runtime preflight"
+elif vkvd_sysbox_marker_detected || vkvd_system_container_capability_detected; then
+    startup_log "Sysbox/ECI runtime preflight passed"
+else
+    cat >&2 <<'EOF'
+ERROR: This workspace must run with sysbox-runc on Linux or Docker Desktop Enhanced Container Isolation on Mac.
+The host Docker socket is intentionally not mounted, so the inner Docker daemon requires Sysbox system-container capabilities.
+
+Fix:
+  - Linux amd64/arm64: install Sysbox and keep VKVD_CONTAINER_RUNTIME=sysbox-runc.
+  - Mac amd64/arm64: enable Docker Desktop Enhanced Container Isolation.
+  - Diagnostic-only bypass: set VKVD_ALLOW_NON_SYSBOX_RUNTIME=true.
+
+Run scripts/smoke-sysbox-dind.sh after starting to verify Docker-in-Docker.
+EOF
+    exit 78
 fi
+startup_step_end
+
+# Ensure Docker-in-Docker state directories exist for the daemon supervised
+# inside this Sysbox container. We intentionally do not inspect or mount the
+# host Docker socket.
+startup_step_begin "prepare inner docker daemon"
+mkdir -p /var/lib/docker /var/run/docker
+if getent group docker > /dev/null 2>&1; then
+    usermod -aG docker vkuser 2>/dev/null || true
+fi
+startup_step_end
+
+# Prepare persistent per-instance XDG configuration and Beads state before any
+# supervised process can read them. Never replace an existing Beads config:
+# after first launch it is user-managed state.
+startup_step_begin "prepare persistent user configuration"
+install -d -m 0755 -o vkuser -g vkuser /home/vkuser/.config
+install -d -m 0755 -o vkuser -g vkuser /home/vkuser/.config/bd
+install -d -m 0700 -o vkuser -g vkadmin /home/vkuser/.beads
+install -d -m 0700 -o vkuser -g vkadmin /home/vkuser/.beads/shared-server
+install -d -m 0700 -o vkuser -g vkadmin /home/vkuser/.beads/shared-server/dolt
+
+BD_CONFIG=/home/vkuser/.config/bd/config.yaml
+if [ ! -e "$BD_CONFIG" ] && [ ! -L "$BD_CONFIG" ]; then
+    BD_CONFIG_TMP=$(mktemp "${BD_CONFIG}.tmp.XXXXXX")
+    install -m 0644 -o vkuser -g vkuser /usr/local/share/vkvd/defaults/bd-config.yaml "$BD_CONFIG_TMP"
+    mv "$BD_CONFIG_TMP" "$BD_CONFIG"
+    startup_log "Initialized Beads config at ${BD_CONFIG}"
+else
+    startup_log "Preserving existing Beads config at ${BD_CONFIG}"
+fi
+
+runuser -u vkuser -- test -w /home/vkuser/.config
+runuser -u vkuser -- test -w /home/vkuser/.config/bd
+runuser -u vkuser -- test -w /home/vkuser/.beads/shared-server/dolt
 startup_step_end
 
 # Ensure mounted mutable volumes keep shared group write semantics. This avoids
@@ -112,12 +159,6 @@ startup_step_end
 
 startup_debug_path_summary /home/vkuser/repos/vibe-kanban-vscode-web
 startup_log "Skipping recursive repository permission repair; repository files are created as vkuser"
-
-# Ensure the packaged vibe-dashboard runtime directory exists before supervisord starts
-startup_step_begin "prepare vibe-dashboard runtime directory"
-mkdir -p /home/vkuser/.local/share/vibe-dashboard-runtime
-chown -R vkuser:vkuser /home/vkuser/.local/share/vibe-dashboard-runtime 2>/dev/null || true
-startup_step_end
 
 # Ensure plugin runtime paths and the plugin-owned Caddy import exist before
 # supervisord starts. Plugin artifact installation intentionally runs after

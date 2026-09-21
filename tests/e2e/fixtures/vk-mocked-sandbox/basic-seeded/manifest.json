@@ -1,0 +1,12 @@
+{
+  "variant": "basic-seeded",
+  "description": "Seeded VK mocked sandbox state with a VD voyage/craft backed by a completed VK qa-mode workspace and follow-up.",
+  "repoPath": "/home/vkuser/e2e/repos/basic-seeded-repo",
+  "repoName": "basic-seeded-repo",
+  "voyageName": "Basic Seeded Voyage",
+  "craftTitle": "Basic Seeded VK Craft",
+  "initialPrompt": "Use the qa-mode mocked provider to create the basic seeded acceptance workspace.",
+  "followUpPrompt": "Seeded follow-up prompt: confirm the basic seeded fixture can continue without real model tokens.",
+  "model": "qa-mock",
+  "generatedBy": "npm run e2e:vk-mocked-sandbox:snapshot -- --variant basic-seeded"
+}

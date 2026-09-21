@@ -615,11 +615,11 @@ test.describe('voyage persistence', () => {
 
     await page.evaluate(
       (cachedUrl) => localStorage.setItem('workspace-last-dashboard-url', cachedUrl),
-      `/dashboard?from_gh_url=https%3A%2F%2Fexample.invalid&voyage=${voyageASlug}`,
+      `/dashboard?referrer_url=https%3A%2F%2Fexample.invalid&voyage=${voyageASlug}`,
     );
     await page.goto('/');
     await expectUrlVoyageToken(page, voyageAId, [voyageAId, voyageBId]);
-    await expect(page).not.toHaveURL(/from_gh_url/);
+    await expect(page).not.toHaveURL(/referrer_url/);
     await expect
       .poll(async () => page.evaluate(() => localStorage.getItem('workspace-last-dashboard-url')))
       .toMatch(/^\/\?voyage=/);

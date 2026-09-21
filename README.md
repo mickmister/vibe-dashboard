@@ -62,20 +62,34 @@ Caddy forwards `port-<port>.*` subdomains to `localhost:<port>` inside the conta
 #### Optional Vibe Kanban performance tracing / SigNoz
 
 Tracing is disabled by default. To export Vibe Kanban performance spans from
-the container to SigNoz, set `VK_PERF_TRACING=1` and an OTLP endpoint in your
-`.env` before running `docker compose up`:
+the container to self-hosted SigNoz, set `VK_PERF_TRACING=1` and point the
+sibling OpenTelemetry Collector at the SigNoz collector endpoint reachable from
+this Docker network:
 
 ```bash
 VK_PERF_TRACING=1
-OTEL_EXPORTER_OTLP_ENDPOINT=https://ingest.<region>.signoz.cloud:443
-OTEL_EXPORTER_OTLP_HEADERS=signoz-ingestion-key=<your-ingestion-key>
+# VK and spawned Codex/tool processes use this Compose-local collector by default.
+OTEL_EXPORTER_OTLP_ENDPOINT=http://otel-collector:4318
+# Forward from the sibling collector to self-hosted SigNoz over OTLP/HTTP.
+# Use the OTLP HTTP base endpoint; do not include /v1/traces here.
+SIGNOZ_OTLP_HTTP_ENDPOINT=http://signoz-otel-collector:4318
 OTEL_SERVICE_NAME=vibe-kanban-backend
 OTEL_RESOURCE_ATTRIBUTES=service.version=local-compose
 ```
 
-Use `OTEL_EXPORTER_OTLP_TRACES_ENDPOINT` if traces should use a different
-endpoint from other OTLP signals. `OTEL_EXPORTER_OTLP_HEADERS` is needed for
-SigNoz Cloud auth, but is usually unnecessary for a local collector.
+The `otel-collector` service listens internally on OTLP/HTTP `4318` and
+OTLP/gRPC `4317`, batches spans, and forwards them over OTLP/HTTP. Set
+`SIGNOZ_OTLP_HTTP_ENDPOINT` to the OTLP HTTP base endpoint, such as
+`http://host:4318`; the collector exporter appends signal paths like
+`/v1/traces`. In
+Docker/Coolify, `localhost` and `127.0.0.1` refer to the current container, not
+the SigNoz host/container, so use the SigNoz collector hostname or service URL
+reachable from the `code-vibe` and `otel-collector` containers.
+
+Direct OTEL overrides still work: set `OTEL_EXPORTER_OTLP_ENDPOINT` or
+`OTEL_EXPORTER_OTLP_TRACES_ENDPOINT` to bypass the sibling collector. For SigNoz
+Cloud, `OTEL_EXPORTER_OTLP_HEADERS` may be needed for auth; it is usually
+unnecessary for a local/self-hosted collector.
 `VK_WS_POLL_TRACING=1` enables extra noisy WebSocket poll tracing and is not
 normally needed.
 
@@ -109,7 +123,8 @@ docker compose --profile novnc exec code-vibe curl -fsS http://novnc:9222/json/v
 
 Run `gh auth login` once after first starting the container. Git is pre-configured to use `gh` as the credential helper, so no additional setup is needed.
 
-Credentials persist in the `gh-config` volume at `/home/vkuser/.config/gh`.
+Credentials and other per-instance XDG settings persist in the `user-config`
+volume mounted at `/home/vkuser/.config`.
 
 To set your Git identity (also persisted):
 
@@ -146,6 +161,28 @@ Codex caches credentials in `~/.codex/auth.json` when configured for file-based 
 
 ## Docker-in-Docker support
 
-The container includes Docker CLI and mounts the host's Docker socket at `/var/run/docker.sock`. This allows agents to run docker commands and you to run Docker commands from within the VSCode environment.
+The workspace runs Docker inside the dev container with Sysbox instead of mounting the host Docker socket. `docker-compose.yaml` sets `runtime: sysbox-runc`, persists the inner daemon at `/var/lib/docker`, and intentionally does **not** mount `/var/run/docker.sock` from the host.
 
-**Security note:** The mounted Docker socket gives this container the ability to create and manage containers on the host. Only use this environment in trusted contexts. Remove the docker socket volume in the compose file to disable this.
+Platform notes:
+
+- Linux amd64/arm64: install Sysbox on the Docker host, then start the stack normally. Sysbox publishes amd64 and arm64 Linux packages.
+- Mac amd64/arm64: use Docker Desktop with Enhanced Container Isolation enabled. Docker Desktop uses Sysbox for user containers in that mode and ignores explicit `--runtime` flags.
+
+Preflight before starting:
+
+```bash
+# Linux: verify Docker can see the Sysbox runtime.
+docker info --format '{{json .Runtimes}}' | grep sysbox-runc
+
+# Mac: enable Docker Desktop > Settings > Hardened Docker Desktop > Enhanced Container Isolation.
+# Docker Desktop keeps the default runtime as runc, so runtime-name checks are not enough on Mac.
+```
+
+Start and smoke test before merge/release:
+
+```bash
+docker compose up -d code-vibe
+./scripts/smoke-sysbox-dind.sh
+```
+
+The entrypoint fails fast if Sysbox/ECI system-container capabilities are unavailable. Use `VKVD_ALLOW_NON_SYSBOX_RUNTIME=true` only for deliberate diagnostics; that bypass is not a supported release configuration.
