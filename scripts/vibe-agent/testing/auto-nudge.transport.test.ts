@@ -77,6 +77,7 @@ describe('auto-nudge across real VK transport', () => {
     const state = readAutoNudgeState(options.statePath); state.outbox.alert = { id: 'alert', workspaceId: 'workspace', content: 'quota event', createdAt: old, deliveredAt: null, attempts: 0 }; writeAutoNudgeState(options.statePath, state);
     expect((await runAutoNudgeCycle(client, options)).errors).toHaveLength(1);
     expect((await runAutoNudgeCycle(client, options)).discordDeliveries).toBe(1);
+    expect((await runAutoNudgeCycle(client, options)).discordDeliveries).toBe(0);
     expect(discord.deliveries).toEqual([{ content: 'quota event' }, { content: 'quota event' }]);
     expect(readAutoNudgeState(options.statePath).outbox.alert).toMatchObject({ attempts: 2, deliveredAt: now });
   });

@@ -13,11 +13,23 @@ export interface FakeVkObservation { sequence: number; operationId: string; corr
 
 function validateScenario(scenario: FakeVkScenario): void {
   const unique = (values: string[], label: string) => { if (new Set(values).size !== values.length) throw new Error(`duplicate ${label}`); };
+  const workspaceIds = new Set(scenario.workspaces.map(item => item.id));
+  const sessionIds = new Set(scenario.sessions.map(item => item.id));
   unique(scenario.workspaces.map(item => item.id), 'workspace id');
   unique(scenario.sessions.map(item => item.id), 'session id');
   unique(scenario.sessions.flatMap(item => item.processes.map(process => process.id)), 'process id');
   unique((scenario.faults ?? []).map(item => item.id), 'fault id');
   unique((scenario.barriers ?? []).map(item => item.id), 'barrier id');
+  for (const session of scenario.sessions) {
+    if (!workspaceIds.has(session.workspace_id)) throw new Error(`session ${session.id} references unknown workspace ${session.workspace_id}`);
+    for (const process of session.processes) {
+      if (process.session_id !== session.id) throw new Error(`process ${process.id} belongs to ${process.session_id}, not ${session.id}`);
+    }
+  }
+  for (const followUp of scenario.followUps ?? []) {
+    if (!sessionIds.has(followUp.sessionId)) throw new Error(`follow-up references unknown session ${followUp.sessionId}`);
+    if (followUp.process.session_id !== followUp.sessionId) throw new Error(`follow-up process ${followUp.process.id} belongs to the wrong session`);
+  }
   for (const fault of scenario.faults ?? []) {
     if (fault.kind === 'delay' && (!Number.isFinite(fault.delayMs) || fault.delayMs! < 0)) throw new Error(`fault ${fault.id} requires delayMs`);
   }

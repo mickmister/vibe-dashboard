@@ -99,5 +99,9 @@ describe('real VibeClient against fake VK transport', () => {
     expect(() => new FakeVkServer(duplicate)).toThrow(/duplicate fault id/);
     const value = scenario(); value.faults = [{ id: 'unused', operation: 'logs-ws', kind: 'ws-close' }];
     const { server } = await start(value); expect(() => server.assertAllDeclarationsUsed()).toThrow(/unused/);
+    const wrongWorkspace = scenario(); wrongWorkspace.sessions[0]!.workspace_id = 'absent';
+    expect(() => new FakeVkServer(wrongWorkspace)).toThrow(/unknown workspace/);
+    const wrongFollowUp = scenario(); wrongFollowUp.followUps![0]!.process.session_id = 'impl';
+    expect(() => new FakeVkServer(wrongFollowUp)).toThrow(/wrong session/);
   });
 });
