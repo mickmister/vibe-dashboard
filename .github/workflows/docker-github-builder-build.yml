@@ -568,7 +568,10 @@ jobs:
                   [cache.gha.verify.policy]
                     timestampThreshold = 1
                     tlogThreshold = ${{ needs.prepare.outputs.privateRepo == 'true' && '0' || '1' }}
-                    subjectAlternativeName = "https://github.com/docker/github-builder/.github/workflows/build.yml*"
+                    # Cache entries are signed by this repository's reusable
+                    # workflow, not the upstream workflow this file originated
+                    # from. Match the workflow identity while allowing any ref.
+                    subjectAlternativeName = "${{ github.server_url }}/${{ github.repository }}/.github/workflows/docker-github-builder-build.yml@*"
                     githubWorkflowRepository = "${{ github.repository }}"
                     issuer = "https://token.actions.githubusercontent.com"
                     runnerEnvironment = "github-hosted"

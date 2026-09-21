@@ -112,6 +112,10 @@ jobs:
         VK_REPO_URL=${{ needs.resolve-vk-ref.outputs.vk_repo_url }}
       cache: true
       cache-scope: vk-vd-multiarch
+      # Export intermediate stages as well as final-image layers. The
+      # dependency installer and toolchain stages are the expensive part of
+      # this image and need to survive application-source changes.
+      cache-mode: max
       sign: false
       meta-images: ghcr.io/${{ github.repository_owner }}/vk-vd
       meta-tags: |
