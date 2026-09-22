@@ -9,9 +9,19 @@ import {
   type WorkflowDefinition,
 } from "@vibe-dashboard/workflow-core";
 import { GithubIssueWorkspaceMapStore } from "./github-issue-workspace-map";
+import { GithubIssueWorkspaceDbStore } from "./github-issue-workspace-db";
+import { initExternalIntegrationsDb } from "../modules/plugins/kanban/server/database";
 import { registerWorkflowRoutes } from "./workflow-routes";
 
 const tempDirs: string[] = [];
+
+function deferred<T>() {
+  let resolve!: (value: T | PromiseLike<T>) => void;
+  const promise = new Promise<T>((innerResolve) => {
+    resolve = innerResolve;
+  });
+  return { promise, resolve };
+}
 
 describe("registerWorkflowRoutes", () => {
   afterEach(async () => {
@@ -129,6 +139,81 @@ describe("registerWorkflowRoutes", () => {
       "/dashboard/api/github/issue-workspaces/owner/repo/42",
     );
     await expect(getAfterDelete.json()).resolves.toEqual({ mapping: null });
+  });
+
+  it("reserves issue creation on the server and reconciles concurrent callers", async () => {
+    const handle = await initExternalIntegrationsDb({ path: ":memory:" });
+    const store = new GithubIssueWorkspaceDbStore({ getDb: async () => handle.db });
+    const creation = deferred<{
+      workspace: {
+        id: string;
+        task_id: null;
+        container_ref: null;
+        branch: string;
+        agent_working_dir: null;
+        created_at: string;
+        updated_at: string;
+        archived: boolean;
+        pinned: boolean;
+        name: string;
+      };
+      execution_process: never;
+    }>();
+    const workspace = {
+      id: "ws-reserved",
+      task_id: null,
+      container_ref: null,
+      branch: "vk/issue-42",
+      agent_working_dir: null,
+      created_at: "2026-09-22T00:00:00Z",
+      updated_at: "2026-09-22T00:00:00Z",
+      archived: false,
+      pinned: false,
+      name: "Issue #42",
+    };
+    const createAndStartWorkspace = vi.fn(() => creation.promise);
+    const app = new Hono();
+    registerWorkflowRoutes(app, {
+      registry: createWorkflowRegistry(),
+      githubIssueWorkspaceMap: store,
+      githubIssueWorkspaceReservations: store,
+      githubIssueWorkspaceVkClient: {
+        createAndStartWorkspace,
+        getWorkspace: vi.fn(async () => workspace),
+      },
+    });
+    const request = () => app.request(
+      "/dashboard/api/github/issue-workspaces/Owner/Repo/42/resolve-or-create",
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          repoId: "repo-id",
+          targetBranch: "origin/main",
+          createBranch: true,
+          checkoutBranch: null,
+          name: "Issue #42",
+        }),
+      },
+    );
+
+    const owner = request();
+    await vi.waitFor(() => expect(createAndStartWorkspace).toHaveBeenCalledTimes(1));
+    const concurrent = await request();
+    expect(concurrent.status).toBe(202);
+    creation.resolve({ workspace, execution_process: undefined as never });
+    expect((await owner).status).toBe(200);
+
+    const retry = await request();
+    expect(retry.status).toBe(200);
+    await expect(retry.json()).resolves.toMatchObject({
+      status: "ready",
+      workspace: { id: "ws-reserved" },
+      created: false,
+    });
+    expect(createAndStartWorkspace).toHaveBeenCalledTimes(1);
+    await handle.db.destroy();
+    handle.sqlite.close();
   });
 
   it("ensures a GitHub repo via the provisioning route", async () => {

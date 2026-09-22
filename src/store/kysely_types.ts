@@ -110,6 +110,26 @@ export interface ExternalIssueWorkspaceLink {
   updatedAt: Generated<Timestamp>;
 }
 
+export type GithubIssueWorkspaceReservationState = 'provisioning' | 'ready' | 'recoverable' | 'failed';
+
+export interface GithubIssueWorkspaceReservation {
+  id: string;
+  issueKey: string;
+  owner: string;
+  repo: string;
+  issueNumber: number;
+  issueUrl: string;
+  state: GithubIssueWorkspaceReservationState;
+  requestJson: string;
+  workspaceId: string | null;
+  branch: string | null;
+  leaseToken: string | null;
+  leaseExpiresAt: NullableTimestamp;
+  lastError: string | null;
+  createdAt: Generated<Timestamp>;
+  updatedAt: Generated<Timestamp>;
+}
+
 export interface Migration {
   id: Generated<number>;
   name: string;
@@ -126,5 +146,6 @@ export interface DB {
   ExternalRepoProjectMapping: ExternalRepoProjectMapping;
   VKWorkspace: VKWorkspace;
   ExternalIssueWorkspaceLink: ExternalIssueWorkspaceLink;
+  GithubIssueWorkspaceReservation: GithubIssueWorkspaceReservation;
   Migration: Migration;
 }

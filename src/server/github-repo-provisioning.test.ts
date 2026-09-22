@@ -149,6 +149,32 @@ describe('ensureGithubRepoRegistered', () => {
     ).rejects.toThrow(/Check GitHub access, credentials, and network connectivity.*Repository not found/);
   });
 
+  it('validates and reuses a matching clone that wins the destination rename race', async () => {
+    const reposRoot = await tempRoot();
+    const destination = join(reposRoot, 'repo');
+    const execFile = vi.fn(async (_file: string, args: readonly string[]) => {
+      if (args[0] === 'clone') {
+        await mkdir(join(args[2] as string, '.git'), { recursive: true });
+        await mkdir(join(destination, '.git'), { recursive: true });
+        return { stdout: '', stderr: '' };
+      }
+      if (args.includes('get-url')) {
+        return { stdout: 'https://github.com/owner/repo.git\n', stderr: '' };
+      }
+      throw new Error(`unexpected git ${args.join(' ')}`);
+    });
+    const registeredRepo = repo({ id: 'repo-race', path: destination });
+    const vkClient = {
+      getRepos: vi.fn(async () => []),
+      registerRepo: vi.fn(async () => registeredRepo),
+    };
+
+    await expect(ensureGithubRepoRegistered(
+      { repoUrl: 'https://github.com/owner/repo' },
+      { reposRoot, execFile, vkClient },
+    )).resolves.toMatchObject({ repo: registeredRepo, path: destination });
+  });
+
   it('uses gh API metadata to find push access and writable forks without pushing', async () => {
     const execFile = vi.fn(async (_file: string, args: readonly string[]) => {
       const command = args.join(' ');

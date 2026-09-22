@@ -43,6 +43,7 @@ describe('external integrations migrations', () => {
         '20260702010000_external_issue_workspace_mappings',
         '20260702020000_external_repo_project_mappings',
         '20260804220000_external_repo_project_mapping_site_scope',
+        '20260922000000_github_issue_workspace_reservations',
       ]);
       expect(second).toEqual([]);
 
@@ -61,6 +62,7 @@ describe('external integrations migrations', () => {
         'VKWorkspace',
         'ExternalIssueWorkspaceLink',
         'ExternalRepoProjectMapping',
+        'GithubIssueWorkspaceReservation',
         'Migration',
       ]));
     } finally {
@@ -169,7 +171,10 @@ describe('external integrations migrations', () => {
       await db.deleteFrom('ExternalRepoProjectMapping').execute();
 
       const applied = await migrateExternalIntegrationsDb(db);
-      expect(applied).toEqual(['20260804220000_external_repo_project_mapping_site_scope']);
+      expect(applied).toEqual([
+        '20260804220000_external_repo_project_mapping_site_scope',
+        '20260922000000_github_issue_workspace_reservations',
+      ]);
 
       await db.insertInto('ExternalRepoProjectMapping').values([
         {

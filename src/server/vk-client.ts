@@ -92,7 +92,12 @@ export interface UserSystemInfo {
 
 export interface CreateAndStartWorkspaceRequest {
   name: string | null;
-  repos: Array<{ repo_id: string; target_branch: string }>;
+  repos: Array<{
+    repo_id: string;
+    target_branch: string;
+    create_branch?: boolean;
+    checkout_branch?: string | null;
+  }>;
   linked_issue: { remote_project_id: string; issue_id: string } | null;
   executor_config: ExecutorConfig;
   prompt: string;

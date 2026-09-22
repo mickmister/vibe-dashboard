@@ -19,7 +19,7 @@ vi.mock("../lib/vk-client", () => ({
     getGithubIssuePullRequests: vi.fn(),
     getGithubBranchProtection: vi.fn(),
     createWorkspaceFromPr: vi.fn(),
-    createWorkspaceFromIssue: vi.fn(),
+    resolveOrCreateGithubIssueWorkspace: vi.fn(),
     createWorkspaceFromTreeBlob: vi.fn(),
     getGitBranchesContainingCommit: vi.fn(),
     getGithubIssueWorkspaceMapping: vi.fn(),
@@ -188,7 +188,7 @@ describe("OpenFromGitHub", () => {
     vi.mocked(vkClient.getGithubBranchProtection).mockReset();
     vi.mocked(vkClient.getGithubBranchProtection).mockResolvedValue({ protected: false });
     vi.mocked(vkClient.createWorkspaceFromPr).mockReset();
-    vi.mocked(vkClient.createWorkspaceFromIssue).mockReset();
+    vi.mocked(vkClient.resolveOrCreateGithubIssueWorkspace).mockReset();
     vi.mocked(vkClient.createWorkspaceFromTreeBlob).mockReset();
     vi.mocked(vkClient.getGitBranchesContainingCommit).mockReset();
     vi.mocked(vkClient.getGithubIssueWorkspaceMapping).mockReset();
@@ -706,7 +706,10 @@ describe("OpenFromGitHub", () => {
       "https://github.com/owner/repo/tree/feature/demo/src",
     );
 
-    await acceptSuggestedWorkMode(findByText);
+    await findByText("Choose branch and workspace mode");
+    expect((await findByText("Work directly")).closest("button")).toHaveProperty("disabled", true);
+    await findByText(/Direct work requires an existing local branch/);
+    fireEvent.click(await findByText("Create workspace"));
 
     await waitFor(() => {
       expect(vkClient.createWorkspaceFromTreeBlob).toHaveBeenCalledWith(
@@ -717,6 +720,57 @@ describe("OpenFromGitHub", () => {
           checkout_branch: null,
           kind: "tree",
           path: "src",
+        }),
+      );
+    });
+  });
+
+  it("defaults unknown protection to a new branch but permits deliberate direct work on a local branch", async () => {
+    vi.mocked(vkClient.getRepos).mockResolvedValue([
+      { id: "repo-1", name: "repo", display_name: "Repo" },
+    ]);
+    vi.mocked(vkClient.getRepoRemotes).mockResolvedValue([
+      { name: "origin", url: "https://github.com/owner/repo.git" },
+    ]);
+    vi.mocked(vkClient.getRepoBranches).mockResolvedValue([
+      {
+        name: "feature/demo",
+        is_current: false,
+        is_remote: false,
+        last_commit_date: "2026-06-22T00:00:00Z",
+      },
+    ]);
+    vi.mocked(vkClient.getGithubBranchProtection).mockRejectedValue(new Error("rate limited"));
+    vi.mocked(vkClient.createWorkspaceFromTreeBlob).mockResolvedValue({
+      workspace: {
+        id: "ws-tree",
+        task_id: "task-tree",
+        container_ref: "/tmp/ws-tree",
+        branch: "feature/demo",
+        agent_working_dir: null,
+        created_at: "2026-06-22T00:00:00Z",
+        updated_at: "2026-06-22T00:00:00Z",
+        archived: false,
+        pinned: false,
+        name: "Tree",
+      },
+    });
+
+    const { findByText } = renderOpenFromGithub(
+      emptyWorkspace,
+      "https://github.com/owner/repo/tree/feature/demo/src",
+    );
+
+    await findByText(/Branch protection could not be verified/);
+    fireEvent.click(await findByText("Work directly"));
+    fireEvent.click(await findByText("Create workspace"));
+
+    await waitFor(() => {
+      expect(vkClient.createWorkspaceFromTreeBlob).toHaveBeenCalledWith(
+        expect.objectContaining({
+          target_branch: "origin/main",
+          create_branch: false,
+          checkout_branch: "feature/demo",
         }),
       );
     });
@@ -857,8 +911,9 @@ describe("OpenFromGitHub", () => {
       expect(vkClient.createWorkspaceFromTreeBlob).toHaveBeenCalledWith(
         expect.objectContaining({
           repo_id: "repo-2",
-          target_branch: "origin/main",
-          checkout_branch: "origin/feature/demo",
+          target_branch: "origin/feature/demo",
+          create_branch: true,
+          checkout_branch: null,
           path: "src",
         }),
       );
@@ -1090,8 +1145,9 @@ describe("OpenFromGitHub", () => {
     await waitFor(() => {
       expect(vkClient.createWorkspaceFromTreeBlob).toHaveBeenCalledWith(
         expect.objectContaining({
-          target_branch: "origin/main",
-          checkout_branch: "origin/b",
+          target_branch: "origin/b",
+          create_branch: true,
+          checkout_branch: null,
         }),
       );
     });
@@ -1132,7 +1188,7 @@ describe("OpenFromGitHub", () => {
       expect(vkClient.getWorkspace).toHaveBeenCalledWith("ws-1");
     });
     expect(props.selectSessionTabGroup).not.toHaveBeenCalled();
-    expect(vkClient.createWorkspaceFromIssue).not.toHaveBeenCalled();
+    expect(vkClient.resolveOrCreateGithubIssueWorkspace).not.toHaveBeenCalled();
   });
 
   it("asks before switching an issue URL to an associated PR", async () => {
@@ -1187,7 +1243,7 @@ describe("OpenFromGitHub", () => {
         last_commit_date: "2026-06-22T00:00:00Z",
       },
     ]);
-    vi.mocked(vkClient.createWorkspaceFromIssue).mockResolvedValue({
+    vi.mocked(vkClient.resolveOrCreateGithubIssueWorkspace).mockResolvedValue({
       workspace: {
         id: "ws-issue",
         task_id: "task-issue",
@@ -1213,7 +1269,7 @@ describe("OpenFromGitHub", () => {
     await acceptSuggestedWorkMode(findByText);
 
     await waitFor(() => {
-      expect(vkClient.createWorkspaceFromIssue).toHaveBeenCalledWith(
+      expect(vkClient.resolveOrCreateGithubIssueWorkspace).toHaveBeenCalledWith(
         expect.objectContaining({
           repo_id: "repo-1",
           target_branch: "origin/main",
@@ -1222,15 +1278,6 @@ describe("OpenFromGitHub", () => {
         }),
       );
     });
-    expect(vkClient.putGithubIssueWorkspaceMapping).toHaveBeenCalledWith(
-      expect.objectContaining({
-        owner: "owner",
-        repo: "repo",
-        number: 7,
-        workspaceId: "ws-issue",
-        branch: "vk/issue-7",
-      }),
-    );
     expect(props.addVKWorkspace).toHaveBeenCalledWith(
       expect.objectContaining({ taskAttemptId: "ws-issue" }),
     );
@@ -1265,7 +1312,7 @@ describe("OpenFromGitHub", () => {
         last_commit_date: "2026-06-22T00:00:00Z",
       },
     ]);
-    vi.mocked(vkClient.createWorkspaceFromIssue).mockResolvedValue({
+    vi.mocked(vkClient.resolveOrCreateGithubIssueWorkspace).mockResolvedValue({
       workspace: {
         id: "ws-issue",
         task_id: "task-issue",
@@ -1291,7 +1338,7 @@ describe("OpenFromGitHub", () => {
     await acceptSuggestedWorkMode(findByText);
 
     await waitFor(() => {
-      expect(vkClient.createWorkspaceFromIssue).toHaveBeenCalledWith(
+      expect(vkClient.resolveOrCreateGithubIssueWorkspace).toHaveBeenCalledWith(
         expect.objectContaining({
           repo_id: "repo-1",
           target_branch: "upstream/main",
@@ -1323,7 +1370,7 @@ describe("OpenFromGitHub", () => {
         last_commit_date: "2026-06-22T00:00:00Z",
       },
     ]);
-    vi.mocked(vkClient.createWorkspaceFromIssue).mockResolvedValue({
+    vi.mocked(vkClient.resolveOrCreateGithubIssueWorkspace).mockResolvedValue({
       workspace: {
         id: "ws-issue",
         task_id: "task-issue",
@@ -1349,7 +1396,7 @@ describe("OpenFromGitHub", () => {
     await acceptSuggestedWorkMode(findByText);
 
     await waitFor(() => {
-      expect(vkClient.createWorkspaceFromIssue).toHaveBeenCalledWith(
+      expect(vkClient.resolveOrCreateGithubIssueWorkspace).toHaveBeenCalledWith(
         expect.objectContaining({
           target_branch: "origin/develop",
         }),
@@ -1382,7 +1429,7 @@ describe("OpenFromGitHub", () => {
         last_commit_date: "2026-06-22T00:00:00Z",
       },
     ]);
-    vi.mocked(vkClient.createWorkspaceFromIssue).mockResolvedValue({
+    vi.mocked(vkClient.resolveOrCreateGithubIssueWorkspace).mockResolvedValue({
       workspace: {
         id: "ws-issue",
         task_id: "task-issue",
@@ -1410,13 +1457,10 @@ describe("OpenFromGitHub", () => {
     await acceptSuggestedWorkMode(findByText);
 
     await waitFor(() => {
-      expect(vkClient.createWorkspaceFromIssue).toHaveBeenCalledWith(
+      expect(vkClient.resolveOrCreateGithubIssueWorkspace).toHaveBeenCalledWith(
         expect.objectContaining({ repo_id: "repo-2" }),
       );
     });
-    expect(vkClient.putGithubIssueWorkspaceMapping).toHaveBeenCalledWith(
-      expect.objectContaining({ workspaceId: "ws-issue" }),
-    );
   });
 
   it("does not let an unmounted in-flight issue lookup update or open workspaces", async () => {
@@ -1476,8 +1520,8 @@ describe("OpenFromGitHub", () => {
       },
     ]);
     const created =
-      deferred<Awaited<ReturnType<typeof vkClient.createWorkspaceFromIssue>>>();
-    vi.mocked(vkClient.createWorkspaceFromIssue).mockReturnValue(
+      deferred<Awaited<ReturnType<typeof vkClient.resolveOrCreateGithubIssueWorkspace>>>();
+    vi.mocked(vkClient.resolveOrCreateGithubIssueWorkspace).mockReturnValue(
       created.promise,
     );
 
@@ -1488,7 +1532,7 @@ describe("OpenFromGitHub", () => {
 
     await acceptSuggestedWorkMode(findByText);
     await waitFor(() => {
-      expect(vkClient.createWorkspaceFromIssue).toHaveBeenCalledTimes(1);
+      expect(vkClient.resolveOrCreateGithubIssueWorkspace).toHaveBeenCalledTimes(1);
     });
     unmount();
     created.resolve({
@@ -1508,7 +1552,6 @@ describe("OpenFromGitHub", () => {
     await Promise.resolve();
     await Promise.resolve();
 
-    expect(vkClient.putGithubIssueWorkspaceMapping).toHaveBeenCalledTimes(1);
     expect(props.addVKWorkspace).not.toHaveBeenCalled();
     expect(props.selectSessionTab).not.toHaveBeenCalled();
   });
@@ -1557,7 +1600,7 @@ describe("OpenFromGitHub", () => {
         archived: false,
       });
     });
-    expect(vkClient.createWorkspaceFromIssue).not.toHaveBeenCalled();
+    expect(vkClient.resolveOrCreateGithubIssueWorkspace).not.toHaveBeenCalled();
   });
 
   it("repairs a deleted persisted issue workspace mapping before creating a replacement", async () => {
@@ -1593,7 +1636,7 @@ describe("OpenFromGitHub", () => {
         last_commit_date: "2026-06-22T00:00:00Z",
       },
     ]);
-    vi.mocked(vkClient.createWorkspaceFromIssue).mockResolvedValue({
+    vi.mocked(vkClient.resolveOrCreateGithubIssueWorkspace).mockResolvedValue({
       workspace: {
         id: "ws-replacement",
         task_id: "task-replacement",
@@ -1615,12 +1658,12 @@ describe("OpenFromGitHub", () => {
     );
 
     await findByText("Issue workspace no longer exists");
-    expect(vkClient.createWorkspaceFromIssue).not.toHaveBeenCalled();
+    expect(vkClient.resolveOrCreateGithubIssueWorkspace).not.toHaveBeenCalled();
 
     fireEvent.click(await findByText("Forget mapping and create replacement"));
 
     await acceptSuggestedWorkMode(findByText);
-    await waitFor(() => expect(vkClient.createWorkspaceFromIssue).toHaveBeenCalled());
+    await waitFor(() => expect(vkClient.resolveOrCreateGithubIssueWorkspace).toHaveBeenCalled());
     expect(vkClient.deleteGithubIssueWorkspaceMapping).toHaveBeenCalledWith({
       owner: "owner",
       repo: "repo",

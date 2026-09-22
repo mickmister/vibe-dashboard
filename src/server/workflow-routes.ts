@@ -12,6 +12,7 @@ import {
 } from './github-issue-workspace-map';
 import {
   GithubIssueWorkspaceDbStore,
+  type GithubIssueWorkspaceReservationRequest,
   type GithubIssueWorkspaceStore,
 } from './github-issue-workspace-db';
 import {
@@ -27,7 +28,7 @@ import {
   GitBranchLookupError,
   type FindBranchesContainingCommitOptions,
 } from './git-branches';
-import { VibeKanbanServerClient } from './vk-client';
+import { VibeKanbanServerClient, VkApiError } from './vk-client';
 
 export interface RegisterWorkflowRoutesOptions {
   registry: WorkflowRegistry;
@@ -39,6 +40,11 @@ export interface RegisterWorkflowRoutesOptions {
     vkClient?: Pick<VibeKanbanServerClient, 'getRepos'>;
   };
   githubIssueWorkspaceMap?: GithubIssueWorkspaceStore;
+  githubIssueWorkspaceReservations?: GithubIssueWorkspaceDbStore;
+  githubIssueWorkspaceVkClient?: Pick<
+    VibeKanbanServerClient,
+    'createAndStartWorkspace' | 'getWorkspace'
+  >;
 }
 
 export interface RepoAliasCache {
@@ -64,6 +70,10 @@ export function registerWorkflowRoutes(
 
   const issueWorkspaceMap =
     options.githubIssueWorkspaceMap ?? new GithubIssueWorkspaceDbStore();
+  const issueWorkspaceReservations =
+    options.githubIssueWorkspaceReservations ?? new GithubIssueWorkspaceDbStore();
+  const issueWorkspaceVkClient =
+    options.githubIssueWorkspaceVkClient ?? new VibeKanbanServerClient();
 
   hono.get(
     '/dashboard/api/github/issue-workspaces/:owner/:repo/:number',
@@ -127,6 +137,100 @@ export function registerWorkflowRoutes(
 
       const deleted = await issueWorkspaceMap.delete(identity);
       return c.json({ deleted });
+    },
+  );
+
+  hono.post(
+    '/dashboard/api/github/issue-workspaces/:owner/:repo/:number/resolve-or-create',
+    async (c) => {
+      const identity = parseIssueIdentityParams(c.req.param());
+      if (!identity) {
+        return c.json({ error: 'A valid GitHub issue owner, repo, and number are required' }, 400);
+      }
+
+      const body = asRecord(await readJsonBody(c.req.raw));
+      const request = parseIssueWorkspaceReservationRequest(body);
+      if (!request) {
+        return c.json({ error: 'repoId, targetBranch, and createBranch are required' }, 400);
+      }
+
+      const claim = await issueWorkspaceReservations.claimReservation(identity, request);
+      if (!claim.acquired) {
+        if (claim.reservation.state !== 'ready') {
+          return c.json({ status: 'provisioning' as const }, 202);
+        }
+        if (!claim.reservation.workspaceId) {
+          return c.json({ error: 'Ready reservation has no workspace' }, 500);
+        }
+        try {
+          const workspace = await issueWorkspaceVkClient.getWorkspace(claim.reservation.workspaceId);
+          return c.json({ status: 'ready' as const, workspace, created: false });
+        } catch (error) {
+          if (!(error instanceof VkApiError && error.status === 404)) throw error;
+          await issueWorkspaceReservations.markReadyWorkspaceMissing(identity);
+          return c.json({ status: 'provisioning' as const }, 202);
+        }
+      }
+
+      const leaseToken = claim.reservation.leaseToken;
+      if (!leaseToken) {
+        return c.json({ error: 'Reservation lease was not acquired' }, 500);
+      }
+
+      const leaseHeartbeat = setInterval(() => {
+        void issueWorkspaceReservations
+          .renewReservationLease(identity, leaseToken)
+          .catch((error) => console.error('Failed to renew GitHub issue workspace reservation', error));
+      }, 30_000);
+      try {
+        let workspace;
+        if (claim.reservation.workspaceId) {
+          workspace = await issueWorkspaceVkClient.getWorkspace(claim.reservation.workspaceId);
+        } else {
+          const reserved = claim.reservation.request;
+          const response = await issueWorkspaceVkClient.createAndStartWorkspace({
+            name: reserved.name ?? `Issue #${identity.number}`,
+            repos: [{
+              repo_id: reserved.repoId,
+              target_branch: reserved.targetBranch,
+              create_branch: reserved.createBranch,
+              checkout_branch: reserved.createBranch ? null : reserved.checkoutBranch,
+            }],
+            linked_issue: null,
+            executor_config: { executor: 'CODEX' },
+            prompt: `Open GitHub issue ${identity.normalizedIssueUrl}. Review the issue and prepare the workspace branch for implementation.`,
+            attachment_ids: null,
+          });
+          workspace = response.workspace;
+          await issueWorkspaceReservations.recordWorkspace(
+            identity,
+            leaseToken,
+            workspace.id,
+            workspace.branch,
+          );
+        }
+
+        await issueWorkspaceMap.upsert({
+          identity,
+          workspaceId: workspace.id,
+          branch: workspace.branch,
+        });
+        await issueWorkspaceReservations.markReservationReady(identity, leaseToken);
+        return c.json({ status: 'ready' as const, workspace, created: !claim.reservation.workspaceId });
+      } catch (error) {
+        if (
+          claim.reservation.workspaceId &&
+          error instanceof VkApiError &&
+          error.status === 404
+        ) {
+          await issueWorkspaceReservations.markOwnedWorkspaceMissing(identity, leaseToken);
+          return c.json({ status: 'provisioning' as const }, 202);
+        }
+        await issueWorkspaceReservations.markReservationRecoverable(identity, leaseToken, error);
+        throw error;
+      } finally {
+        clearInterval(leaseHeartbeat);
+      }
     },
   );
 
@@ -402,6 +506,29 @@ function asRecord(value: unknown): Record<string, unknown> | null {
 
 function asString(value: unknown): string | undefined {
   return typeof value === 'string' ? value : undefined;
+}
+
+function parseIssueWorkspaceReservationRequest(
+  value: Record<string, unknown> | null,
+): GithubIssueWorkspaceReservationRequest | null {
+  const repoId = asString(value?.repoId)?.trim();
+  const targetBranch = asString(value?.targetBranch)?.trim();
+  const createBranch = value?.createBranch;
+  const checkoutBranch = value?.checkoutBranch;
+  const name = value?.name;
+  if (!(repoId && targetBranch && typeof createBranch === 'boolean')) return null;
+  if (!createBranch && !(typeof checkoutBranch === 'string' && checkoutBranch.trim())) return null;
+  if (!(name === undefined || name === null || typeof name === 'string')) return null;
+  return {
+    repoId,
+    targetBranch,
+    createBranch,
+    checkoutBranch:
+      typeof checkoutBranch === 'string' && checkoutBranch.trim()
+        ? checkoutBranch.trim()
+        : null,
+    name: typeof name === 'string' && name.trim() ? name.trim() : null,
+  };
 }
 
 function parseIssueIdentityParams(params: {

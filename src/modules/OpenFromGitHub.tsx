@@ -24,6 +24,7 @@ import {
 import {
   vkClient,
   type GithubAssociatedPullRequest,
+  type GitBranch,
   type PullRequestDetail,
   type Workspace as VkWorkspace,
   type WorkspaceSummary,
@@ -146,9 +147,10 @@ type DialogState =
       target:
         | Extract<PendingTarget, { type: "create-issue" }>
         | Extract<PendingTarget, { type: "create-tree-blob" }>;
-      branches: string[];
+      branches: GitBranch[];
       selectedBranch: string;
       defaultCreateBranch: boolean;
+      protectionStatus: "protected" | "unprotected" | "unknown";
     }
   | {
       type: "choose-space";
@@ -381,9 +383,9 @@ export function OpenFromGitHub({
   ) => {
     try {
       const branches = await vkClient.getRepoBranches(target.match.repo.id);
-      const available = branches
-        .map((branch) => branch.name)
-        .filter((branch) => branchBelongsToRemoteOrLocal(branch, target.match.remote.name));
+      const available = branches.filter((branch) =>
+        branchBelongsToRemoteOrLocal(branch.name, target.match.remote.name),
+      );
       const selectedBranch = target.type === "create-tree-blob"
         ? target.targetBranch
         : await getIssueTargetBranch(target.match);
@@ -394,7 +396,7 @@ export function OpenFromGitHub({
       const defaultCreateBranch =
         selectedBranch === configuredDefault ||
         selectedBranch === `${target.match.remote.name}/main`;
-      const isProtected = await vkClient
+      const protectionStatus = await vkClient
         .getGithubBranchProtection(
           target.match.remote.url,
           getGithubRefForTargetBranchName(
@@ -402,16 +404,26 @@ export function OpenFromGitHub({
             target.match.remote.name,
           ),
         )
-        .then((result) => result.protected)
-        .catch(() => false);
+        .then((result) => result.protected ? "protected" as const : "unprotected" as const)
+        .catch(() => "unknown" as const);
+      const selectedMetadata = available.find((branch) => branch.name === selectedBranch) ?? {
+        name: selectedBranch,
+        is_current: false,
+        is_remote: selectedBranch.startsWith(`${target.match.remote.name}/`),
+        last_commit_date: new Date(0),
+      };
       setDialog({
         type: "choose-work-mode",
         target,
-        branches: available.includes(selectedBranch)
+        branches: available.some((branch) => branch.name === selectedBranch)
           ? available
-          : [selectedBranch, ...available],
+          : [selectedMetadata, ...available],
         selectedBranch,
-        defaultCreateBranch: defaultCreateBranch || isProtected,
+        defaultCreateBranch:
+          selectedMetadata.is_remote ||
+          defaultCreateBranch ||
+          protectionStatus !== "unprotected",
+        protectionStatus,
       });
     } catch (error) {
       setDialog({
@@ -686,7 +698,20 @@ export function OpenFromGitHub({
     if (target.type === "create-issue") {
       const targetBranch = target.targetBranch ?? await getIssueTargetBranch(target.match);
       if (!isCurrentTarget()) throw new StaleOpenFromGithubRunError();
-      const workspace = await createIssueWorkspaceOnce(target, targetBranch);
+      const workspace = (
+        await vkClient.resolveOrCreateGithubIssueWorkspace({
+          owner: target.issue.owner.toLowerCase(),
+          repo: target.issue.repo.toLowerCase(),
+          repo_id: target.match.repo.id,
+          target_branch: targetBranch,
+          issue_url: target.issue.normalizedIssueUrl,
+          issue_number: target.issue.number,
+          run_setup: true,
+          create_branch: target.createBranch ?? true,
+          checkout_branch: target.createBranch === false ? target.checkoutBranch : null,
+          name: target.workspaceName,
+        })
+      ).workspace;
       if (!isCurrentTarget()) throw new StaleOpenFromGithubRunError();
       return workspace;
     }
@@ -1492,6 +1517,7 @@ export function OpenFromGitHub({
       }}
       onConfirmWorkMode={({ branch, createBranch, workspaceName, voyageId, voyageName, spaceId }) => {
         if (dialog?.type !== "choose-work-mode") return;
+        if (!createBranch && dialog.branches.find((entry) => entry.name === branch)?.is_remote) return;
         const configuredDefault = getRemoteDefaultBranch(
           dialog.target.match.repo.default_target_branch,
           dialog.target.match.remote.name,
@@ -1608,61 +1634,6 @@ function isNotFoundError(error: unknown): boolean {
       "status" in error &&
       (error as { status?: unknown }).status === 404,
   );
-}
-
-const issueWorkspaceCreations = new Map<string, Promise<VkWorkspace>>();
-
-function createIssueWorkspaceOnce(
-  target: Extract<PendingTarget, { type: "create-issue" }>,
-  targetBranch: string,
-): Promise<VkWorkspace> {
-  const key = `${target.issue.owner.toLowerCase()}/${target.issue.repo.toLowerCase()}#${target.issue.number}`;
-  const active = issueWorkspaceCreations.get(key);
-  if (active) return active;
-
-  const creation = (async () => {
-    const workspace = (
-      await vkClient.createWorkspaceFromIssue({
-        repo_id: target.match.repo.id,
-        target_branch: targetBranch,
-        issue_url: target.issue.normalizedIssueUrl,
-        issue_number: target.issue.number,
-        run_setup: true,
-        create_branch: target.createBranch ?? true,
-        checkout_branch: target.createBranch === false ? target.checkoutBranch : null,
-        name: target.workspaceName,
-      })
-    ).workspace;
-
-    let lastError: unknown;
-    for (let attempt = 1; attempt <= 3; attempt += 1) {
-      try {
-        await vkClient.putGithubIssueWorkspaceMapping({
-          owner: target.issue.owner.toLowerCase(),
-          repo: target.issue.repo.toLowerCase(),
-          number: target.issue.number,
-          workspaceId: workspace.id,
-          branch: workspace.branch,
-        });
-        return workspace;
-      } catch (error) {
-        lastError = error;
-        if (attempt < 3) {
-          await new Promise((resolve) => setTimeout(resolve, attempt * 250));
-        }
-      }
-    }
-
-    const detail = lastError instanceof Error ? ` ${lastError.message}` : "";
-    throw new Error(
-      `Workspace ${workspace.name || workspace.id} was created, but VD could not save its GitHub issue mapping after three attempts. The workspace was left intact. Open it from VK and retry the issue later.${detail}`,
-    );
-  })().finally(() => {
-    issueWorkspaceCreations.delete(key);
-  });
-
-  issueWorkspaceCreations.set(key, creation);
-  return creation;
 }
 
 function getGithubRefForTargetBranchName(
@@ -1802,6 +1773,9 @@ function OpenFromGithubDialog({
   const [newVoyageName, setNewVoyageName] = useState("");
   const [workModeBranch, setWorkModeBranch] = useState("");
   const [createWorkBranch, setCreateWorkBranch] = useState(true);
+  const [branchProtectionStatus, setBranchProtectionStatus] = useState<
+    "protected" | "unprotected" | "unknown"
+  >("unknown");
   const [workspaceName, setWorkspaceName] = useState("");
   const [workModeVoyageId, setWorkModeVoyageId] = useState("");
   const [workModeSpaceId, setWorkModeSpaceId] = useState("");
@@ -1811,6 +1785,7 @@ function OpenFromGithubDialog({
     if (state?.type !== "choose-work-mode") return;
     setWorkModeBranch(state.selectedBranch);
     setCreateWorkBranch(state.defaultCreateBranch);
+    setBranchProtectionStatus(state.protectionStatus);
     setWorkspaceName(
       state.target.type === "create-issue"
         ? `Issue #${state.target.issue.number}`
@@ -1832,25 +1807,33 @@ function OpenFromGithubDialog({
   const selectWorkModeBranch = async (branch: string) => {
     const request = ++branchProtectionRequestRef.current;
     setWorkModeBranch(branch);
+    setCreateWorkBranch(true);
+    setBranchProtectionStatus("unknown");
     if (state.type !== "choose-work-mode") return;
     const configuredDefault = getRemoteDefaultBranch(
       state.target.match.repo.default_target_branch,
       state.target.match.remote.name,
     );
-    const isProtected = await vkClient
+    const protectionStatus = await vkClient
       .getGithubBranchProtection(
         state.target.match.remote.url,
         getGithubRefForTargetBranchName(branch, state.target.match.remote.name),
       )
-      .then((result) => result.protected)
-      .catch(() => false);
+      .then((result) => result.protected ? "protected" as const : "unprotected" as const)
+      .catch(() => "unknown" as const);
     if (request !== branchProtectionRequestRef.current) return;
+    setBranchProtectionStatus(protectionStatus);
     setCreateWorkBranch(
-      branch === configuredDefault ||
+      state.branches.find((entry) => entry.name === branch)?.is_remote !== false ||
+        branch === configuredDefault ||
         branch === `${state.target.match.remote.name}/main` ||
-        isProtected,
+        protectionStatus !== "unprotected",
     );
   };
+  const selectedWorkModeBranch = state.type === "choose-work-mode"
+    ? state.branches.find((branch) => branch.name === workModeBranch)
+    : undefined;
+  const canWorkDirectly = selectedWorkModeBranch?.is_remote === false;
   const title =
     state.type === "choose-repo"
       ? "Choose repository"
@@ -2046,19 +2029,22 @@ function OpenFromGithubDialog({
             <label className="block text-sm text-neutral-300">
               Branch
               <select value={workModeBranch} onChange={(event) => void selectWorkModeBranch(event.target.value)} className="mt-1 w-full rounded-lg border border-neutral-700 bg-neutral-800 p-2 text-white">
-                {state.branches.map((branch) => <option key={branch} value={branch}>{branch}</option>)}
+                {state.branches.map((branch) => <option key={branch.name} value={branch.name}>{branch.name}</option>)}
               </select>
             </label>
             <div className="grid gap-2 sm:grid-cols-2">
-              <button type="button" aria-pressed={!createWorkBranch} className={`rounded-lg border p-3 text-left ${!createWorkBranch ? "border-blue-500 bg-blue-500/10" : "border-neutral-700 bg-neutral-800"}`} onClick={() => setCreateWorkBranch(false)}>
+              <button type="button" disabled={!canWorkDirectly} aria-pressed={!createWorkBranch} className={`rounded-lg border p-3 text-left disabled:cursor-not-allowed disabled:opacity-50 ${!createWorkBranch ? "border-blue-500 bg-blue-500/10" : "border-neutral-700 bg-neutral-800"}`} onClick={() => setCreateWorkBranch(false)}>
                 <div className="text-sm font-medium text-white">Work directly</div>
-                <div className="mt-1 text-xs text-neutral-400">Commit on {workModeBranch} and target the repository default branch.</div>
+                <div className="mt-1 text-xs text-neutral-400">{canWorkDirectly ? `Commit on ${workModeBranch} and target the repository default branch.` : "Direct work requires an existing local branch; remote branches can only be used as the base for a new workspace branch."}</div>
               </button>
               <button type="button" aria-pressed={createWorkBranch} className={`rounded-lg border p-3 text-left ${createWorkBranch ? "border-blue-500 bg-blue-500/10" : "border-neutral-700 bg-neutral-800"}`} onClick={() => setCreateWorkBranch(true)}>
                 <div className="text-sm font-medium text-white">Create a new branch</div>
                 <div className="mt-1 text-xs text-neutral-400">Start an editable workspace branch from {workModeBranch}.</div>
               </button>
             </div>
+            {branchProtectionStatus === "unknown" ? (
+              <div className="text-xs text-amber-300">Branch protection could not be verified. Creating a new branch is the safe default; direct work remains available for an eligible local branch.</div>
+            ) : null}
             {createWorkBranch ? (
               <label className="block text-sm text-neutral-300">
                 Suggested workspace name

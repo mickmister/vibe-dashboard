@@ -148,6 +148,12 @@ export interface CreateWorkspaceFromIssueResponse {
   workspace: Workspace;
 }
 
+interface ResolveOrCreateIssueWorkspaceResponse {
+  status: "provisioning" | "ready";
+  workspace?: Workspace;
+  created?: boolean;
+}
+
 export interface CreateWorkspaceFromTreeBlobBody {
   repo_id: string;
   target_branch: string;
@@ -339,6 +345,26 @@ export class VibeKanbanClient {
     return this.dashboardDelete(
       `/dashboard/api/github/issue-workspaces/${encodeURIComponent(args.owner)}/${encodeURIComponent(args.repo)}/${args.number}`,
     );
+  }
+
+  async resolveOrCreateGithubIssueWorkspace(
+    body: CreateWorkspaceFromIssueBody & { owner: string; repo: string },
+  ): Promise<CreateWorkspaceFromIssueResponse> {
+    const path = `/dashboard/api/github/issue-workspaces/${encodeURIComponent(body.owner)}/${encodeURIComponent(body.repo)}/${body.issue_number}/resolve-or-create`;
+    for (let attempt = 0; attempt < 240; attempt += 1) {
+      const result = await this.dashboardPost<ResolveOrCreateIssueWorkspaceResponse>(path, {
+        repoId: body.repo_id,
+        targetBranch: body.target_branch,
+        createBranch: body.create_branch ?? true,
+        checkoutBranch: body.checkout_branch ?? null,
+        name: body.name ?? null,
+      });
+      if (result.status === "ready" && result.workspace) {
+        return { workspace: result.workspace };
+      }
+      await new Promise((resolve) => setTimeout(resolve, 500));
+    }
+    throw new Error("Timed out waiting for the GitHub issue workspace reservation.");
   }
 
   ensureGithubRepo(

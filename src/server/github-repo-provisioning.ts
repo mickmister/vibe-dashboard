@@ -86,9 +86,24 @@ export async function ensureGithubRepoRegistered(
   const upstreamIdentity = request.upstreamRepoUrl
     ? parseGithubRepoUrl(request.upstreamRepoUrl)
     : null;
-  const provisioningKey = `${identity.normalizedRepo}:${upstreamIdentity?.normalizedRepo ?? ''}`;
+  // One local destination exists per cloned identity. Upstream setup is part of
+  // provisioning that destination, not a separate clone operation.
+  const provisioningKey = identity.normalizedRepo;
   const keyedActive = repoProvisioning.get(provisioningKey);
-  if (keyedActive) return keyedActive;
+  if (keyedActive) {
+    const result = await keyedActive;
+    if (
+      upstreamIdentity &&
+      upstreamIdentity.normalizedRepo !== identity.normalizedRepo
+    ) {
+      await ensureUpstreamRemote(
+        result.path,
+        upstreamIdentity.cloneUrl,
+        options.execFile ?? defaultExecFile,
+      );
+    }
+    return result;
+  }
 
   const provisioning = provisionGithubRepo(identity, options, upstreamIdentity).finally(() => {
     repoProvisioning.delete(provisioningKey);
@@ -111,7 +126,8 @@ async function provisionGithubRepo(
 
   await mkdir(reposRoot, { recursive: true });
   const localPath = await resolveLocalRepoPath(reposRoot, identity, exec);
-  const existed = await isDirectory(localPath);
+  let existed = await isDirectory(localPath);
+  const initiallyExisted = existed;
 
   if (existed) {
     await refreshExistingClone(localPath, exec);
@@ -138,7 +154,24 @@ async function provisionGithubRepo(
           upstreamIdentity.cloneUrl,
         ]);
       }
-      await rename(temporaryPath, localPath);
+      try {
+        await rename(temporaryPath, localPath);
+      } catch (error) {
+        if (!(isRenameCollision(error) && await isMatchingGitRepo(localPath, identity, exec))) {
+          throw error;
+        }
+        // Another in-process provisioner won the atomic destination rename.
+        // Reuse only a clone whose origin matches the requested repository.
+        await rm(temporaryPath, { recursive: true, force: true });
+        existed = true;
+      }
+      if (
+        existed &&
+        upstreamIdentity &&
+        upstreamIdentity.normalizedRepo !== identity.normalizedRepo
+      ) {
+        await ensureUpstreamRemote(localPath, upstreamIdentity.cloneUrl, exec);
+      }
     } catch (error) {
       await rm(temporaryPath, { recursive: true, force: true });
       throw error;
@@ -153,8 +186,8 @@ async function provisionGithubRepo(
     return {
       repo: existingRepo,
       path: localPath,
-      cloned: !existed,
-      refreshed: existed,
+      cloned: !initiallyExisted,
+      refreshed: initiallyExisted,
       registered: false,
     };
   }
@@ -167,10 +200,27 @@ async function provisionGithubRepo(
   return {
     repo,
     path: localPath,
-    cloned: !existed,
-    refreshed: existed,
+    cloned: !initiallyExisted,
+    refreshed: initiallyExisted,
     registered: true,
   };
+}
+
+function isRenameCollision(error: unknown): boolean {
+  return Boolean(
+    error &&
+      typeof error === 'object' &&
+      'code' in error &&
+      ['EEXIST', 'ENOTEMPTY'].includes(String((error as NodeJS.ErrnoException).code)),
+  );
+}
+
+async function isMatchingGitRepo(
+  path: string,
+  identity: GithubRepoIdentity,
+  exec: ExecFileLike,
+): Promise<boolean> {
+  return (await classifyCandidate(path, identity, exec)) === 'matching-git-repo';
 }
 
 async function ensureUpstreamRemote(

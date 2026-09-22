@@ -134,23 +134,34 @@ export async function upsertExternalIssueWorkspaceMapping(
     .where('workspaceId', '=', workspace.workspaceId)
     .executeTakeFirstOrThrow();
 
-  await db
-    .insertInto('ExternalIssueWorkspaceLink')
-    .values({
-      id: randomUUID(),
-      externalIssueId: externalIssueRow.id,
-      vkWorkspaceId: workspaceRow.id,
-      isPrimary: args.isPrimary ? 1 : 0,
-      lastOpenedAt: args.lastOpenedAt ?? null,
-      metadataJson: stringifyMetadata(args.metadata),
-    })
-    .onConflict((oc) => oc.columns(['externalIssueId', 'vkWorkspaceId']).doUpdateSet({
-      isPrimary: args.isPrimary ? 1 : 0,
-      lastOpenedAt: args.lastOpenedAt ?? null,
-      metadataJson: stringifyMetadata(args.metadata),
-      updatedAt: sql`CURRENT_TIMESTAMP`,
-    }))
-    .execute();
+  await db.transaction().execute(async (trx) => {
+    if (args.isPrimary) {
+      await trx
+        .updateTable('ExternalIssueWorkspaceLink')
+        .set({ isPrimary: 0, updatedAt: sql`CURRENT_TIMESTAMP` })
+        .where('externalIssueId', '=', externalIssueRow.id)
+        .where(sql<boolean>`"isPrimary" = 1`)
+        .execute();
+    }
+
+    await trx
+      .insertInto('ExternalIssueWorkspaceLink')
+      .values({
+        id: randomUUID(),
+        externalIssueId: externalIssueRow.id,
+        vkWorkspaceId: workspaceRow.id,
+        isPrimary: args.isPrimary ? 1 : 0,
+        lastOpenedAt: args.lastOpenedAt ?? null,
+        metadataJson: stringifyMetadata(args.metadata),
+      })
+      .onConflict((oc) => oc.columns(['externalIssueId', 'vkWorkspaceId']).doUpdateSet({
+        isPrimary: args.isPrimary ? 1 : 0,
+        lastOpenedAt: args.lastOpenedAt ?? null,
+        metadataJson: stringifyMetadata(args.metadata),
+        updatedAt: sql`CURRENT_TIMESTAMP`,
+      }))
+      .execute();
+  });
 
   return {
     externalIssue: denormalizeExternalIssueRef(externalIssue),
