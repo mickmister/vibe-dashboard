@@ -154,7 +154,7 @@ export class GithubIssueWorkspaceDbStore implements GithubIssueWorkspaceStore {
     if (row.leaseToken === token) {
       return { acquired: true, reservation: parseReservation(row) };
     }
-    if (row.state === 'ready') {
+    if (row.state === 'ready' || row.state === 'manual_recovery') {
       return { acquired: false, reservation: parseReservation(row) };
     }
 
@@ -231,6 +231,28 @@ export class GithubIssueWorkspaceDbStore implements GithubIssueWorkspaceStore {
       leaseExpiresAt: null,
       lastError: error instanceof Error ? error.message : String(error),
     });
+  }
+
+  async markReservationManualRecoveryRequired(
+    identity: GithubIssueIdentity,
+    _leaseToken: string,
+    error: unknown,
+  ): Promise<void> {
+    const db = await this.getDb();
+    const result = await db
+      .updateTable('GithubIssueWorkspaceReservation')
+      .set({
+        state: 'manual_recovery',
+        leaseToken: null,
+        leaseExpiresAt: null,
+        lastError: error instanceof Error ? error.message : String(error),
+        updatedAt: sql`CURRENT_TIMESTAMP`,
+      })
+      .where('issueKey', '=', issueKey(identity))
+      .executeTakeFirst();
+    if (Number(result.numUpdatedRows) !== 1) {
+      throw new Error(`GitHub issue workspace reservation was not found for ${issueKey(identity)}`);
+    }
   }
 
   async markReadyWorkspaceMissing(identity: GithubIssueIdentity): Promise<void> {

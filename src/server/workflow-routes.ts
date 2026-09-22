@@ -43,7 +43,7 @@ export interface RegisterWorkflowRoutesOptions {
   githubIssueWorkspaceReservations?: GithubIssueWorkspaceDbStore;
   githubIssueWorkspaceVkClient?: Pick<
     VibeKanbanServerClient,
-    'createAndStartWorkspace' | 'getWorkspace'
+    'createAndStartWorkspace' | 'getWorkspace' | 'updateWorkspace'
   >;
 }
 
@@ -156,6 +156,16 @@ export function registerWorkflowRoutes(
 
       const claim = await issueWorkspaceReservations.claimReservation(identity, request);
       if (!claim.acquired) {
+        if (claim.reservation.state === 'manual_recovery') {
+          return c.json(
+            {
+              status: 'manual_recovery' as const,
+              error: 'GitHub issue workspace reservation requires operator recovery before retrying.',
+              lastError: claim.reservation.lastError,
+            },
+            409,
+          );
+        }
         if (claim.reservation.state !== 'ready') {
           return c.json({ status: 'provisioning' as const }, 202);
         }
@@ -182,6 +192,7 @@ export function registerWorkflowRoutes(
           .renewReservationLease(identity, leaseToken)
           .catch((error) => console.error('Failed to renew GitHub issue workspace reservation', error));
       }, 30_000);
+      let reservationFailureRecorded = false;
       try {
         let workspace;
         if (claim.reservation.workspaceId) {
@@ -202,12 +213,38 @@ export function registerWorkflowRoutes(
             attachment_ids: null,
           });
           workspace = response.workspace;
-          await issueWorkspaceReservations.recordWorkspace(
-            identity,
-            leaseToken,
-            workspace.id,
-            workspace.branch,
-          );
+          try {
+            await issueWorkspaceReservations.recordWorkspace(
+              identity,
+              leaseToken,
+              workspace.id,
+              workspace.branch,
+            );
+          } catch (recordError) {
+            try {
+              await issueWorkspaceVkClient.updateWorkspace(workspace.id, { archived: true });
+              reservationFailureRecorded = true;
+              await issueWorkspaceReservations.markReservationRecoverable(
+                identity,
+                leaseToken,
+                new Error(
+                  `Created VK workspace ${workspace.id}, failed to record it on the GitHub issue reservation, and archived it for safe retry. Original error: ${formatErrorForOperator(recordError)}`,
+                ),
+              );
+            } catch (cleanupError) {
+              const manualRecoveryError = new Error(
+                `Created VK workspace ${workspace.id} for ${identity.normalizedIssueUrl}, but failed to record it on the durable reservation and failed to archive it. Manual recovery required before retrying, or a duplicate workspace may be created. Record error: ${formatErrorForOperator(recordError)}. Cleanup error: ${formatErrorForOperator(cleanupError)}`,
+              );
+              reservationFailureRecorded = true;
+              await issueWorkspaceReservations.markReservationManualRecoveryRequired(
+                identity,
+                leaseToken,
+                manualRecoveryError,
+              );
+              throw manualRecoveryError;
+            }
+            throw recordError;
+          }
         }
 
         await issueWorkspaceMap.upsert({
@@ -226,7 +263,9 @@ export function registerWorkflowRoutes(
           await issueWorkspaceReservations.markOwnedWorkspaceMissing(identity, leaseToken);
           return c.json({ status: 'provisioning' as const }, 202);
         }
-        await issueWorkspaceReservations.markReservationRecoverable(identity, leaseToken, error);
+        if (!reservationFailureRecorded) {
+          await issueWorkspaceReservations.markReservationRecoverable(identity, leaseToken, error);
+        }
         throw error;
       } finally {
         clearInterval(leaseHeartbeat);
@@ -506,6 +545,10 @@ function asRecord(value: unknown): Record<string, unknown> | null {
 
 function asString(value: unknown): string | undefined {
   return typeof value === 'string' ? value : undefined;
+}
+
+function formatErrorForOperator(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
 }
 
 function parseIssueWorkspaceReservationRequest(

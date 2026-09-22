@@ -180,6 +180,7 @@ describe("registerWorkflowRoutes", () => {
       githubIssueWorkspaceVkClient: {
         createAndStartWorkspace,
         getWorkspace: vi.fn(async () => workspace),
+        updateWorkspace: vi.fn(),
       },
     });
     const request = () => app.request(
@@ -215,6 +216,78 @@ describe("registerWorkflowRoutes", () => {
     await handle.db.destroy();
     handle.sqlite.close();
   });
+
+  it("requires manual recovery when workspace creation succeeds but reservation recording and cleanup fail", async () => {
+    const handle = await initExternalIntegrationsDb({ path: ":memory:" });
+    class RecordFailingStore extends GithubIssueWorkspaceDbStore {
+      override async recordWorkspace(): Promise<void> {
+        throw new Error("reservation write failed");
+      }
+    }
+    const store = new RecordFailingStore({ getDb: async () => handle.db });
+    const workspace = {
+      id: "ws-untracked",
+      task_id: null,
+      container_ref: null,
+      branch: "vk/issue-42",
+      agent_working_dir: null,
+      created_at: "2026-09-22T00:00:00Z",
+      updated_at: "2026-09-22T00:00:00Z",
+      archived: false,
+      pinned: false,
+      name: "Issue #42",
+    };
+    const createAndStartWorkspace = vi.fn(async () => ({
+      workspace,
+      execution_process: undefined as never,
+    }));
+    const updateWorkspace = vi.fn(async () => {
+      throw new Error("archive failed");
+    });
+    const app = new Hono();
+    registerWorkflowRoutes(app, {
+      registry: createWorkflowRegistry(),
+      githubIssueWorkspaceMap: store,
+      githubIssueWorkspaceReservations: store,
+      githubIssueWorkspaceVkClient: {
+        createAndStartWorkspace,
+        getWorkspace: vi.fn(async () => workspace),
+        updateWorkspace,
+      },
+    });
+    const request = () => app.request(
+      "/dashboard/api/github/issue-workspaces/Owner/Repo/42/resolve-or-create",
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          repoId: "repo-id",
+          targetBranch: "origin/main",
+          createBranch: true,
+          checkoutBranch: null,
+          name: "Issue #42",
+        }),
+      },
+    );
+
+    const first = await request();
+    expect(first.status).toBe(500);
+    expect(createAndStartWorkspace).toHaveBeenCalledTimes(1);
+    expect(updateWorkspace).toHaveBeenCalledWith("ws-untracked", { archived: true });
+
+    const retry = await request();
+    expect(retry.status).toBe(409);
+    await expect(retry.json()).resolves.toMatchObject({
+      status: "manual_recovery",
+      error: expect.stringContaining("operator recovery"),
+      lastError: expect.stringContaining("Manual recovery required"),
+    });
+    expect(createAndStartWorkspace).toHaveBeenCalledTimes(1);
+
+    await handle.db.destroy();
+    handle.sqlite.close();
+  });
+
 
   it("ensures a GitHub repo via the provisioning route", async () => {
     const reposRoot = await mkdtemp(join(tmpdir(), "vd-route-repos-"));

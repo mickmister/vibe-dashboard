@@ -353,6 +353,13 @@ export class VibeKanbanServerClient {
     return this.post('/workspaces/start', body);
   }
 
+  updateWorkspace(
+    workspaceId: string,
+    body: { archived?: boolean; pinned?: boolean; name?: string },
+  ): Promise<Workspace> {
+    return this.put(`/workspaces/${encodeURIComponent(workspaceId)}`, body);
+  }
+
   getExecutionProcess(processId: string): Promise<ExecutionProcess> {
     return this.get(`/execution-processes/${encodeURIComponent(processId)}`);
   }
@@ -430,6 +437,13 @@ export class VibeKanbanServerClient {
   private post<T>(path: string, body: unknown): Promise<T> {
     return this.request<T>(path, {
       method: 'POST',
+      body: JSON.stringify(body),
+    });
+  }
+
+  private put<T>(path: string, body: unknown): Promise<T> {
+    return this.request<T>(path, {
+      method: 'PUT',
       body: JSON.stringify(body),
     });
   }

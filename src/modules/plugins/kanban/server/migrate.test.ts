@@ -44,6 +44,7 @@ describe('external integrations migrations', () => {
         '20260702020000_external_repo_project_mappings',
         '20260804220000_external_repo_project_mapping_site_scope',
         '20260922000000_github_issue_workspace_reservations',
+        '20260922001000_external_issue_workspace_primary_invariant',
       ]);
       expect(second).toEqual([]);
 
@@ -70,6 +71,101 @@ describe('external integrations migrations', () => {
       sqlite.close();
     }
   });
+
+  it('normalizes duplicate primary workspace links before adding the one-primary invariant', async () => {
+    const sqlite = new Database(':memory:');
+    const db = new Kysely<DB>({ dialect: new SqliteDialect({ database: sqlite }) });
+
+    try {
+      const mappingMigration = migrations.find((migration) => migration.name === '20260702010000_external_issue_workspace_mappings');
+      const reservationMigration = migrations.find((migration) => migration.name === '20260922000000_github_issue_workspace_reservations');
+      const invariantMigration = migrations.find((migration) => migration.name === '20260922001000_external_issue_workspace_primary_invariant');
+      expect(mappingMigration).toBeTruthy();
+      expect(reservationMigration).toBeTruthy();
+      expect(invariantMigration).toBeTruthy();
+      await executeSqlMigration(db, mappingMigration!.migration);
+      await executeSqlMigration(db, reservationMigration!.migration);
+
+      await db.insertInto('ExternalIssue').values({
+        id: 'issue-1',
+        provider: 'github',
+        issueKey: 'owner/repo#42',
+        issueId: null,
+        issueUrl: 'https://github.com/owner/repo/issues/42',
+        site: 'github.com',
+        metadataJson: null,
+      }).execute();
+      await db.insertInto('VKWorkspace').values([
+        { id: 'workspace-old', workspaceId: 'ws-old', workspaceDir: null, displayName: null, metadataJson: null },
+        { id: 'workspace-new', workspaceId: 'ws-new', workspaceDir: null, displayName: null, metadataJson: null },
+      ]).execute();
+      await db.insertInto('ExternalIssueWorkspaceLink').values([
+        {
+          id: 'link-old',
+          externalIssueId: 'issue-1',
+          vkWorkspaceId: 'workspace-old',
+          isPrimary: 1,
+          lastOpenedAt: '2026-09-21T00:00:00.000Z',
+          metadataJson: null,
+        },
+        {
+          id: 'link-new',
+          externalIssueId: 'issue-1',
+          vkWorkspaceId: 'workspace-new',
+          isPrimary: 1,
+          lastOpenedAt: '2026-09-22T00:00:00.000Z',
+          metadataJson: null,
+        },
+      ]).execute();
+
+      await executeSqlMigration(db, invariantMigration!.migration);
+      await expect(db.insertInto('GithubIssueWorkspaceReservation').values({
+        id: 'reservation-manual',
+        issueKey: 'owner/repo#43',
+        owner: 'owner',
+        repo: 'repo',
+        issueNumber: 43,
+        issueUrl: 'https://github.com/owner/repo/issues/43',
+        state: 'manual_recovery',
+        requestJson: '{}',
+        workspaceId: null,
+        branch: null,
+        leaseToken: null,
+        leaseExpiresAt: null,
+        lastError: 'operator recovery required',
+      }).execute()).resolves.toBeDefined();
+
+      const links = await db
+        .selectFrom('ExternalIssueWorkspaceLink')
+        .select(['id', 'isPrimary'])
+        .orderBy('id')
+        .execute();
+      expect(links).toEqual([
+        { id: 'link-new', isPrimary: 1 },
+        { id: 'link-old', isPrimary: 0 },
+      ]);
+
+      await expect(db.insertInto('VKWorkspace').values({
+        id: 'workspace-third',
+        workspaceId: 'ws-third',
+        workspaceDir: null,
+        displayName: null,
+        metadataJson: null,
+      }).execute()).resolves.toBeDefined();
+      await expect(db.insertInto('ExternalIssueWorkspaceLink').values({
+        id: 'link-third',
+        externalIssueId: 'issue-1',
+        vkWorkspaceId: 'workspace-third',
+        isPrimary: 1,
+        lastOpenedAt: '2026-09-23T00:00:00.000Z',
+        metadataJson: null,
+      }).execute()).rejects.toThrow();
+    } finally {
+      await db.destroy();
+      sqlite.close();
+    }
+  });
+
 
   it('scopes repo project defaults by provider site for Linear-compatible mappings', async () => {
     const sqlite = new Database(':memory:');
@@ -174,6 +270,7 @@ describe('external integrations migrations', () => {
       expect(applied).toEqual([
         '20260804220000_external_repo_project_mapping_site_scope',
         '20260922000000_github_issue_workspace_reservations',
+        '20260922001000_external_issue_workspace_primary_invariant',
       ]);
 
       await db.insertInto('ExternalRepoProjectMapping').values([
