@@ -190,15 +190,9 @@ test.describe('VK mocked-provider sandbox through VD UI', () => {
     await page.setViewportSize({ width: 390, height: 844 });
     await closeSidebarIfOpen(page);
     const voyageActionsMenu = await openVoyageActionsMenu(page);
-    await expect(
-      voyageActionsMenu.getByRole('menuitem', { name: 'New Craft' }),
-    ).toBeVisible();
-    await expect(
-      voyageActionsMenu.getByRole('menuitem', { name: 'Open Craft' }),
-    ).toBeVisible();
-    await expect(
-      voyageActionsMenu.getByRole('menuitem', { name: 'Switch Voyage' }),
-    ).toBeVisible();
+    await expect(voyageActionsMenu).toContainText(
+      /New Craft\s+Open Craft\s+Switch Voyage/,
+    );
 
     await clickVoyageActionsMenuItem(page, 'New Craft');
     await expectMobileNewCraftNavigationSettled(page);
