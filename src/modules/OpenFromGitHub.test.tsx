@@ -16,6 +16,8 @@ vi.mock("../lib/vk-client", () => ({
     getRepoBranches: vi.fn(),
     ensureGithubRepo: vi.fn(),
     getGithubRepoAccess: vi.fn(),
+    getGithubIssuePullRequests: vi.fn(),
+    getGithubBranchProtection: vi.fn(),
     createWorkspaceFromPr: vi.fn(),
     createWorkspaceFromIssue: vi.fn(),
     createWorkspaceFromTreeBlob: vi.fn(),
@@ -39,7 +41,7 @@ async function acceptSuggestedWorkMode(
   findByText: ReturnType<typeof render>["findByText"],
 ) {
   await findByText("Choose branch and workspace mode");
-  fireEvent.click(await findByText("Continue"));
+  fireEvent.click(await findByText("Create workspace"));
 }
 
 const emptyWorkspace = {
@@ -181,6 +183,10 @@ describe("OpenFromGitHub", () => {
     vi.mocked(vkClient.getRepoBranches).mockReset();
     vi.mocked(vkClient.ensureGithubRepo).mockReset();
     vi.mocked(vkClient.getGithubRepoAccess).mockReset();
+    vi.mocked(vkClient.getGithubIssuePullRequests).mockReset();
+    vi.mocked(vkClient.getGithubIssuePullRequests).mockResolvedValue({ pullRequests: [] });
+    vi.mocked(vkClient.getGithubBranchProtection).mockReset();
+    vi.mocked(vkClient.getGithubBranchProtection).mockResolvedValue({ protected: false });
     vi.mocked(vkClient.createWorkspaceFromPr).mockReset();
     vi.mocked(vkClient.createWorkspaceFromIssue).mockReset();
     vi.mocked(vkClient.createWorkspaceFromTreeBlob).mockReset();
@@ -664,7 +670,7 @@ describe("OpenFromGitHub", () => {
     expect(vkClient.createWorkspaceFromTreeBlob).not.toHaveBeenCalled();
   });
 
-  it("creates a workspace branch from a tree URL remote branch and shows V1 limitation copy", async () => {
+  it("defaults a protected feature branch to creating a workspace branch", async () => {
     vi.mocked(vkClient.getRepos).mockResolvedValue([
       { id: "repo-1", name: "repo", display_name: "Repo" },
     ]);
@@ -679,6 +685,7 @@ describe("OpenFromGitHub", () => {
         last_commit_date: "2026-06-22T00:00:00Z",
       },
     ]);
+    vi.mocked(vkClient.getGithubBranchProtection).mockResolvedValue({ protected: true });
     vi.mocked(vkClient.createWorkspaceFromTreeBlob).mockResolvedValue({
       workspace: {
         id: "ws-tree",
@@ -700,14 +707,14 @@ describe("OpenFromGitHub", () => {
     );
 
     await acceptSuggestedWorkMode(findByText);
-    fireEvent.click(await findByText("A"));
 
     await waitFor(() => {
       expect(vkClient.createWorkspaceFromTreeBlob).toHaveBeenCalledWith(
         expect.objectContaining({
           repo_id: "repo-1",
-          target_branch: "origin/main",
-          checkout_branch: "origin/feature/demo",
+          target_branch: "origin/feature/demo",
+          create_branch: true,
+          checkout_branch: null,
           kind: "tree",
           path: "src",
         }),
@@ -756,7 +763,6 @@ describe("OpenFromGitHub", () => {
     );
 
     await acceptSuggestedWorkMode(findByText);
-    fireEvent.click(await findByText("A"));
 
     await waitFor(() => {
       expect(vkClient.createWorkspaceFromTreeBlob).toHaveBeenCalledWith(expect.objectContaining({
@@ -845,7 +851,6 @@ describe("OpenFromGitHub", () => {
     await findByText("Choose repository");
     fireEvent.click(await findByText("Repo B"));
     await acceptSuggestedWorkMode(findByText);
-    fireEvent.click(await findByText("A"));
 
     await waitFor(() => {
       expect(vkClient.getRepoBranches).toHaveBeenCalledWith("repo-2");
@@ -931,7 +936,6 @@ describe("OpenFromGitHub", () => {
 
     fireEvent.click(await findByText("Analyze only"));
     await acceptSuggestedWorkMode(findByText);
-    fireEvent.click(await findByText("A"));
 
     await waitFor(() => {
       expect(vkClient.ensureGithubRepo).toHaveBeenCalledWith(
@@ -988,7 +992,6 @@ describe("OpenFromGitHub", () => {
     );
 
     await acceptSuggestedWorkMode(findByText);
-    fireEvent.click(await findByText("A"));
 
     await waitFor(() => {
       expect(vkClient.createWorkspaceFromTreeBlob).toHaveBeenCalledWith(
@@ -1038,7 +1041,6 @@ describe("OpenFromGitHub", () => {
     );
 
     await acceptSuggestedWorkMode(findByText);
-    fireEvent.click(await findByText("A"));
 
     await waitFor(() => {
       expect(vkClient.createWorkspaceFromTreeBlob).toHaveBeenCalledWith(
@@ -1084,7 +1086,6 @@ describe("OpenFromGitHub", () => {
     await findByText("Choose branch base");
     fireEvent.click(await findByText("origin/b"));
     await acceptSuggestedWorkMode(findByText);
-    fireEvent.click(await findByText("A"));
 
     await waitFor(() => {
       expect(vkClient.createWorkspaceFromTreeBlob).toHaveBeenCalledWith(
@@ -1134,6 +1135,35 @@ describe("OpenFromGitHub", () => {
     expect(vkClient.createWorkspaceFromIssue).not.toHaveBeenCalled();
   });
 
+  it("asks before switching an issue URL to an associated PR", async () => {
+    vi.mocked(vkClient.getGithubIssuePullRequests).mockResolvedValue({
+      pullRequests: [
+        {
+          number: 9,
+          url: "https://github.com/owner/repo/pull/9",
+          title: "Fix issue 7",
+          state: "open",
+        },
+      ],
+    });
+    vi.mocked(vkClient.getGithubIssueWorkspaceMapping).mockResolvedValue({
+      mapping: null,
+    });
+    vi.mocked(vkClient.getRepos).mockResolvedValue([]);
+
+    const { findByText } = renderOpenFromGithub(
+      emptyWorkspace,
+      "https://github.com/owner/repo/issues/7",
+    );
+
+    await findByText("Related pull request found");
+    expect(vkClient.getGithubIssueWorkspaceMapping).not.toHaveBeenCalled();
+    fireEvent.click(await findByText("Continue with issue #7"));
+    await waitFor(() => {
+      expect(vkClient.getGithubIssueWorkspaceMapping).toHaveBeenCalledTimes(1);
+    });
+  });
+
   it("creates and persists a first GitHub issue workspace mapping", async () => {
     vi.mocked(vkClient.getGithubIssueWorkspaceMapping).mockResolvedValue({
       mapping: null,
@@ -1181,7 +1211,6 @@ describe("OpenFromGitHub", () => {
     );
 
     await acceptSuggestedWorkMode(findByText);
-    fireEvent.click(await findByText("A"));
 
     await waitFor(() => {
       expect(vkClient.createWorkspaceFromIssue).toHaveBeenCalledWith(
@@ -1260,7 +1289,6 @@ describe("OpenFromGitHub", () => {
     );
 
     await acceptSuggestedWorkMode(findByText);
-    fireEvent.click(await findByText("A"));
 
     await waitFor(() => {
       expect(vkClient.createWorkspaceFromIssue).toHaveBeenCalledWith(
@@ -1319,7 +1347,6 @@ describe("OpenFromGitHub", () => {
     );
 
     await acceptSuggestedWorkMode(findByText);
-    fireEvent.click(await findByText("A"));
 
     await waitFor(() => {
       expect(vkClient.createWorkspaceFromIssue).toHaveBeenCalledWith(
@@ -1381,7 +1408,6 @@ describe("OpenFromGitHub", () => {
     await findByText("Choose repository");
     fireEvent.click(await findByText("Repo B"));
     await acceptSuggestedWorkMode(findByText);
-    fireEvent.click(await findByText("A"));
 
     await waitFor(() => {
       expect(vkClient.createWorkspaceFromIssue).toHaveBeenCalledWith(
@@ -1461,7 +1487,6 @@ describe("OpenFromGitHub", () => {
     );
 
     await acceptSuggestedWorkMode(findByText);
-    fireEvent.click(await findByText("A"));
     await waitFor(() => {
       expect(vkClient.createWorkspaceFromIssue).toHaveBeenCalledTimes(1);
     });
@@ -1568,6 +1593,21 @@ describe("OpenFromGitHub", () => {
         last_commit_date: "2026-06-22T00:00:00Z",
       },
     ]);
+    vi.mocked(vkClient.createWorkspaceFromIssue).mockResolvedValue({
+      workspace: {
+        id: "ws-replacement",
+        task_id: "task-replacement",
+        container_ref: "/tmp/ws-replacement",
+        branch: "vk/issue-7-replacement",
+        agent_working_dir: null,
+        created_at: "2026-06-22T00:00:00Z",
+        updated_at: "2026-06-22T00:00:00Z",
+        archived: false,
+        pinned: false,
+        name: "Issue #7",
+      },
+    });
+    vi.mocked(vkClient.putGithubIssueWorkspaceMapping).mockResolvedValue({ mapping: null });
 
     const { findByText } = renderOpenFromGithub(
       emptyWorkspace,
@@ -1580,7 +1620,7 @@ describe("OpenFromGitHub", () => {
     fireEvent.click(await findByText("Forget mapping and create replacement"));
 
     await acceptSuggestedWorkMode(findByText);
-    await findByText("Open GitHub issue in Voyage");
+    await waitFor(() => expect(vkClient.createWorkspaceFromIssue).toHaveBeenCalled());
     expect(vkClient.deleteGithubIssueWorkspaceMapping).toHaveBeenCalledWith({
       owner: "owner",
       repo: "repo",

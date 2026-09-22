@@ -17,6 +17,8 @@ import {
 import {
   ensureGithubRepoRegistered,
   inspectGithubRepoAccess,
+  inspectGithubIssuePullRequests,
+  inspectGithubBranchProtection,
   GithubRepoProvisioningError,
   type EnsureGithubRepoOptions,
 } from './github-repo-provisioning';
@@ -212,6 +214,38 @@ export function registerWorkflowRoutes(
       }
       console.error('GitHub repository access route failed', error);
       return c.json({ error: 'Internal GitHub repository access error' }, 500);
+    }
+  });
+
+  hono.post('/dashboard/api/github/issue-pull-requests', async (c) => {
+    try {
+      const issueUrl = asString(asRecord(await readJsonBody(c.req.raw))?.issueUrl);
+      if (!issueUrl) return c.json({ error: 'issueUrl is required' }, 400);
+      return c.json({ pullRequests: await inspectGithubIssuePullRequests(issueUrl, {
+        execFile: options.githubRepoProvisioning?.execFile,
+      }) });
+    } catch (error) {
+      if (error instanceof GithubRepoProvisioningError) {
+        return c.json({ error: error.message }, error.status as 400 | 500 | 503);
+      }
+      return c.json({ error: 'Internal GitHub issue lookup error' }, 500);
+    }
+  });
+
+  hono.post('/dashboard/api/github/branch-protection', async (c) => {
+    try {
+      const body = asRecord(await readJsonBody(c.req.raw));
+      const repoUrl = asString(body?.repoUrl);
+      const branch = asString(body?.branch);
+      if (!(repoUrl && branch)) return c.json({ error: 'repoUrl and branch are required' }, 400);
+      return c.json(await inspectGithubBranchProtection(repoUrl, branch, {
+        execFile: options.githubRepoProvisioning?.execFile,
+      }));
+    } catch (error) {
+      if (error instanceof GithubRepoProvisioningError) {
+        return c.json({ error: error.message }, error.status as 400 | 500 | 503);
+      }
+      return c.json({ error: 'Internal GitHub branch protection error' }, 500);
     }
   });
 

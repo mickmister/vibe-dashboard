@@ -86,6 +86,13 @@ export interface GithubRepoAccessResponse {
   forkUrl: string;
 }
 
+export interface GithubAssociatedPullRequest {
+  number: number;
+  url: string;
+  title: string;
+  state: string;
+}
+
 export interface CreateWorkspaceFromPrBody {
   repo_id: string;
   pr_number: number;
@@ -346,6 +353,14 @@ export class VibeKanbanClient {
 
   getGithubRepoAccess(repoUrl: string): Promise<GithubRepoAccessResponse> {
     return this.dashboardPost("/dashboard/api/github/repo-access", { repoUrl });
+  }
+
+  getGithubIssuePullRequests(issueUrl: string): Promise<{ pullRequests: GithubAssociatedPullRequest[] }> {
+    return this.dashboardPost('/dashboard/api/github/issue-pull-requests', { issueUrl });
+  }
+
+  getGithubBranchProtection(repoUrl: string, branch: string): Promise<{ protected: boolean }> {
+    return this.dashboardPost('/dashboard/api/github/branch-protection', { repoUrl, branch });
   }
 
   getGitBranchesContainingCommit(args: {

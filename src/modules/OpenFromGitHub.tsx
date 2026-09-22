@@ -23,8 +23,10 @@ import {
 } from "../lib/openFromGithub";
 import {
   vkClient,
+  type GithubAssociatedPullRequest,
   type PullRequestDetail,
   type Workspace as VkWorkspace,
+  type WorkspaceSummary,
 } from "../lib/vk-client";
 import { buildSavedVoyageDashboardPath } from "../lib/voyageUrl";
 
@@ -174,7 +176,7 @@ type DialogState =
     }
   | {
       type: "choose-pr-workspace";
-      workspaces: VkWorkspace[];
+      candidates: Array<{ workspace: VkWorkspace; summary?: WorkspaceSummary }>;
       prInfo: PullRequestDetail;
     }
   | { type: "choose-clone-intent"; target: UnclonedTarget }
@@ -195,6 +197,11 @@ type DialogState =
       type: "stale-issue-mapping";
       issue: ParsedGithubIssueUrl;
       workspaceId: string;
+    }
+  | {
+      type: "choose-associated-pr";
+      issue: ParsedGithubIssueUrl;
+      pullRequests: GithubAssociatedPullRequest[];
     }
   | {
       type: "opening";
@@ -387,6 +394,16 @@ export function OpenFromGitHub({
       const defaultCreateBranch =
         selectedBranch === configuredDefault ||
         selectedBranch === `${target.match.remote.name}/main`;
+      const isProtected = await vkClient
+        .getGithubBranchProtection(
+          target.match.remote.url,
+          getGithubRefForTargetBranchName(
+            selectedBranch,
+            target.match.remote.name,
+          ),
+        )
+        .then((result) => result.protected)
+        .catch(() => false);
       setDialog({
         type: "choose-work-mode",
         target,
@@ -394,7 +411,7 @@ export function OpenFromGitHub({
           ? available
           : [selectedBranch, ...available],
         selectedBranch,
-        defaultCreateBranch,
+        defaultCreateBranch: defaultCreateBranch || isProtected,
       });
     } catch (error) {
       setDialog({
@@ -477,8 +494,9 @@ export function OpenFromGitHub({
   const openWorkspaceInVoyage = async (
     target: PendingTarget,
     savedVoyage: SavedWorkspaceSession,
+    preferredSpaceId?: string,
   ): Promise<boolean> => {
-    const spaceId = getFallbackSpaceId(savedVoyage.activeSpaceId);
+    const spaceId = getFallbackSpaceId(preferredSpaceId || savedVoyage.activeSpaceId);
     if (!spaceId) {
       setDialog({
         type: "error",
@@ -512,8 +530,9 @@ export function OpenFromGitHub({
   const openWorkspaceInNewVoyage = async (
     target: PendingTarget,
     name: string,
+    preferredSpaceId?: string,
   ): Promise<boolean> => {
-    const spaceId = getFallbackSpaceId();
+    const spaceId = getFallbackSpaceId(preferredSpaceId);
     if (!spaceId) {
       setDialog({
         type: "error",
@@ -813,6 +832,7 @@ export function OpenFromGitHub({
   const runIssueOpen = async (
     issue: ParsedGithubIssueUrl,
     isCancelled: () => boolean,
+    checkAssociatedPullRequests = true,
   ) => {
     setDialog({
       type: "processing",
@@ -821,6 +841,17 @@ export function OpenFromGitHub({
     });
 
     try {
+      if (checkAssociatedPullRequests) {
+        const pullRequests = await vkClient
+          .getGithubIssuePullRequests(issue.normalizedIssueUrl)
+          .then((result) => result.pullRequests)
+          .catch(() => []);
+        if (isCancelled()) return;
+        if (pullRequests.length > 0) {
+          setDialog({ type: "choose-associated-pr", issue, pullRequests });
+          return;
+        }
+      }
       const mapping = await vkClient.getGithubIssueWorkspaceMapping({
         owner: issue.owner.toLowerCase(),
         repo: issue.repo.toLowerCase(),
@@ -1278,15 +1309,19 @@ export function OpenFromGitHub({
         if (cancelled) return;
 
         if (existingWorkspaceIds.length > 1) {
+          const summaries = [...activeSummaries.summaries, ...archivedSummaries.summaries];
           const existingWorkspaces = await Promise.all(
             existingWorkspaceIds.map((id) => vkClient.getWorkspace(id)),
           );
           if (cancelled) return;
           setDialog({
             type: "choose-pr-workspace",
-            workspaces: existingWorkspaces.sort(
-              (left, right) => Number(left.archived) - Number(right.archived),
-            ),
+            candidates: existingWorkspaces
+              .sort((left, right) => Number(left.archived) - Number(right.archived))
+              .map((workspace) => ({
+                workspace,
+                summary: summaries.find((entry) => entry.workspace_id === workspace.id),
+              })),
             prInfo,
           });
           return;
@@ -1386,6 +1421,7 @@ export function OpenFromGitHub({
     <OpenFromGithubDialog
       state={dialog}
       workspace={workspace}
+      savedVoyages={savedVoyages}
       onClose={() => {
         setDialog(null);
         clearParam();
@@ -1454,19 +1490,25 @@ export function OpenFromGitHub({
           targetBranch: branch,
         });
       }}
-      onConfirmWorkMode={({ branch, createBranch, workspaceName }) => {
+      onConfirmWorkMode={({ branch, createBranch, workspaceName, voyageId, voyageName, spaceId }) => {
         if (dialog?.type !== "choose-work-mode") return;
         const configuredDefault = getRemoteDefaultBranch(
           dialog.target.match.repo.default_target_branch,
           dialog.target.match.remote.name,
         ) ?? `${dialog.target.match.remote.name}/main`;
-        chooseVoyageForTarget({
+        const target = {
           ...dialog.target,
           targetBranch: createBranch ? branch : configuredDefault,
           checkoutBranch: createBranch ? undefined : branch,
           createBranch,
           workspaceName,
-        });
+        };
+        const voyage = savedVoyages.find((entry) => entry.id === voyageId);
+        if (voyage) {
+          void openWorkspaceInVoyage(target, voyage, spaceId);
+        } else {
+          void openWorkspaceInNewVoyage(target, voyageName, spaceId);
+        }
       }}
       onSelectSpace={(spaceId) => {
         if (dialog?.type !== "choose-space") return;
@@ -1486,6 +1528,19 @@ export function OpenFromGitHub({
       onForgetStaleIssueMapping={() => {
         if (dialog?.type !== "stale-issue-mapping") return;
         void forgetStaleIssueMappingAndCreateReplacement(dialog.issue);
+      }}
+      onSelectAssociatedPr={(url) => {
+        const runtime = latestRuntimeRef.current;
+        const params = new URLSearchParams(runtime.location.search);
+        params.set("external_view_url", url);
+        processedUrlRef.current = null;
+        runtime.navigate(`${runtime.location.pathname}?${params.toString()}`, {
+          replace: true,
+        });
+      }}
+      onContinueIssue={() => {
+        if (dialog?.type !== "choose-associated-pr") return;
+        void runIssueOpen(dialog.issue, () => !mountedRef.current, false);
       }}
       onCreateSpace={(name) => {
         void createSpaceAndOpen(name);
@@ -1698,6 +1753,7 @@ async function getIssueTargetBranch(match: MatchingRepoRemote): Promise<string> 
 function OpenFromGithubDialog({
   state,
   workspace,
+  savedVoyages,
   onClose,
   onSelectRepo,
   onSelectPrWorkspace,
@@ -1712,9 +1768,12 @@ function OpenFromGithubDialog({
   onCreateVoyage,
   onConfirmReopenArchived,
   onForgetStaleIssueMapping,
+  onSelectAssociatedPr,
+  onContinueIssue,
 }: {
   state: DialogState;
   workspace: WorkspaceState;
+  savedVoyages: SavedWorkspaceSession[];
   onClose: () => void;
   onSelectRepo: (match: MatchingRepoRemote) => void;
   onSelectPrWorkspace: (workspace: VkWorkspace) => void;
@@ -1728,17 +1787,25 @@ function OpenFromGithubDialog({
     branch: string;
     createBranch: boolean;
     workspaceName: string;
+    voyageId: string;
+    voyageName: string;
+    spaceId: string;
   }) => void;
   onCreateSpace: (name: string) => void;
   onCreateVoyage: (name: string) => void;
   onConfirmReopenArchived: () => void;
   onForgetStaleIssueMapping: () => void;
+  onSelectAssociatedPr: (url: string) => void;
+  onContinueIssue: () => void;
 }) {
   const [newSpaceName, setNewSpaceName] = useState("");
   const [newVoyageName, setNewVoyageName] = useState("");
   const [workModeBranch, setWorkModeBranch] = useState("");
   const [createWorkBranch, setCreateWorkBranch] = useState(true);
   const [workspaceName, setWorkspaceName] = useState("");
+  const [workModeVoyageId, setWorkModeVoyageId] = useState("");
+  const [workModeSpaceId, setWorkModeSpaceId] = useState("");
+  const branchProtectionRequestRef = useRef(0);
 
   useEffect(() => {
     if (state?.type !== "choose-work-mode") return;
@@ -1749,11 +1816,41 @@ function OpenFromGithubDialog({
         ? `Issue #${state.target.issue.number}`
         : `GitHub ${state.target.target.kind} ${state.target.target.ref}`,
     );
-  }, [state]);
+    setWorkModeVoyageId(savedVoyages[0]?.id || "");
+    setNewVoyageName(savedVoyages.length ? "" : "GitHub work");
+    setWorkModeSpaceId(
+      savedVoyages[0]?.activeSpaceId ||
+        workspace.spaces.find((space) => !space.isSystem)?.id ||
+        workspace.spaces[0]?.id ||
+        "",
+    );
+  }, [state, savedVoyages, workspace.spaces]);
 
   if (!state) return null;
 
   const spaces = workspace.spaces.filter((space) => !space.isSystem);
+  const selectWorkModeBranch = async (branch: string) => {
+    const request = ++branchProtectionRequestRef.current;
+    setWorkModeBranch(branch);
+    if (state.type !== "choose-work-mode") return;
+    const configuredDefault = getRemoteDefaultBranch(
+      state.target.match.repo.default_target_branch,
+      state.target.match.remote.name,
+    );
+    const isProtected = await vkClient
+      .getGithubBranchProtection(
+        state.target.match.remote.url,
+        getGithubRefForTargetBranchName(branch, state.target.match.remote.name),
+      )
+      .then((result) => result.protected)
+      .catch(() => false);
+    if (request !== branchProtectionRequestRef.current) return;
+    setCreateWorkBranch(
+      branch === configuredDefault ||
+        branch === `${state.target.match.remote.name}/main` ||
+        isProtected,
+    );
+  };
   const title =
     state.type === "choose-repo"
       ? "Choose repository"
@@ -1767,6 +1864,8 @@ function OpenFromGithubDialog({
         ? "Create a GitHub fork"
       : state.type === "choose-work-mode"
         ? "Choose branch and workspace mode"
+      : state.type === "choose-associated-pr"
+        ? "Related pull request found"
       : state.type === "choose-space"
         ? `${getTargetVerb(state.target)} in space`
         : state.type === "confirm-reopen-archived"
@@ -1795,6 +1894,8 @@ function OpenFromGithubDialog({
         ? `No writable fork was found for ${state.viewer}. Create one on GitHub, then return to this window. VD rechecks automatically on focus.`
       : state.type === "choose-work-mode"
         ? "Choose a branch. Non-default branches work directly by default. Protected or default base branches create a new editable workspace branch by default."
+      : state.type === "choose-associated-pr"
+        ? `Issue #${state.issue.number} has related pull request work. Choose a PR or continue with the issue.`
       : state.type === "choose-space"
         ? state.target.type === "create-tree-blob"
           ? state.target.createBranch === false
@@ -1853,7 +1954,13 @@ function OpenFromGithubDialog({
 
         {state.type === "choose-pr-workspace" ? (
           <div className="space-y-2">
-            {state.workspaces.map((candidate) => (
+            {state.candidates.map(({ workspace: candidate, summary }) => {
+              const openLocation = findOpenWorkspaceLocation(workspace, candidate.id);
+              const voyageNames = openLocation
+                ? findSavedVoyagesForTabGroup(savedVoyages, openLocation.tabGroupId)
+                    .map((choice) => choice.savedVoyage.name)
+                : [];
+              return (
               <button
                 key={candidate.id}
                 type="button"
@@ -1864,10 +1971,15 @@ function OpenFromGithubDialog({
                   {candidate.name || candidate.branch}
                 </div>
                 <div className="mt-1 text-xs text-neutral-400">
-                  {candidate.archived ? "Archived" : "Active"}
+                  {candidate.archived ? "Archived" : "Active"} · {candidate.branch}
+                </div>
+                <div className="mt-1 text-xs text-neutral-500">
+                  Updated {formatVoyageTimestamp(candidate.updated_at)}
+                  {summary?.latest_process_status ? ` · ${summary.latest_process_status}` : ""}
+                  {voyageNames.length ? ` · ${voyageNames.join(", ")}` : ""}
                 </div>
               </button>
-            ))}
+            );})}
           </div>
         ) : null}
 
@@ -1894,6 +2006,33 @@ function OpenFromGithubDialog({
           </div>
         ) : null}
 
+        {state.type === "choose-associated-pr" ? (
+          <div className="space-y-2">
+            {state.pullRequests.map((pr) => (
+              <button
+                key={pr.url}
+                type="button"
+                className="w-full rounded-lg border border-neutral-700 bg-neutral-800 p-3 text-left hover:bg-neutral-700"
+                onClick={() => onSelectAssociatedPr(pr.url)}
+              >
+                <div className="text-sm font-medium text-white">
+                  PR #{pr.number}: {pr.title}
+                </div>
+                <div className="mt-1 text-xs uppercase text-neutral-400">
+                  {pr.state}
+                </div>
+              </button>
+            ))}
+            <button
+              type="button"
+              className="w-full rounded-lg border border-neutral-700 px-3 py-2 text-sm text-neutral-300 hover:bg-neutral-800"
+              onClick={onContinueIssue}
+            >
+              Continue with issue #{state.issue.number}
+            </button>
+          </div>
+        ) : null}
+
         {state.type === "await-fork" ? (
           <div className="space-y-2">
             <a href={state.forkUrl} target="_blank" rel="noreferrer" className="block w-full rounded-lg bg-blue-600 px-3 py-2 text-center text-sm font-medium text-white hover:bg-blue-500">Open GitHub fork page</a>
@@ -1906,21 +2045,50 @@ function OpenFromGithubDialog({
           <div className="space-y-3">
             <label className="block text-sm text-neutral-300">
               Branch
-              <select value={workModeBranch} onChange={(event) => setWorkModeBranch(event.target.value)} className="mt-1 w-full rounded-lg border border-neutral-700 bg-neutral-800 p-2 text-white">
+              <select value={workModeBranch} onChange={(event) => void selectWorkModeBranch(event.target.value)} className="mt-1 w-full rounded-lg border border-neutral-700 bg-neutral-800 p-2 text-white">
                 {state.branches.map((branch) => <option key={branch} value={branch}>{branch}</option>)}
               </select>
             </label>
-            <label className="flex items-start gap-2 rounded-lg border border-neutral-700 bg-neutral-800 p-3 text-sm text-white">
-              <input type="checkbox" checked={createWorkBranch} onChange={(event) => setCreateWorkBranch(event.target.checked)} />
-              <span>Create a new branch from this base. Clear this to work directly on the selected branch.</span>
-            </label>
+            <div className="grid gap-2 sm:grid-cols-2">
+              <button type="button" aria-pressed={!createWorkBranch} className={`rounded-lg border p-3 text-left ${!createWorkBranch ? "border-blue-500 bg-blue-500/10" : "border-neutral-700 bg-neutral-800"}`} onClick={() => setCreateWorkBranch(false)}>
+                <div className="text-sm font-medium text-white">Work directly</div>
+                <div className="mt-1 text-xs text-neutral-400">Commit on {workModeBranch} and target the repository default branch.</div>
+              </button>
+              <button type="button" aria-pressed={createWorkBranch} className={`rounded-lg border p-3 text-left ${createWorkBranch ? "border-blue-500 bg-blue-500/10" : "border-neutral-700 bg-neutral-800"}`} onClick={() => setCreateWorkBranch(true)}>
+                <div className="text-sm font-medium text-white">Create a new branch</div>
+                <div className="mt-1 text-xs text-neutral-400">Start an editable workspace branch from {workModeBranch}.</div>
+              </button>
+            </div>
             {createWorkBranch ? (
               <label className="block text-sm text-neutral-300">
                 Suggested workspace name
                 <input value={workspaceName} onChange={(event) => setWorkspaceName(event.target.value)} className="mt-1 w-full rounded-lg border border-neutral-700 bg-neutral-800 p-2 text-white" />
               </label>
             ) : null}
-            <button type="button" className="w-full rounded-lg bg-blue-600 px-3 py-2 text-sm font-medium text-white hover:bg-blue-500" disabled={!workModeBranch || (createWorkBranch && !workspaceName.trim())} onClick={() => onConfirmWorkMode({ branch: workModeBranch, createBranch: createWorkBranch, workspaceName: workspaceName.trim() || `Direct ${workModeBranch}` })}>Continue</button>
+            <label className="block text-sm text-neutral-300">
+              Voyage
+              <select value={workModeVoyageId} onChange={(event) => setWorkModeVoyageId(event.target.value)} className="mt-1 w-full rounded-lg border border-neutral-700 bg-neutral-800 p-2 text-white">
+                {savedVoyages.map((voyage) => <option key={voyage.id} value={voyage.id}>{voyage.name}</option>)}
+                <option value="">Create a new Voyage</option>
+              </select>
+            </label>
+            {!workModeVoyageId ? (
+              <label className="block text-sm text-neutral-300">New Voyage name<input value={newVoyageName} onChange={(event) => setNewVoyageName(event.target.value)} className="mt-1 w-full rounded-lg border border-neutral-700 bg-neutral-800 p-2 text-white" /></label>
+            ) : null}
+            <label className="block text-sm text-neutral-300">
+              Space
+              <select value={workModeSpaceId} onChange={(event) => setWorkModeSpaceId(event.target.value)} className="mt-1 w-full rounded-lg border border-neutral-700 bg-neutral-800 p-2 text-white">
+                {spaces.map((space) => <option key={space.id} value={space.id}>{space.name}</option>)}
+              </select>
+            </label>
+            <div className="rounded-lg border border-neutral-700 bg-neutral-950 p-3 text-xs text-neutral-300">
+              <div><span className="text-neutral-500">Repository:</span> {state.target.match.repo.display_name || state.target.match.repo.name}</div>
+              <div><span className="text-neutral-500">Remote:</span> {state.target.match.remote.name} ({state.target.match.remote.url})</div>
+              <div><span className="text-neutral-500">Checkout:</span> {createWorkBranch ? "new workspace branch" : workModeBranch}</div>
+              <div><span className="text-neutral-500">Base/target:</span> {createWorkBranch ? workModeBranch : getRemoteDefaultBranch(state.target.match.repo.default_target_branch, state.target.match.remote.name) || `${state.target.match.remote.name}/main`}</div>
+              <div><span className="text-neutral-500">Destination:</span> {savedVoyages.find((voyage) => voyage.id === workModeVoyageId)?.name || newVoyageName} / {spaces.find((space) => space.id === workModeSpaceId)?.name || "No space"}</div>
+            </div>
+            <button type="button" className="w-full rounded-lg bg-blue-600 px-3 py-2 text-sm font-medium text-white hover:bg-blue-500 disabled:opacity-50" disabled={!workModeBranch || !workModeSpaceId || (!workModeVoyageId && !newVoyageName.trim()) || (createWorkBranch && !workspaceName.trim())} onClick={() => onConfirmWorkMode({ branch: workModeBranch, createBranch: createWorkBranch, workspaceName: workspaceName.trim() || `Direct ${workModeBranch}`, voyageId: workModeVoyageId, voyageName: newVoyageName.trim(), spaceId: workModeSpaceId })}>Create workspace</button>
           </div>
         ) : null}
 

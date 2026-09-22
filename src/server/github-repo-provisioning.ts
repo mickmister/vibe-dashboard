@@ -28,6 +28,13 @@ export interface GithubRepoAccessResult {
   forkUrl: string;
 }
 
+export interface GithubAssociatedPullRequest {
+  number: number;
+  url: string;
+  title: string;
+  state: string;
+}
+
 export interface EnsureGithubRepoResult {
   repo: Repo;
   path: string;
@@ -226,6 +233,69 @@ export async function inspectGithubRepoAccess(
   } catch (error) {
     throw new GithubRepoProvisioningError(
       `Could not check GitHub access with gh CLI. Run 'gh auth login' and try again. ${formatExecError(error)}`,
+      503,
+    );
+  }
+}
+
+export async function inspectGithubIssuePullRequests(
+  issueUrl: string,
+  options: Pick<EnsureGithubRepoOptions, 'execFile'> = {},
+): Promise<GithubAssociatedPullRequest[]> {
+  const identity = parseGithubRepoUrl(issueUrl);
+  const issueNumber = new URL(issueUrl).pathname.match(/\/issues\/(\d+)/)?.[1];
+  if (!(identity && issueNumber)) {
+    throw new GithubRepoProvisioningError('A valid GitHub issue URL is required.', 400);
+  }
+  const exec = options.execFile ?? defaultExecFile;
+  try {
+    const [closing, connected] = await Promise.all([
+      exec('gh', [
+        'issue', 'view', issueUrl,
+        '--json', 'closedByPullRequestsReferences',
+        '--jq', '.closedByPullRequestsReferences[] | {number, url, title, state}',
+      ]),
+      exec('gh', [
+        'api', '--paginate',
+        `repos/${identity.normalizedRepo}/issues/${issueNumber}/timeline`,
+        '--jq', '.[] | select(.event == "connected" and .source.issue.pull_request != null) | .source.issue | {number, url: .html_url, title, state}',
+      ]),
+    ]);
+    const byUrl = new Map<string, GithubAssociatedPullRequest>();
+    for (const line of `${closing.stdout}\n${connected.stdout}`.split(/\r?\n/)) {
+      if (!line.trim()) continue;
+      const pr = JSON.parse(line) as GithubAssociatedPullRequest;
+      if (pr.url) byUrl.set(pr.url, pr);
+    }
+    return [...byUrl.values()];
+  } catch (error) {
+    throw new GithubRepoProvisioningError(
+      `Could not inspect related pull requests with gh CLI. ${formatExecError(error)}`,
+      503,
+    );
+  }
+}
+
+export async function inspectGithubBranchProtection(
+  repoUrl: string,
+  branch: string,
+  options: Pick<EnsureGithubRepoOptions, 'execFile'> = {},
+): Promise<{ protected: boolean }> {
+  const identity = parseGithubRepoUrl(repoUrl);
+  if (!identity) {
+    throw new GithubRepoProvisioningError('A valid GitHub repository URL is required.', 400);
+  }
+  const exec = options.execFile ?? defaultExecFile;
+  try {
+    const { stdout } = await exec('gh', [
+      'api',
+      `repos/${identity.normalizedRepo}/branches/${encodeURIComponent(branch)}`,
+      '--jq', '.protected',
+    ]);
+    return { protected: stdout.trim() === 'true' };
+  } catch (error) {
+    throw new GithubRepoProvisioningError(
+      `Could not inspect branch protection with gh CLI. ${formatExecError(error)}`,
       503,
     );
   }

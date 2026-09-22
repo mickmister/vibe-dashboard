@@ -178,6 +178,37 @@ describe("registerWorkflowRoutes", () => {
     }
   });
 
+  it("exposes associated PR and branch protection GitHub metadata", async () => {
+    const app = new Hono();
+    const execFile = vi.fn(async (_file: string, args: readonly string[]) => {
+      if (args.includes("closedByPullRequestsReferences")) {
+        return { stdout: '{"number":7,"url":"https://github.com/owner/repo/pull/7","title":"Fix","state":"OPEN"}\n', stderr: "" };
+      }
+      if (args.some((arg) => arg.endsWith("/timeline"))) return { stdout: "", stderr: "" };
+      return { stdout: "true\n", stderr: "" };
+    });
+    registerWorkflowRoutes(app, {
+      registry: createWorkflowRegistry(),
+      githubRepoProvisioning: { execFile },
+    });
+
+    const prs = await app.request("/dashboard/api/github/issue-pull-requests", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ issueUrl: "https://github.com/owner/repo/issues/2" }),
+    });
+    expect(prs.status).toBe(200);
+    await expect(prs.json()).resolves.toMatchObject({ pullRequests: [{ number: 7 }] });
+
+    const protection = await app.request("/dashboard/api/github/branch-protection", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ repoUrl: "https://github.com/owner/repo", branch: "main" }),
+    });
+    expect(protection.status).toBe(200);
+    await expect(protection.json()).resolves.toEqual({ protected: true });
+  });
+
 
 
   it("returns branches containing a commit via the Git branch lookup route", async () => {

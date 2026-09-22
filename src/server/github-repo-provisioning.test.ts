@@ -4,6 +4,8 @@ import { tmpdir } from 'node:os';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
   ensureGithubRepoRegistered,
+  inspectGithubBranchProtection,
+  inspectGithubIssuePullRequests,
   inspectGithubRepoAccess,
 } from './github-repo-provisioning';
 import type { Repo } from './vk-client';
@@ -181,6 +183,35 @@ describe('ensureGithubRepoRegistered', () => {
     });
     expect(execFile.mock.calls.every(([file]) => file === 'gh')).toBe(true);
     expect(execFile.mock.calls.flatMap(([, args]) => args)).not.toContain('push');
+  });
+
+  it('combines closing and explicitly connected PRs without duplicates', async () => {
+    const execFile = vi.fn(async (_file: string, args: readonly string[]) => {
+      if (args[0] === 'issue') {
+        return { stdout: '{"number":7,"url":"https://github.com/owner/repo/pull/7","title":"Fix","state":"OPEN"}\n', stderr: '' };
+      }
+      return { stdout: '{"number":7,"url":"https://github.com/owner/repo/pull/7","title":"Fix","state":"open"}\n{"number":8,"url":"https://github.com/owner/repo/pull/8","title":"Follow-up","state":"open"}\n', stderr: '' };
+    });
+
+    const result = await inspectGithubIssuePullRequests(
+      'https://github.com/owner/repo/issues/12',
+      { execFile },
+    );
+
+    expect(result.map((pr) => pr.number)).toEqual([7, 8]);
+  });
+
+  it('reads branch protection through gh without attempting a write', async () => {
+    const execFile = vi.fn(async () => ({ stdout: 'true\n', stderr: '' }));
+    await expect(
+      inspectGithubBranchProtection('https://github.com/owner/repo', 'release/v2', { execFile }),
+    ).resolves.toEqual({ protected: true });
+    expect(execFile).toHaveBeenCalledWith('gh', [
+      'api',
+      'repos/owner/repo/branches/release%2Fv2',
+      '--jq',
+      '.protected',
+    ]);
   });
 
   async function tempRoot(): Promise<string> {
