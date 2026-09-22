@@ -45,6 +45,7 @@ export function restoreDockviewController(input: {
   aggregate: VoyageAggregate;
   contextForCraft: (craftWorkspaceId: string) => PanelTargetResolutionContext | null;
   onQuarantine?: (event: DockviewLayoutQuarantineEvent) => void;
+  onBeforeFromJSON?: (result: DockviewControllerRestoreResult) => void;
 }): DockviewControllerRestoreResult {
   const registry = createPanelTargetRegistry();
   const resolvedPanels: DockviewPanelModel[] = [];
@@ -83,8 +84,10 @@ export function restoreDockviewController(input: {
   }
 
   const snapshot = canonical.snapshot as unknown as SerializedDockview;
+  const result = createResult('restored', input.aggregate, resolvedPanels, snapshot);
+  input.onBeforeFromJSON?.(result);
   input.api.fromJSON(snapshot);
-  return createResult('restored', input.aggregate, resolvedPanels, snapshot);
+  return result;
 }
 
 function restoreSafe(
@@ -93,8 +96,10 @@ function restoreSafe(
   reason: string,
 ): DockviewControllerRestoreResult {
   const snapshot = buildSafeSnapshot(panels.map(({ id }) => id));
+  const result = createResult('quarantined', input.aggregate, panels, snapshot, reason);
+  input.onBeforeFromJSON?.(result);
   input.api.fromJSON(snapshot);
-  return createResult('quarantined', input.aggregate, panels, snapshot, reason);
+  return result;
 }
 
 function createResult(
@@ -200,8 +205,10 @@ export function DockviewWorkbench(input: {
       aggregate: input.aggregate,
       contextForCraft: input.contextForCraft,
       onQuarantine: input.onQuarantine,
+      onBeforeFromJSON: (result) => {
+        holder.current = result.controller;
+      },
     });
-    holder.current = result.controller;
     input.onRestore?.(result);
   };
 

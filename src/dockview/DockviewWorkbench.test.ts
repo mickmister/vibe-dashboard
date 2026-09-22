@@ -3,6 +3,7 @@ import { renderToStaticMarkup } from 'react-dom/server';
 import { describe, expect, it, vi } from 'vitest';
 import { Orientation, type SerializedDockview } from 'dockview';
 import {
+  DockviewWorkbench,
   DockviewPanelContent,
   createDockviewControllerCache,
   restoreDockviewController,
@@ -16,6 +17,38 @@ const hostOrigin = 'https://vd.test';
 const workspaceId = 'workspace-a';
 const craftWorkspaceId = workspaceId;
 const craftId = 'craft-a';
+
+const dockviewReactBoundary = vi.hoisted(() => ({
+  panelMarkupDuringFromJSON: '',
+}));
+
+vi.mock('dockview-react', async () => {
+  const ReactModule = await import('react');
+  const server = await import('react-dom/server');
+  return {
+    DockviewReact: (props: {
+      components: Record<string, React.ComponentType<{ params?: { panelId?: string }; api: { id: string } }>>;
+      onReady: (event: { api: DockviewControllerApi }) => void;
+    }) => {
+      const api: DockviewControllerApi = {
+        fromJSON(snapshotValue) {
+          const panelId = Object.keys(snapshotValue.panels)[0] ?? 'panel-a';
+          const Component = props.components['iframe-panel'];
+          if (!Component) throw new Error('missing iframe-panel component');
+          dockviewReactBoundary.panelMarkupDuringFromJSON = server.renderToStaticMarkup(
+            ReactModule.createElement(Component, {
+              params: { panelId },
+              api: { id: panelId },
+            }),
+          );
+        },
+        toJSON: () => snapshot(['panel-a']),
+      };
+      props.onReady({ api });
+      return ReactModule.createElement('div', { 'data-dockview-react-mock': 'ready' });
+    },
+  };
+});
 
 function context(): PanelTargetResolutionContext {
   const location = 'https://vk.test/workspaces/workspace-a';
@@ -224,5 +257,20 @@ describe('Dockview M3.1 controller restore and Panel rendering', () => {
     expect(markup).toContain('src="https://vk.test/workspaces/workspace-a"');
     expect(markup).toContain('sandbox=');
     expect(markup).not.toContain('foreign');
+  });
+
+  it('makes the populated controller visible to Dockview Panel renderers during fromJSON', () => {
+    dockviewReactBoundary.panelMarkupDuringFromJSON = '';
+
+    renderToStaticMarkup(
+      React.createElement(DockviewWorkbench, {
+        aggregate: aggregate(),
+        contextForCraft: () => context(),
+      }),
+    );
+
+    expect(dockviewReactBoundary.panelMarkupDuringFromJSON).toContain('data-renderer-key="craft-overview"');
+    expect(dockviewReactBoundary.panelMarkupDuringFromJSON).toContain('<iframe');
+    expect(dockviewReactBoundary.panelMarkupDuringFromJSON).not.toContain('Panel recovery');
   });
 });
