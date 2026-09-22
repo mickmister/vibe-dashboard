@@ -119,21 +119,38 @@ describe('external integrations migrations', () => {
       ]).execute();
 
       await executeSqlMigration(db, invariantMigration!.migration);
-      await expect(db.insertInto('GithubIssueWorkspaceReservation').values({
-        id: 'reservation-manual',
-        issueKey: 'owner/repo#43',
-        owner: 'owner',
-        repo: 'repo',
-        issueNumber: 43,
-        issueUrl: 'https://github.com/owner/repo/issues/43',
-        state: 'manual_recovery',
-        requestJson: '{}',
-        workspaceId: null,
-        branch: null,
-        leaseToken: null,
-        leaseExpiresAt: null,
-        lastError: 'operator recovery required',
-      }).execute()).resolves.toBeDefined();
+      await expect(db.insertInto('GithubIssueWorkspaceReservation').values([
+        {
+          id: 'reservation-manual',
+          issueKey: 'owner/repo#43',
+          owner: 'owner',
+          repo: 'repo',
+          issueNumber: 43,
+          issueUrl: 'https://github.com/owner/repo/issues/43',
+          state: 'manual_recovery',
+          requestJson: '{}',
+          workspaceId: null,
+          branch: null,
+          leaseToken: null,
+          leaseExpiresAt: null,
+          lastError: 'operator recovery required',
+        },
+        {
+          id: 'reservation-external',
+          issueKey: 'owner/repo#44',
+          owner: 'owner',
+          repo: 'repo',
+          issueNumber: 44,
+          issueUrl: 'https://github.com/owner/repo/issues/44',
+          state: 'external_create_started',
+          requestJson: '{}',
+          workspaceId: null,
+          branch: null,
+          leaseToken: null,
+          leaseExpiresAt: null,
+          lastError: null,
+        },
+      ]).execute()).resolves.toBeDefined();
 
       const links = await db
         .selectFrom('ExternalIssueWorkspaceLink')

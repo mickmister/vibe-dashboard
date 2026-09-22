@@ -193,12 +193,15 @@ export function registerWorkflowRoutes(
           .catch((error) => console.error('Failed to renew GitHub issue workspace reservation', error));
       }, 30_000);
       let reservationFailureRecorded = false;
+      let externalCreateStarted = false;
       try {
         let workspace;
         if (claim.reservation.workspaceId) {
           workspace = await issueWorkspaceVkClient.getWorkspace(claim.reservation.workspaceId);
         } else {
           const reserved = claim.reservation.request;
+          await issueWorkspaceReservations.markExternalCreateStarted(identity, leaseToken);
+          externalCreateStarted = true;
           const response = await issueWorkspaceVkClient.createAndStartWorkspace({
             name: reserved.name ?? `Issue #${identity.number}`,
             repos: [{
@@ -264,7 +267,11 @@ export function registerWorkflowRoutes(
           return c.json({ status: 'provisioning' as const }, 202);
         }
         if (!reservationFailureRecorded) {
-          await issueWorkspaceReservations.markReservationRecoverable(identity, leaseToken, error);
+          if (externalCreateStarted && !claim.reservation.workspaceId) {
+            await issueWorkspaceReservations.markReservationManualRecoveryRequired(identity, leaseToken, error);
+          } else {
+            await issueWorkspaceReservations.markReservationRecoverable(identity, leaseToken, error);
+          }
         }
         throw error;
       } finally {

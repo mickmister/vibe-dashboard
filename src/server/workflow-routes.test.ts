@@ -217,6 +217,74 @@ describe("registerWorkflowRoutes", () => {
     handle.sqlite.close();
   });
 
+  it("does not create a duplicate after an expired external-create-started reservation without workspace ID", async () => {
+    let now = new Date("2026-09-22T00:00:00Z");
+    const handle = await initExternalIntegrationsDb({ path: ":memory:" });
+    const store = new GithubIssueWorkspaceDbStore({
+      getDb: async () => handle.db,
+      now: () => now,
+      leaseMs: 1000,
+    });
+    const claim = await store.claimReservation({
+      owner: "owner",
+      repo: "repo",
+      number: 42,
+      normalizedIssueUrl: "https://github.com/owner/repo/issues/42",
+    }, {
+      repoId: "repo-id",
+      targetBranch: "origin/main",
+      createBranch: true,
+      checkoutBranch: null,
+      name: "Issue #42",
+    });
+    expect(claim.acquired).toBe(true);
+    await store.markExternalCreateStarted({
+      owner: "owner",
+      repo: "repo",
+      number: 42,
+      normalizedIssueUrl: "https://github.com/owner/repo/issues/42",
+    }, claim.reservation.leaseToken!);
+    now = new Date("2026-09-22T00:00:02Z");
+
+    const createAndStartWorkspace = vi.fn();
+    const app = new Hono();
+    registerWorkflowRoutes(app, {
+      registry: createWorkflowRegistry(),
+      githubIssueWorkspaceMap: store,
+      githubIssueWorkspaceReservations: store,
+      githubIssueWorkspaceVkClient: {
+        createAndStartWorkspace,
+        getWorkspace: vi.fn(),
+        updateWorkspace: vi.fn(),
+      },
+    });
+
+    const retry = await app.request(
+      "/dashboard/api/github/issue-workspaces/Owner/Repo/42/resolve-or-create",
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          repoId: "repo-id",
+          targetBranch: "origin/main",
+          createBranch: true,
+          checkoutBranch: null,
+          name: "Issue #42",
+        }),
+      },
+    );
+
+    expect(retry.status).toBe(409);
+    await expect(retry.json()).resolves.toMatchObject({
+      status: "manual_recovery",
+      lastError: expect.stringContaining("External VK workspace creation may have started"),
+    });
+    expect(createAndStartWorkspace).not.toHaveBeenCalled();
+
+    await handle.db.destroy();
+    handle.sqlite.close();
+  });
+
   it("requires manual recovery when workspace creation succeeds but reservation recording and cleanup fail", async () => {
     const handle = await initExternalIntegrationsDb({ path: ":memory:" });
     class RecordFailingStore extends GithubIssueWorkspaceDbStore {

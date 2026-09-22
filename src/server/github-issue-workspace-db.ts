@@ -159,7 +159,16 @@ export class GithubIssueWorkspaceDbStore implements GithubIssueWorkspaceStore {
     }
 
     const leaseExpired = !row.leaseExpiresAt || new Date(row.leaseExpiresAt).getTime() <= now.getTime();
-    if (row.state === 'provisioning' && !leaseExpired) {
+    if (row.state === 'external_create_started' && !row.workspaceId && leaseExpired) {
+      await this.markReservationManualRecoveryRequired(
+        identity,
+        row.leaseToken ?? '',
+        new Error('External VK workspace creation may have started before the dashboard stopped. Manual recovery is required before retrying.'),
+      );
+      row = await this.getReservationRow(db, key);
+      return { acquired: false, reservation: parseReservation(row) };
+    }
+    if ((row.state === 'provisioning' || row.state === 'external_create_started') && !leaseExpired) {
       return { acquired: false, reservation: parseReservation(row) };
     }
 
@@ -186,6 +195,15 @@ export class GithubIssueWorkspaceDbStore implements GithubIssueWorkspaceStore {
 
     row = await this.getReservationRow(db, key);
     return { acquired: true, reservation: parseReservation(row) };
+  }
+
+  async markExternalCreateStarted(
+    identity: GithubIssueIdentity,
+    leaseToken: string,
+  ): Promise<void> {
+    await this.updateOwnedReservation(identity, leaseToken, {
+      state: 'external_create_started',
+    });
   }
 
   async recordWorkspace(

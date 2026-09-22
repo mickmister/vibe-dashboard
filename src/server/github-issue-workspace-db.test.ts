@@ -91,4 +91,25 @@ describe('GithubIssueWorkspaceDbStore', () => {
     now = new Date('2026-09-22T00:00:02Z');
     expect((await leasedStore.claimReservation(identity, request)).acquired).toBe(true);
   });
+
+  it('marks expired external-create-started reservations for manual recovery instead of reacquiring', async () => {
+    let now = new Date('2026-09-22T00:00:00Z');
+    const leasedStore = new GithubIssueWorkspaceDbStore({
+      getDb: async () => db,
+      now: () => now,
+      leaseMs: 1000,
+    });
+    const claim = await leasedStore.claimReservation(identity, request);
+    expect(claim.acquired).toBe(true);
+    await leasedStore.markExternalCreateStarted(identity, claim.reservation.leaseToken!);
+
+    now = new Date('2026-09-22T00:00:02Z');
+    const recovered = await leasedStore.claimReservation(identity, request);
+    expect(recovered.acquired).toBe(false);
+    expect(recovered.reservation).toMatchObject({
+      state: 'manual_recovery',
+      workspaceId: null,
+      lastError: expect.stringContaining('External VK workspace creation may have started'),
+    });
+  });
 });

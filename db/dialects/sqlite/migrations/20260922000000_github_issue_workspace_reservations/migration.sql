@@ -5,7 +5,7 @@ CREATE TABLE IF NOT EXISTS "GithubIssueWorkspaceReservation" (
   "repo" TEXT NOT NULL,
   "issueNumber" INTEGER NOT NULL,
   "issueUrl" TEXT NOT NULL,
-  "state" TEXT NOT NULL CHECK ("state" IN ('provisioning', 'ready', 'recoverable', 'failed', 'manual_recovery')),
+  "state" TEXT NOT NULL CHECK ("state" IN ('provisioning', 'external_create_started', 'ready', 'recoverable', 'failed', 'manual_recovery')),
   "requestJson" TEXT NOT NULL,
   "workspaceId" TEXT,
   "branch" TEXT,

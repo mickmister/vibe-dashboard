@@ -110,7 +110,7 @@ export interface ExternalIssueWorkspaceLink {
   updatedAt: Generated<Timestamp>;
 }
 
-export type GithubIssueWorkspaceReservationState = 'provisioning' | 'ready' | 'recoverable' | 'failed' | 'manual_recovery';
+export type GithubIssueWorkspaceReservationState = 'provisioning' | 'external_create_started' | 'ready' | 'recoverable' | 'failed' | 'manual_recovery';
 
 export interface GithubIssueWorkspaceReservation {
   id: string;
