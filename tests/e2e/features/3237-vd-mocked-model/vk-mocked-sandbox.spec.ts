@@ -191,7 +191,7 @@ test.describe('VK mocked-provider sandbox through VD UI', () => {
     await closeSidebarIfOpen(page);
     const voyageActionsMenu = await openVoyageActionsMenu(page);
     await expect(voyageActionsMenu).toContainText(
-      /New Craft\s+Open Craft\s+Switch Voyage/,
+      'New CraftOpen CraftSwitch Voyage',
     );
 
     await clickVoyageActionsMenuItem(page, 'New Craft');
