@@ -89,10 +89,11 @@ function repository(seed = aggregate()) {
         throw new VoyageConflictError(input.voyageId, input.expectedRevision);
       }
       const nextRevision = current.revision + 1;
+      const recency = new Map(current.panels.map((entry) => [entry.id, entry.lastActivatedSequence]));
       current = {
         ...current,
         revision: nextRevision,
-        panels: input.panels.map((entry) => ({ ...entry, lastActivatedSequence: null })),
+        panels: input.panels.map((entry) => ({ ...entry, lastActivatedSequence: recency.get(entry.id) ?? null })),
         layout: productionDockviewSnapshotCodec.validateAndCanonicalize(input.snapshot),
       };
       return nextRevision;
@@ -260,6 +261,81 @@ describe('DockView M3.2 serialized mutation coordinator', () => {
       apply: (current) => ({ panels: current.panels, snapshot: current.layout.snapshot }),
     })).resolves.toEqual(expect.objectContaining({ status: 'conflict', reason: 'stale-revision' }));
     expect(staleAgain.visibleState().lastConflict).toBe('stale-revision');
+  });
+
+  it('reloads committed structural state from the repository and preserves survivor activation metadata', async () => {
+    const store = repository();
+    store.current = {
+      ...store.current,
+      activationSequence: 5,
+      panels: store.current.panels.map((entry) => entry.id === 'panel-b' ? { ...entry, lastActivatedSequence: 5 } : entry),
+    };
+    const dockview = api();
+    const coordinator = createDockviewMutationCoordinator({ aggregate: store.current, api: dockview, repository: store.repo });
+
+    await expect(coordinator.enqueueCommand({
+      id: 'close-panel-c',
+      apply: (current) => ({
+        panels: current.panels.filter(({ id }) => id !== 'panel-c'),
+        snapshot: snapshot(['panel-a', 'panel-b'], 'panel-b'),
+      }),
+    })).resolves.toEqual(expect.objectContaining({ status: 'committed', revision: 1 }));
+
+    expect(coordinator.visibleState()).toMatchObject({ revision: 1, activePanelId: 'panel-b' });
+    expect(store.current.panels.find(({ id }) => id === 'panel-b')?.lastActivatedSequence).toBe(5);
+    expect(dockview.fromJSON).toHaveBeenLastCalledWith(snapshot(['panel-a', 'panel-b'], 'panel-b'));
+  });
+
+  it('wraps programmatic focus suppression around the actual focus callback', async () => {
+    const store = repository();
+    const coordinator = createDockviewMutationCoordinator({ aggregate: store.current, api: api(), repository: store.repo });
+
+    await expect(coordinator.focusPanelFromCommand('panel-b', () => {
+      void coordinator.handleActivePanelChange('panel-b', { origin: 'user', input: 'pointer' });
+    })).resolves.toEqual(expect.objectContaining({ status: 'activated', revision: 1 }));
+
+    expect(store.current.revision).toBe(1);
+    expect(store.current.activationSequence).toBe(1);
+  });
+
+  it('rejects overlapping gestures and gesture starts while mutation work is pending', async () => {
+    const store = repository();
+    let release!: () => void;
+    const blocked = new Promise<void>((resolve) => { release = resolve; });
+    const coordinator = createDockviewMutationCoordinator({ aggregate: store.current, api: api(), repository: store.repo });
+    const pending = coordinator.enqueueCommand({
+      id: 'blocked',
+      apply: (current) => ({ panels: current.panels, snapshot: current.layout.snapshot }),
+      async validate() { await blocked; },
+    });
+
+    expect(() => coordinator.beginGesture('during-command')).toThrow('gesture-boundary-busy');
+    release();
+    await pending;
+    const first = coordinator.beginGesture('first');
+    expect(() => coordinator.beginGesture('second')).toThrow('gesture-already-active');
+    await expect(coordinator.completeGesture(first)).resolves.toEqual(expect.objectContaining({ status: 'skipped', reason: 'unchanged-layout' }));
+  });
+
+  it('reruns validation against a CAS winner before replay apply/commit', async () => {
+    const store = repository();
+    const clientA = createDockviewMutationCoordinator({ aggregate: store.current, api: api(), repository: store.repo });
+    const clientB = createDockviewMutationCoordinator({ aggregate: store.current, api: api(), repository: store.repo });
+    await clientA.enqueueCommand({
+      id: 'winner',
+      apply: (current) => ({ panels: [...current.panels, panel('panel-d')], snapshot: snapshot(['panel-a', 'panel-b', 'panel-c', 'panel-d'], 'panel-d') }),
+    });
+
+    await expect(clientB.enqueueCommand({
+      id: 'replay-validate-fails',
+      replay: true,
+      canReplay: () => true,
+      validate: (current) => {
+        if (current.panels.some(({ id }) => id === 'panel-d')) throw new VoyageInvariantError('winner changed preconditions');
+      },
+      apply: (current) => ({ panels: current.panels.filter(({ id }) => id !== 'panel-a'), snapshot: snapshot(['panel-b', 'panel-c', 'panel-d'], 'panel-d') }),
+    })).resolves.toEqual(expect.objectContaining({ status: 'conflict', reason: 'replay-failed', revision: 1 }));
+    expect(store.current.panels.map(({ id }) => id)).toEqual(['panel-a', 'panel-b', 'panel-c', 'panel-d']);
   });
 
   it('TEST_CASE_M3_2D records meaningful activation once and suppresses restore/programmatic callbacks', async () => {

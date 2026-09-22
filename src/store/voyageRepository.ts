@@ -1,4 +1,4 @@
-import { createHash, randomUUID } from 'node:crypto';
+import { sha256 } from '@noble/hashes/sha2.js';
 import { sql, type Kysely, type Selectable, type Transaction } from 'kysely';
 import type { DB, VoyagePanel } from './kysely_types';
 
@@ -72,7 +72,7 @@ export function createVoyageSnapshotCodec(
         dockviewVersion,
         snapshot: value,
         serialized,
-        hash: createHash('sha256').update(serialized).digest('hex'),
+        hash: sha256Hex(serialized),
         panelIds,
       };
     },
@@ -118,6 +118,16 @@ export class VoyageInvariantError extends Error {
 }
 
 type VoyageTransaction = Transaction<DB>;
+
+function sha256Hex(value: string): string {
+  return Array.from(sha256(new TextEncoder().encode(value)), (byte) => byte.toString(16).padStart(2, '0')).join('');
+}
+
+function createRandomId(): string {
+  const id = globalThis.crypto?.randomUUID?.();
+  if (!id) throw new VoyageInvariantError('Secure random ID generation is unavailable');
+  return id;
+}
 
 export interface VoyageRepositoryOptions {
   snapshotCodec: VoyageSnapshotCodec;
@@ -239,7 +249,7 @@ export class VoyageRepository {
         await syncDomainRows(transaction, input.id, input.crafts, panels);
         await writeLayout(transaction, input.id, 0, layout);
         await transaction.insertInto('VoyageHistory').values({
-          id: randomUUID(),
+          id: createRandomId(),
           voyageId: input.id,
           sequence: 0,
           aggregateRevision: 0,
@@ -805,7 +815,7 @@ async function appendHistory(
     .select(sql<number | null>`max(sequence)`.as('value')).where('voyageId', '=', voyageId).executeTakeFirstOrThrow();
   const sequence = (maximum.value ?? 0) + 1;
   await transaction.insertInto('VoyageHistory').values({
-    id: randomUUID(),
+    id: createRandomId(),
     voyageId,
     sequence,
     aggregateRevision: revision,
@@ -835,7 +845,7 @@ async function resetHistoryBaseline(
   const panels = await transaction.selectFrom('VoyagePanel').selectAll().where('voyageId', '=', voyageId).orderBy('id').execute();
   await transaction.deleteFrom('VoyageHistory').where('voyageId', '=', voyageId).execute();
   await transaction.insertInto('VoyageHistory').values({
-    id: randomUUID(),
+    id: createRandomId(),
     voyageId,
     sequence: 0,
     aggregateRevision: revision,

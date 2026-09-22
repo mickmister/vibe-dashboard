@@ -31,13 +31,15 @@ type ActivationOutcome =
   | { status: 'suppressed'; revision: number }
   | { status: 'skipped'; reason: string; revision: number };
 
+type MaybePromise<T> = T | Promise<T>;
+
 export interface DockviewMutationCommand {
   id: string;
   dedupeKey?: string;
   unsafeDuplicate?: boolean;
   replay?: boolean;
   apply(current: VoyageAggregate): { panels: StructuralPanelHistoryRecord[]; snapshot: unknown; activationPanelId?: string };
-  validate?(current: VoyageAggregate): void;
+  validate?(current: VoyageAggregate): MaybePromise<void>;
   canReplay?(winner: VoyageAggregate): boolean;
 }
 
@@ -47,7 +49,7 @@ export interface DockviewMutationCoordinator {
   captureGestureSnapshot(token: symbol, snapshot: unknown): void;
   completeGesture(token: symbol, options?: { debounceMs?: number }): Promise<CommandOutcome>;
   handleActivePanelChange(panelId: string, event: { origin: 'user' | 'api'; input?: 'pointer' | 'keyboard' }): Promise<ActivationOutcome>;
-  focusPanelFromCommand(panelId: string): Promise<ActivationOutcome>;
+  focusPanelFromCommand(panelId: string, focus?: () => MaybePromise<void>): Promise<ActivationOutcome>;
   restoreFromAggregate(aggregate: VoyageAggregate): void;
   flush(reason: string): Promise<{ status: 'flushed' | 'recovery'; reason?: string; revision: number }>;
   visibleState(): CoordinatorVisibleState;
@@ -78,6 +80,7 @@ export function createDockviewMutationCoordinator(input: {
   api: DockviewMutationApi;
   repository: DockviewMutationRepository;
   gestureDebounceMs?: number;
+  onAcceptedAggregate?: (aggregate: VoyageAggregate) => void;
 }): DockviewMutationCoordinator {
   return new SerializedDockviewMutationCoordinator(input);
 }
@@ -87,6 +90,7 @@ class SerializedDockviewMutationCoordinator implements DockviewMutationCoordinat
   private queue: Promise<unknown> = Promise.resolve();
   private readonly pendingByDedupe = new Map<string, Promise<CommandOutcome>>();
   private pendingCommand: string | null = null;
+  private queuedCommands = 0;
   private pendingGesture: PendingGesture | null = null;
   private generation = 0;
   private lastConflict: string | null = null;
@@ -99,6 +103,7 @@ class SerializedDockviewMutationCoordinator implements DockviewMutationCoordinat
     api: DockviewMutationApi;
     repository: DockviewMutationRepository;
     gestureDebounceMs?: number;
+    onAcceptedAggregate?: (aggregate: VoyageAggregate) => void;
   }) {
     this.accepted = input.aggregate;
     this.currentActivePanelId = activePanelId(input.aggregate.layout.snapshot);
@@ -120,6 +125,8 @@ class SerializedDockviewMutationCoordinator implements DockviewMutationCoordinat
   }
 
   beginGesture(label: string): symbol {
+    if (this.pendingGesture) throw new VoyageInvariantError('gesture-already-active');
+    if (this.queuedCommands > 0 || this.pendingCommand) throw new VoyageInvariantError('gesture-boundary-busy');
     const token = Symbol(label);
     this.pendingGesture = {
       token,
@@ -189,10 +196,14 @@ class SerializedDockviewMutationCoordinator implements DockviewMutationCoordinat
     return this.recordActivation(panelId);
   }
 
-  async focusPanelFromCommand(panelId: string): Promise<ActivationOutcome> {
-    const result = await this.recordActivation(panelId);
+  async focusPanelFromCommand(panelId: string, focus?: () => MaybePromise<void>): Promise<ActivationOutcome> {
     this.suppressedPanelId = panelId;
-    return result;
+    try {
+      await focus?.();
+    } finally {
+      if (this.suppressedPanelId === panelId) this.suppressedPanelId = null;
+    }
+    return this.recordActivation(panelId);
   }
 
   restoreFromAggregate(aggregate: VoyageAggregate): void {
@@ -200,6 +211,7 @@ class SerializedDockviewMutationCoordinator implements DockviewMutationCoordinat
     try {
       this.accepted = aggregate;
       this.currentActivePanelId = activePanelId(aggregate.layout.snapshot);
+      this.input.onAcceptedAggregate?.(aggregate);
       this.input.api.fromJSON(aggregate.layout.snapshot as unknown as SerializedDockview);
     } finally {
       this.suppressActivations = false;
@@ -234,12 +246,14 @@ class SerializedDockviewMutationCoordinator implements DockviewMutationCoordinat
   }
 
   private enqueue<T>(label: string, task: () => Promise<T>): Promise<T> {
+    this.queuedCommands += 1;
     const run = async () => {
       this.pendingCommand = label;
       try {
         return await task();
       } finally {
         this.pendingCommand = null;
+        this.queuedCommands -= 1;
       }
     };
     const next = this.queue.then(run, run);
@@ -250,25 +264,20 @@ class SerializedDockviewMutationCoordinator implements DockviewMutationCoordinat
   private async runCommand(command: DockviewMutationCommand): Promise<CommandOutcome> {
     const before = this.accepted;
     try {
-      command.validate?.(before);
+      await command.validate?.(before);
       const applied = command.apply(before);
       productionDockviewSnapshotCodec.validateAndCanonicalize(applied.snapshot);
-      const revision = await this.input.repository.commitLayoutMutation({
+      await this.input.repository.commitLayoutMutation({
         voyageId: before.id,
         expectedRevision: before.revision,
         panels: applied.panels,
         snapshot: applied.snapshot,
         ...(applied.activationPanelId ? { activationPanelId: applied.activationPanelId } : {}),
       });
-      this.accepted = {
-        ...before,
-        revision,
-        panels: applied.panels.map((entry) => ({ ...entry, lastActivatedSequence: null })),
-        layout: productionDockviewSnapshotCodec.validateAndCanonicalize(applied.snapshot),
-      };
-      this.currentActivePanelId = activePanelId(applied.snapshot);
+      const committed = await this.input.repository.loadVoyage(before.id);
+      this.restoreFromAggregate(committed);
       this.lastConflict = null;
-      return { status: 'committed', revision };
+      return { status: 'committed', revision: committed.revision };
     } catch (error) {
       if (error instanceof VoyageConflictError) return this.handleConflict(command, before);
       this.restoreFromAggregate(before);
@@ -289,23 +298,19 @@ class SerializedDockviewMutationCoordinator implements DockviewMutationCoordinat
     this.restoreFromAggregate(winner);
     if (command.replay && (command.canReplay?.(winner) ?? false)) {
       try {
+        await command.validate?.(winner);
         const applied = command.apply(winner);
-        const revision = await this.input.repository.commitLayoutMutation({
+        await this.input.repository.commitLayoutMutation({
           voyageId: winner.id,
           expectedRevision: winner.revision,
           panels: applied.panels,
           snapshot: applied.snapshot,
           ...(applied.activationPanelId ? { activationPanelId: applied.activationPanelId } : {}),
         });
-        this.accepted = {
-          ...winner,
-          revision,
-          panels: applied.panels.map((entry) => ({ ...entry, lastActivatedSequence: null })),
-          layout: productionDockviewSnapshotCodec.validateAndCanonicalize(applied.snapshot),
-        };
-        this.currentActivePanelId = activePanelId(applied.snapshot);
+        const committed = await this.input.repository.loadVoyage(winner.id);
+        this.restoreFromAggregate(committed);
         this.lastConflict = null;
-        return { status: 'replayed', revision };
+        return { status: 'replayed', revision: committed.revision };
       } catch {
         this.restoreFromAggregate(winner);
         this.lastConflict = 'replay-failed';

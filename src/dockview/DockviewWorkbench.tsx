@@ -5,6 +5,11 @@ import 'dockview-react/dist/styles/dockview.css';
 import { createPanelTargetRegistry, type PanelTargetResolution, type PanelTargetResolutionContext } from '../store/panelTargetRegistry';
 import { productionDockviewSnapshotCodec } from '../store/dockviewSnapshotCodec';
 import { VoyageInvariantError, type VoyageAggregate, type VoyagePanelRecord } from '../store/voyageRepository';
+import {
+  createDockviewMutationCoordinator,
+  type DockviewMutationCoordinator,
+  type DockviewMutationRepository,
+} from './DockviewMutationCoordinator';
 
 const PANEL_RECOVERY_HEADING = 'Panel recovery';
 const PANEL_RECOVERY_BODY = 'This Panel target is unavailable or unsafe to render.';
@@ -12,6 +17,8 @@ const PANEL_RECOVERY_BODY = 'This Panel target is unavailable or unsafe to rende
 export interface DockviewControllerApi {
   fromJSON(snapshot: SerializedDockview): void;
   toJSON(): SerializedDockview;
+  onDidActivePanelChange?(listener: (event: { panel?: { id: string } | null }) => void): { dispose(): void };
+  onDidLayoutChange?(listener: () => void): { dispose(): void };
 }
 
 export interface DockviewPanelModel {
@@ -186,6 +193,9 @@ export function DockviewPanelContent({
 export function DockviewWorkbench(input: {
   aggregate: VoyageAggregate;
   contextForCraft: (craftWorkspaceId: string) => PanelTargetResolutionContext | null;
+  repository?: DockviewMutationRepository;
+  gestureDebounceMs?: number;
+  onCoordinator?: (coordinator: DockviewMutationCoordinator) => void;
   onRestore?: (result: DockviewControllerRestoreResult) => void;
   onQuarantine?: (event: DockviewLayoutQuarantineEvent) => void;
 }) {
@@ -200,8 +210,9 @@ export function DockviewWorkbench(input: {
   }), [holder, input.aggregate.id, input.aggregate.revision]);
 
   const onReady = (event: DockviewReadyEvent) => {
+    const api = event.api as DockviewControllerApi;
     const result = restoreDockviewController({
-      api: event.api as DockviewApi,
+      api: api as DockviewApi,
       aggregate: input.aggregate,
       contextForCraft: input.contextForCraft,
       onQuarantine: input.onQuarantine,
@@ -209,6 +220,37 @@ export function DockviewWorkbench(input: {
         holder.current = result.controller;
       },
     });
+    if (input.repository) {
+      const coordinator = createDockviewMutationCoordinator({
+        aggregate: input.aggregate,
+        api,
+        repository: input.repository,
+        gestureDebounceMs: input.gestureDebounceMs,
+        onAcceptedAggregate: (aggregate) => {
+          const prepared = restoreDockviewController({
+            api: { fromJSON: () => undefined, toJSON: api.toJSON },
+            aggregate,
+            contextForCraft: input.contextForCraft,
+            onQuarantine: input.onQuarantine,
+          });
+          holder.current = prepared.controller;
+        },
+      });
+      input.onCoordinator?.(coordinator);
+      api.onDidActivePanelChange?.((change) => {
+        const panelId = change.panel?.id;
+        if (panelId) void coordinator.handleActivePanelChange(panelId, { origin: 'user' });
+      });
+      api.onDidLayoutChange?.(() => {
+        try {
+          const token = coordinator.beginGesture('dockview-layout');
+          coordinator.captureGestureSnapshot(token, api.toJSON());
+          void coordinator.completeGesture(token);
+        } catch (error) {
+          if (!(error instanceof VoyageInvariantError)) throw error;
+        }
+      });
+    }
     input.onRestore?.(result);
   };
 

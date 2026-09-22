@@ -1,6 +1,7 @@
 import React from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
-import { describe, expect, it, vi } from 'vitest';
+import { IntlProvider } from 'react-intl';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { Orientation, type SerializedDockview } from 'dockview';
 import {
   DockviewWorkbench,
@@ -9,9 +10,14 @@ import {
   restoreDockviewController,
   type DockviewControllerApi,
 } from './DockviewWorkbench';
+import { DockviewM32HarnessRoute } from './DockviewM32HarnessRoute';
+import type { DockviewMutationCoordinator, DockviewMutationRepository } from './DockviewMutationCoordinator';
 import { productionDockviewSnapshotCodec } from '../store/dockviewSnapshotCodec';
 import type { PanelTargetResolutionContext } from '../store/panelTargetRegistry';
-import type { VoyageAggregate } from '../store/voyageRepository';
+import {
+  VoyageConflictError,
+  type VoyageAggregate,
+} from '../store/voyageRepository';
 
 const hostOrigin = 'https://vd.test';
 const workspaceId = 'workspace-a';
@@ -20,6 +26,9 @@ const craftId = 'craft-a';
 
 const dockviewReactBoundary = vi.hoisted(() => ({
   panelMarkupDuringFromJSON: '',
+  api: undefined as DockviewControllerApi | undefined,
+  activeListeners: [] as Array<(event: { panel?: { id: string } | null }) => void>,
+  layoutListeners: [] as Array<() => void>,
 }));
 
 vi.mock('dockview-react', async () => {
@@ -43,11 +52,35 @@ vi.mock('dockview-react', async () => {
           );
         },
         toJSON: () => snapshot(['panel-a']),
+        onDidActivePanelChange(listener) {
+          dockviewReactBoundary.activeListeners.push(listener);
+          return { dispose: vi.fn() };
+        },
+        onDidLayoutChange(listener) {
+          dockviewReactBoundary.layoutListeners.push(listener);
+          return { dispose: vi.fn() };
+        },
       };
+      dockviewReactBoundary.api = api;
       props.onReady({ api });
       return ReactModule.createElement('div', { 'data-dockview-react-mock': 'ready' });
     },
   };
+});
+
+vi.mock('react-intl', async () => {
+  const ReactModule = await import('react');
+  return {
+    IntlProvider: ({ children }: React.PropsWithChildren<{ locale: string }>) => ReactModule.createElement(ReactModule.Fragment, null, children),
+    FormattedMessage: ({ defaultMessage }: { defaultMessage: string }) => ReactModule.createElement(ReactModule.Fragment, null, defaultMessage),
+  };
+});
+
+beforeEach(() => {
+  dockviewReactBoundary.panelMarkupDuringFromJSON = '';
+  dockviewReactBoundary.api = undefined;
+  dockviewReactBoundary.activeListeners = [];
+  dockviewReactBoundary.layoutListeners = [];
 });
 
 function context(): PanelTargetResolutionContext {
@@ -142,6 +175,53 @@ function aggregate(input: {
     })),
     layout,
     history: [],
+  };
+}
+
+function mutationRepository(seed = aggregate()) {
+  let current = seed;
+  const commits: Array<{ expectedRevision: number; panelIds: string[] }> = [];
+  const activations: Array<{ panelId: string; expectedRevision: number }> = [];
+  const repo: DockviewMutationRepository = {
+    async commitLayoutMutation(input) {
+      commits.push({ expectedRevision: input.expectedRevision, panelIds: input.panels.map(({ id }) => id) });
+      if (input.expectedRevision !== current.revision) throw new VoyageConflictError(input.voyageId, input.expectedRevision);
+      const recency = new Map(current.panels.map((panel) => [panel.id, panel.lastActivatedSequence]));
+      current = {
+        ...current,
+        revision: current.revision + 1,
+        panels: input.panels.map((panel) => ({ ...panel, lastActivatedSequence: recency.get(panel.id) ?? null })),
+        layout: productionDockviewSnapshotCodec.validateAndCanonicalize(input.snapshot),
+      };
+      return current.revision;
+    },
+    async recordActivation(_voyageId, panelId, expectedRevision) {
+      activations.push({ panelId, expectedRevision });
+      if (expectedRevision !== current.revision) throw new VoyageConflictError(current.id, expectedRevision);
+      current = {
+        ...current,
+        revision: current.revision + 1,
+        activationSequence: current.activationSequence + 1,
+        panels: current.panels.map((panel) => panel.id === panelId
+          ? { ...panel, lastActivatedSequence: current.activationSequence + 1 }
+          : panel),
+      };
+      return true;
+    },
+    async loadVoyage() {
+      return current;
+    },
+  };
+  return {
+    repo,
+    commits,
+    activations,
+    get current() {
+      return current;
+    },
+    set current(value: VoyageAggregate) {
+      current = value;
+    },
   };
 }
 
@@ -272,5 +352,54 @@ describe('Dockview M3.1 controller restore and Panel rendering', () => {
     expect(dockviewReactBoundary.panelMarkupDuringFromJSON).toContain('data-renderer-key="craft-overview"');
     expect(dockviewReactBoundary.panelMarkupDuringFromJSON).toContain('<iframe');
     expect(dockviewReactBoundary.panelMarkupDuringFromJSON).not.toContain('Panel recovery');
+  });
+
+  it('installs one coordinator at the Workbench boundary so Dockview callbacks persist through it', async () => {
+    const stored = aggregate({ panels: [{ id: 'panel-a', craftWorkspaceId }, { id: 'panel-b', craftWorkspaceId }] });
+    const store = mutationRepository(stored);
+    const coordinators: DockviewMutationCoordinator[] = [];
+
+    renderToStaticMarkup(
+      React.createElement(DockviewWorkbench, {
+        aggregate: stored,
+        contextForCraft: () => context(),
+        repository: store.repo,
+        onCoordinator: (coordinator) => coordinators.push(coordinator),
+      }),
+    );
+
+    expect(coordinators).toHaveLength(1);
+    expect(dockviewReactBoundary.activeListeners).toHaveLength(1);
+    expect(dockviewReactBoundary.layoutListeners).toHaveLength(1);
+
+    dockviewReactBoundary.activeListeners[0]?.({ panel: { id: 'panel-a' } });
+    await coordinators[0]!.flush('test');
+    expect(store.activations).toEqual([{ panelId: 'panel-a', expectedRevision: 7 }]);
+
+    dockviewReactBoundary.api!.toJSON = () => snapshot(['panel-a', 'panel-b']);
+    dockviewReactBoundary.layoutListeners[0]?.();
+    await coordinators[0]!.flush('test');
+    expect(store.commits).toEqual([]);
+
+    dockviewReactBoundary.api!.toJSON = () => snapshot(['panel-b', 'panel-a']);
+    dockviewReactBoundary.layoutListeners[0]?.();
+    await coordinators[0]!.flush('test');
+    expect(store.commits).toEqual([{ expectedRevision: 8, panelIds: ['panel-a', 'panel-b'] }]);
+  });
+
+  it('renders the TEST_CASE_M3_2F semantic browser harness route with labeled controls and visible state', () => {
+    const markup = renderToStaticMarkup(
+      React.createElement(IntlProvider, { locale: 'en' }, React.createElement(DockviewM32HarnessRoute)),
+    );
+
+    expect(markup).toContain('data-testid="dockview-m3-2-harness"');
+    expect(markup).toContain('Queue open Panel');
+    expect(markup).toContain('Start gesture');
+    expect(markup).toContain('Complete gesture');
+    expect(markup).toContain('Programmatic focus Panel D');
+    expect(markup).toContain('Flush before eviction');
+    expect(markup).toContain('DockView M3.2 visible coordinator state');
+    expect(markup).toContain('topologyAgreement');
+    expect(dockviewReactBoundary.panelMarkupDuringFromJSON).toContain('data-renderer-key="craft-overview"');
   });
 });
