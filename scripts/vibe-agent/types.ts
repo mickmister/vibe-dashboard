@@ -164,7 +164,6 @@ export interface AgentContext {
   projectName: string | null;
   taskId: string | null;
   workspaceId: string;
-  workspaceBranch: string | null;
   sessionId: string | null;
   role: AgentRole | null;
 }

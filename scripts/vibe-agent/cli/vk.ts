@@ -3,7 +3,15 @@
 // Manages workspaces, sessions, and read-only inspection commands
 
 import { fileURLToPath } from 'url';
-import { VKService, type PullRequestDetail, type WorkspaceRepoInput } from './vk-service.js';
+import {
+  VKService,
+  type PreviewSlot,
+  type PullRequestDetail,
+  type RunConfig,
+  type RunConfigKind,
+  type RunConfigStartResponse,
+  type WorkspaceRepoInput,
+} from './vk-service.js';
 import { config, type Executor } from './vk-config.js';
 
 const service = new VKService();
@@ -97,6 +105,13 @@ async function main() {
 
       case 'dev-server':
         await commandDevServer(positional, flags);
+        break;
+
+      case 'preview-url':
+      case 'preview-urls':
+      case 'preview-server':
+      case 'preview-servers':
+        await commandPreviewUrl(positional, flags);
         break;
 
       case 'sessions':
@@ -256,6 +271,34 @@ function printProcess(proc: any) {
   console.log(`Completed:   ${proc.completed_at || '(running)'}`);
   if (action.working_dir) console.log(`Working Dir: ${action.working_dir}`);
   if (action.script) console.log(`Script:      ${action.script}`);
+}
+
+function printRunConfig(runConfig: RunConfig) {
+  console.log(`Run Config:  ${runConfig.id}`);
+  console.log(`Repo:        ${runConfig.repo_id}`);
+  console.log(`Slug:        ${runConfig.slug}`);
+  console.log(`Name:        ${runConfig.name}`);
+  console.log(`Kind:        ${runConfig.kind}`);
+  console.log(`Enabled:     ${runConfig.enabled}`);
+  console.log(`Command:     ${runConfig.command}`);
+  if (runConfig.working_dir) console.log(`Working Dir: ${runConfig.working_dir}`);
+}
+
+function printPreviewSlot(slot: PreviewSlot) {
+  console.log(`Preview Slot: ${slot.id}`);
+  console.log(`Repo:         ${slot.repo_id}`);
+  console.log(`Run Config:   ${slot.run_config_id}`);
+  console.log(`Slot Slug:    ${slot.slot_slug}`);
+  console.log(`Title:        ${slot.title}`);
+  console.log(`Enabled:      ${slot.enabled}`);
+}
+
+function printRunConfigStart(response: RunConfigStartResponse) {
+  console.log(`Process:  ${response.execution_process.id}`);
+  console.log(`Status:   ${response.execution_process.status}`);
+  console.log(`Port:     ${response.preview_process_link.assigned_port}`);
+  console.log(`Upstream: ${response.upstream}`);
+  console.log(`Link:     ${response.preview_process_link.id}`);
 }
 
 
@@ -631,6 +674,231 @@ async function commandDevServer(positional: string[], flags: FlagMap) {
   }
 }
 
+function requireWorkspaceId(value: string | undefined, usage: string): string {
+  if (!value) {
+    console.error(usage);
+    process.exit(1);
+  }
+  return value;
+}
+
+function parseRunConfigKind(value: string | undefined): RunConfigKind {
+  const kind = value ?? 'long_running';
+  if (kind === 'long_running' || kind === 'one_shot' || kind === 'test') {
+    return kind;
+  }
+  throw new Error(`Invalid run config kind "${kind}". Expected long_running, one_shot, or test.`);
+}
+
+function enabledFlag(flags: FlagMap): boolean {
+  if (flags.disabled === true) return false;
+  return boolFlag(flags, 'enabled', true);
+}
+
+async function commandPreviewUrl(positional: string[], flags: FlagMap) {
+  const subcommand = positional[0];
+
+  switch (subcommand) {
+    case 'list': {
+      const workspaceId = requireWorkspaceId(positional[1], 'Usage: vk preview-url list <workspace-id> [--json]');
+      const data = await service.getRunConfigs(workspaceId);
+      if (flags.json === true) {
+        console.log(JSON.stringify(data, null, 2));
+        return;
+      }
+
+      console.log(`Preview URL configuration for workspace ${workspaceId.substring(0, 8)}...:`);
+      console.log('='.repeat(80));
+      console.log('');
+      console.log('Run configs:');
+      if (data.run_configs.length === 0) {
+        console.log('  (none)');
+      }
+      for (const runConfig of data.run_configs) {
+        printRunConfig(runConfig);
+        console.log('');
+      }
+
+      console.log('Preview slots:');
+      if (data.preview_slots.length === 0) {
+        console.log('  (none)');
+      }
+      for (const slot of data.preview_slots) {
+        printPreviewSlot(slot);
+        const urlParts = data.preview_url_parts.find(parts => parts.previewSlotId === slot.id);
+        if (urlParts) {
+          console.log(`Host Parts:   ${urlParts.workspaceToken}-${urlParts.repoSlug}-${urlParts.slotSlug}-<customerSlug>`);
+        }
+        console.log('');
+      }
+      break;
+    }
+
+    case 'upsert-run-config': {
+      const workspaceId = requireWorkspaceId(
+        positional[1],
+        'Usage: vk preview-url upsert-run-config <workspace-id> --repo <repo-id> --slug <slug> --name <name> --command "script" [--id <run-config-id>] [--kind long_running|one_shot|test] [--disabled] [--json]',
+      );
+      const repoId = getFlagString(flags, 'repo') ?? getFlagString(flags, 'repo-id');
+      const slug = getFlagString(flags, 'slug') ?? positional[2];
+      const name = getFlagString(flags, 'name') ?? slug;
+      const command = getFlagString(flags, 'command') ?? getFlagString(flags, 'script') ?? positional.slice(3).join(' ').trim();
+      if (!repoId || !slug || !name || !command) {
+        console.error('Usage: vk preview-url upsert-run-config <workspace-id> --repo <repo-id> --slug <slug> --name <name> --command "script" [--id <run-config-id>] [--kind long_running|one_shot|test] [--disabled] [--json]');
+        process.exit(1);
+      }
+      const runConfig = await service.upsertRunConfig(workspaceId, {
+        id: getFlagString(flags, 'id') ?? getFlagString(flags, 'run-config-id') ?? null,
+        repo_id: repoId,
+        slug,
+        name,
+        command,
+        kind: parseRunConfigKind(getFlagString(flags, 'kind')),
+        enabled: enabledFlag(flags),
+      });
+      if (flags.json === true) {
+        console.log(JSON.stringify(runConfig, null, 2));
+        return;
+      }
+      console.log('Saved run config:');
+      printRunConfig(runConfig);
+      console.log('');
+      console.log('To start it:');
+      console.log(`  vk preview-url start-run-config ${workspaceId} ${runConfig.id}`);
+      break;
+    }
+
+    case 'upsert-slot': {
+      const workspaceId = requireWorkspaceId(
+        positional[1],
+        'Usage: vk preview-url upsert-slot <workspace-id> --repo <repo-id> --run-config <run-config-id> --slot <slot-slug> --title <title> [--id <preview-slot-id>] [--disabled] [--json]',
+      );
+      const repoId = getFlagString(flags, 'repo') ?? getFlagString(flags, 'repo-id');
+      const runConfigId = getFlagString(flags, 'run-config') ?? getFlagString(flags, 'run-config-id');
+      const slotSlug = getFlagString(flags, 'slot') ?? getFlagString(flags, 'slot-slug') ?? positional[2];
+      const title = getFlagString(flags, 'title') ?? slotSlug;
+      if (!repoId || !runConfigId || !slotSlug || !title) {
+        console.error('Usage: vk preview-url upsert-slot <workspace-id> --repo <repo-id> --run-config <run-config-id> --slot <slot-slug> --title <title> [--id <preview-slot-id>] [--disabled] [--json]');
+        process.exit(1);
+      }
+      const slot = await service.upsertPreviewSlot(workspaceId, {
+        id: getFlagString(flags, 'id') ?? getFlagString(flags, 'preview-slot-id') ?? null,
+        repo_id: repoId,
+        run_config_id: runConfigId,
+        slot_slug: slotSlug,
+        title,
+        enabled: enabledFlag(flags),
+      });
+      if (flags.json === true) {
+        console.log(JSON.stringify(slot, null, 2));
+        return;
+      }
+      console.log('Saved preview slot:');
+      printPreviewSlot(slot);
+      console.log('');
+      console.log('To get its URL:');
+      console.log(`  vk preview-url url ${workspaceId} ${slot.id} --customer <customer-slug>`);
+      break;
+    }
+
+    case 'url': {
+      const workspaceId = requireWorkspaceId(
+        positional[1],
+        'Usage: vk preview-url url <workspace-id> <preview-slot-id> --customer <customer-slug> [--base-domain <domain>] [--json]',
+      );
+      const previewSlotId = positional[2] ?? getFlagString(flags, 'slot-id') ?? getFlagString(flags, 'preview-slot-id');
+      const customerSlug = getFlagString(flags, 'customer') ?? getFlagString(flags, 'customer-slug');
+      const baseDomain = getFlagString(flags, 'base-domain');
+      if (!previewSlotId || !customerSlug) {
+        console.error('Usage: vk preview-url url <workspace-id> <preview-slot-id> --customer <customer-slug> [--base-domain <domain>] [--json]');
+        process.exit(1);
+      }
+      const response = await service.getPreviewSlotUrl(workspaceId, previewSlotId, { customerSlug, baseDomain });
+      if (flags.json === true) {
+        console.log(JSON.stringify(response, null, 2));
+        return;
+      }
+      console.log(response.url);
+      break;
+    }
+
+    case 'start-run-config': {
+      const workspaceId = requireWorkspaceId(positional[1], 'Usage: vk preview-url start-run-config <workspace-id> <run-config-id> [--json]');
+      const runConfigId = positional[2] ?? getFlagString(flags, 'run-config') ?? getFlagString(flags, 'run-config-id');
+      if (!runConfigId) {
+        console.error('Usage: vk preview-url start-run-config <workspace-id> <run-config-id> [--json]');
+        process.exit(1);
+      }
+      const response = await service.startRunConfig(workspaceId, runConfigId);
+      if (flags.json === true) {
+        console.log(JSON.stringify(response, null, 2));
+        return;
+      }
+      console.log('Started run config:');
+      printRunConfigStart(response);
+      break;
+    }
+
+    case 'start-slot': {
+      const workspaceId = requireWorkspaceId(positional[1], 'Usage: vk preview-url start-slot <workspace-id> <preview-slot-id> [--json]');
+      const previewSlotId = positional[2] ?? getFlagString(flags, 'slot-id') ?? getFlagString(flags, 'preview-slot-id');
+      if (!previewSlotId) {
+        console.error('Usage: vk preview-url start-slot <workspace-id> <preview-slot-id> [--json]');
+        process.exit(1);
+      }
+      const response = await service.startPreviewSlot(workspaceId, previewSlotId);
+      if (flags.json === true) {
+        console.log(JSON.stringify(response, null, 2));
+        return;
+      }
+      console.log('Started preview slot:');
+      printRunConfigStart(response);
+      break;
+    }
+
+    case 'logs': {
+      const processId = positional[1];
+      if (!processId) {
+        console.error('Usage: vk preview-url logs <process-id> [--json] [--timeout <ms>]');
+        process.exit(1);
+      }
+      const timeout = typeof flags.timeout === 'string' ? Number(flags.timeout) : 2000;
+      const logs = await service.fetchRawLogs(processId, Number.isFinite(timeout) ? timeout : 2000);
+      if (flags.json === true) {
+        console.log(JSON.stringify(logs, null, 2));
+        return;
+      }
+      for (const entry of logs) {
+        const prefix = entry.type === 'STDERR' ? '[stderr] ' : '';
+        process.stdout.write(prefix + entry.content);
+        if (!entry.content.endsWith('\n')) process.stdout.write('\n');
+      }
+      break;
+    }
+
+    case 'stop': {
+      const processId = positional[1];
+      if (!processId) {
+        console.error('Usage: vk preview-url stop <process-id>');
+        process.exit(1);
+      }
+      await service.stopExecutionProcess(processId);
+      console.log(`Stopped preview process ${processId}`);
+      break;
+    }
+
+    default:
+      console.error('Usage: vk preview-url <list|upsert-run-config|upsert-slot|url|start-run-config|start-slot|logs|stop> ...');
+      console.error('Examples:');
+      console.error('  vk preview-url list <workspace-id> [--json]');
+      console.error('  vk preview-url upsert-run-config <workspace-id> --repo <repo-id> --slug web --name Web --command "npm run dev"');
+      console.error('  vk preview-url upsert-slot <workspace-id> --repo <repo-id> --run-config <run-config-id> --slot web --title Web');
+      console.error('  vk preview-url url <workspace-id> <preview-slot-id> --customer <customer-slug>');
+      console.error('  vk preview-url start-slot <workspace-id> <preview-slot-id> [--json]');
+      process.exit(1);
+  }
+}
+
 async function commandSessions(workspaceId: string) {
   if (!workspaceId) {
     console.error('Usage: vk sessions <workspace-id>');
@@ -860,6 +1128,8 @@ function printHelp() {
   console.log('  repo <repo-id> [--json]                    Show repository details');
   console.log('  workspace-repos <workspace-id> [--json]    List repos attached to workspace');
   console.log('  dev-script get <repo-id> [--json]          Show repo dev server script');
+  console.log('  preview-url list <workspace-id> [--json]   List Preview URL run configs and slots');
+  console.log('  preview-url url <workspace-id> <slot-id> --customer <slug>  Print canonical preview URL');
   console.log('  sessions <workspace-id>                    List sessions for workspace');
   console.log('  status <workspace-id>...                   Get workspace status summary');
   console.log('  processes <session-id>                     List execution processes');
@@ -873,6 +1143,12 @@ function printHelp() {
   console.log('  dev-server list <workspace-id> [--json]    List running workspace dev servers');
   console.log('  dev-server logs <process-id> [--json]      Fetch raw dev server logs');
   console.log('  dev-server stop <process-id>               Stop a dev server process');
+  console.log('  preview-url upsert-run-config <workspace-id> --repo <repo> --slug <slug> --name <name> --command "script"');
+  console.log('  preview-url upsert-slot <workspace-id> --repo <repo> --run-config <id> --slot <slug> --title <title>');
+  console.log('  preview-url start-run-config <workspace-id> <run-config-id> [--json]');
+  console.log('  preview-url start-slot <workspace-id> <preview-slot-id> [--json]');
+  console.log('  preview-url logs <process-id> [--json]     Fetch raw preview process logs');
+  console.log('  preview-url stop <process-id>              Stop a preview process');
   console.log('  create-session <workspace-id> <executor>   Create new session');
   console.log('  create-workspace --message "prompt" --repo <repo[:branch]>   Create and start workspace');
   console.log('  workspace create-from-pr --repo <repo> --remote <remote> --pr <n>  Create workspace from PR');

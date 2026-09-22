@@ -113,12 +113,6 @@ startup_step_end
 startup_debug_path_summary /home/vkuser/repos/vibe-kanban-vscode-web
 startup_log "Skipping recursive repository permission repair; repository files are created as vkuser"
 
-# Ensure the packaged vibe-dashboard runtime directory exists before supervisord starts
-startup_step_begin "prepare vibe-dashboard runtime directory"
-mkdir -p /home/vkuser/.local/share/vibe-dashboard-runtime
-chown -R vkuser:vkuser /home/vkuser/.local/share/vibe-dashboard-runtime 2>/dev/null || true
-startup_step_end
-
 # Ensure plugin runtime paths and the plugin-owned Caddy import exist before
 # supervisord starts. Plugin artifact installation intentionally runs after
 # Caddy starts so first boot is not blocked on large downloads.
