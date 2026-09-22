@@ -270,6 +270,8 @@ jobs:
           INPUT_PLATFORMS: ${{ inputs.platforms }}
           INPUT_PUSH: ${{ inputs.push }}
           INPUT_SIGN: ${{ inputs.sign }}
+          INPUT_CACHE: ${{ inputs.cache }}
+          INPUT_CACHE-REF: ${{ inputs.cache-ref }}
         with:
           script: |
             const { GitHub } = require('@docker/actions-toolkit/lib/github/github');
@@ -286,6 +288,8 @@ jobs:
             const inpOutput = core.getInput('output');
             const inpPush = core.getBooleanInput('push');
             const inpSign = core.getInput('sign');
+            const inpCache = core.getBooleanInput('cache');
+            const inpCacheRef = core.getInput('cache-ref');
 
             const parseRunnerConfig = value => {
               const lines = value.map(line => line.trim()).filter(line => line.length > 0);
@@ -446,7 +450,7 @@ jobs:
               core.setOutput('sign', sign);
             });
             await core.group(`Set ghaCacheSign output`, async () => {
-              const ghaCacheSign = inpActionsIdTokenSet ? 'true' : 'false';
+              const ghaCacheSign = inpActionsIdTokenSet && inpCache && !inpCacheRef ? 'true' : 'false';
               core.info(`ghaCacheSign: ${ghaCacheSign}`);
               core.setOutput('ghaCacheSign', ghaCacheSign);
             });
@@ -504,6 +508,13 @@ jobs:
 
           echo "Disk usage before cleanup:"
           df -h
+
+          min_free_kib=$((80 * 1024 * 1024))
+          free_kib=$(df --output=avail / | tail -n 1 | tr -d ' ')
+          if [ "$free_kib" -ge "$min_free_kib" ]; then
+            echo "Skipping cleanup: / has at least 80 GiB available."
+            exit 0
+          fi
 
           sudo rm -rf \
             /usr/local/lib/android \
@@ -582,7 +593,7 @@ jobs:
                     sourceRepositoryURI = "${{ github.server_url }}/${{ github.repository }}"
       -
         name: Install Cosign
-        if: ${{ needs.prepare.outputs.sign == 'true' || inputs.cache }}
+        if: ${{ needs.prepare.outputs.sign == 'true' || (inputs.cache && inputs.cache-ref == '') }}
         uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
         env:
           INPUT_COSIGN-VERSION: ${{ env.COSIGN_VERSION }}
