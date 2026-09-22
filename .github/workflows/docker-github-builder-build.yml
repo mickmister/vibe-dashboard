@@ -58,6 +58,10 @@ on:
         description: "Cache layers to export if cache enabled (min or max)"
         required: false
         default: 'min'
+      cache-ref:
+        type: string
+        description: "Registry cache image reference; when set, use registry caching instead of the GitHub Actions cache"
+        required: false
       context:
         type: string
         description: "Context to build from in the Git working tree"
@@ -678,6 +682,7 @@ jobs:
           INPUT_CACHE: ${{ inputs.cache }}
           INPUT_CACHE-SCOPE: ${{ inputs.cache-scope }}
           INPUT_CACHE-MODE: ${{ inputs.cache-mode }}
+          INPUT_CACHE-REF: ${{ inputs.cache-ref }}
           INPUT_LABELS: ${{ inputs.labels }}
           INPUT_CONTEXT: ${{ inputs.context }}
           INPUT_SOURCE-REF: ${{ inputs.source-ref }}
@@ -713,6 +718,7 @@ jobs:
             const inpCache = core.getBooleanInput('cache');
             const inpCacheScope = core.getInput('cache-scope');
             const inpCacheMode = core.getInput('cache-mode');
+            const inpCacheRef = core.getInput('cache-ref');
             const inpContext = core.getInput('context');
             const inpLabels = core.getInput('labels');
             const inpOutput = core.getInput('output');
@@ -772,8 +778,15 @@ jobs:
             core.setOutput('sbom', inpSbom ? `generator=${inpSbomImage}` : 'false');
 
             if (inpCache) {
-              core.setOutput('cache-from', `type=gha,scope=${inpCacheScope || inpTarget || 'buildkit'}${platformPairSuffix}`);
-              core.setOutput('cache-to', `type=gha,ignore-error=true,scope=${inpCacheScope || inpTarget || 'buildkit'}${platformPairSuffix},mode=${inpCacheMode}`);
+              const cacheScope = `${inpCacheScope || inpTarget || 'buildkit'}${platformPairSuffix}`;
+              if (inpCacheRef) {
+                const registryRef = `${inpCacheRef}-${cacheScope}`;
+                core.setOutput('cache-from', `type=registry,ref=${registryRef}`);
+                core.setOutput('cache-to', `type=registry,ref=${registryRef},mode=${inpCacheMode}`);
+              } else {
+                core.setOutput('cache-from', `type=gha,scope=${cacheScope}`);
+                core.setOutput('cache-to', `type=gha,ignore-error=true,scope=${cacheScope},mode=${inpCacheMode}`);
+              }
             }
 
             let annotations;

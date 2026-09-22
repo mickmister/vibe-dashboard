@@ -112,6 +112,10 @@ jobs:
         VK_REPO_URL=${{ needs.resolve-vk-ref.outputs.vk_repo_url }}
       cache: true
       cache-scope: vk-vd-multiarch
+      # The mode=max cache is larger than GitHub Actions' repository cache
+      # budget and was continuously evicted. Keep it in GHCR alongside the
+      # output image so intermediate toolchain layers persist across runs.
+      cache-ref: ghcr.io/${{ github.repository_owner }}/vk-vd:buildcache
       # Export intermediate stages as well as final-image layers. The
       # dependency installer and toolchain stages are the expensive part of
       # this image and need to survive application-source changes.
