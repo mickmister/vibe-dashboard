@@ -194,6 +194,7 @@ export function registerWorkflowRoutes(
       }, 30_000);
       let reservationFailureRecorded = false;
       let externalCreateStarted = false;
+      let workspaceRecorded = Boolean(claim.reservation.workspaceId);
       try {
         let workspace;
         if (claim.reservation.workspaceId) {
@@ -223,6 +224,7 @@ export function registerWorkflowRoutes(
               workspace.id,
               workspace.branch,
             );
+            workspaceRecorded = true;
           } catch (recordError) {
             try {
               await issueWorkspaceVkClient.updateWorkspace(workspace.id, { archived: true });
@@ -267,7 +269,7 @@ export function registerWorkflowRoutes(
           return c.json({ status: 'provisioning' as const }, 202);
         }
         if (!reservationFailureRecorded) {
-          if (externalCreateStarted && !claim.reservation.workspaceId) {
+          if (externalCreateStarted && !workspaceRecorded) {
             await issueWorkspaceReservations.markReservationManualRecoveryRequired(identity, leaseToken, error);
           } else {
             await issueWorkspaceReservations.markReservationRecoverable(identity, leaseToken, error);

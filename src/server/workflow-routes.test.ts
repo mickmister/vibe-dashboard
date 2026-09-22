@@ -217,6 +217,79 @@ describe("registerWorkflowRoutes", () => {
     handle.sqlite.close();
   });
 
+  it("recovers automatically when mapping fails after recording the created workspace", async () => {
+    const handle = await initExternalIntegrationsDb({ path: ":memory:" });
+    class FailMappingOnceStore extends GithubIssueWorkspaceDbStore {
+      failuresRemaining = 1;
+
+      override async upsert(args: Parameters<GithubIssueWorkspaceDbStore["upsert"]>[0]) {
+        if (this.failuresRemaining > 0) {
+          this.failuresRemaining -= 1;
+          throw new Error("mapping write failed");
+        }
+        return super.upsert(args);
+      }
+    }
+    const store = new FailMappingOnceStore({ getDb: async () => handle.db });
+    const workspace = {
+      id: "ws-recorded",
+      task_id: null,
+      container_ref: null,
+      branch: "vk/issue-42",
+      agent_working_dir: null,
+      created_at: "2026-09-22T00:00:00Z",
+      updated_at: "2026-09-22T00:00:00Z",
+      archived: false,
+      pinned: false,
+      name: "Issue #42",
+    };
+    const createAndStartWorkspace = vi.fn(async () => ({
+      workspace,
+      execution_process: undefined as never,
+    }));
+    const app = new Hono();
+    registerWorkflowRoutes(app, {
+      registry: createWorkflowRegistry(),
+      githubIssueWorkspaceMap: store,
+      githubIssueWorkspaceReservations: store,
+      githubIssueWorkspaceVkClient: {
+        createAndStartWorkspace,
+        getWorkspace: vi.fn(async () => workspace),
+        updateWorkspace: vi.fn(),
+      },
+    });
+    const request = () => app.request(
+      "/dashboard/api/github/issue-workspaces/Owner/Repo/42/resolve-or-create",
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          repoId: "repo-id",
+          targetBranch: "origin/main",
+          createBranch: true,
+          checkoutBranch: null,
+          name: "Issue #42",
+        }),
+      },
+    );
+
+    const first = await request();
+    expect(first.status).toBe(500);
+    expect(createAndStartWorkspace).toHaveBeenCalledTimes(1);
+
+    const retry = await request();
+    expect(retry.status).toBe(200);
+    await expect(retry.json()).resolves.toMatchObject({
+      status: "ready",
+      workspace: { id: "ws-recorded" },
+      created: false,
+    });
+    expect(createAndStartWorkspace).toHaveBeenCalledTimes(1);
+
+    await handle.db.destroy();
+    handle.sqlite.close();
+  });
+
   it("does not create a duplicate after an expired external-create-started reservation without workspace ID", async () => {
     let now = new Date("2026-09-22T00:00:00Z");
     const handle = await initExternalIntegrationsDb({ path: ":memory:" });
