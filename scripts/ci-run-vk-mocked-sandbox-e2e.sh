@@ -49,4 +49,4 @@ until curl --fail --silent --show-error "$SANDBOX_URL/workspaces" >/dev/null; do
 done
 
 echo "VK mocked sandbox is ready at $SANDBOX_URL/workspaces"
-npm run test:e2e:vk-mocked-sandbox
+node --experimental-strip-types scripts/vk-mocked-sandbox.ts test

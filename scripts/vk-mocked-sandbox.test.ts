@@ -91,6 +91,12 @@ describe('VK mocked sandbox helpers', () => {
     )).toBe(true);
   });
 
+  it('runs mocked-sandbox e2e directly after CI startup without npm pretest reset', async () => {
+    const script = await readFile('scripts/ci-run-vk-mocked-sandbox-e2e.sh', 'utf8');
+    expect(script).toContain('node --experimental-strip-types scripts/vk-mocked-sandbox.ts test');
+    expect(script).not.toContain('npm run test:e2e:vk-mocked-sandbox');
+  });
+
   it('ignores live sandbox processes from another worktree when checking fixtures', async () => {
     await expect(isSandboxRuntimeProcessLineForWorkspace(
       '2285905 caddy run --config /var/tmp/vibe-kanban/worktrees/other/vibe-kanban-vscode-web/.vk-mocked-sandbox/current/Caddyfile --adapter caddyfile',
