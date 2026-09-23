@@ -148,8 +148,17 @@ function isPathWithin(parent: string, child: string): boolean {
   return relative === '' || (!relative.startsWith('..') && !path.isAbsolute(relative));
 }
 
+function sandboxRepoPathFromLine(line: string): string | null {
+  const marker = `${path.sep}.vk-mocked-sandbox`;
+  const match = line.match(/(?:^|\s)(\/\S*?\/\.vk-mocked-sandbox)(?:\/|\s|$)/);
+  if (!match?.[1]) return null;
+  return match[1].slice(0, -marker.length);
+}
+
 export async function isSandboxRuntimeProcessLineForWorkspace(line: string): Promise<boolean> {
   if (!isSandboxRuntimeProcessLine(line)) return false;
+  const sandboxRepoPath = sandboxRepoPathFromLine(line);
+  if (sandboxRepoPath) return isPathWithin(repoRoot, sandboxRepoPath);
   if (line.includes(repoRoot) || line.includes(workspaceRoot)) return true;
   if (line.includes(`${path.dirname(workspaceRoot)}${path.sep}`)) return false;
 

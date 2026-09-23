@@ -97,6 +97,12 @@ describe('VK mocked sandbox helpers', () => {
     )).resolves.toBe(false);
   });
 
+  it('accepts live sandbox processes from this checkout without pwdx fallback', async () => {
+    await expect(isSandboxRuntimeProcessLineForWorkspace(
+      `2285905 caddy run --config ${process.cwd()}/.vk-mocked-sandbox/current/Caddyfile --adapter caddyfile`,
+    )).resolves.toBe(true);
+  });
+
   it('uses explicit env port overrides when present', async () => {
     const allocator: PortAllocator = {
       async isAvailable() {
