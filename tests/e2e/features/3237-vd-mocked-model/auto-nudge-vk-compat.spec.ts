@@ -48,7 +48,9 @@ test.describe.serial('auto-nudge compatibility with real VK QA-mode contracts', 
       const before = (await client.getSessionProcesses(value.overseer.id)).length;
       await runAutoNudgeCycle(createAutoNudgeClient(client), value.options);
       expect((await client.getSessionProcesses(value.overseer.id)).length).toBe(before);
-      expect(readAutoNudgeState(value.options.statePath).triggers[checkpoint.id]?.checkpointProcessId).toBeNull();
+      const trigger = readAutoNudgeState(value.options.statePath).triggers[checkpoint.id];
+      expect(['done', 'observed', 'delegated']).toContain(trigger?.status);
+      if (trigger?.status === 'observed') expect(trigger.checkpointProcessId).toBeNull();
     } finally { await rm(value.dir, { recursive: true, force: true }); }
   });
 

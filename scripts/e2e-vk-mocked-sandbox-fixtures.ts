@@ -151,6 +151,7 @@ function isPathWithin(parent: string, child: string): boolean {
 export async function isSandboxRuntimeProcessLineForWorkspace(line: string): Promise<boolean> {
   if (!isSandboxRuntimeProcessLine(line)) return false;
   if (line.includes(repoRoot) || line.includes(workspaceRoot)) return true;
+  if (line.includes(`${path.dirname(workspaceRoot)}${path.sep}`)) return false;
 
   const pid = linePid(line);
   if (!pid) return true;
