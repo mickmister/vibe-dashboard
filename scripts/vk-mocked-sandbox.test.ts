@@ -353,7 +353,10 @@ describe('VK mocked sandbox helpers', () => {
   });
 
   it('defaults test-mode source runs to backend prebuild without changing CI-release plans', () => {
-    expect(envForSandboxTestMode({} as NodeJS.ProcessEnv).VK_MOCKED_PREBUILD_BACKEND).toBe('1');
+    expect(envForSandboxTestMode({} as NodeJS.ProcessEnv)).toMatchObject({
+      VK_MOCKED_PREBUILD_BACKEND: '1',
+      VK_MOCKED_SKIP_LOCAL_WEB_BUILD: '1',
+    });
     expect(envForSandboxTestMode({
       VK_MOCKED_PREBUILD_BACKEND: '0',
     } as NodeJS.ProcessEnv).VK_MOCKED_PREBUILD_BACKEND).toBe('0');

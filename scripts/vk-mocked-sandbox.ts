@@ -115,7 +115,11 @@ function isCiReleaseBackend(env: NodeJS.ProcessEnv): boolean {
 
 export function envForSandboxTestMode(env: NodeJS.ProcessEnv): NodeJS.ProcessEnv {
   if (isCiReleaseBackend(env) || env.VK_MOCKED_PREBUILD_BACKEND != null) return env;
-  return { ...env, VK_MOCKED_PREBUILD_BACKEND: '1' };
+  return {
+    ...env,
+    VK_MOCKED_PREBUILD_BACKEND: '1',
+    VK_MOCKED_SKIP_LOCAL_WEB_BUILD: env.VK_MOCKED_SKIP_LOCAL_WEB_BUILD ?? '1',
+  };
 }
 
 function ciReleaseArtifactRoot(
