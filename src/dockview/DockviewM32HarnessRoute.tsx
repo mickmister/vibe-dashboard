@@ -10,7 +10,7 @@ import {
 import { useModule } from '../hooks/useModule';
 import { DockviewWorkbench, focusDockviewPanel, type DockviewControllerApi } from './DockviewWorkbench';
 import type { CommitLayoutMutationInput } from '../store/voyageRepository';
-import type { CoordinatorVisibleState, DockviewMutationApi, DockviewMutationCoordinator, DockviewMutationRepository } from './DockviewMutationCoordinator';
+import { computedMruPanelId, type CoordinatorVisibleState, type DockviewMutationApi, type DockviewMutationCoordinator, type DockviewMutationRepository } from './DockviewMutationCoordinator';
 import { createDockviewM32HarnessAggregate } from './DockviewM32HarnessFixture';
 
 const voyageId = 'm3-2-harness-voyage';
@@ -22,15 +22,24 @@ const labels = {
   queueOpenPanel: 'Queue open Panel',
   startGesture: 'Start gesture',
   completeGesture: 'Complete gesture',
+  undoHistory: 'Undo history',
+  redoHistory: 'Redo history',
+  reloadVoyage: 'Reload Voyage',
   programmaticFocus: 'Programmatic focus Panel D',
   flush: 'Flush before eviction',
   visibleState: 'DockView M3.2 visible coordinator state',
+  historyVisibleState: 'DockView M3.3 persisted history visible state',
   revision: 'revision',
   activePanel: 'activePanel',
   pendingCommand: 'pendingCommand',
   dirty: 'dirty',
   lastConflict: 'lastConflict',
   topologyAgreement: 'topologyAgreement',
+  historyCount: 'historyCount',
+  historyCursor: 'historyCursor',
+  activationSequence: 'activationSequence',
+  layoutHash: 'layoutHash',
+  computedMruPanel: 'computedMruPanel',
 } as const;
 
 export function DockviewM32HarnessRoute() {
@@ -78,6 +87,11 @@ export function DockviewM32SemanticHarness(input: {
     dirty: false,
     lastConflict: null,
     topologyAgreement: true,
+    historyCount: input.aggregate.history.length,
+    historyCursorSequence: input.aggregate.historyCursorSequence,
+    activationSequence: input.aggregate.activationSequence,
+    layoutHash: input.aggregate.layout.hash,
+    computedMruPanelId: computedMruPanelId(input.aggregate),
   }));
   const publish = () => coordinator.current && setState(coordinator.current.visibleState());
   const run = (operation: () => Promise<unknown> | unknown) => {
@@ -109,6 +123,19 @@ export function DockviewM32SemanticHarness(input: {
         })}>
           {labels.completeGesture}
         </button>
+        <button type="button" onClick={() => run(() => coordinator.current?.undoHistory())}>
+          {labels.undoHistory}
+        </button>
+        <button type="button" onClick={() => run(() => coordinator.current?.redoHistory())}>
+          {labels.redoHistory}
+        </button>
+        <button type="button" onClick={() => run(async () => {
+          if (!coordinator.current) return;
+          const loaded = await input.repository.loadVoyage(voyageId);
+          coordinator.current.restoreFromAggregate(loaded);
+        })}>
+          {labels.reloadVoyage}
+        </button>
         <button type="button" onClick={() => run(() => coordinator.current?.focusPanelFromCommand('panel-d', () => focusDockviewPanel(dockviewApi.current, 'panel-d')))}>
           {labels.programmaticFocus}
         </button>
@@ -119,6 +146,9 @@ export function DockviewM32SemanticHarness(input: {
       <p className="sr-only">
         {labels.visibleState}
       </p>
+      <p className="sr-only">
+        {labels.historyVisibleState}
+      </p>
       <dl className="grid grid-cols-[auto_1fr] gap-x-3 gap-y-1 text-sm">
         <dt>{labels.revision}</dt><dd>{state.revision}</dd>
         <dt>{labels.activePanel}</dt><dd>{state.activePanelId ?? emptyVisibleValue}</dd>
@@ -126,6 +156,11 @@ export function DockviewM32SemanticHarness(input: {
         <dt>{labels.dirty}</dt><dd>{String(state.dirty)}</dd>
         <dt>{labels.lastConflict}</dt><dd>{state.lastConflict ?? emptyVisibleValue}</dd>
         <dt>{labels.topologyAgreement}</dt><dd>{String(state.topologyAgreement)}</dd>
+        <dt>{labels.historyCount}</dt><dd>{state.historyCount}</dd>
+        <dt>{labels.historyCursor}</dt><dd>{state.historyCursorSequence ?? emptyVisibleValue}</dd>
+        <dt>{labels.activationSequence}</dt><dd>{state.activationSequence}</dd>
+        <dt>{labels.layoutHash}</dt><dd>{state.layoutHash ?? emptyVisibleValue}</dd>
+        <dt>{labels.computedMruPanel}</dt><dd>{state.computedMruPanelId ?? emptyVisibleValue}</dd>
       </dl>
       <section className="min-h-0 flex-1 rounded border border-neutral-800">
         <DockviewWorkbench
@@ -146,12 +181,16 @@ export function DockviewM32SemanticHarness(input: {
 function createActionRepository(actions: {
   commitDockviewM32HarnessLayoutMutation(input: CommitLayoutMutationInput): Promise<number | Promise<number>>;
   recordDockviewM32HarnessActivation(input: { voyageId: string; panelId: string; expectedRevision: number }): Promise<boolean | Promise<boolean>>;
+  undoDockviewM32HarnessHistory(input: { voyageId: string; expectedRevision: number }): Promise<boolean | Promise<boolean>>;
+  redoDockviewM32HarnessHistory(input: { voyageId: string; expectedRevision: number }): Promise<boolean | Promise<boolean>>;
   loadDockviewM32HarnessVoyage(input?: { voyageId?: string }): Promise<VoyageAggregate | Promise<VoyageAggregate>>;
 }): DockviewMutationRepository {
   return {
     commitLayoutMutation: async (mutation) => actions.commitDockviewM32HarnessLayoutMutation(mutation),
     recordActivation: async (voyageId, panelId, expectedRevision) =>
       actions.recordDockviewM32HarnessActivation({ voyageId, panelId, expectedRevision }),
+    undo: async (voyageId, expectedRevision) => actions.undoDockviewM32HarnessHistory({ voyageId, expectedRevision }),
+    redo: async (voyageId, expectedRevision) => actions.redoDockviewM32HarnessHistory({ voyageId, expectedRevision }),
     loadVoyage: async (voyageId) => actions.loadDockviewM32HarnessVoyage({ voyageId }),
   };
 }

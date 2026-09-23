@@ -16,6 +16,8 @@ export interface DockviewMutationApi {
 export interface DockviewMutationRepository {
   commitLayoutMutation(input: CommitLayoutMutationInput): Promise<number>;
   recordActivation(voyageId: string, panelId: string, expectedRevision: number): Promise<boolean>;
+  undo(voyageId: string, expectedRevision: number): Promise<boolean>;
+  redo(voyageId: string, expectedRevision: number): Promise<boolean>;
   loadVoyage(voyageId: string): Promise<VoyageAggregate>;
 }
 
@@ -29,6 +31,12 @@ type CommandOutcome =
 type ActivationOutcome =
   | { status: 'activated'; revision: number }
   | { status: 'suppressed'; revision: number }
+  | { status: 'skipped'; reason: string; revision: number };
+
+type HistoryOutcome =
+  | { status: 'restored'; direction: 'undo' | 'redo'; revision: number }
+  | { status: 'conflict'; reason: string; revision: number }
+  | { status: 'rejected'; reason: string; revision: number }
   | { status: 'skipped'; reason: string; revision: number };
 
 type MaybePromise<T> = T | Promise<T>;
@@ -48,6 +56,8 @@ export interface DockviewMutationCoordinator {
   beginGesture(label: string): symbol;
   captureGestureSnapshot(token: symbol, snapshot: unknown): void;
   completeGesture(token: symbol, options?: { debounceMs?: number }): Promise<CommandOutcome>;
+  undoHistory(): Promise<HistoryOutcome>;
+  redoHistory(): Promise<HistoryOutcome>;
   handleActivePanelChange(panelId: string, event: { origin: 'user' | 'api'; input?: 'pointer' | 'keyboard' }): Promise<ActivationOutcome>;
   focusPanelFromCommand(panelId: string, focus?: () => MaybePromise<void>): Promise<ActivationOutcome>;
   restoreFromAggregate(aggregate: VoyageAggregate): void;
@@ -62,6 +72,11 @@ export interface CoordinatorVisibleState {
   dirty: boolean;
   lastConflict: string | null;
   topologyAgreement: boolean;
+  historyCount: number;
+  historyCursorSequence: number | null;
+  activationSequence: number;
+  layoutHash: string | null;
+  computedMruPanelId: string | null;
 }
 
 interface PendingGesture {
@@ -177,6 +192,14 @@ class SerializedDockviewMutationCoordinator implements DockviewMutationCoordinat
     return promise;
   }
 
+  undoHistory(): Promise<HistoryOutcome> {
+    return this.runHistory('undo');
+  }
+
+  redoHistory(): Promise<HistoryOutcome> {
+    return this.runHistory('redo');
+  }
+
   handleActivePanelChange(panelId: string, event: { origin: 'user' | 'api'; input?: 'pointer' | 'keyboard' }): Promise<ActivationOutcome> {
     if (this.suppressActivations || event.origin !== 'user') return Promise.resolve({ status: 'suppressed', revision: this.accepted.revision });
     if (this.suppressedPanelId === panelId) {
@@ -226,6 +249,11 @@ class SerializedDockviewMutationCoordinator implements DockviewMutationCoordinat
       dirty: Boolean(this.pendingGesture),
       lastConflict: this.lastConflict,
       topologyAgreement: topologyAgreement(this.accepted),
+      historyCount: this.accepted.history.length,
+      historyCursorSequence: this.accepted.historyCursorSequence,
+      activationSequence: this.accepted.activationSequence,
+      layoutHash: this.accepted.layout.hash,
+      computedMruPanelId: computedMruPanelId(this.accepted),
     };
   }
 
@@ -367,6 +395,38 @@ class SerializedDockviewMutationCoordinator implements DockviewMutationCoordinat
     });
   }
 
+  private runHistory(direction: 'undo' | 'redo'): Promise<HistoryOutcome> {
+    const gesture = this.pendingGesture;
+    if (gesture?.promise) {
+      return this.commitGestureNow(gesture).then(() => this.runHistory(direction));
+    }
+    return this.enqueue(`history:${direction}`, async () => {
+      const before = this.accepted;
+      try {
+        const changed = await this.input.repository[direction](before.id, before.revision);
+        if (!changed) return { status: 'skipped', reason: `no-${direction}-checkpoint`, revision: before.revision };
+        const committed = await this.input.repository.loadVoyage(before.id);
+        if (committed.revision !== before.revision + 1) {
+          this.restoreFromAggregate(committed);
+          this.lastConflict = 'committed-revision-mismatch';
+          return { status: 'conflict', reason: 'committed-revision-mismatch', revision: committed.revision };
+        }
+        this.restoreFromAggregate(committed);
+        this.lastConflict = null;
+        return { status: 'restored', direction, revision: committed.revision };
+      } catch (error) {
+        if (error instanceof VoyageConflictError) {
+          const winner = await this.input.repository.loadVoyage(before.id);
+          this.restoreFromAggregate(winner);
+          this.lastConflict = 'stale-revision';
+          return { status: 'conflict', reason: 'stale-revision', revision: winner.revision };
+        }
+        this.restoreFromAggregate(before);
+        return { status: 'rejected', reason: error instanceof Error ? error.message : 'history-restore-failed', revision: before.revision };
+      }
+    });
+  }
+
   private hashOrNull(snapshot: unknown): string | null {
     try {
       return productionDockviewSnapshotCodec.validateAndCanonicalize(snapshot).hash;
@@ -410,6 +470,13 @@ function topologyAgreement(aggregate: VoyageAggregate): boolean {
   } catch {
     return false;
   }
+}
+
+export function computedMruPanelId(aggregate: VoyageAggregate): string | null {
+  return [...aggregate.panels].sort((left, right) => {
+    const recency = (right.lastActivatedSequence ?? -1) - (left.lastActivatedSequence ?? -1);
+    return recency || left.id.localeCompare(right.id);
+  })[0]?.id ?? null;
 }
 
 export function createSemanticCoordinatorHarness(input: {
@@ -459,6 +526,12 @@ export function createSemanticCoordinatorHarness(input: {
       },
       flushBeforeEviction() {
         return coordinator.flush('evict');
+      },
+      undoHistory() {
+        return coordinator.undoHistory();
+      },
+      redoHistory() {
+        return coordinator.redoHistory();
       },
     },
     visibleStatus: () => coordinator.visibleState(),

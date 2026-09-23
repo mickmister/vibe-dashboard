@@ -143,6 +143,10 @@ export type VoyageFailurePhase =
   | 'single:after-history-insert'
   | 'single:after-history-prune'
   | 'single:after-cursor-update'
+  | 'history:after-cas'
+  | 'history:after-domain-sync'
+  | 'history:after-layout-write'
+  | 'history:after-cursor-update'
   | 'dual:after-cas'
   | 'dual:after-domain-sync'
   | 'dual:after-source-layout'
@@ -637,11 +641,15 @@ export class VoyageRepository {
         const crafts = await transaction.selectFrom('VoyageCraft').select(['craftWorkspaceId', 'sortKey']).where('voyageId', '=', voyageId).execute();
         validateAggregate(crafts, panels);
         const revision = await advanceRevision(transaction, voyageId, expectedRevision);
+        this.fail('history:after-cas');
         await syncPanels(transaction, voyageId, panels);
+        this.fail('history:after-domain-sync');
         const layout = this.snapshotCodec.validateAndCanonicalize(parseJsonObject(checkpoint.snapshotJson, 'history snapshot'));
         assertSnapshotMatchesPanels(layout, panels, 'history restore');
         await writeLayout(transaction, voyageId, revision, layout);
+        this.fail('history:after-layout-write');
         await transaction.updateTable('Voyage').set({ historyCursorSequence: checkpoint.sequence }).where('id', '=', voyageId).execute();
+        this.fail('history:after-cursor-update');
         return true;
       }),
     );

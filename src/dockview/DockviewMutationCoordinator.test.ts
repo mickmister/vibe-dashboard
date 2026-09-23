@@ -11,6 +11,7 @@ import {
   VoyageInvariantError,
   type VoyageAggregate,
   type VoyagePanelRecord,
+  type StructuralPanelHistoryRecord,
 } from '../store/voyageRepository';
 
 const voyageId = 'voyage-a';
@@ -55,6 +56,7 @@ function panel(id: string): VoyagePanelRecord {
 
 function aggregate(panelIds = ['panel-a', 'panel-b', 'panel-c'], revision = 0, activePanelId = panelIds[0]): VoyageAggregate {
   const layout = productionDockviewSnapshotCodec.validateAndCanonicalize(snapshot(panelIds, activePanelId));
+  const panels = panelIds.map(panel);
   return {
     id: voyageId,
     revision,
@@ -69,15 +71,31 @@ function aggregate(panelIds = ['panel-a', 'panel-b', 'panel-c'], revision = 0, a
       updatedAt: '2026-01-01T00:00:00Z',
     },
     crafts: [{ craftWorkspaceId: 'workspace-a', sortKey: 'a' }],
-    panels: panelIds.map(panel),
+    panels,
     layout,
-    history: [],
+    history: [{ sequence: 0, aggregateRevision: revision, panels: panels.map(structuralPanel), snapshot: layout.snapshot }],
   };
 }
 
 function repository(seed = aggregate()) {
   let current = seed;
   const calls: Array<{ expectedRevision: number; panelIds: string[]; activationPanelId?: string }> = [];
+  const checkpoint = (sequence: number, aggregateRevision: number, source: VoyageAggregate) => ({
+    sequence,
+    aggregateRevision,
+    panels: source.panels.map(structuralPanel),
+    snapshot: source.layout.snapshot,
+  });
+  const applyCheckpoint = (target: VoyageAggregate) => {
+    const recency = new Map(current.panels.map((entry) => [entry.id, entry.lastActivatedSequence]));
+    current = {
+      ...current,
+      revision: current.revision + 1,
+      historyCursorSequence: target.historyCursorSequence,
+      panels: target.panels.map((entry) => ({ ...entry, lastActivatedSequence: recency.get(entry.id) ?? null })),
+      layout: target.layout,
+    };
+  };
   const repo: DockviewMutationRepository = {
     async commitLayoutMutation(input) {
       calls.push({
@@ -90,13 +108,53 @@ function repository(seed = aggregate()) {
       }
       const nextRevision = current.revision + 1;
       const recency = new Map(current.panels.map((entry) => [entry.id, entry.lastActivatedSequence]));
-      current = {
+      const retainedHistory = current.history.filter(({ sequence }) => current.historyCursorSequence === null || sequence <= current.historyCursorSequence);
+      const nextSequence = Math.max(...retainedHistory.map(({ sequence }) => sequence), 0) + 1;
+      const next: VoyageAggregate = {
         ...current,
         revision: nextRevision,
+        historyCursorSequence: nextSequence,
         panels: input.panels.map((entry) => ({ ...entry, lastActivatedSequence: recency.get(entry.id) ?? null })),
         layout: productionDockviewSnapshotCodec.validateAndCanonicalize(input.snapshot),
       };
+      current = {
+        ...next,
+        history: [
+          ...retainedHistory,
+          checkpoint(nextSequence, nextRevision, next),
+        ],
+      };
       return nextRevision;
+    },
+    async undo(id, expectedRevision) {
+      if (id !== current.id || expectedRevision !== current.revision) {
+        throw new VoyageConflictError(id, expectedRevision);
+      }
+      const cursor = current.historyCursorSequence;
+      const previous = cursor === null ? undefined : [...current.history].reverse().find(({ sequence }) => sequence < cursor);
+      if (!previous) return false;
+      applyCheckpoint({
+        ...current,
+        historyCursorSequence: previous.sequence,
+        panels: previous.panels.map((entry) => ({ ...entry, lastActivatedSequence: null })),
+        layout: productionDockviewSnapshotCodec.validateAndCanonicalize(previous.snapshot),
+      });
+      return true;
+    },
+    async redo(id, expectedRevision) {
+      if (id !== current.id || expectedRevision !== current.revision) {
+        throw new VoyageConflictError(id, expectedRevision);
+      }
+      const cursor = current.historyCursorSequence;
+      const next = cursor === null ? undefined : current.history.find(({ sequence }) => sequence > cursor);
+      if (!next) return false;
+      applyCheckpoint({
+        ...current,
+        historyCursorSequence: next.sequence,
+        panels: next.panels.map((entry) => ({ ...entry, lastActivatedSequence: null })),
+        layout: productionDockviewSnapshotCodec.validateAndCanonicalize(next.snapshot),
+      });
+      return true;
     },
     async recordActivation(id, panelId, expectedRevision) {
       if (id !== current.id || expectedRevision !== current.revision) {
@@ -123,6 +181,13 @@ function repository(seed = aggregate()) {
     get current() { return current; },
     set current(value: VoyageAggregate) { current = value; },
   };
+}
+
+function structuralPanel(panel: VoyagePanelRecord): StructuralPanelHistoryRecord {
+  const {
+    id, craftWorkspaceId, targetKind, targetVersion, targetPayload, titleMode, customTitle, closePolicy,
+  } = panel;
+  return { id, craftWorkspaceId, targetKind, targetVersion, targetPayload, titleMode, customTitle, closePolicy };
 }
 
 function api(initial = snapshot(['panel-a', 'panel-b', 'panel-c'])) {
@@ -445,5 +510,82 @@ describe('DockView M3.2 serialized mutation coordinator', () => {
       lastConflict: null,
       topologyAgreement: true,
     });
+  });
+
+  it('TEST_CASE_M3_3B restores persisted undo and redo checkpoints through the coordinator', async () => {
+    const store = repository();
+    const dockview = api();
+    const coordinator = createDockviewMutationCoordinator({ aggregate: store.current, api: dockview, repository: store.repo });
+
+    await coordinator.enqueueCommand({
+      id: 'open-panel-d',
+      apply: (current) => ({ panels: [...current.panels, panel('panel-d')], snapshot: snapshot(['panel-a', 'panel-b', 'panel-c', 'panel-d'], 'panel-d') }),
+    });
+    await coordinator.enqueueCommand({
+      id: 'close-panel-b',
+      apply: (current) => ({ panels: current.panels.filter(({ id }) => id !== 'panel-b'), snapshot: snapshot(['panel-a', 'panel-c', 'panel-d'], 'panel-d') }),
+    });
+
+    await expect(coordinator.undoHistory()).resolves.toEqual(expect.objectContaining({ status: 'restored', direction: 'undo', revision: 3 }));
+    expect(dockview.fromJSON).toHaveBeenLastCalledWith(snapshot(['panel-a', 'panel-b', 'panel-c', 'panel-d'], 'panel-d'));
+    await expect(coordinator.redoHistory()).resolves.toEqual(expect.objectContaining({ status: 'restored', direction: 'redo', revision: 4 }));
+    expect(dockview.fromJSON).toHaveBeenLastCalledWith(snapshot(['panel-a', 'panel-c', 'panel-d'], 'panel-d'));
+    expect(coordinator.visibleState()).toMatchObject({ revision: 4, historyCount: 3, historyCursorSequence: 2, topologyAgreement: true });
+  });
+
+  it('TEST_CASE_M3_3C reports current MRU after undo without rewinding activation recency', async () => {
+    const store = repository();
+    const coordinator = createDockviewMutationCoordinator({ aggregate: store.current, api: api(), repository: store.repo });
+
+    await coordinator.handleActivePanelChange('panel-b', { origin: 'user', input: 'pointer' });
+    await coordinator.enqueueCommand({
+      id: 'close-panel-c',
+      apply: (current) => ({ panels: current.panels.filter(({ id }) => id !== 'panel-c'), snapshot: snapshot(['panel-a', 'panel-b'], 'panel-b') }),
+    });
+    await coordinator.undoHistory();
+
+    expect(store.current.activationSequence).toBe(1);
+    expect(store.current.panels.find(({ id }) => id === 'panel-b')?.lastActivatedSequence).toBe(1);
+    expect(store.current.panels.find(({ id }) => id === 'panel-c')?.lastActivatedSequence).toBeNull();
+    expect(coordinator.visibleState()).toMatchObject({ computedMruPanelId: 'panel-b', activationSequence: 1 });
+  });
+
+  it('TEST_CASE_M3_3E serializes pending gestures before undo and restores the CAS winner on stale history', async () => {
+    vi.useFakeTimers();
+    const store = repository();
+    const coordinator = createDockviewMutationCoordinator({ aggregate: store.current, api: api(), repository: store.repo, gestureDebounceMs: 25 });
+    const gesture = coordinator.beginGesture('before-undo');
+    coordinator.captureGestureSnapshot(gesture, snapshot(['panel-c', 'panel-b', 'panel-a'], 'panel-c'));
+    const pending = coordinator.completeGesture(gesture);
+    const undo = coordinator.undoHistory();
+    await expect(pending).resolves.toEqual(expect.objectContaining({ status: 'committed', revision: 1 }));
+    await expect(undo).resolves.toEqual(expect.objectContaining({ status: 'restored', revision: 2 }));
+
+    const stale = createDockviewMutationCoordinator({ aggregate: aggregate(), api: api(), repository: store.repo });
+    await expect(stale.undoHistory()).resolves.toEqual(expect.objectContaining({ status: 'conflict', reason: 'stale-revision', revision: 2 }));
+    expect(stale.visibleState().lastConflict).toBe('stale-revision');
+    vi.useRealTimers();
+  });
+
+  it('TEST_CASE_M3_3F exposes semantic persisted-history controls and visible status', async () => {
+    const store = repository();
+    const harness = createSemanticCoordinatorHarness({ aggregate: store.current, api: api(), repository: store.repo });
+
+    await harness.controls.queueOpenPanel('panel-d');
+    await harness.controls.activate('panel-d', 'keyboard');
+    await harness.controls.undoHistory();
+    await harness.controls.redoHistory();
+
+    expect(harness.visibleStatus()).toMatchObject({
+      revision: 4,
+      historyCount: 2,
+      historyCursorSequence: 1,
+      activePanelId: 'panel-d',
+      activationSequence: 1,
+      computedMruPanelId: 'panel-a',
+      lastConflict: null,
+      topologyAgreement: true,
+    });
+    expect(harness.visibleStatus().layoutHash).toBeTypeOf('string');
   });
 });

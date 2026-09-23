@@ -214,6 +214,24 @@ describe('VoyageRepository', () => {
     expect(rawHistory.every(({ panelsJson }) => !panelsJson.includes('lastActivatedSequence'))).toBe(true);
   });
 
+  it('fails closed when undo history contains corrupt layout or Panel projections', async () => {
+    await create();
+    await repository.commitLayoutMutation({
+      voyageId: 'voyage-a', expectedRevision: 0,
+      panels: [panel('temporary', 'craft-a'), panel('voyage-a-panel', 'craft-a')],
+      snapshot: snapshot(['temporary', 'voyage-a-panel']),
+    });
+    sqlite.prepare("UPDATE VoyageHistory SET snapshotJson = '{\"version\":1,\"panels\":[\"missing\"]}' WHERE voyageId = 'voyage-a' AND sequence = 0").run();
+    let before = dump();
+    await expect(repository.undo('voyage-a', 1)).rejects.toBeInstanceOf(VoyageInvariantError);
+    expect(dump()).toEqual(before);
+
+    sqlite.prepare("UPDATE VoyageHistory SET snapshotJson = '{\"version\":1,\"panels\":[\"voyage-a-panel\"]}', panelsJson = '[{\"id\":\"voyage-a-panel\",\"craftWorkspaceId\":\"foreign-craft\",\"targetKind\":\"code\",\"targetVersion\":1,\"targetPayload\":{\"workspaceId\":\"foreign-craft\"},\"titleMode\":\"automatic\",\"customTitle\":null,\"closePolicy\":\"closable\"}]' WHERE voyageId = 'voyage-a' AND sequence = 0").run();
+    before = dump();
+    await expect(repository.undo('voyage-a', 1)).rejects.toBeInstanceOf(VoyageInvariantError);
+    expect(dump()).toEqual(before);
+  });
+
   it('does not checkpoint activation-only writes', async () => {
     await create();
     expect(await repository.recordActivation('voyage-a', 'voyage-a-panel', 0)).toBe(true);
@@ -245,6 +263,28 @@ describe('VoyageRepository', () => {
       voyageId: 'voyage-a', expectedRevision: 2,
       panels: [panel('new-panel', 'craft-a')], snapshot: snapshot(['new-panel']), activationPanelId: 'new-panel',
     })).rejects.toThrow(`injected ${phase}`);
+    expect(dump()).toEqual(before);
+  });
+
+  const historyPhases: VoyageFailurePhase[] = [
+    'history:after-cas',
+    'history:after-domain-sync',
+    'history:after-layout-write',
+    'history:after-cursor-update',
+  ];
+
+  it.each(historyPhases)('rolls back persisted undo/redo restore at %s', async (phase) => {
+    await create();
+    await repository.commitLayoutMutation({
+      voyageId: 'voyage-a', expectedRevision: 0,
+      panels: [panel('temporary', 'craft-a'), panel('voyage-a-panel', 'craft-a')],
+      snapshot: snapshot(['temporary', 'voyage-a-panel']),
+    });
+    const before = dump();
+    repository = new VoyageRepository(db, {
+      snapshotCodec, failureInjector: (candidate) => { if (candidate === phase) throw new Error(`injected ${phase}`); },
+    });
+    await expect(repository.undo('voyage-a', 1)).rejects.toThrow(`injected ${phase}`);
     expect(dump()).toEqual(before);
   });
 

@@ -46,6 +46,14 @@ describe('DockView M3.2 harness actions', () => {
         panels: structuralPanels,
         snapshot: fixture.layout.snapshot,
       })).rejects.toThrow('restricted');
+      await expect(actions.undoDockviewM32HarnessHistory({
+        voyageId: 'foreign-voyage',
+        expectedRevision: fixture.revision,
+      })).rejects.toThrow('restricted');
+      await expect(actions.redoDockviewM32HarnessHistory({
+        voyageId: 'foreign-voyage',
+        expectedRevision: fixture.revision,
+      })).rejects.toThrow('restricted');
       await expect(actions.commitDockviewM32HarnessLayoutMutation({
         voyageId: dockviewM32HarnessVoyageId,
         expectedRevision: fixture.revision,

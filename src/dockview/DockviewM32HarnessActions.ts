@@ -37,6 +37,14 @@ export function createDockviewM32HarnessActions(voyageRepository: VoyageReposito
       assertDockviewM32HarnessActivation(args);
       return requireRepository().recordActivation(dockviewM32HarnessVoyageId, args.panelId, args.expectedRevision);
     },
+    undoDockviewM32HarnessHistory: async (args: { voyageId: string; expectedRevision: number }) => {
+      assertDockviewM32HarnessVoyageId(args.voyageId);
+      return requireRepository().undo(dockviewM32HarnessVoyageId, args.expectedRevision);
+    },
+    redoDockviewM32HarnessHistory: async (args: { voyageId: string; expectedRevision: number }) => {
+      assertDockviewM32HarnessVoyageId(args.voyageId);
+      return requireRepository().redo(dockviewM32HarnessVoyageId, args.expectedRevision);
+    },
     loadDockviewM32HarnessVoyage: async (args?: { voyageId?: string }) => {
       assertDockviewM32HarnessVoyageId(args?.voyageId);
       return requireRepository().loadVoyage(dockviewM32HarnessVoyageId);

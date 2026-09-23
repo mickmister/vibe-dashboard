@@ -234,6 +234,14 @@ function mutationRepository(seed = aggregate()) {
       };
       return true;
     },
+    async undo(_voyageId, expectedRevision) {
+      if (expectedRevision !== current.revision) throw new VoyageConflictError(current.id, expectedRevision);
+      return false;
+    },
+    async redo(_voyageId, expectedRevision) {
+      if (expectedRevision !== current.revision) throw new VoyageConflictError(current.id, expectedRevision);
+      return false;
+    },
     async loadVoyage() {
       return current;
     },
@@ -520,10 +528,16 @@ describe('Dockview M3.1 controller restore and Panel rendering', () => {
       expect(markup).toContain('Queue open Panel');
       expect(markup).toContain('Start gesture');
       expect(markup).toContain('Complete gesture');
+      expect(markup).toContain('Undo history');
+      expect(markup).toContain('Redo history');
+      expect(markup).toContain('Reload Voyage');
       expect(markup).toContain('Programmatic focus Panel D');
       expect(markup).toContain('Flush before eviction');
       expect(markup).toContain('DockView M3.2 visible coordinator state');
+      expect(markup).toContain('DockView M3.3 persisted history visible state');
       expect(markup).toContain('topologyAgreement');
+      expect(markup).toContain('historyCount');
+      expect(markup).toContain('computedMruPanel');
       expect(dockviewReactBoundary.panelMarkupDuringFromJSON).toContain('data-renderer-key="craft-overview"');
     } finally {
       await db.destroy();
@@ -544,10 +558,16 @@ describe('Dockview M3.1 controller restore and Panel rendering', () => {
     expect(markup).toContain('Queue open Panel');
     expect(markup).toContain('Start gesture');
     expect(markup).toContain('Complete gesture');
+    expect(markup).toContain('Undo history');
+    expect(markup).toContain('Redo history');
+    expect(markup).toContain('Reload Voyage');
     expect(markup).toContain('Programmatic focus Panel D');
     expect(markup).toContain('Flush before eviction');
     expect(markup).toContain('DockView M3.2 visible coordinator state');
+    expect(markup).toContain('DockView M3.3 persisted history visible state');
     expect(markup).toContain('topologyAgreement');
+    expect(markup).toContain('historyCount');
+    expect(markup).toContain('computedMruPanel');
     expect(dockviewReactBoundary.panelMarkupDuringFromJSON).toContain('data-renderer-key="craft-overview"');
   });
 });
