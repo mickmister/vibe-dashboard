@@ -43,6 +43,12 @@ test.describe('VK mocked-provider basic-seeded fixture', () => {
     await page
       .getByRole('button', { name: new RegExp(escapeRegex(manifest.craftTitle)) })
       .click();
+    await clickLocatorInViewport(
+      page,
+      page.getByRole('button', {
+        name: new RegExp(`Open ${escapeRegex(manifest.craftTitle)} in Home`),
+      }),
+    );
 
     const { frame: agentFrame, iframe: agentIframe } = await agentFrameContaining(
       page,

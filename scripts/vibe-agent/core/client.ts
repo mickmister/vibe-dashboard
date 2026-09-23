@@ -50,6 +50,16 @@ function normalizeWebSocketMessageData(data: unknown): string | Buffer {
   if (ArrayBuffer.isView(data)) return Buffer.from(data.buffer, data.byteOffset, data.byteLength);
   return String(data);
 }
+
+function finalAssistantResponse(entries: ConversationEntry[]): string | null {
+  for (let index = entries.length - 1; index >= 0; index -= 1) {
+    const entry = entries[index];
+    if (entry?.content?.entry_type?.type !== 'assistant_message') continue;
+    const content = entry.content.content;
+    if (typeof content === 'string' && content.trim()) return content;
+  }
+  return null;
+}
 import { config, type Executor } from '../config.js';
 import type {
   Project,
@@ -274,7 +284,21 @@ export class VibeClient {
   }
 
   async getExecutionProcessFinalResponse(processId: string): Promise<ExecutionProcessFinalResponse> {
-    return this.request<ExecutionProcessFinalResponse>(this.url(`/api/execution-processes/${encodeURIComponent(processId)}/final-response`));
+    try {
+      return await this.request<ExecutionProcessFinalResponse>(this.url(`/api/execution-processes/${encodeURIComponent(processId)}/final-response`));
+    } catch {
+      const process = await this.getExecutionProcess(processId);
+      const entries = await this.fetchConversation(processId, 5_000);
+      const finalResponse = finalAssistantResponse(entries);
+      const finished = process.status !== 'running';
+      return {
+        process_id: process.id,
+        status: process.status,
+        finished,
+        final_response: finalResponse,
+        terminal_no_response: finished && finalResponse == null,
+      };
+    }
   }
 
 
