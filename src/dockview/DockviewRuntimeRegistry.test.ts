@@ -164,6 +164,9 @@ describe('DockView M3.4 runtime registry', () => {
     const token = registry.registerHost(host('voyage-a:panel-a'));
     registry.attach('voyage-a:panel-a', token);
     registry.detachHost(token);
+    registry.setIframeLimit(0);
+    expect(registry.requireRuntime('voyage-a:panel-a').visibility).toBe('visible');
+    expect(registry.status().bootIds['voyage-a:panel-a']).toBe(boot);
 
     registry.registerRuntime({
       runtimeId: 'voyage-a:panel-a',

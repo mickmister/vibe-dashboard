@@ -54,6 +54,8 @@ type UserActivationIntent = {
   token: symbol;
 };
 
+type DockviewDisposer = { dispose(): void };
+
 export function restoreDockviewController(input: {
   api: DockviewControllerApi;
   aggregate: VoyageAggregate;
@@ -277,6 +279,12 @@ export function DockviewWorkbench(input: {
 }) {
   const holder = useMemo<{ current: DockviewController | null }>(() => ({ current: null }), []);
   const userActivation = useMemo<{ current: UserActivationIntent | null }>(() => ({ current: null }), []);
+  const disposeRuntimeRef = useRef<(() => void) | null>(null);
+  useEffect(() => () => {
+    const dispose = disposeRuntimeRef.current;
+    disposeRuntimeRef.current = null;
+    dispose?.();
+  }, []);
   const visiblePanelIds = useMemo(() => visibleDockviewPanelIds(input.aggregate.layout.snapshot), [input.aggregate.layout.snapshot]);
   const components = useMemo(() => ({
     'iframe-panel': (props: IDockviewPanelProps<{ panelId?: string }>) => (
@@ -294,6 +302,8 @@ export function DockviewWorkbench(input: {
   }), [holder, input.aggregate.id, input.aggregate.revision, input.applicationVisibility, visiblePanelIds]);
 
   const onReady = (event: DockviewReadyEvent) => {
+    disposeRuntimeRef.current?.();
+    disposeRuntimeRef.current = null;
     const api = event.api as DockviewControllerApi;
     input.onDockviewApi?.(api);
     const result = restoreDockviewController({
@@ -321,22 +331,28 @@ export function DockviewWorkbench(input: {
           holder.current = prepared.controller;
         },
       });
-      void getWindowDockviewWarmControllerCache().remember({
-        voyageId: input.aggregate.id,
-        flush: (reason) => coordinator.flush(reason),
-      });
       input.onCoordinator?.(coordinator);
       const layoutGesture = createDockviewLayoutGestureAdapter({
         api,
         coordinator,
         quietMs: input.gestureDebounceMs ?? 50,
       });
-      api.onDidActivePanelChange?.((change) => {
+      const activeDisposer = api.onDidActivePanelChange?.((change) => {
         const panelId = change.panel?.id;
         const event = consumeDockviewUserActivation(userActivation, change.origin);
         if (panelId) void coordinator.handleActivePanelChange(panelId, event);
       });
-      api.onDidLayoutChange?.(() => layoutGesture.capture());
+      const layoutDisposer = api.onDidLayoutChange?.(() => layoutGesture.capture());
+      const warmController = createWorkbenchWarmController(
+        input.aggregate.id,
+        coordinator,
+        [activeDisposer, layoutDisposer],
+        layoutGesture.dispose,
+      );
+      void getWindowDockviewWarmControllerCache().remember(warmController);
+      disposeRuntimeRef.current = () => {
+        void getWindowDockviewWarmControllerCache().forget(input.aggregate.id);
+      };
     }
     input.onRestore?.(result);
   };
@@ -403,6 +419,30 @@ export function createDockviewLayoutGestureAdapter(input: {
       }
     },
     complete,
+    dispose() {
+      if (timer) clearTimeout(timer);
+      timer = null;
+      token = null;
+    },
+  };
+}
+
+function createWorkbenchWarmController(
+  voyageId: string,
+  coordinator: DockviewMutationCoordinator,
+  disposers: Array<DockviewDisposer | undefined>,
+  disposeGesture: () => void,
+) {
+  let disposed = false;
+  return {
+    voyageId,
+    flush: (reason: string) => coordinator.flush(reason),
+    dispose() {
+      if (disposed) return;
+      disposed = true;
+      disposeGesture();
+      for (const disposer of disposers) disposer?.dispose();
+    },
   };
 }
 

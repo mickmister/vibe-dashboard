@@ -133,7 +133,6 @@ export class DockviewRuntimeRegistry {
     for (const entry of this.entries.values()) {
       if (entry.host && hostKey(entry.host) === hostKey(host)) {
         entry.host = null;
-        entry.visibility = 'inactive';
         if (entry.iframe && typeof document !== 'undefined') this.getParkingRoot().appendChild(entry.iframe);
       }
     }
@@ -259,7 +258,7 @@ export class DockviewRuntimeRegistry {
 export interface WarmController {
   voyageId: string;
   flush?: (reason: string) => Promise<unknown>;
-  dispose?: () => void;
+  dispose?: () => unknown;
 }
 
 export function createWarmVoyageControllerCache<T extends WarmController>(input: {
@@ -274,7 +273,7 @@ export function createWarmVoyageControllerCache<T extends WarmController>(input:
   const limit = () => Math.max(0, input.warmLimit);
   const dispose = async (controller: T) => {
     await controller.flush?.('warm-controller-evict');
-    controller.dispose?.();
+    await controller.dispose?.();
     input.onDispose?.(controller);
   };
   const evict = async () => {
@@ -303,6 +302,14 @@ export function createWarmVoyageControllerCache<T extends WarmController>(input:
   return {
     async remember(controller: T) {
       return serialize(async () => {
+        const existing = controllers.get(controller.voyageId);
+        if (existing && existing !== controller) {
+          try {
+            await dispose(existing);
+          } catch (error) {
+            recoveries.push({ voyageId: controller.voyageId, reason: error instanceof Error ? error.message : 'warm-controller-replace-failed' });
+          }
+        }
         controllers.delete(controller.voyageId);
         controllers.set(controller.voyageId, controller);
         await evict();
@@ -341,6 +348,18 @@ export function createWarmVoyageControllerCache<T extends WarmController>(input:
     },
     async evictNow() {
       await serialize(evict);
+    },
+    async forget(voyageId: string, reason = 'warm-controller-forget') {
+      await serialize(async () => {
+        const controller = controllers.get(voyageId);
+        if (!controller) return;
+        try {
+          await dispose(controller);
+          controllers.delete(voyageId);
+        } catch (error) {
+          recoveries.push({ voyageId, reason: error instanceof Error ? error.message : reason });
+        }
+      });
     },
     ids() {
       return [...controllers.keys()];
