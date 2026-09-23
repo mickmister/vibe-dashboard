@@ -1,6 +1,5 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { Orientation, type SerializedDockview } from 'dockview';
-import { FormattedMessage } from 'react-intl';
 import { productionDockviewSnapshotCodec } from '../store/dockviewSnapshotCodec';
 import type { PanelTargetResolutionContext } from '../store/panelTargetRegistry';
 import {
@@ -17,6 +16,22 @@ import { createDockviewM32HarnessAggregate } from './DockviewM32HarnessFixture';
 const voyageId = 'm3-2-harness-voyage';
 const workspaceId = 'workspace-a';
 const emptyVisibleValue = 'none';
+const labels = {
+  loading: 'Loading DockView M3.2 harness',
+  heading: 'DockView M3.2 serialized mutation coordinator harness',
+  queueOpenPanel: 'Queue open Panel',
+  startGesture: 'Start gesture',
+  completeGesture: 'Complete gesture',
+  programmaticFocus: 'Programmatic focus Panel D',
+  flush: 'Flush before eviction',
+  visibleState: 'DockView M3.2 visible coordinator state',
+  revision: 'revision',
+  activePanel: 'activePanel',
+  pendingCommand: 'pendingCommand',
+  dirty: 'dirty',
+  lastConflict: 'lastConflict',
+  topologyAgreement: 'topologyAgreement',
+} as const;
 
 export function DockviewM32HarnessRoute() {
   const workspaceModule = useModule('workspace');
@@ -35,10 +50,7 @@ export function DockviewM32HarnessRoute() {
   if (!aggregate) {
     return (
       <main className="dark flex h-screen items-center justify-center bg-neutral-950 text-neutral-100" data-testid="dockview-m3-2-harness-loading">
-        <FormattedMessage
-          defaultMessage="Loading DockView M3.2 harness"
-          description="Loading text for the DockView M3.2 serialized mutation coordinator harness."
-        />
+        {labels.loading}
       </main>
     );
   }
@@ -75,21 +87,18 @@ export function DockviewM32SemanticHarness(input: {
   return (
     <main className="dark flex h-screen flex-col gap-3 bg-neutral-950 p-4 text-neutral-100" data-testid="dockview-m3-2-harness">
       <h1 className="text-lg font-semibold">
-        <FormattedMessage
-          defaultMessage="DockView M3.2 serialized mutation coordinator harness"
-          description="Title for the DockView M3.2 serialized mutation coordinator semantic browser test harness."
-        />
+        {labels.heading}
       </h1>
       <div className="flex flex-wrap gap-2">
         <button type="button" onClick={() => run(() => coordinator.current?.enqueueCommand(openPanelCommand('panel-d')))}>
-          <FormattedMessage defaultMessage="Queue open Panel" description="DockView M3.2 test harness control that queues an open Panel command." />
+          {labels.queueOpenPanel}
         </button>
         <button type="button" onClick={() => {
           if (!coordinator.current) return;
           gesture.current = coordinator.current.beginGesture('tester-gesture');
           publish();
         }}>
-          <FormattedMessage defaultMessage="Start gesture" description="DockView M3.2 test harness control that starts a Dockview gesture boundary." />
+          {labels.startGesture}
         </button>
         <button type="button" onClick={() => run(() => {
           if (!coordinator.current || !gesture.current) return;
@@ -98,28 +107,25 @@ export function DockviewM32SemanticHarness(input: {
           coordinator.current.captureGestureSnapshot(token, snapshot(['panel-d', 'panel-a', 'panel-b', 'panel-c'], 'panel-d'));
           return coordinator.current.completeGesture(token);
         })}>
-          <FormattedMessage defaultMessage="Complete gesture" description="DockView M3.2 test harness control that completes a Dockview gesture boundary." />
+          {labels.completeGesture}
         </button>
         <button type="button" onClick={() => run(() => coordinator.current?.focusPanelFromCommand('panel-d', () => focusDockviewPanel(dockviewApi.current, 'panel-d')))}>
-          <FormattedMessage defaultMessage="Programmatic focus Panel D" description="DockView M3.2 test harness control that focuses Panel D programmatically." />
+          {labels.programmaticFocus}
         </button>
         <button type="button" onClick={() => run(() => coordinator.current?.flush('tester-flush'))}>
-          <FormattedMessage defaultMessage="Flush before eviction" description="DockView M3.2 test harness control that flushes coordinator work before lifecycle eviction." />
+          {labels.flush}
         </button>
       </div>
       <p className="sr-only">
-        <FormattedMessage
-          defaultMessage="DockView M3.2 visible coordinator state"
-          description="Accessible label for the DockView M3.2 visible coordinator state list."
-        />
+        {labels.visibleState}
       </p>
       <dl className="grid grid-cols-[auto_1fr] gap-x-3 gap-y-1 text-sm">
-        <dt><FormattedMessage defaultMessage="revision" description="DockView M3.2 visible state field label for revision." /></dt><dd>{state.revision}</dd>
-        <dt><FormattedMessage defaultMessage="activePanel" description="DockView M3.2 visible state field label for active Panel." /></dt><dd>{state.activePanelId ?? emptyVisibleValue}</dd>
-        <dt><FormattedMessage defaultMessage="pendingCommand" description="DockView M3.2 visible state field label for pending command." /></dt><dd>{state.pendingCommand ?? emptyVisibleValue}</dd>
-        <dt><FormattedMessage defaultMessage="dirty" description="DockView M3.2 visible state field label for dirty state." /></dt><dd>{String(state.dirty)}</dd>
-        <dt><FormattedMessage defaultMessage="lastConflict" description="DockView M3.2 visible state field label for last conflict." /></dt><dd>{state.lastConflict ?? emptyVisibleValue}</dd>
-        <dt><FormattedMessage defaultMessage="topologyAgreement" description="DockView M3.2 visible state field label for topology agreement." /></dt><dd>{String(state.topologyAgreement)}</dd>
+        <dt>{labels.revision}</dt><dd>{state.revision}</dd>
+        <dt>{labels.activePanel}</dt><dd>{state.activePanelId ?? emptyVisibleValue}</dd>
+        <dt>{labels.pendingCommand}</dt><dd>{state.pendingCommand ?? emptyVisibleValue}</dd>
+        <dt>{labels.dirty}</dt><dd>{String(state.dirty)}</dd>
+        <dt>{labels.lastConflict}</dt><dd>{state.lastConflict ?? emptyVisibleValue}</dd>
+        <dt>{labels.topologyAgreement}</dt><dd>{String(state.topologyAgreement)}</dd>
       </dl>
       <section className="min-h-0 flex-1 rounded border border-neutral-800">
         <DockviewWorkbench

@@ -1,4 +1,5 @@
 /// <reference types="vitest/config" />
+/* eslint-disable formatjs/no-literal-string-in-object -- Vite plugin/config metadata is not runtime UI copy. */
 import { defineConfig } from 'vite';
 import { springboard } from 'springboard/vite-plugin';
 import react from '@vitejs/plugin-react';
@@ -9,6 +10,23 @@ import { storybookTest } from '@storybook/addon-vitest/vitest-plugin';
 import { playwright } from '@vitest/browser-playwright';
 import { buildViteDevServerOptions } from './src/lib/beadsFormDevServer';
 const dirname = typeof __dirname !== 'undefined' ? __dirname : path.dirname(fileURLToPath(import.meta.url));
+
+const reactRefreshPreamble = {
+  name: 'springboard-react-refresh-preamble',
+  apply: 'serve' as const,
+  transformIndexHtml(html: string) {
+    const marker = '<script type="module" src="/.springboard/web-entry.js"></script>';
+    if (!html.includes(marker) || html.includes('__vite_plugin_react_preamble_installed__')) return html;
+    return html.replace(marker, `<script type="module">
+import RefreshRuntime from "/@react-refresh";
+RefreshRuntime.injectIntoGlobalHook(window);
+window.$RefreshReg$ = () => {};
+window.$RefreshSig$ = () => (type) => type;
+window.__vite_plugin_react_preamble_installed__ = true;
+</script>
+    ${marker}`);
+  },
+};
 
 let serverPort = 3005;
 if (process.env.SERVER_PORT || process.env.PORT) {
@@ -32,7 +50,7 @@ export default defineConfig({
       description: 'Workspace shell for code-server and vibe-kanban'
     },
     nodeServerPort: serverPort,
-  })],
+  }), reactRefreshPreamble],
   resolve: {
     alias: {
       '@': path.resolve(__dirname, 'src'),

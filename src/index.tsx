@@ -21,6 +21,7 @@ import type {
   VoyageEntry,
   VoyageCraftSelection,
 } from "./types";
+import { createDockviewM32HarnessActions } from "./dockview/DockviewM32HarnessActions";
 
 import "./modules/plugins";
 // @platform "browser"
@@ -35,7 +36,10 @@ import { createProductionPanelTargetAuthorityServices } from "./store/production
 import { NormalizedVoyageProjection } from "./store/normalizedVoyageProjection";
 import { VoyageRepository } from "./store/voyageRepository";
 import { productionDockviewSnapshotCodec } from "./store/dockviewSnapshotCodec";
-import { createDockviewM32HarnessActions } from "./dockview/DockviewM32HarnessActions";
+import {
+  initializeDockviewM32HarnessVoyageAuthority,
+  isDockviewM32HarnessStartupEnabled,
+} from "./dockview/DockviewM32HarnessStartup";
 import "./modules/plugins/kanban/jira/serverModule";
 import "./modules/plugins/kanban/linear/serverModule";
 // @platform end
@@ -503,8 +507,9 @@ const createWorkspaceModule = async (moduleAPI: ModuleAPI) => {
   let voyageDatabase: Awaited<ReturnType<typeof initializeVoyagePersistenceAuthority>> | undefined;
   if (moduleAPI.deps.core.isMaestro()) {
     // @platform "node"
-    const panelTargetAuthorityServices = createProductionPanelTargetAuthorityServices();
-    voyageDatabase = await initializeVoyagePersistenceAuthority(undefined, panelTargetAuthorityServices);
+    voyageDatabase = isDockviewM32HarnessStartupEnabled()
+      ? await initializeDockviewM32HarnessVoyageAuthority()
+      : await initializeVoyagePersistenceAuthority(undefined, createProductionPanelTargetAuthorityServices());
     // @platform end
   }
   const workspaceState =

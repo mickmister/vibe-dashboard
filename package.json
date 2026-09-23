@@ -5,6 +5,7 @@
   "packageManager": "pnpm@10.13.1",
   "scripts": {
     "dev": "vite",
+    "dev:dockview-m3-2-harness": "VD_DOCKVIEW_M3_2_HARNESS=1 VITE_VK_BASE_ORIGIN=http://127.0.0.1:${PORT:-3005} vite",
     "dev:vk-mocked-sandbox": "node --experimental-strip-types scripts/vk-mocked-sandbox.ts start",
     "dev:vk-mocked-sandbox:ci-release": "VK_MOCKED_VK_BACKEND=ci-release node --experimental-strip-types scripts/vk-mocked-sandbox.ts start",
     "e2e:vk-mocked-sandbox:reset": "node --experimental-strip-types scripts/e2e-vk-mocked-sandbox-fixtures.ts reset",
