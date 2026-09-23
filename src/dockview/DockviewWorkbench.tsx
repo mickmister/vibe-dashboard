@@ -10,7 +10,7 @@ import {
   type DockviewMutationCoordinator,
   type DockviewMutationRepository,
 } from './DockviewMutationCoordinator';
-import { getWindowDockviewRuntimeRegistry, type RuntimeVisibility } from './DockviewRuntimeRegistry';
+import { getWindowDockviewRuntimeRegistry, getWindowDockviewWarmControllerCache, type RuntimeVisibility } from './DockviewRuntimeRegistry';
 
 const PANEL_RECOVERY_HEADING = 'Panel recovery';
 const PANEL_RECOVERY_BODY = 'This Panel target is unavailable or unsafe to render.';
@@ -218,15 +218,6 @@ function DockviewRuntimeIframe(input: {
     const host = hostRef.current;
     if (!host || typeof document === 'undefined') return undefined;
     const registry = getWindowDockviewRuntimeRegistry();
-    const iframe = document.createElement('iframe');
-    iframe.title = input.title;
-    iframe.className = 'h-full w-full border-0 bg-neutral-950';
-    iframe.dataset.panelId = input.panelId;
-    iframe.dataset.rendererKey = input.rendererKey;
-    iframe.src = input.src;
-    iframe.setAttribute('sandbox', input.sandbox);
-    iframe.setAttribute('allow', input.allow);
-    iframe.referrerPolicy = 'no-referrer';
     const token = registry.registerHost({
       voyageId: input.voyageId,
       panelId: input.panelId,
@@ -238,13 +229,21 @@ function DockviewRuntimeIframe(input: {
       voyageId: input.voyageId,
       panelId: input.panelId,
       url: input.src,
-      iframe,
       visibility: input.visibility,
     });
+    const iframe = registry.ensureIframe(runtimeId, () => document.createElement('iframe'));
+    iframe.title = input.title;
+    iframe.className = 'h-full w-full border-0 bg-neutral-950';
+    iframe.dataset.panelId = input.panelId;
+    iframe.dataset.rendererKey = input.rendererKey;
+    iframe.setAttribute('sandbox', input.sandbox);
+    iframe.setAttribute('allow', input.allow);
+    iframe.referrerPolicy = 'no-referrer';
+    if (iframe.src !== input.src) iframe.src = input.src;
     registry.attach(runtimeId, token);
-    host.replaceChildren(iframe);
+    registry.attachElement(runtimeId, host);
     return () => {
-      registry.removeHost(token);
+      registry.detachHost(token);
     };
   }, [hostId, input.allow, input.panelId, input.rendererKey, input.sandbox, input.src, input.title, input.visibility, input.voyageId, runtimeId]);
 
@@ -268,6 +267,7 @@ function DockviewRuntimeIframe(input: {
 export function DockviewWorkbench(input: {
   aggregate: VoyageAggregate;
   contextForCraft: (craftWorkspaceId: string) => PanelTargetResolutionContext | null;
+  applicationVisibility?: RuntimeVisibility;
   repository?: DockviewMutationRepository;
   gestureDebounceMs?: number;
   onCoordinator?: (coordinator: DockviewMutationCoordinator) => void;
@@ -277,14 +277,21 @@ export function DockviewWorkbench(input: {
 }) {
   const holder = useMemo<{ current: DockviewController | null }>(() => ({ current: null }), []);
   const userActivation = useMemo<{ current: UserActivationIntent | null }>(() => ({ current: null }), []);
+  const visiblePanelIds = useMemo(() => visibleDockviewPanelIds(input.aggregate.layout.snapshot), [input.aggregate.layout.snapshot]);
   const components = useMemo(() => ({
     'iframe-panel': (props: IDockviewPanelProps<{ panelId?: string }>) => (
-      <DockviewPanelContent
-        panelId={props.params?.panelId ?? props.api.id}
-        controller={holder.current ?? emptyController(input.aggregate.id, input.aggregate.revision)}
-      />
+      (() => {
+        const panelId = props.params?.panelId ?? props.api.id;
+        return (
+          <DockviewPanelContent
+            panelId={panelId}
+            controller={holder.current ?? emptyController(input.aggregate.id, input.aggregate.revision)}
+            visibility={getDockviewPanelRuntimeVisibility(visiblePanelIds, panelId, input.applicationVisibility)}
+          />
+        );
+      })()
     ),
-  }), [holder, input.aggregate.id, input.aggregate.revision]);
+  }), [holder, input.aggregate.id, input.aggregate.revision, input.applicationVisibility, visiblePanelIds]);
 
   const onReady = (event: DockviewReadyEvent) => {
     const api = event.api as DockviewControllerApi;
@@ -313,6 +320,10 @@ export function DockviewWorkbench(input: {
           });
           holder.current = prepared.controller;
         },
+      });
+      void getWindowDockviewWarmControllerCache().remember({
+        voyageId: input.aggregate.id,
+        flush: (reason) => coordinator.flush(reason),
       });
       input.onCoordinator?.(coordinator);
       const layoutGesture = createDockviewLayoutGestureAdapter({
@@ -397,6 +408,41 @@ export function createDockviewLayoutGestureAdapter(input: {
 
 function emptyController(voyageId: string, revision: number): DockviewController {
   return { voyageId, revision, panels: new Map() };
+}
+
+export function getDockviewPanelRuntimeVisibility(
+  visiblePanelIds: ReadonlySet<string>,
+  panelId: string,
+  applicationVisibility: RuntimeVisibility = 'visible',
+): RuntimeVisibility {
+  return applicationVisibility === 'visible' && visiblePanelIds.has(panelId) ? 'visible' : 'inactive';
+}
+
+export function visibleDockviewPanelIds(snapshot: unknown): Set<string> {
+  const fromRaw = collectVisibleDockviewPanelIds((snapshot as { grid?: { root?: unknown } } | null)?.grid?.root);
+  if (fromRaw.size) return fromRaw;
+  try {
+    const canonical = productionDockviewSnapshotCodec.validateAndCanonicalize(snapshot).snapshot as unknown as SerializedDockview;
+    return collectVisibleDockviewPanelIds(canonical.grid.root);
+  } catch {
+    return new Set();
+  }
+}
+
+function collectVisibleDockviewPanelIds(root: unknown): Set<string> {
+  const visible = new Set<string>();
+  const visit = (node: unknown) => {
+    if (!node || typeof node !== 'object') return;
+    const record = node as { type?: unknown; data?: unknown };
+    if (record.type === 'leaf' && record.data && typeof record.data === 'object') {
+      const activeView = (record.data as { activeView?: unknown }).activeView;
+      if (typeof activeView === 'string') visible.add(activeView);
+      return;
+    }
+    if (Array.isArray(record.data)) record.data.forEach(visit);
+  };
+  visit(root);
+  return visible;
 }
 
 export function createDockviewControllerCache<T extends { voyageId: string } = { voyageId: string }>(input: {

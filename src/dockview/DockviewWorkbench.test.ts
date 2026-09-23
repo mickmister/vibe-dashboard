@@ -12,12 +12,15 @@ import {
   createDockviewControllerCache,
   createDockviewLayoutGestureAdapter,
   focusDockviewPanel,
+  getDockviewPanelRuntimeVisibility,
   markDockviewUserActivation,
   restoreDockviewController,
+  visibleDockviewPanelIds,
   type DockviewControllerApi,
 } from './DockviewWorkbench';
 import { DockviewM32SemanticHarness } from './DockviewM32HarnessRoute';
 import { createDockviewM32HarnessAggregate } from './DockviewM32HarnessFixture';
+import { getWindowDockviewWarmControllerCache } from './DockviewRuntimeRegistry';
 import {
   createDockviewMutationCoordinator,
   type DockviewMutationCoordinator,
@@ -392,6 +395,22 @@ describe('Dockview M3.1 controller restore and Panel rendering', () => {
     expect(dockviewReactBoundary.fromJSONCalls.at(-1)?.options).toEqual({ reuseExistingPanels: true });
   });
 
+  it('classifies hidden tabs and background Voyage Panels as runtime-inactive', () => {
+    const tabbed = {
+      ...snapshot(['panel-a', 'panel-b']),
+      grid: {
+        ...snapshot(['panel-a', 'panel-b']).grid,
+        root: { type: 'leaf', data: { id: 'group-panel-a', views: ['panel-a', 'panel-b'], activeView: 'panel-a' } },
+      },
+    };
+    const ids = visibleDockviewPanelIds(tabbed);
+
+    expect(getDockviewPanelRuntimeVisibility(ids, 'panel-a')).toBe('visible');
+    expect(getDockviewPanelRuntimeVisibility(ids, 'panel-b')).toBe('inactive');
+    expect(getDockviewPanelRuntimeVisibility(ids, 'panel-c')).toBe('inactive');
+    expect(getDockviewPanelRuntimeVisibility(ids, 'panel-a', 'inactive')).toBe('inactive');
+  });
+
   it('installs one coordinator at the Workbench boundary so Dockview callbacks persist through it', async () => {
     vi.useFakeTimers();
     const stored = aggregate({ panels: [{ id: 'panel-a', craftWorkspaceId }, { id: 'panel-b', craftWorkspaceId }] });
@@ -408,6 +427,8 @@ describe('Dockview M3.1 controller restore and Panel rendering', () => {
     );
 
     expect(coordinators).toHaveLength(1);
+    await Promise.resolve();
+    expect(getWindowDockviewWarmControllerCache().ids()).toContain(stored.id);
     expect(dockviewReactBoundary.activeListeners).toHaveLength(1);
     expect(dockviewReactBoundary.layoutListeners).toHaveLength(1);
 

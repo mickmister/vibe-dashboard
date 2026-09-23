@@ -39,6 +39,7 @@ export interface RuntimeRegistryStatus {
   leases: Array<{ runtimeId: string; leaseId: string }>;
   bootIds: Record<string, string>;
   reloadDisclosures: Record<string, string>;
+  recoveries: Array<{ voyageId: string; reason: string }>;
 }
 
 export class DockviewRuntimeRegistry {
@@ -46,6 +47,8 @@ export class DockviewRuntimeRegistry {
   private readonly hosts = new Map<string, RuntimeHostToken>();
   private readonly leaseNames = new Map<symbol, string>();
   private readonly evictedRuntimeIds: string[] = [];
+  private readonly reloadDisclosures = new Map<string, string>();
+  private parkingRoot: HTMLElement | null = null;
   private clock = 0;
   private boot = 0;
 
@@ -72,7 +75,6 @@ export class DockviewRuntimeRegistry {
       existing.url = input.url;
       existing.visibility = input.visibility ?? existing.visibility;
       existing.lastUsed = ++this.clock;
-      if (input.iframe) existing.iframe = input.iframe;
       this.reconcileBudget();
       return existing;
     }
@@ -108,16 +110,34 @@ export class DockviewRuntimeRegistry {
     this.reconcileBudget();
   }
 
+  ensureIframe(runtimeId: string, create: () => HTMLIFrameElement): HTMLIFrameElement {
+    const entry = this.requireRuntime(runtimeId);
+    entry.iframe ??= create();
+    return entry.iframe;
+  }
+
   registerHost(host: RuntimeHostToken): RuntimeHostToken {
     this.hosts.set(hostKey(host), { ...host });
     return host;
   }
 
   removeHost(host: RuntimeHostToken): void {
+    this.detachHost(host);
+    for (const entry of this.entries.values()) {
+      if (!entry.host && entry.voyageId === host.voyageId && entry.panelId === host.panelId) this.disposeRuntime(entry.runtimeId, 'host-removed');
+    }
+  }
+
+  detachHost(host: RuntimeHostToken): void {
     this.hosts.delete(hostKey(host));
     for (const entry of this.entries.values()) {
-      if (entry.host && hostKey(entry.host) === hostKey(host)) this.disposeRuntime(entry.runtimeId, 'host-removed');
+      if (entry.host && hostKey(entry.host) === hostKey(host)) {
+        entry.host = null;
+        entry.visibility = 'inactive';
+        if (entry.iframe && typeof document !== 'undefined') this.getParkingRoot().appendChild(entry.iframe);
+      }
     }
+    this.reconcileBudget();
   }
 
   attach(runtimeId: string, host: RuntimeHostToken, leaseToken?: symbol): void {
@@ -128,6 +148,12 @@ export class DockviewRuntimeRegistry {
     if (leaseToken && !entry.leasedBy) entry.leasedBy = leaseToken;
     entry.host = { ...host };
     entry.lastUsed = ++this.clock;
+  }
+
+  attachElement(runtimeId: string, container: HTMLElement): void {
+    const entry = this.requireRuntime(runtimeId);
+    if (!entry.iframe) throw new Error('runtime-iframe-unavailable');
+    container.replaceChildren(entry.iframe);
   }
 
   acquireLeases(runtimeIds: string[]): RuntimeLease {
@@ -150,7 +176,10 @@ export class DockviewRuntimeRegistry {
     return {
       token,
       runtimeIds: sorted,
-      attach: (runtimeId, host) => this.attach(runtimeId, host, token),
+      attach: (runtimeId, host) => {
+        if (!sorted.includes(runtimeId)) throw new Error('runtime-not-in-lease');
+        this.attach(runtimeId, host, token);
+      },
       release: () => {
         if (released) return;
         released = true;
@@ -171,6 +200,7 @@ export class DockviewRuntimeRegistry {
     entry.reloadDisclosure = reason;
     entry.iframe?.remove();
     this.entries.delete(runtimeId);
+    this.reloadDisclosures.set(runtimeId, 'Runtime reloaded after eviction');
     this.evictedRuntimeIds.push(runtimeId);
   }
 
@@ -200,7 +230,8 @@ export class DockviewRuntimeRegistry {
       overBudget: entries.length > this.iframeLimit,
       leases,
       bootIds: Object.fromEntries(entries.map((entry) => [entry.runtimeId, entry.bootId])),
-      reloadDisclosures: Object.fromEntries(this.evictedRuntimeIds.map((runtimeId) => [runtimeId, 'Runtime reloaded after eviction'])),
+      reloadDisclosures: Object.fromEntries(this.reloadDisclosures.entries()),
+      recoveries: [],
     };
   }
 
@@ -210,6 +241,18 @@ export class DockviewRuntimeRegistry {
     this.hosts.clear();
     this.leaseNames.clear();
     this.evictedRuntimeIds.length = 0;
+    this.reloadDisclosures.clear();
+    this.parkingRoot?.replaceChildren();
+  }
+
+  private getParkingRoot(): HTMLElement {
+    if (this.parkingRoot?.isConnected) return this.parkingRoot;
+    const root = document.createElement('div');
+    root.hidden = true;
+    root.dataset.dockviewRuntimeParking = 'true';
+    document.body.appendChild(root);
+    this.parkingRoot = root;
+    return root;
   }
 }
 
@@ -226,6 +269,8 @@ export function createWarmVoyageControllerCache<T extends WarmController>(input:
 }) {
   const controllers = new Map<string, T>();
   const pins = new Map<string, number>();
+  const recoveries: Array<{ voyageId: string; reason: string }> = [];
+  let queue: Promise<unknown> = Promise.resolve();
   const limit = () => Math.max(0, input.warmLimit);
   const dispose = async (controller: T) => {
     await controller.flush?.('warm-controller-evict');
@@ -237,22 +282,46 @@ export function createWarmVoyageControllerCache<T extends WarmController>(input:
       const candidate = [...controllers.keys()].find((voyageId) => !pins.get(voyageId));
       if (!candidate) break;
       const controller = controllers.get(candidate);
-      controllers.delete(candidate);
-      if (controller) await dispose(controller);
+      if (!controller) {
+        controllers.delete(candidate);
+        continue;
+      }
+      try {
+        await dispose(controller);
+        controllers.delete(candidate);
+      } catch (error) {
+        recoveries.push({ voyageId: candidate, reason: error instanceof Error ? error.message : 'warm-controller-evict-failed' });
+        break;
+      }
     }
   };
+  const serialize = <R>(operation: () => Promise<R>): Promise<R> => {
+    const next = queue.then(operation, operation);
+    queue = next.catch(() => undefined);
+    return next;
+  };
   return {
+    async remember(controller: T) {
+      return serialize(async () => {
+        controllers.delete(controller.voyageId);
+        controllers.set(controller.voyageId, controller);
+        await evict();
+        return controllers.get(controller.voyageId) ?? null;
+      });
+    },
     async get(voyageId: string) {
-      const existing = controllers.get(voyageId);
-      if (existing) {
-        controllers.delete(voyageId);
-        controllers.set(voyageId, existing);
-        return existing;
-      }
-      const controller = input.create(voyageId);
-      controllers.set(voyageId, controller);
-      await evict();
-      return controller;
+      return serialize(async () => {
+        const existing = controllers.get(voyageId);
+        if (existing) {
+          controllers.delete(voyageId);
+          controllers.set(voyageId, existing);
+          return existing;
+        }
+        const controller = input.create(voyageId);
+        controllers.set(voyageId, controller);
+        await evict();
+        return controllers.get(voyageId) ?? null;
+      });
     },
     pin(voyageId: string) {
       pins.set(voyageId, (pins.get(voyageId) ?? 0) + 1);
@@ -261,21 +330,26 @@ export function createWarmVoyageControllerCache<T extends WarmController>(input:
         release: async () => {
           if (released) return;
           released = true;
-          const next = (pins.get(voyageId) ?? 1) - 1;
-          if (next > 0) pins.set(voyageId, next);
-          else pins.delete(voyageId);
-          await evict();
+          await serialize(async () => {
+            const next = (pins.get(voyageId) ?? 1) - 1;
+            if (next > 0) pins.set(voyageId, next);
+            else pins.delete(voyageId);
+            await evict();
+          });
         },
       };
     },
     async evictNow() {
-      await evict();
+      await serialize(evict);
     },
     ids() {
       return [...controllers.keys()];
     },
     pinnedIds() {
       return [...pins.keys()].sort();
+    },
+    recoveries() {
+      return [...recoveries];
     },
   };
 }
@@ -284,6 +358,18 @@ export function getWindowDockviewRuntimeRegistry(): DockviewRuntimeRegistry {
   const globalKey = '__vdDockviewRuntimeRegistry';
   const target = globalThis as typeof globalThis & { [globalKey]?: DockviewRuntimeRegistry };
   target[globalKey] ??= new DockviewRuntimeRegistry();
+  return target[globalKey];
+}
+
+export function getWindowDockviewWarmControllerCache() {
+  const globalKey = '__vdDockviewWarmControllerCache';
+  const target = globalThis as typeof globalThis & {
+    [globalKey]?: ReturnType<typeof createWarmVoyageControllerCache<WarmController>>;
+  };
+  target[globalKey] ??= createWarmVoyageControllerCache({
+    warmLimit: 2,
+    create: (voyageId: string) => ({ voyageId }),
+  });
   return target[globalKey];
 }
 

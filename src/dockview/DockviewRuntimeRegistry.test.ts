@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import {
   createWarmVoyageControllerCache,
   DockviewRuntimeRegistry,
@@ -67,6 +67,79 @@ describe('DockView M3.4 runtime registry', () => {
     expect(disposed).toEqual(['voyage-b']);
   });
 
+  it('does not return same-call disposed controllers and reports eviction recovery', async () => {
+    const disposed: string[] = [];
+    const zero = createWarmVoyageControllerCache({
+      warmLimit: 0,
+      create: (voyageId: string) => ({ voyageId, dispose: () => { disposed.push(voyageId); } }),
+    });
+    await expect(zero.get('voyage-zero')).resolves.toBeNull();
+    expect(disposed).toEqual(['voyage-zero']);
+
+    const failing = createWarmVoyageControllerCache({
+      warmLimit: 1,
+      create: (voyageId: string) => ({
+        voyageId,
+        flush: async () => {
+          if (voyageId === 'voyage-a') throw new Error('flush failed');
+        },
+      }),
+    });
+    await failing.get('voyage-a');
+    await failing.get('voyage-b');
+    expect(failing.ids()).toEqual(['voyage-a', 'voyage-b']);
+    expect(failing.recoveries()).toEqual([{ voyageId: 'voyage-a', reason: 'flush failed' }]);
+  });
+
+  it('serializes warm cache get/evict work while eviction flush is pending', async () => {
+    const events: string[] = [];
+    let resumeFlush: (() => void) | undefined;
+    const flushStarted = new Promise<void>((resolve) => {
+      const cache = createWarmVoyageControllerCache({
+        warmLimit: 1,
+        create: (voyageId: string) => ({
+          voyageId,
+          flush: async () => {
+            events.push(`flush:${voyageId}:start`);
+            resolve();
+            await new Promise<void>((resume) => { resumeFlush = resume; });
+            events.push(`flush:${voyageId}:done`);
+          },
+          dispose: () => { events.push(`dispose:${voyageId}`); },
+        }),
+      });
+      void cache.get('voyage-a').then(() => {
+        const getB = cache.get('voyage-b');
+        const getC = cache.get('voyage-c');
+        void Promise.all([getB, getC]).then(() => { events.push(`ids:${cache.ids().join(',')}`); });
+      });
+    });
+
+    await flushStarted;
+    expect(events).toEqual(['flush:voyage-a:start']);
+    resumeFlush?.();
+    await vi.waitFor(() => {
+      expect(events).toEqual([
+        'flush:voyage-a:start',
+        'flush:voyage-a:done',
+        'dispose:voyage-a',
+        'flush:voyage-b:start',
+      ]);
+    });
+    resumeFlush?.();
+    await vi.waitFor(() => {
+      expect(events).toEqual([
+        'flush:voyage-a:start',
+        'flush:voyage-a:done',
+        'dispose:voyage-a',
+        'flush:voyage-b:start',
+        'flush:voyage-b:done',
+        'dispose:voyage-b',
+        'ids:voyage-c',
+      ]);
+    });
+  });
+
   it('TEST_CASE_M3_4C preserves retained runtime identity and discloses evicted reloads', () => {
     const registry = new DockviewRuntimeRegistry(2);
     const retained = runtime(registry, 'voyage-a:panel-a', 'inactive').bootId;
@@ -81,6 +154,43 @@ describe('DockView M3.4 runtime registry', () => {
     expect(registry.status().visibleRuntimeIds).toContain('voyage-a:panel-b');
   });
 
+  it('retains the physical iframe across ordinary detach and reattach', () => {
+    const registry = new DockviewRuntimeRegistry(2);
+    const firstIframe = { remove() { /* test double */ } } as HTMLIFrameElement;
+    const replacementIframe = { remove() { /* test double */ } } as HTMLIFrameElement;
+    runtime(registry, 'voyage-a:panel-a', 'visible');
+    registry.requireRuntime('voyage-a:panel-a').iframe = firstIframe;
+    const boot = registry.requireRuntime('voyage-a:panel-a').bootId;
+    const token = registry.registerHost(host('voyage-a:panel-a'));
+    registry.attach('voyage-a:panel-a', token);
+    registry.detachHost(token);
+
+    registry.registerRuntime({
+      runtimeId: 'voyage-a:panel-a',
+      voyageId: 'voyage-a',
+      panelId: 'panel-a',
+      url: 'https://example.test/new',
+      iframe: replacementIframe,
+      visibility: 'visible',
+    });
+    expect(registry.requireRuntime('voyage-a:panel-a').iframe).toBe(firstIframe);
+    expect(registry.requireRuntime('voyage-a:panel-a').bootId).toBe(boot);
+    expect(registry.status().reloadDisclosures).toEqual({});
+
+    registry.disposeRuntime('voyage-a:panel-a');
+    registry.registerRuntime({
+      runtimeId: 'voyage-a:panel-a',
+      voyageId: 'voyage-a',
+      panelId: 'panel-a',
+      url: 'https://example.test/reopened',
+      iframe: replacementIframe,
+      visibility: 'visible',
+    });
+    expect(registry.requireRuntime('voyage-a:panel-a').iframe).toBe(replacementIframe);
+    expect(registry.requireRuntime('voyage-a:panel-a').bootId).not.toBe(boot);
+    expect(registry.status().reloadDisclosures['voyage-a:panel-a']).toBe('Runtime reloaded after eviction');
+  });
+
   it('TEST_CASE_M3_4D uses exclusive generation-checked leases and rolls back ordered acquisition', () => {
     const registry = new DockviewRuntimeRegistry(5);
     runtime(registry, 'voyage-a:panel-b');
@@ -92,11 +202,15 @@ describe('DockView M3.4 runtime registry', () => {
     expect(lease.runtimeIds).toEqual(['voyage-a:panel-a', 'voyage-a:panel-b']);
     lease.attach('voyage-a:panel-a', hostA);
     lease.attach('voyage-a:panel-b', hostB);
+    const hostForeign = registry.registerHost(host('voyage-a:panel-foreign'));
+    runtime(registry, 'voyage-a:panel-foreign');
+    expect(() => lease.attach('voyage-a:panel-foreign', hostForeign)).toThrow('runtime-not-in-lease');
     expect(() => registry.acquireLeases(['voyage-a:panel-a'])).toThrow('runtime-leased');
     expect(() => lease.attach('voyage-a:panel-a', { ...hostA, generation: 2 })).toThrow('stale-host-generation');
     lease.release();
     lease.release();
     expect(registry.status().leases).toEqual([]);
+    expect(registry.requireRuntime('voyage-a:panel-foreign').leasedBy).toBeNull();
   });
 
   it('TEST_CASE_M3_4E pins invoking controllers and treats leased foreground runtimes as visible budget work', async () => {
