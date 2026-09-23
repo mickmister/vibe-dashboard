@@ -9,7 +9,7 @@ import {
   type VoyagePanelRecord,
 } from '../store/voyageRepository';
 import { useModule } from '../hooks/useModule';
-import { DockviewWorkbench } from './DockviewWorkbench';
+import { DockviewWorkbench, focusDockviewPanel, type DockviewControllerApi } from './DockviewWorkbench';
 import type { CommitLayoutMutationInput } from '../store/voyageRepository';
 import type { CoordinatorVisibleState, DockviewMutationApi, DockviewMutationCoordinator, DockviewMutationRepository } from './DockviewMutationCoordinator';
 import { createDockviewM32HarnessAggregate } from './DockviewM32HarnessFixture';
@@ -57,7 +57,7 @@ export function DockviewM32SemanticHarness(input: {
   contextForCraft: (craftWorkspaceId: string) => PanelTargetResolutionContext | null;
 }) {
   const coordinator = useRef<DockviewMutationCoordinator | null>(null);
-  const dockviewApi = useRef<(DockviewMutationApi & { focusPanel?(panelId: string): void }) | null>(null);
+  const dockviewApi = useRef<(DockviewMutationApi & DockviewControllerApi) | null>(null);
   const gesture = useRef<symbol | null>(null);
   const [state, setState] = useState<CoordinatorVisibleState>(() => ({
     revision: input.aggregate.revision,
@@ -100,7 +100,7 @@ export function DockviewM32SemanticHarness(input: {
         })}>
           <FormattedMessage defaultMessage="Complete gesture" description="DockView M3.2 test harness control that completes a Dockview gesture boundary." />
         </button>
-        <button type="button" onClick={() => run(() => coordinator.current?.focusPanelFromCommand('panel-d', () => dockviewApi.current?.focusPanel?.('panel-d')))}>
+        <button type="button" onClick={() => run(() => coordinator.current?.focusPanelFromCommand('panel-d', () => focusDockviewPanel(dockviewApi.current, 'panel-d')))}>
           <FormattedMessage defaultMessage="Programmatic focus Panel D" description="DockView M3.2 test harness control that focuses Panel D programmatically." />
         </button>
         <button type="button" onClick={() => run(() => coordinator.current?.flush('tester-flush'))}>

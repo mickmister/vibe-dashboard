@@ -17,8 +17,8 @@ const PANEL_RECOVERY_BODY = 'This Panel target is unavailable or unsafe to rende
 export interface DockviewControllerApi {
   fromJSON(snapshot: SerializedDockview): void;
   toJSON(): SerializedDockview;
-  focusPanel?(panelId: string): void;
-  onDidActivePanelChange?(listener: (event: { panel?: { id: string } | null }) => void): { dispose(): void };
+  getPanel?(panelId: string): { api: { setActive(): void } } | undefined;
+  onDidActivePanelChange?(listener: (event: { panel?: { id: string } | null; origin: 'user' | 'api' }) => void): { dispose(): void };
   onDidLayoutChange?(listener: () => void): { dispose(): void };
 }
 
@@ -47,6 +47,11 @@ export interface DockviewLayoutQuarantineEvent {
   reason: string;
   panelId?: string;
 }
+
+type UserActivationIntent = {
+  input: 'pointer' | 'keyboard';
+  token: symbol;
+};
 
 export function restoreDockviewController(input: {
   api: DockviewControllerApi;
@@ -202,7 +207,7 @@ export function DockviewWorkbench(input: {
   onQuarantine?: (event: DockviewLayoutQuarantineEvent) => void;
 }) {
   const holder = useMemo<{ current: DockviewController | null }>(() => ({ current: null }), []);
-  const userActivation = useMemo<{ current: 'pointer' | 'keyboard' | null }>(() => ({ current: null }), []);
+  const userActivation = useMemo<{ current: UserActivationIntent | null }>(() => ({ current: null }), []);
   const components = useMemo(() => ({
     'iframe-panel': (props: IDockviewPanelProps<{ panelId?: string }>) => (
       <DockviewPanelContent
@@ -248,9 +253,8 @@ export function DockviewWorkbench(input: {
       });
       api.onDidActivePanelChange?.((change) => {
         const panelId = change.panel?.id;
-        const intent = userActivation.current;
-        userActivation.current = null;
-        if (panelId) void coordinator.handleActivePanelChange(panelId, intent ? { origin: 'user', input: intent } : { origin: 'api' });
+        const event = consumeDockviewUserActivation(userActivation, change.origin);
+        if (panelId) void coordinator.handleActivePanelChange(panelId, event);
       });
       api.onDidLayoutChange?.(() => layoutGesture.capture());
     }
@@ -261,12 +265,36 @@ export function DockviewWorkbench(input: {
     <div
       className="dockview-theme-dark h-full w-full"
       data-voyage-id={input.aggregate.id}
-      onPointerDownCapture={() => { userActivation.current = 'pointer'; }}
-      onKeyDownCapture={() => { userActivation.current = 'keyboard'; }}
+      onPointerDownCapture={() => markDockviewUserActivation(userActivation, 'pointer')}
+      onKeyDownCapture={() => markDockviewUserActivation(userActivation, 'keyboard')}
     >
       <DockviewReact components={components} onReady={onReady} />
     </div>
   );
+}
+
+export function focusDockviewPanel(api: DockviewControllerApi | null | undefined, panelId: string): void {
+  api?.getPanel?.(panelId)?.api.setActive();
+}
+
+export function markDockviewUserActivation(
+  ref: { current: UserActivationIntent | null },
+  input: UserActivationIntent['input'],
+): void {
+  const token = Symbol(input);
+  ref.current = { input, token };
+  queueMicrotask(() => {
+    if (ref.current?.token === token) ref.current = null;
+  });
+}
+
+export function consumeDockviewUserActivation(
+  ref: { current: UserActivationIntent | null },
+  origin: 'user' | 'api',
+): { origin: 'user'; input: UserActivationIntent['input'] } | { origin: 'api' } {
+  const intent = ref.current;
+  ref.current = null;
+  return origin === 'user' && intent ? { origin: 'user', input: intent.input } : { origin: 'api' };
 }
 
 export function createDockviewLayoutGestureAdapter(input: {

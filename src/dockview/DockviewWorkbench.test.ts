@@ -8,8 +8,11 @@ import { Kysely, SqliteDialect } from 'kysely';
 import {
   DockviewWorkbench,
   DockviewPanelContent,
+  consumeDockviewUserActivation,
   createDockviewControllerCache,
   createDockviewLayoutGestureAdapter,
+  focusDockviewPanel,
+  markDockviewUserActivation,
   restoreDockviewController,
   type DockviewControllerApi,
 } from './DockviewWorkbench';
@@ -38,8 +41,9 @@ const craftId = 'craft-a';
 const dockviewReactBoundary = vi.hoisted(() => ({
   panelMarkupDuringFromJSON: '',
   api: undefined as DockviewControllerApi | undefined,
-  activeListeners: [] as Array<(event: { panel?: { id: string } | null }) => void>,
+  activeListeners: [] as Array<(event: { panel?: { id: string } | null; origin: 'user' | 'api' }) => void>,
   layoutListeners: [] as Array<() => void>,
+  focusCalls: [] as string[],
 }));
 
 vi.mock('dockview-react', async () => {
@@ -63,6 +67,16 @@ vi.mock('dockview-react', async () => {
           );
         },
         toJSON: () => snapshot(['panel-a']),
+        getPanel(panelId) {
+          return {
+            api: {
+              setActive() {
+                dockviewReactBoundary.focusCalls.push(panelId);
+                for (const listener of dockviewReactBoundary.activeListeners) listener({ panel: { id: panelId }, origin: 'api' });
+              },
+            },
+          };
+        },
         onDidActivePanelChange(listener) {
           dockviewReactBoundary.activeListeners.push(listener);
           return { dispose: vi.fn() };
@@ -92,6 +106,7 @@ beforeEach(() => {
   dockviewReactBoundary.api = undefined;
   dockviewReactBoundary.activeListeners = [];
   dockviewReactBoundary.layoutListeners = [];
+  dockviewReactBoundary.focusCalls = [];
 });
 
 function context(): PanelTargetResolutionContext {
@@ -384,7 +399,7 @@ describe('Dockview M3.1 controller restore and Panel rendering', () => {
     expect(dockviewReactBoundary.activeListeners).toHaveLength(1);
     expect(dockviewReactBoundary.layoutListeners).toHaveLength(1);
 
-    dockviewReactBoundary.activeListeners[0]?.({ panel: { id: 'panel-a' } });
+    dockviewReactBoundary.activeListeners[0]?.({ panel: { id: 'panel-a' }, origin: 'api' });
     await coordinators[0]!.flush('test');
     expect(store.activations).toEqual([]);
 
@@ -400,6 +415,44 @@ describe('Dockview M3.1 controller restore and Panel rendering', () => {
     await coordinators[0]!.flush('test');
     expect(store.commits).toEqual([{ expectedRevision: 7, panelIds: ['panel-a', 'panel-b'] }]);
     vi.useRealTimers();
+  });
+
+  it('requires Dockview user origin plus same-turn input intent before recording activation', async () => {
+    const ref: { current: Parameters<typeof consumeDockviewUserActivation>[0]['current'] } = { current: null };
+
+    markDockviewUserActivation(ref, 'pointer');
+    expect(consumeDockviewUserActivation(ref, 'api')).toEqual({ origin: 'api' });
+
+    markDockviewUserActivation(ref, 'keyboard');
+    await Promise.resolve();
+    expect(consumeDockviewUserActivation(ref, 'user')).toEqual({ origin: 'api' });
+
+    markDockviewUserActivation(ref, 'pointer');
+    expect(consumeDockviewUserActivation(ref, 'user')).toEqual({ origin: 'user', input: 'pointer' });
+  });
+
+  it('programmatic focus uses Dockview setActive and suppresses the resulting api-origin callback', async () => {
+    const stored = aggregate({ panels: [{ id: 'panel-a', craftWorkspaceId }, { id: 'panel-b', craftWorkspaceId }] });
+    const store = mutationRepository(stored);
+    let coordinator: DockviewMutationCoordinator | null = null;
+    let dockviewApi: DockviewControllerApi | null = null;
+
+    renderToStaticMarkup(
+      React.createElement(DockviewWorkbench, {
+        aggregate: stored,
+        contextForCraft: () => context(),
+        repository: store.repo,
+        onCoordinator: (value) => { coordinator = value; },
+        onDockviewApi: (api) => { dockviewApi = api; },
+      }),
+    );
+
+    await coordinator!.focusPanelFromCommand('panel-b', () => focusDockviewPanel(dockviewApi, 'panel-b'));
+    await coordinator!.flush('test');
+
+    expect(dockviewReactBoundary.focusCalls).toEqual(['panel-b']);
+    expect(store.activations).toEqual([{ panelId: 'panel-b', expectedRevision: 7 }]);
+    expect(store.current.activationSequence).toBe(1);
   });
 
   it('coalesces production layout callbacks into one quiet-debounced Dockview gesture boundary', async () => {
