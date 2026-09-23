@@ -1,4 +1,4 @@
-import { expect, test, type Locator, type Page } from 'playwright/test';
+import { expect, test, type FrameLocator, type Locator, type Page } from 'playwright/test';
 import { readFile } from 'node:fs/promises';
 import path from 'node:path';
 
@@ -44,14 +44,16 @@ test.describe('VK mocked-provider basic-seeded fixture', () => {
       .getByRole('button', { name: new RegExp(escapeRegex(manifest.craftTitle)) })
       .click();
 
-    const agentFrame = page.frameLocator('iframe[title="Agent"]').first();
-    await expect(agentFrame.locator('body')).toContainText(manifest.craftTitle);
+    const { frame: agentFrame, iframe: agentIframe } = await agentFrameContaining(
+      page,
+      manifest.craftTitle,
+    );
 
     await agentFrame
       .getByRole('textbox', { name: 'Markdown editor' })
       .last()
       .fill(proofFollowUp);
-    await sendFollowUpThroughVkApi(page, proofFollowUp);
+    await sendFollowUpThroughVkApi(page, agentIframe, proofFollowUp);
 
     await expect(agentFrame.locator('body')).toContainText(proofFollowUp);
     await expect(agentFrame.locator('body')).toContainText('Ran a test command', {
@@ -95,11 +97,34 @@ async function clickLocatorInViewport(page: Page, locator: Locator) {
     .evaluate((element) => (element as HTMLButtonElement).click());
 }
 
-async function sendFollowUpThroughVkApi(page: Page, followUp: string) {
-  const agentFrameSrc = await page
-    .locator('iframe[title="Agent"]')
-    .first()
-    .evaluate((iframe) => (iframe as HTMLIFrameElement).src);
+async function agentFrameContaining(
+  page: Page,
+  expectedText: string,
+): Promise<{ frame: FrameLocator; iframe: Locator }> {
+  const expiresAt = Date.now() + 10_000;
+  const iframes = page.locator('iframe[title="Agent"]');
+
+  while (Date.now() < expiresAt) {
+    const count = await iframes.count();
+    for (let index = 0; index < count; index += 1) {
+      const frame = page.frameLocator('iframe[title="Agent"]').nth(index);
+      const text = await frame.locator('body').textContent({ timeout: 500 }).catch(() => null);
+      if (text?.includes(expectedText)) return { frame, iframe: iframes.nth(index) };
+    }
+    await page.waitForTimeout(250);
+  }
+
+  throw new Error(`Could not find Agent iframe containing ${expectedText}`);
+}
+
+async function sendFollowUpThroughVkApi(
+  page: Page,
+  agentIframe: Locator,
+  followUp: string,
+) {
+  const agentFrameSrc = await agentIframe.evaluate(
+    (iframe) => (iframe as HTMLIFrameElement).src,
+  );
   const sessionId = agentFrameSrc.match(
     /\/sessions\/([0-9a-fA-F-]{36})(?:[/?#]|$)/,
   )?.[1];

@@ -93,8 +93,10 @@ describe('VK mocked sandbox helpers', () => {
 
   it('runs mocked-sandbox e2e directly after CI startup without npm pretest reset', async () => {
     const script = await readFile('scripts/ci-run-vk-mocked-sandbox-e2e.sh', 'utf8');
-    expect(script).toContain('node --experimental-strip-types scripts/vk-mocked-sandbox.ts test');
+    expect(script).toContain('npx playwright test --config playwright.vk-mocked-sandbox.config.ts');
+    expect(script).toContain('VK_MOCKED_EXTERNAL_SERVER=1');
     expect(script).not.toContain('npm run test:e2e:vk-mocked-sandbox');
+    expect(script).not.toContain('scripts/vk-mocked-sandbox.ts test');
   });
 
   it('ignores live sandbox processes from another worktree when checking fixtures', async () => {

@@ -46,7 +46,11 @@ test.describe.serial('auto-nudge compatibility with real VK QA-mode contracts', 
       const checkpoint = await client.sendMessage(value.overseer.id, body(`auto-nudge restart reconciliation ${Date.now()}`, value.overseer)); await terminal(checkpoint.id);
       const state = readAutoNudgeState(value.options.statePath); state.triggers[checkpoint.id] = { processId: checkpoint.id, workspaceId: value.workspace.id, sessionId: value.teammate.id, observedAt: checkpoint.created_at, status: 'checkpoint-sent', checkpointProcessId: checkpoint.id, baselineProcessIds: [], updatedAt: checkpoint.updated_at, error: null }; writeAutoNudgeState(value.options.statePath, state);
       const before = (await client.getSessionProcesses(value.overseer.id)).length;
-      await runAutoNudgeCycle(createAutoNudgeClient(client), value.options);
+      await expect.poll(async () => {
+        await runAutoNudgeCycle(createAutoNudgeClient(client), value.options);
+        const status = readAutoNudgeState(value.options.statePath).triggers[checkpoint.id]?.status;
+        return ['done', 'observed', 'delegated'].includes(status ?? '') ? 'reconciled' : status;
+      }, { timeout: 10_000 }).toBe('reconciled');
       expect((await client.getSessionProcesses(value.overseer.id)).length).toBe(before);
       const trigger = readAutoNudgeState(value.options.statePath).triggers[checkpoint.id];
       expect(['done', 'observed', 'delegated']).toContain(trigger?.status);

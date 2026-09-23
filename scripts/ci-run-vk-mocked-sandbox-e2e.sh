@@ -49,4 +49,5 @@ until curl --fail --silent --show-error "$SANDBOX_URL/workspaces" >/dev/null; do
 done
 
 echo "VK mocked sandbox is ready at $SANDBOX_URL/workspaces"
-node --experimental-strip-types scripts/vk-mocked-sandbox.ts test
+VK_MOCKED_EXTERNAL_SERVER=1 VK_MOCKED_SANDBOX_URL="$SANDBOX_URL" \
+  npx playwright test --config playwright.vk-mocked-sandbox.config.ts
