@@ -1,4 +1,4 @@
-import React, { useMemo } from 'react';
+import React, { useEffect, useMemo, useRef } from 'react';
 import { DockviewReact, type DockviewReadyEvent, type IDockviewPanelProps } from 'dockview-react';
 import { Orientation, type DockviewApi, type SerializedDockview } from 'dockview';
 import 'dockview-react/dist/styles/dockview.css';
@@ -10,6 +10,7 @@ import {
   type DockviewMutationCoordinator,
   type DockviewMutationRepository,
 } from './DockviewMutationCoordinator';
+import { getWindowDockviewRuntimeRegistry, type RuntimeVisibility } from './DockviewRuntimeRegistry';
 
 const PANEL_RECOVERY_HEADING = 'Panel recovery';
 const PANEL_RECOVERY_BODY = 'This Panel target is unavailable or unsafe to render.';
@@ -163,9 +164,11 @@ function buildSafeSnapshot(panelIds: string[]): SerializedDockview {
 export function DockviewPanelContent({
   panelId,
   controller,
+  visibility = 'visible',
 }: {
   panelId: string;
   controller: DockviewController;
+  visibility?: RuntimeVisibility;
 }) {
   const panel = controller.panels.get(panelId);
   if (!panel || panel.resolved.status !== 'resolved') {
@@ -183,17 +186,83 @@ export function DockviewPanelContent({
 
   const policy = panel.resolved.capabilityPolicy;
   return (
-    <iframe
-      data-panel-id={panel.id}
-      data-renderer-key={panel.resolved.rendererKey}
+    <DockviewRuntimeIframe
+      voyageId={controller.voyageId}
+      panelId={panel.id}
+      rendererKey={panel.resolved.rendererKey}
       title={panel.record.customTitle || panel.resolved.rendererKey}
       src={policy.resolvedUrl}
       sandbox={policy.sandbox}
       allow={policy.allow}
-      referrerPolicy="no-referrer"
-      className="h-full w-full border-0 bg-neutral-950"
+      visibility={visibility}
     />
   );
+}
+
+function DockviewRuntimeIframe(input: {
+  voyageId: string;
+  panelId: string;
+  rendererKey: string;
+  title: string;
+  src: string;
+  sandbox: string;
+  allow: string;
+  visibility: RuntimeVisibility;
+}) {
+  const hostRef = useRef<HTMLDivElement | null>(null);
+  const hostId = useMemo(() => `${input.voyageId}:${input.panelId}:host`, [input.panelId, input.voyageId]);
+  const generation = useRef(0);
+  const runtimeId = `${input.voyageId}:${input.panelId}`;
+
+  useEffect(() => {
+    const host = hostRef.current;
+    if (!host || typeof document === 'undefined') return undefined;
+    const registry = getWindowDockviewRuntimeRegistry();
+    const iframe = document.createElement('iframe');
+    iframe.title = input.title;
+    iframe.className = 'h-full w-full border-0 bg-neutral-950';
+    iframe.dataset.panelId = input.panelId;
+    iframe.dataset.rendererKey = input.rendererKey;
+    iframe.src = input.src;
+    iframe.setAttribute('sandbox', input.sandbox);
+    iframe.setAttribute('allow', input.allow);
+    iframe.referrerPolicy = 'no-referrer';
+    const token = registry.registerHost({
+      voyageId: input.voyageId,
+      panelId: input.panelId,
+      hostId,
+      generation: ++generation.current,
+    });
+    registry.registerRuntime({
+      runtimeId,
+      voyageId: input.voyageId,
+      panelId: input.panelId,
+      url: input.src,
+      iframe,
+      visibility: input.visibility,
+    });
+    registry.attach(runtimeId, token);
+    host.replaceChildren(iframe);
+    return () => {
+      registry.removeHost(token);
+    };
+  }, [hostId, input.allow, input.panelId, input.rendererKey, input.sandbox, input.src, input.title, input.visibility, input.voyageId, runtimeId]);
+
+  if (typeof document === 'undefined') {
+    return (
+      <iframe
+        data-panel-id={input.panelId}
+        data-renderer-key={input.rendererKey}
+        title={input.title}
+        src={input.src}
+        sandbox={input.sandbox}
+        allow={input.allow}
+        referrerPolicy="no-referrer"
+        className="h-full w-full border-0 bg-neutral-950"
+      />
+    );
+  }
+  return <div ref={hostRef} data-runtime-host={runtimeId} className="h-full w-full" />;
 }
 
 export function DockviewWorkbench(input: {

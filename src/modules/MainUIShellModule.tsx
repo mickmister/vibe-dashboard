@@ -26,6 +26,7 @@ import {
 } from "./plugins/kanban/ExternalKanbanRoute";
 import { DashboardWorkspaceRoute } from "../components/DashboardWorkspaceRoute";
 import { DockviewM32HarnessRoute } from "../dockview/DockviewM32HarnessRoute";
+import { DockviewM34HarnessRoute } from "../dockview/DockviewM34HarnessRoute";
 import { resolveDashboardVoyage } from "../lib/voyageSession";
 import { getSavedWorkspaceSessions } from "../lib/savedVoyageState";
 import { getRenderedPairViewIds } from "../lib/renderedWorkspaceSelection";
@@ -1241,6 +1242,12 @@ springboard.registerModule("MainUIShell", {}, async (moduleAPI) => {
     "/dashboard/test/dockview-m3-2",
     { hideApplicationShell: true },
     DockviewM32HarnessRoute,
+  );
+
+  moduleAPI.registerRoute(
+    "/dashboard/test/dockview-m3-4",
+    { hideApplicationShell: true },
+    DockviewM34HarnessRoute,
   );
 
   return {
