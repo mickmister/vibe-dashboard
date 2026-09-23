@@ -6,7 +6,13 @@ import type {
 } from '../types';
 import type { SpaceTypeContribution } from '../modules/plugins/vibe-dashboard/types';
 import { vkClient, type WorkspaceSummary } from '../lib/vk-client';
-import { VoyageSidebar } from './VoyageSidebar';
+import { VoyageSidebar, type VoyageSidebarActionContext } from './VoyageSidebar';
+
+export type SidebarPanelFocus = {
+  kind: 'view' | 'pair';
+  tabGroupId: string;
+  panelId: string;
+};
 
 interface SidebarProps {
   workspace: WorkspaceState;
@@ -49,7 +55,7 @@ interface SidebarProps {
   onReorderSpaces: (sourceId: string, targetId: string) => void;
   showAddressBar: boolean;
   onToggleAddressBar: () => void;
-  onResumeSession: (sessionId: string) => void;
+  onResumeSession: (sessionId: string, voyageEntryId?: string, panelFocus?: SidebarPanelFocus) => void;
   onStartNewSession: () => void;
   onRenameSession: (sessionId: string, name: string) => void;
 }
@@ -107,6 +113,31 @@ export function Sidebar({
     };
   }, []);
 
+  const selectVoyageEntry = (voyageEntryId: string, context: VoyageSidebarActionContext) => {
+    if (context.activeVoyage || context.sessionId === currentSessionId) {
+      onSelectVoyageEntry(voyageEntryId);
+      return;
+    }
+    onResumeSession(context.sessionId, voyageEntryId);
+  };
+
+  const selectVoyagePanel = (
+    kind: SidebarPanelFocus['kind'],
+    tabGroupId: string,
+    panelId: string,
+    context: VoyageSidebarActionContext,
+  ) => {
+    if (context.activeVoyage || context.sessionId === currentSessionId) {
+      if (kind === 'pair') {
+        onSelectPair(tabGroupId, panelId);
+      } else {
+        onSelectTab(tabGroupId, panelId);
+      }
+      return;
+    }
+    onResumeSession(context.sessionId, context.voyageEntryId, { kind, tabGroupId, panelId });
+  };
+
   return (
     <VoyageSidebar
       workspace={workspace}
@@ -124,9 +155,9 @@ export function Sidebar({
         void onOpenCraftFlow();
       }}
       onResumeVoyage={onResumeSession}
-      onSelectVoyageEntry={onSelectVoyageEntry}
-      onSelectTab={onSelectTab}
-      onSelectPair={onSelectPair}
+      onSelectVoyageEntry={selectVoyageEntry}
+      onSelectTab={(tabGroupId, tabId, context) => selectVoyagePanel('view', tabGroupId, tabId, context)}
+      onSelectPair={(tabGroupId, pairId, context) => selectVoyagePanel('pair', tabGroupId, pairId, context)}
     />
   );
 }

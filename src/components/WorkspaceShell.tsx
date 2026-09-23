@@ -17,6 +17,7 @@ import {
 import { hasKnownIframeMessageSource } from "./IframePanel";
 import { hasSameBaseOrigin } from "../lib/originTrust";
 import { AddTabModal } from "./AddTabModal";
+import { getRenderedPairViewIds } from "../lib/renderedWorkspaceSelection";
 import {
   AddVKWorkspaceModal,
   prefetchVKWorkspaceSearchResults,
@@ -2264,8 +2265,57 @@ export function WorkspaceShell({
           }
           showAddressBar={showAddressBar}
           onToggleAddressBar={() => setShowAddressBar((v) => !v)}
-          onResumeSession={(sessionId) => {
-            switchToVoyage(sessionId);
+          onResumeSession={(sessionId, voyageEntryId, panelFocus) => {
+            if (!panelFocus) {
+              switchToVoyage(sessionId, voyageEntryId);
+              setIsSidebarOpen(false);
+              return;
+            }
+
+            const spaceId = effectiveWorkspace.spaces.find((space) =>
+              space.tabGroupIds.includes(panelFocus.tabGroupId),
+            )?.id;
+            if (!spaceId) {
+              switchToVoyage(sessionId, voyageEntryId);
+              setIsSidebarOpen(false);
+              return;
+            }
+
+            const viewIds =
+              panelFocus.kind === "pair"
+                ? getRenderedPairViewIds(
+                    effectiveWorkspace,
+                    panelFocus.tabGroupId,
+                    panelFocus.panelId,
+                  )
+                : undefined;
+
+            if (panelFocus.kind === "pair" && !viewIds?.length) {
+              switchToVoyage(sessionId, voyageEntryId);
+              setIsSidebarOpen(false);
+              return;
+            }
+
+            void actions
+              .addSelectionToSavedSession({
+                sessionId,
+                spaceId,
+                tabGroupId: panelFocus.tabGroupId,
+                ...(voyageEntryId ? { voyageEntryId } : {}),
+                ...(panelFocus.kind === "pair"
+                  ? { viewIds: viewIds! }
+                  : { tabId: panelFocus.panelId }),
+              })
+              .then((savedSession) => {
+                if (savedSession) {
+                  sessionActions.activateSavedSession(savedSession);
+                  return;
+                }
+                switchToVoyage(sessionId, voyageEntryId);
+              })
+              .catch(() => {
+                switchToVoyage(sessionId, voyageEntryId);
+              });
             setIsSidebarOpen(false);
           }}
           onStartNewSession={() => {

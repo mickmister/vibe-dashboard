@@ -5,7 +5,14 @@ import { cleanup, fireEvent, render, screen, within } from '@testing-library/rea
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { SavedWorkspaceSession, WorkspaceState } from '../types';
 import type { WorkspaceSummary } from '../lib/vk-client';
+import { Sidebar, type SidebarPanelFocus } from './Sidebar';
 import { buildVoyageSidebarModel, VoyageSidebar } from './VoyageSidebar';
+
+vi.mock('../lib/vk-client', () => ({
+  vkClient: {
+    getWorkspaceSummaries: vi.fn(async () => ({ summaries: [] })),
+  },
+}));
 
 const workspace = {
   spaces: [
@@ -62,6 +69,17 @@ const otherVoyage = {
   activeVoyageEntryId: 'entry-c',
   voyageEntries: [{ id: 'entry-c', tabGroupId: 'craft-b', viewIds: ['forms'] }],
   activeTabGroupId: 'craft-b',
+} satisfies SavedWorkspaceSession;
+
+const pairVoyage = {
+  ...currentVoyage,
+  id: 'voyage-pair',
+  slug: 'pair',
+  name: 'Pair review',
+  activeVoyageEntryId: 'entry-d',
+  voyageEntries: [{ id: 'entry-d', tabGroupId: 'craft-a', viewIds: ['agent+code'] }],
+  activeTabGroupId: 'craft-a',
+  activeItemsByVoyageEntryId: { 'entry-d': 'agent+code' },
 } satisfies SavedWorkspaceSession;
 
 const summaries = [
@@ -150,10 +168,18 @@ describe('VoyageSidebar', () => {
     expect(screen.getByText('API Craft')).toBeTruthy();
 
     fireEvent.click(screen.getByRole('button', { name: 'Code' }));
-    expect(onSelectTab).toHaveBeenCalledWith('craft-a', 'code');
+    expect(onSelectTab).toHaveBeenCalledWith('craft-a', 'code', {
+      activeVoyage: true,
+      sessionId: 'voyage-current',
+      voyageEntryId: 'entry-a',
+    });
 
     fireEvent.click(screen.getByRole('button', { name: 'API Craft' }));
-    expect(onSelectVoyageEntry).toHaveBeenCalledWith('entry-a');
+    expect(onSelectVoyageEntry).toHaveBeenCalledWith('entry-a', {
+      activeVoyage: true,
+      sessionId: 'voyage-current',
+      voyageEntryId: 'entry-a',
+    });
   });
 
   it('keeps Voyage navigation collapsible without removing Home or Attention access', () => {
@@ -182,4 +208,152 @@ describe('VoyageSidebar', () => {
     expect(screen.getByRole('button', { name: 'Home' })).toBeTruthy();
     expect(within(screen.getByRole('complementary', { name: 'Voyage navigation' })).getByText('Attention')).toBeTruthy();
   });
+
+  it('resumes a non-active Voyage before focusing its Craft', () => {
+    const onResumeSession = vi.fn();
+    const onSelectTab = vi.fn();
+    const onSelectPair = vi.fn();
+    const onSelectVoyageEntry = vi.fn();
+    renderSidebar({
+      onResumeSession,
+      onSelectTab,
+      onSelectPair,
+      onSelectVoyageEntry,
+    });
+
+    fireEvent.click(screen.getByRole('button', { name: 'Expand Review queue' }));
+    const foreignCraftButton = screen.getAllByRole('button', { name: 'Forms Craft' }).at(-1);
+    expect(foreignCraftButton).toBeTruthy();
+    fireEvent.click(foreignCraftButton!);
+
+    expect(onResumeSession).toHaveBeenCalledWith('voyage-other', 'entry-c');
+    expect(onSelectVoyageEntry).not.toHaveBeenCalled();
+    expect(onSelectTab).not.toHaveBeenCalled();
+    expect(onSelectPair).not.toHaveBeenCalled();
+  });
+
+  it('keeps active Voyage Craft and Panel actions on direct current-session handlers', () => {
+    const onResumeSession = vi.fn();
+    const onSelectTab = vi.fn();
+    const onSelectPair = vi.fn();
+    const onSelectVoyageEntry = vi.fn();
+    renderSidebar({
+      onResumeSession,
+      onSelectTab,
+      onSelectPair,
+      onSelectVoyageEntry,
+    });
+
+    fireEvent.click(screen.getByRole('button', { name: 'API Craft' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Code' }));
+
+    expect(onSelectVoyageEntry).toHaveBeenCalledWith('entry-a');
+    expect(onSelectTab).toHaveBeenCalledWith('craft-a', 'code');
+    expect(onResumeSession).not.toHaveBeenCalled();
+    expect(onSelectPair).not.toHaveBeenCalled();
+  });
+
+  it('resumes a non-active Voyage with deterministic Panel focus instead of selecting in the active Voyage', () => {
+    const onResumeSession = vi.fn();
+    const onSelectTab = vi.fn();
+    const onSelectPair = vi.fn();
+    const onSelectVoyageEntry = vi.fn();
+    renderSidebar({
+      onResumeSession,
+      onSelectTab,
+      onSelectPair,
+      onSelectVoyageEntry,
+    });
+
+    fireEvent.click(screen.getByRole('button', { name: 'Expand Review queue' }));
+    const foreignPanelButton = screen.getAllByRole('button', { name: 'Forms' }).at(-1);
+    expect(foreignPanelButton).toBeTruthy();
+    fireEvent.click(foreignPanelButton!);
+
+    expect(onResumeSession).toHaveBeenCalledWith('voyage-other', 'entry-c', {
+      kind: 'view',
+      tabGroupId: 'craft-b',
+      panelId: 'forms',
+    });
+    expect(onSelectVoyageEntry).not.toHaveBeenCalled();
+    expect(onSelectTab).not.toHaveBeenCalled();
+    expect(onSelectPair).not.toHaveBeenCalled();
+  });
+
+  it('resumes a non-active Voyage with pair Panel focus instead of selecting a pair in the active Voyage', () => {
+    const onResumeSession = vi.fn();
+    const onSelectTab = vi.fn();
+    const onSelectPair = vi.fn();
+    const onSelectVoyageEntry = vi.fn();
+    renderSidebar({
+      onResumeSession,
+      onSelectTab,
+      onSelectPair,
+      onSelectVoyageEntry,
+      savedSessions: [currentVoyage, pairVoyage],
+    });
+
+    fireEvent.click(screen.getByRole('button', { name: 'Expand Pair review' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Agent + Code' }));
+
+    expect(onResumeSession).toHaveBeenCalledWith('voyage-pair', 'entry-d', {
+      kind: 'pair',
+      tabGroupId: 'craft-a',
+      panelId: 'agent+code',
+    });
+    expect(onSelectVoyageEntry).not.toHaveBeenCalled();
+    expect(onSelectTab).not.toHaveBeenCalled();
+    expect(onSelectPair).not.toHaveBeenCalled();
+  });
 });
+
+function renderSidebar(overrides: {
+  onResumeSession: (sessionId: string, voyageEntryId?: string, panelFocus?: SidebarPanelFocus) => void;
+  onSelectTab: (tabGroupId: string, tabId: string) => void;
+  onSelectPair: (tabGroupId: string, pairId: string) => void;
+  onSelectVoyageEntry: (voyageEntryId: string) => void;
+  savedSessions?: SavedWorkspaceSession[];
+}) {
+  return render(
+    React.createElement(Sidebar, {
+      workspace,
+      activeSpaceId: 'legacy-space',
+      activeTabGroupId: 'craft-a',
+      activeItems: { 'craft-a': 'agent', 'craft-b': 'forms' },
+      spaceTypes: {},
+      visitedTabGroupIds: ['craft-a'],
+      voyageEntries: currentVoyage.voyageEntries,
+      activeVoyageEntryId: 'entry-a',
+      savedSessions: overrides.savedSessions || [currentVoyage, otherVoyage],
+      currentSessionId: currentVoyage.id,
+      onRequestClose: vi.fn(),
+      onOpenHome: vi.fn(),
+      onOpenPluginAdmin: vi.fn(),
+      onSelectTabGroup: vi.fn(),
+      onSelectTab: overrides.onSelectTab,
+      onSelectPair: overrides.onSelectPair,
+      onSelectVoyageEntry: overrides.onSelectVoyageEntry,
+      onAddSpace: vi.fn(),
+      onDeleteSpace: vi.fn(),
+      onRenameSpace: vi.fn(),
+      onDeleteTabGroup: vi.fn(),
+      onRenameTabGroup: vi.fn(),
+      onAddTabGroup: vi.fn(),
+      onOpenCreateWorkspaceTab: vi.fn(),
+      onOpenCraftFlow: vi.fn(),
+      onCreatePair: vi.fn(),
+      onCloseTab: vi.fn(),
+      onSplitPair: vi.fn(),
+      onRenameTab: vi.fn(),
+      onOpenAddTabModal: vi.fn(),
+      onToggleStarTabGroup: vi.fn(),
+      onReorderTabGroups: vi.fn(),
+      onReorderSpaces: vi.fn(),
+      showAddressBar: false,
+      onToggleAddressBar: vi.fn(),
+      onResumeSession: overrides.onResumeSession,
+      onStartNewSession: vi.fn(),
+      onRenameSession: vi.fn(),
+    }),
+  );
+}

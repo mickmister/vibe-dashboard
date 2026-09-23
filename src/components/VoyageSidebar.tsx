@@ -47,6 +47,12 @@ export interface VoyageSidebarModel {
   totals: Record<AttentionKind, number>;
 }
 
+export interface VoyageSidebarActionContext {
+  sessionId: string;
+  activeVoyage: boolean;
+  voyageEntryId: string;
+}
+
 export interface VoyageSidebarProps {
   workspace: WorkspaceState;
   savedSessions: SavedWorkspaceSession[];
@@ -61,9 +67,9 @@ export interface VoyageSidebarProps {
   onStartNewVoyage: () => void;
   onOpenCraftFlow: () => void;
   onResumeVoyage: (sessionId: string) => void;
-  onSelectVoyageEntry: (voyageEntryId: string) => void;
-  onSelectTab: (tabGroupId: string, tabId: string) => void;
-  onSelectPair: (tabGroupId: string, pairId: string) => void;
+  onSelectVoyageEntry: (voyageEntryId: string, context: VoyageSidebarActionContext) => void;
+  onSelectTab: (tabGroupId: string, tabId: string, context: VoyageSidebarActionContext) => void;
+  onSelectPair: (tabGroupId: string, pairId: string, context: VoyageSidebarActionContext) => void;
 }
 
 const ATTENTION_KIND_LABELS: Record<AttentionKind, string> = {
@@ -372,7 +378,9 @@ export function VoyageSidebar({
                               <CraftNavigationItem
                                 key={craft.entry.id}
                                 craft={craft}
-                                active={craft.entry.id === activeVoyageEntryId}
+                                sessionId={voyage.session.id}
+                                activeVoyage={voyage.active}
+                                active={voyage.active && craft.entry.id === activeVoyageEntryId}
                                 activeItemId={activeItems[craft.tabGroup.id]}
                                 onSelectVoyageEntry={onSelectVoyageEntry}
                                 onSelectTab={onSelectTab}
@@ -414,6 +422,8 @@ function AttentionSummaryCard({ kind, count }: { kind: AttentionKind; count: num
 
 function CraftNavigationItem({
   craft,
+  sessionId,
+  activeVoyage,
   active,
   activeItemId,
   onSelectVoyageEntry,
@@ -421,12 +431,20 @@ function CraftNavigationItem({
   onSelectPair,
 }: {
   craft: VoyageSidebarCraft;
+  sessionId: string;
+  activeVoyage: boolean;
   active: boolean;
   activeItemId?: string;
-  onSelectVoyageEntry: (voyageEntryId: string) => void;
-  onSelectTab: (tabGroupId: string, tabId: string) => void;
-  onSelectPair: (tabGroupId: string, pairId: string) => void;
+  onSelectVoyageEntry: (voyageEntryId: string, context: VoyageSidebarActionContext) => void;
+  onSelectTab: (tabGroupId: string, tabId: string, context: VoyageSidebarActionContext) => void;
+  onSelectPair: (tabGroupId: string, pairId: string, context: VoyageSidebarActionContext) => void;
 }) {
+  const context = {
+    sessionId,
+    activeVoyage,
+    voyageEntryId: craft.entry.id,
+  } satisfies VoyageSidebarActionContext;
+
   return (
     <div className="rounded-md">
       <button
@@ -434,7 +452,7 @@ function CraftNavigationItem({
         className={`flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left transition-colors focus:outline-none focus:ring-2 focus:ring-primary-400 ${
           active ? 'bg-primary-500/20 text-primary-200' : 'text-neutral-300 hover:bg-neutral-800'
         }`}
-        onClick={() => onSelectVoyageEntry(craft.entry.id)}
+        onClick={() => onSelectVoyageEntry(craft.entry.id, context)}
         aria-label={craft.tabGroup.label}
       >
         <IconLayoutDashboard size={15} stroke={2} aria-hidden="true" />
@@ -458,9 +476,9 @@ function CraftNavigationItem({
                 }`}
                 onClick={() => {
                   if (panel.kind === 'pair') {
-                    onSelectPair(craft.tabGroup.id, panel.id);
+                    onSelectPair(craft.tabGroup.id, panel.id, context);
                   } else {
-                    onSelectTab(craft.tabGroup.id, panel.id);
+                    onSelectTab(craft.tabGroup.id, panel.id, context);
                   }
                 }}
               >
