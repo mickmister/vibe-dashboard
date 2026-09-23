@@ -59,6 +59,7 @@ const MAX_PORT = 65_535;
 const SANDBOX_CADDYFILE_NAME = 'Caddyfile';
 const CHILD_SHUTDOWN_TIMEOUT_MS = 5_000;
 const DEFAULT_SETUP_TIMEOUT_MS = 30 * 60 * 1_000;
+const DEFAULT_READY_TIMEOUT_MS = 60 * 1_000;
 const CI_RELEASE_BACKEND_MODE = 'ci-release';
 const FULL_SHA_PATTERN = /^[0-9a-f]{40}$/i;
 const DEFAULT_VK_GH_REPO = 'mickmister/vibe-kanban';
@@ -110,6 +111,11 @@ function requireFullCommitSha(value: string, envName = 'VK_MOCKED_RELEASE_SHA'):
 
 function isCiReleaseBackend(env: NodeJS.ProcessEnv): boolean {
   return env.VK_MOCKED_VK_BACKEND === CI_RELEASE_BACKEND_MODE;
+}
+
+export function envForSandboxTestMode(env: NodeJS.ProcessEnv): NodeJS.ProcessEnv {
+  if (isCiReleaseBackend(env) || env.VK_MOCKED_PREBUILD_BACKEND != null) return env;
+  return { ...env, VK_MOCKED_PREBUILD_BACKEND: '1' };
 }
 
 function ciReleaseArtifactRoot(
@@ -855,6 +861,93 @@ function spawnCommand(
   return child;
 }
 
+async function waitForHttpReady(url: string, timeoutMs = positiveDurationMs(
+  'VK_MOCKED_READY_TIMEOUT_MS',
+  DEFAULT_READY_TIMEOUT_MS,
+)): Promise<void> {
+  const expiresAt = Date.now() + timeoutMs;
+  let lastError = 'not attempted';
+  while (Date.now() < expiresAt) {
+    try {
+      const response = await fetch(url, { signal: AbortSignal.timeout(2_000) });
+      if (response.ok) return;
+      lastError = `HTTP ${response.status}`;
+    } catch (error) {
+      lastError = error instanceof Error ? error.message : String(error);
+    }
+    await new Promise(resolve => setTimeout(resolve, 500));
+  }
+  throw new Error(`Sandbox did not become ready at ${url} after ${timeoutMs}ms: ${lastError}`);
+}
+
+async function runLongLivedCommands(
+  plan: SandboxPlan,
+  task: () => Promise<number>,
+): Promise<number> {
+  let stopping = false;
+  let stopPromise: Promise<void> | undefined;
+  const children: { spec: CommandSpec; child: ChildProcess }[] = [];
+  let resolveStoppedByChild: (exitCode: number) => void = () => undefined;
+  const stoppedByChild = new Promise<number>(resolve => { resolveStoppedByChild = resolve; });
+  const stop = (exitCode?: number): Promise<void> => {
+    if (stopPromise) return stopPromise;
+    stopping = true;
+    if (exitCode !== undefined) process.exitCode = exitCode;
+    stopPromise = Promise.all(
+      children.map(({ spec, child }) => stopChild(child, spec.name)),
+    ).then(() => undefined);
+    return stopPromise;
+  };
+  for (const spec of plan.commands) {
+    const child = spawnCommand(spec, (exitedSpec, reason) => {
+      if (stopping) return;
+      console.error(`${exitedSpec.name} exited unexpectedly (${reason}); stopping sandbox.`);
+      void stop(1).then(() => resolveStoppedByChild(1));
+    });
+    children.push({ spec, child });
+  }
+  const signalStop = () => {
+    void stop(130).then(() => process.exit(process.exitCode ?? 130));
+  };
+  process.once('SIGINT', signalStop);
+  process.once('SIGTERM', signalStop);
+  try {
+    return await Promise.race([task(), stoppedByChild]);
+  } finally {
+    process.off('SIGINT', signalStop);
+    process.off('SIGTERM', signalStop);
+    await stop();
+  }
+}
+
+async function runPlaywright(args: string[], plan: SandboxPlan): Promise<number> {
+  const playwrightArgs = ['playwright', 'test', '--config', 'playwright.vk-mocked-sandbox.config.ts', ...args];
+  return await new Promise<number>((resolveRun) => {
+    const child = spawn('npx', playwrightArgs, {
+      cwd: plan.paths.vdRoot,
+      env: {
+        ...process.env,
+        ...plan.env,
+        VK_MOCKED_EXTERNAL_SERVER: '1',
+        VK_MOCKED_SANDBOX_URL: plan.urls.vd,
+      },
+      stdio: 'inherit',
+    });
+    child.on('error', (error) => {
+      console.error(`playwright failed to start: ${error.message}`);
+      resolveRun(1);
+    });
+    child.on('exit', (code, signal) => {
+      if (signal) {
+        console.error(`playwright exited via signal ${signal}`);
+        resolveRun(1);
+        return;
+      }
+      resolveRun(code ?? 1);
+    });
+  });
+}
+
 function signalChild(child: ChildProcess, signal: NodeJS.Signals): void {
   if (!child.pid) return;
   try {
@@ -919,7 +1012,7 @@ async function main(): Promise<void> {
   const caddyfile = await loadSandboxCaddyfile(vdRoot);
   const configuredVkCheckout = process.env.VK_CHECKOUT?.trim();
   const vkRoot = resolve(workspaceRoot, configuredVkCheckout || 'Vktest');
-  let env = process.env;
+  let env = mode === 'test' ? envForSandboxTestMode(process.env) : process.env;
   if (isCiReleaseBackend(process.env)) {
     const artifact = await resolveCiReleaseArtifact(vdRoot, vkRoot, process.env);
     env = {
@@ -954,8 +1047,21 @@ async function main(): Promise<void> {
     return;
   }
 
+  if (mode === 'test') {
+    for (const spec of plan.setupCommands) {
+      await runCommandToCompletion(spec);
+    }
+    const testArgs = process.argv.slice(3);
+    const exitCode = await runLongLivedCommands(plan, async () => {
+      await waitForHttpReady(`${plan.urls.vd}/workspaces`);
+      return await runPlaywright(testArgs, plan);
+    });
+    process.exitCode = exitCode;
+    return;
+  }
+
   if (mode !== 'start') {
-    throw new Error(`Unknown mode ${mode}. Usage: vk-mocked-sandbox.ts [prepare|setup|start]`);
+    throw new Error(`Unknown mode ${mode}. Usage: vk-mocked-sandbox.ts [prepare|setup|start|test]`);
   }
 
   if (process.env.VK_MOCKED_SKIP_SETUP_COMMANDS !== '1') {
@@ -963,32 +1069,7 @@ async function main(): Promise<void> {
       await runCommandToCompletion(spec);
     }
   }
-  let stopping = false;
-  let stopPromise: Promise<void> | undefined;
-  const children: { spec: CommandSpec; child: ChildProcess }[] = [];
-  const stop = (exitCode?: number): Promise<void> => {
-    if (stopPromise) return stopPromise;
-    stopping = true;
-    if (exitCode !== undefined) process.exitCode = exitCode;
-    stopPromise = Promise.all(
-      children.map(({ spec, child }) => stopChild(child, spec.name)),
-    ).then(() => undefined);
-    return stopPromise;
-  };
-  for (const spec of plan.commands) {
-    const child = spawnCommand(spec, (exitedSpec, reason) => {
-      if (stopping) return;
-      console.error(`${exitedSpec.name} exited unexpectedly (${reason}); stopping sandbox.`);
-      void stop(1).then(() => process.exit(1));
-    });
-    children.push({ spec, child });
-  }
-  process.on('SIGINT', () => {
-    void stop().then(() => process.exit(process.exitCode ?? 0));
-  });
-  process.on('SIGTERM', () => {
-    void stop().then(() => process.exit(process.exitCode ?? 0));
-  });
+  await runLongLivedCommands(plan, () => new Promise<number>(() => undefined));
 }
 
 if (import.meta.url === `file://${process.argv[1]}`) {

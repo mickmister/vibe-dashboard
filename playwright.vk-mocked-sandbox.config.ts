@@ -3,7 +3,7 @@ import { defineConfig, devices } from 'playwright/test';
 const sandboxUrl = process.env.VK_MOCKED_SANDBOX_URL ?? 'http://localhost:50005';
 const sandboxUrlPort = new URL(sandboxUrl).port || '50005';
 const webServerTimeout = Number.parseInt(
-  process.env.VK_MOCKED_WEB_SERVER_TIMEOUT_MS ?? '300000',
+  process.env.VK_MOCKED_WEB_SERVER_TIMEOUT_MS ?? '60000',
   10,
 );
 if (!Number.isInteger(webServerTimeout) || webServerTimeout <= 0) {
@@ -38,7 +38,7 @@ export default defineConfig({
     baseURL: sandboxUrl,
     trace: 'on-first-retry',
   },
-  webServer: process.env.CI
+  webServer: process.env.CI || process.env.VK_MOCKED_EXTERNAL_SERVER === '1'
     ? undefined
     : {
         command:

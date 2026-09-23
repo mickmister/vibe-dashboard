@@ -58,6 +58,7 @@ import type {
   Repo,
   Session,
   ExecutionProcess,
+  ExecutionProcessFinalResponse,
   WorkspaceSummary,
   ApiResponse,
   CreateSessionBody,
@@ -270,6 +271,10 @@ export class VibeClient {
   // Execution Processes
   async getExecutionProcess(processId: string): Promise<ExecutionProcess> {
     return this.request<ExecutionProcess>(this.url(`/api/execution-processes/${encodeURIComponent(processId)}`));
+  }
+
+  async getExecutionProcessFinalResponse(processId: string): Promise<ExecutionProcessFinalResponse> {
+    return this.request<ExecutionProcessFinalResponse>(this.url(`/api/execution-processes/${encodeURIComponent(processId)}/final-response`));
   }
 
 

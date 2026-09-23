@@ -2,13 +2,16 @@ import { createHash, randomUUID } from 'node:crypto';
 import { createServer, type IncomingMessage, type ServerResponse } from 'node:http';
 import type { Socket } from 'node:net';
 import type { Duplex } from 'node:stream';
+import type { ExecutionProcess, Session, Workspace } from '../types.js';
 
-export type FakeVkFaultKind = 'drop-after-accept' | 'delay' | 'reject' | 'disconnect' | 'never-complete' | 'missing' | 'ws-close' | 'malformed-json' | 'invalid-patch' | 'duplicate-message';
-export interface FakeVkFault { id: string; operation: 'follow-up' | 'process-get' | 'session-processes-ws' | 'logs-ws'; targetId?: string; kind: FakeVkFaultKind; delayMs?: number; used?: boolean }
+export type FakeVkFault =
+  | { id: string; operation: 'follow-up'; targetId?: string; kind: 'reject-before-accept' | 'disconnect-before-accept' | 'accept-then-drop' | 'accept-then-hang' | 'delay-before-accept' | 'delay-after-accept'; delayMs?: number; used?: boolean }
+  | { id: string; operation: 'process-get'; targetId?: string; kind: 'missing' | 'reject' | 'disconnect' | 'hang' | 'delay'; delayMs?: number; used?: boolean }
+  | { id: string; operation: 'session-processes-ws' | 'logs-ws'; targetId?: string; kind: 'close-before-ready' | 'malformed-json' | 'invalid-patch' | 'duplicate-message' | 'hang'; used?: boolean };
 export interface FakeVkBarrier { id: string; operation: 'follow-up' | 'process-get'; targetId?: string; used?: boolean }
-export interface FakeVkProcess { id: string; session_id: string; status: string; created_at: string; updated_at: string; completed_at: string | null; run_reason: string; dropped: boolean; conversation?: unknown[]; statusSequence?: string[] }
-export interface FakeVkSession { id: string; workspace_id: string; name: string; executor: string; created_at: string; updated_at: string; processes: FakeVkProcess[] }
-export interface FakeVkScenario { workspaces: Array<{ id: string }>; sessions: FakeVkSession[]; followUps?: Array<{ sessionId: string; process: FakeVkProcess }>; faults?: FakeVkFault[]; barriers?: FakeVkBarrier[] }
+export type FakeVkProcess = Pick<ExecutionProcess, 'id' | 'session_id' | 'status' | 'created_at' | 'started_at' | 'updated_at' | 'completed_at' | 'exit_code' | 'run_reason' | 'dropped' | 'executor_action'> & { conversation?: unknown[]; statusSequence?: ExecutionProcess['status'][] };
+export type FakeVkSession = Pick<Session, 'id' | 'workspace_id' | 'name' | 'executor' | 'created_at' | 'updated_at'> & { name: string; processes: FakeVkProcess[] };
+export interface FakeVkScenario { workspaces: Array<Pick<Workspace, 'id'>>; sessions: FakeVkSession[]; followUps?: Array<{ sessionId: string; process: FakeVkProcess }>; faults?: FakeVkFault[]; barriers?: FakeVkBarrier[] }
 export interface FakeVkObservation { sequence: number; operationId: string; correlationId: string | null; type: string; method?: string; path?: string; metadata?: Record<string, string | number | boolean | null> }
 
 function validateScenario(scenario: FakeVkScenario): void {
@@ -31,7 +34,8 @@ function validateScenario(scenario: FakeVkScenario): void {
     if (followUp.process.session_id !== followUp.sessionId) throw new Error(`follow-up process ${followUp.process.id} belongs to the wrong session`);
   }
   for (const fault of scenario.faults ?? []) {
-    if (fault.kind === 'delay' && (!Number.isFinite(fault.delayMs) || fault.delayMs! < 0)) throw new Error(`fault ${fault.id} requires delayMs`);
+    if ((fault.kind === 'delay' || fault.kind === 'delay-before-accept' || fault.kind === 'delay-after-accept') && (!Number.isFinite(fault.delayMs) || fault.delayMs! < 0)) throw new Error(`fault ${fault.id} requires delayMs`);
+    if (!(fault.kind === 'delay' || fault.kind === 'delay-before-accept' || fault.kind === 'delay-after-accept') && 'delayMs' in fault && fault.delayMs != null) throw new Error(`fault ${fault.id} has delayMs for non-delay kind`);
   }
 }
 
@@ -96,12 +100,12 @@ export class FakeVkServer {
     const chunks: Buffer[] = []; for await (const chunk of request) chunks.push(Buffer.from(chunk));
     return JSON.parse(Buffer.concat(chunks).toString('utf8'));
   }
-  private async applyHttpFault(fault: FakeVkFault | undefined, res: ServerResponse): Promise<boolean> {
+  private async applyProcessGetFault(fault: Extract<FakeVkFault, { operation: 'process-get' }> | undefined, res: ServerResponse): Promise<boolean> {
     if (!fault) return false;
     if (fault.kind === 'delay') await new Promise(resolve => setTimeout(resolve, fault.delayMs));
     if (fault.kind === 'reject') { response(res, 'scripted rejection', 503); return true; }
     if (fault.kind === 'disconnect') { res.destroy(); return true; }
-    if (fault.kind === 'never-complete') return true;
+    if (fault.kind === 'hang') return true;
     if (fault.kind === 'missing') { response(res, 'missing', 404); return true; }
     return false;
   }
@@ -128,24 +132,45 @@ export class FakeVkServer {
         promptLength: typeof parsedBody.prompt === 'string' ? parsedBody.prompt.length : -1,
         executor: typeof parsedBody.executor_config?.executor === 'string' ? parsedBody.executor_config.executor : null,
       });
+      const fault = this.fault('follow-up', sessionId) as Extract<FakeVkFault, { operation: 'follow-up' }> | undefined;
+      if (fault?.kind === 'delay-before-accept') await new Promise(resolve => setTimeout(resolve, fault.delayMs));
+      if (fault?.kind === 'reject-before-accept') return response(res, 'scripted rejection', 503);
+      if (fault?.kind === 'disconnect-before-accept') { res.destroy(); return; }
       const declaration = this.scenario.followUps?.find(item => item.sessionId === sessionId && !this.processes.has(item.process.id));
       if (!declaration) return response(res, 'unexpected follow-up', 422);
       this.processes.set(declaration.process.id, structuredClone(declaration.process));
       this.scenario.sessions.find(item => item.id === sessionId)?.processes.push(structuredClone(declaration.process));
       this.observe('follow-up-accepted', operationId, request, { sessionId, processId: declaration.process.id }, declaration.process.id);
-      const fault = this.fault('follow-up', sessionId);
-      if (fault?.kind === 'drop-after-accept') { this.observe('response-dropped', operationId, request, {}, declaration.process.id); res.destroy(); return; }
-      if (await this.applyHttpFault(fault, res)) return;
+      if (fault?.kind === 'delay-after-accept') await new Promise(resolve => setTimeout(resolve, fault.delayMs));
+      if (fault?.kind === 'accept-then-drop') { this.observe('response-dropped', operationId, request, {}, declaration.process.id); res.destroy(); return; }
+      if (fault?.kind === 'accept-then-hang') return;
       this.observe('response-completed', operationId, request, {}, declaration.process.id); return response(res, declaration.process);
     }
     const processMatch = url.pathname.match(/^\/api\/execution-processes\/([^/]+)$/);
     if (request.method === 'GET' && processMatch) {
       const id = decodeURIComponent(processMatch[1]); this.observe('process-polled', operationId, request, { processId: id }, id);
       await this.waitAtBarrier('process-get', id);
-      if (await this.applyHttpFault(this.fault('process-get', id), res)) return;
+      if (await this.applyProcessGetFault(this.fault('process-get', id) as Extract<FakeVkFault, { operation: 'process-get' }> | undefined, res)) return;
       const process = this.processes.get(id); if (!process) return response(res, 'missing', 404);
       const status = process.statusSequence?.shift(); if (status) process.status = status;
       return response(res, process);
+    }
+    const finalResponseMatch = url.pathname.match(/^\/api\/execution-processes\/([^/]+)\/final-response$/);
+    if (request.method === 'GET' && finalResponseMatch) {
+      const id = decodeURIComponent(finalResponseMatch[1]); this.observe('final-response-polled', operationId, request, { processId: id }, id);
+      const process = this.processes.get(id); if (!process) return response(res, 'missing', 404);
+      const final = (process.conversation ?? [])
+        .map((entry: any) => entry?.content?.entry_type?.type === 'assistant_message' && typeof entry?.content?.content === 'string' ? entry.content.content.trim() : '')
+        .filter(Boolean)
+        .at(-1) ?? null;
+      const finished = process.status !== 'running';
+      return response(res, {
+        process_id: id,
+        status: process.status,
+        finished,
+        final_response: final,
+        terminal_no_response: finished && final == null,
+      });
     }
     response(res, 'unhandled route', 404);
   }
@@ -153,16 +178,26 @@ export class FakeVkServer {
     const operationId = randomUUID(); const url = new URL(request.url ?? '/', this.baseUrl);
     const key = request.headers['sec-websocket-key'];
     if (typeof key !== 'string') { socket.destroy(); return; }
+    const sessionIds = url.searchParams.getAll('session_id');
+    const logs = url.pathname.match(/^\/api\/execution-processes\/([^/]+)\/normalized-logs\/ws$/);
+    const isSessionRoute = url.pathname === '/api/execution-processes/stream/session/ws';
+    const validSessionRoute = isSessionRoute && sessionIds.length === 1 && sessionIds[0] !== '' && [...url.searchParams.keys()].every(key => key === 'session_id');
+    const validLogsRoute = Boolean(logs) && [...url.searchParams.keys()].length === 0;
+    if (!validSessionRoute && !validLogsRoute) {
+      socket.write('HTTP/1.1 404 Not Found\r\nConnection: close\r\n\r\n');
+      socket.end();
+      this.observe('websocket-rejected', operationId, request, { reason: 'unknown-route' });
+      return;
+    }
     const accept = createHash('sha1').update(`${key}258EAFA5-E914-47DA-95CA-C5AB0DC85B11`).digest('base64');
     socket.write(`HTTP/1.1 101 Switching Protocols\r\nUpgrade: websocket\r\nConnection: Upgrade\r\nSec-WebSocket-Accept: ${accept}\r\n\r\n`);
-    const sessionId = url.searchParams.get('session_id');
-    const logs = url.pathname.match(/^\/api\/execution-processes\/([^/]+)\/normalized-logs\/ws$/);
+    const sessionId = validSessionRoute ? sessionIds[0] : null;
     const operation = sessionId ? 'session-processes-ws' : 'logs-ws'; const target = sessionId ?? (logs ? decodeURIComponent(logs[1]) : undefined);
     this.observe('websocket-opened', operationId, request, { operation, targetId: target ?? null }, target ?? null);
-    const fault = this.fault(operation, target);
-    if (fault?.kind === 'ws-close') { socket.end(); return; }
+    const fault = this.fault(operation, target) as Extract<FakeVkFault, { operation: 'session-processes-ws' | 'logs-ws' }> | undefined;
+    if (fault?.kind === 'close-before-ready') { socket.end(); return; }
     if (fault?.kind === 'malformed-json') { socket.write(wsFrame('{')); socket.end(); return; }
-    if (fault?.kind === 'never-complete') return;
+    if (fault?.kind === 'hang') return;
     const invalid = fault?.kind === 'invalid-patch';
     const value = sessionId
       ? this.scenario.sessions.find(item => item.id === sessionId)?.processes ?? []

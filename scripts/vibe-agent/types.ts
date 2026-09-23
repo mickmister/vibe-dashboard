@@ -78,6 +78,14 @@ export interface ExecutionProcess {
   executor_action: unknown;
 }
 
+export interface ExecutionProcessFinalResponse {
+  process_id: string;
+  status: ExecutionProcess['status'];
+  finished: boolean;
+  final_response: string | null;
+  terminal_no_response: boolean;
+}
+
 export interface WorkspaceSummary {
   workspace_id: string;
   latest_session_id: string | null;

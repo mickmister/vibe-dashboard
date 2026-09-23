@@ -15,6 +15,7 @@ import {
   allocatePorts,
   childProcessSignalTarget,
   createSandboxPlan,
+  envForSandboxTestMode,
   runCommandToCompletion,
   downloadCiReleaseArtifactFromEnv,
   findFreePort,
@@ -340,6 +341,16 @@ describe('VK mocked sandbox helpers', () => {
       command: 'cargo',
       args: ['run', '--features', 'qa-mode', '--bin', 'server'],
     });
+  });
+
+  it('defaults test-mode source runs to backend prebuild without changing CI-release plans', () => {
+    expect(envForSandboxTestMode({} as NodeJS.ProcessEnv).VK_MOCKED_PREBUILD_BACKEND).toBe('1');
+    expect(envForSandboxTestMode({
+      VK_MOCKED_PREBUILD_BACKEND: '0',
+    } as NodeJS.ProcessEnv).VK_MOCKED_PREBUILD_BACKEND).toBe('0');
+    expect(envForSandboxTestMode({
+      VK_MOCKED_VK_BACKEND: 'ci-release',
+    } as NodeJS.ProcessEnv).VK_MOCKED_PREBUILD_BACKEND).toBeUndefined();
   });
 
   it('plans release-asset VK without local VK builds and enables runtime QA mode', () => {

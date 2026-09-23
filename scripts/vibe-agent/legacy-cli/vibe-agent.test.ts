@@ -5,6 +5,7 @@ import {
   getAdvanceableFullSummaryProcessIds,
   mapWithConcurrency,
   parseFullSummaryArgs,
+  parseSendArgs,
   resolveCallbackSourceProcessId,
   startRegisteredCallbackRunner,
   uniqueActiveProcessId,
@@ -147,6 +148,17 @@ describe('parseFullSummaryArgs', () => {
   it('parses conversation timeout duration flags', () => {
     expect(parseFullSummaryArgs(['--conversation-timeout', '45s']).conversationTimeoutMs).toBe(45_000);
     expect(parseFullSummaryArgs(['--conversation-timeout-ms=12000']).conversationTimeoutMs).toBe(12_000);
+  });
+});
+
+describe('parseSendArgs', () => {
+  it('routes responses by default and keeps --respond as an alias', () => {
+    expect(parseSendArgs(['review', 'please check'])).toMatchObject({ respond: false, fireAndForget: false });
+    expect(parseSendArgs(['--respond', 'review', 'please check'])).toMatchObject({ respond: true, fireAndForget: false });
+  });
+
+  it('supports explicit fire-and-forget sends', () => {
+    expect(parseSendArgs(['--fire-and-forget', 'review', 'FYI'])).toMatchObject({ fireAndForget: true });
   });
 });
 

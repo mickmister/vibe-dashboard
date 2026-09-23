@@ -7,6 +7,7 @@ import {
   abortableDelay, acquireLock, createAutoNudgeClient, loadAutoNudgeConfig, readAutoNudgeState, runAutoNudgeCycle, runWithOwnerLock, writeAutoNudgeState,
   type AutoNudgeClient, type AutoNudgeOptions,
 } from './auto-nudge.js';
+import { appendResponseRoute, readResponseRouteState } from './response-routes.js';
 
 const dirs: string[] = [];
 afterEach(() => dirs.splice(0).forEach(dir => rmSync(dir, { recursive: true, force: true })));
@@ -21,6 +22,13 @@ const session = (id: string, name: string): Session => ({
 });
 const msg = (text: string): ConversationEntry => ({ content: { entry_type: { type: 'assistant_message' }, content: text } });
 const tool: ConversationEntry = { content: { entry_type: { type: 'tool_use' }, content: 'tool' } };
+const finalResponse = (process: ExecutionProcess, response: string | null) => ({
+  process_id: process.id,
+  status: process.status,
+  finished: process.status !== 'running',
+  final_response: response,
+  terminal_no_response: process.status !== 'running' && response == null,
+});
 
 function setup() {
   const dir = mkdtempSync(join(tmpdir(), 'auto-nudge-')); dirs.push(dir);
@@ -39,6 +47,12 @@ function fake(input: { processes: Record<string, ExecutionProcess[]>; entries?: 
     async getSessions() { return [session('overseer', 'overseer'), session('impl', 'impl')]; },
     async getSessionProcesses(id) { return input.processes[id] ?? []; },
     async fetchConversation(id) { return id === 'checkpoint' ? [msg(input.response ?? 'Continuing')] : input.entries?.[id] ?? []; },
+    async getExecutionProcessFinalResponse(id) {
+      const process = Object.values(input.processes).flat().find(item => item.id === id) ?? proc(id, id === 'checkpoint' ? 'overseer' : 'impl', 'completed', 10);
+      const entryContent = input.entries?.[id]?.find(entry => entry.content?.entry_type?.type === 'assistant_message' && typeof entry.content.content === 'string')?.content?.content;
+      const response = id === 'checkpoint' ? input.response ?? 'Continuing' : typeof entryContent === 'string' ? entryContent : null;
+      return finalResponse(process, response);
+    },
     async sendMessage(id, body) { sent.push({ sessionId: id, body }); return proc(id === 'overseer' ? 'checkpoint' : `sent-${sent.length}`, id, 'running', 10); },
     async getExecutionProcess(id) { return proc(id, 'overseer', 'completed', 10); },
   };
@@ -140,6 +154,35 @@ describe('auto nudge', () => {
     expect(readAutoNudgeState(options.statePath).triggers.complete?.status).toBe('delegated');
   });
 
+  it('treats a baton pass before checkpoint terminal as delegated with no final message', async () => {
+    const { options } = setup();
+    const complete = proc('complete', 'impl', 'completed', 5);
+    const delegated = proc('delegated', 'review', 'running', 9);
+    const { client } = fake({ processes: { impl: [complete], review: [], overseer: [] }, entries: { complete: [msg('Finished')] }, response: '' });
+    client.getSessions = async () => [session('overseer', 'overseer'), session('impl', 'impl'), session('review', 'review')];
+    let reads = 0;
+    client.getSessionProcesses = async id => id === 'impl' ? [complete] : id === 'review' ? (++reads > 1 ? [delegated] : []) : [];
+    client.getExecutionProcess = async id => proc(id, 'overseer', 'completed', 10);
+    client.getExecutionProcessFinalResponse = async id => id === 'complete'
+      ? finalResponse(complete, 'Finished')
+      : finalResponse(proc(id, 'overseer', 'completed', 10), null);
+    await runAutoNudgeCycle(client, options);
+    expect(readAutoNudgeState(options.statePath).triggers.complete?.status).toBe('delegated');
+  });
+
+  it('treats a baton pass before checkpoint terminal as delegated with a small final explanation', async () => {
+    const { options } = setup();
+    const complete = proc('complete', 'impl', 'completed', 5);
+    const delegated = proc('delegated', 'review', 'running', 9);
+    const { client } = fake({ processes: { impl: [complete], review: [], overseer: [] }, entries: { complete: [msg('Finished')] }, response: 'Sent to review.' });
+    client.getSessions = async () => [session('overseer', 'overseer'), session('impl', 'impl'), session('review', 'review')];
+    let reads = 0;
+    client.getSessionProcesses = async id => id === 'impl' ? [complete] : id === 'review' ? (++reads > 1 ? [delegated] : []) : [];
+    client.getExecutionProcess = async id => proc(id, 'overseer', 'completed', 10);
+    await runAutoNudgeCycle(client, options);
+    expect(readAutoNudgeState(options.statePath).triggers.complete?.status).toBe('delegated');
+  });
+
   it('does not nudge while an authoritative callback is running', async () => {
     const { options } = setup();
     writeFileSync(options.callbackRegistryPath, JSON.stringify({ version: 2, callbacks: [{ id: 'cb', sessionId: 'impl', command: 'ci', status: 'running', startedAt: iso(1), timeoutMs: null, finishedAt: null, completionProcessId: null, runnerPid: process.pid, sourceProcessId: 'complete', triggerProcessId: 'complete', error: null }] }));
@@ -160,6 +203,7 @@ describe('auto nudge', () => {
       async getSessions() { return [session('overseer', 'overseer'), session('impl', 'impl'), session('other', 'other')]; },
       async getSessionProcesses(id) { return id === 'impl' ? [callbackSource] : id === 'other' ? [otherCompletion] : []; },
       async fetchConversation() { return [msg('Finished')]; }, async getExecutionProcess() { throw new Error('unexpected'); },
+      async getExecutionProcessFinalResponse(id) { return finalResponse(id === 'callback-source' ? callbackSource : otherCompletion, 'Finished'); },
       async sendMessage(id) { sent.push(id); return proc('sent', id, 'running', 10); },
     };
     await runAutoNudgeCycle(client, options);
@@ -189,6 +233,38 @@ describe('auto nudge', () => {
     await runAutoNudgeCycle(client, options);
     await runAutoNudgeCycle(client, options);
     expect(readAutoNudgeState(options.statePath).outbox.event.deliveredAt).not.toBeNull();
+  });
+
+  it('delivers pending response routes through the daemon cycle', async () => {
+    const { options } = setup();
+    options.responseRoutesPath = join(options.statePath, '..', 'routes.json');
+    appendResponseRoute(options.responseRoutesPath, {
+      processId: 'target-process', targetRole: 'review', targetSessionId: 'review', replySessionId: 'overseer',
+      createdAt: iso(1), updatedAt: iso(1),
+    });
+    const { client, sent } = fake({ processes: { impl: [], overseer: [] } });
+    client.getExecutionProcessFinalResponse = async id => ({
+      process_id: id, status: 'completed', finished: true, final_response: 'Looks good.', terminal_no_response: false,
+    });
+    await runAutoNudgeCycle(client, options);
+    expect(sent).toEqual([expect.objectContaining({ sessionId: 'overseer', body: expect.objectContaining({ prompt: 'Response from review:\n\nLooks good.' }) })]);
+    expect(readResponseRouteState(options.responseRoutesPath).routes['target-process:overseer']).toMatchObject({ status: 'delivered' });
+  });
+
+  it('does not notify the sender when a pending response route ends with no final response', async () => {
+    const { options } = setup();
+    options.responseRoutesPath = join(options.statePath, '..', 'routes.json');
+    appendResponseRoute(options.responseRoutesPath, {
+      processId: 'target-process', targetRole: 'review', targetSessionId: 'review', replySessionId: 'overseer',
+      createdAt: iso(1), updatedAt: iso(1),
+    });
+    const { client, sent } = fake({ processes: { impl: [], overseer: [] } });
+    client.getExecutionProcessFinalResponse = async id => ({
+      process_id: id, status: 'failed', finished: true, final_response: null, terminal_no_response: true,
+    });
+    await runAutoNudgeCycle(client, options);
+    expect(sent).toEqual([]);
+    expect(readResponseRouteState(options.responseRoutesPath).routes['target-process:overseer']).toMatchObject({ status: 'terminal-no-response' });
   });
 
   it('fails closed for malformed and wrong-version state', () => {
@@ -297,6 +373,7 @@ describe('auto nudge', () => {
     const client: AutoNudgeClient = {
       async getSessions(workspaceId) { active++; maximum = Math.max(maximum, active); await new Promise(resolve => setTimeout(resolve, 5)); active--; return [session(`overseer-${workspaceId}`, 'overseer')]; },
       async getSessionProcesses() { return []; }, async fetchConversation() { return []; },
+      async getExecutionProcessFinalResponse() { throw new Error('unexpected'); },
       async getExecutionProcess() { throw new Error('unexpected'); }, async sendMessage() { throw new Error('unexpected'); },
     };
     expect((await runAutoNudgeCycle(client, options)).workspaces).toBe(3);
@@ -322,6 +399,7 @@ describe('auto nudge', () => {
       async sendMessage() { return sentProcess; },
       async fetchConversation(_id, timeout) { observedTimeout = timeout; return [msg('DONE')]; },
       async getExecutionProcess(id) { expect(id).toBe('checkpoint'); return terminalProcess; },
+      async getExecutionProcessFinalResponse(id) { expect(id).toBe('checkpoint'); return finalResponse(terminalProcess, 'DONE'); },
     });
     expect((await adapter.sendMessage('overseer', {} as SendMessageBody)).id).toBe('checkpoint');
     expect(await adapter.getExecutionProcess('checkpoint')).toBe(terminalProcess);

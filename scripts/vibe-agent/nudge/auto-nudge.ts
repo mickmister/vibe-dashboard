@@ -3,9 +3,10 @@ import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { client as defaultClient } from '../core/client.js';
-import type { ConversationEntry, ExecutionProcess, SendMessageBody, Session } from '../types.js';
+import type { ConversationEntry, ExecutionProcess, ExecutionProcessFinalResponse, SendMessageBody, Session } from '../types.js';
 import { conversationEntryText, conversationEntryType, decideNudgeForProcess, isActiveProcess } from './criteria.js';
 import { callbacksForTrigger, DEFAULT_CALLBACK_REGISTRY_PATH } from './callback-registry.js';
+import { DEFAULT_RESPONSE_ROUTES_PATH, readResponseRouteState, writeResponseRouteState } from './response-routes.js';
 
 const DEFAULT_STATE_PATH = '/var/lib/vd/auto-nudge/state.json';
 const DEFAULT_LOCK_PATH = '/var/lib/vd/auto-nudge/owner.lock';
@@ -14,7 +15,7 @@ const OVERSEER_PROMPT = `- If all milestones are complete, stop and say "DONE" a
 - If you have just completed a milestone, make sure it gets reviewed by the appropriate agents.
 - If you approve the review, continue to the next milestone.
 
-Make sure to use vibe-agent send --respond ... to communicate with teammates`;
+Use vibe-agent send ... when a teammate response is needed. Use --fire-and-forget only for notifications that do not require a reply.`;
 
 export interface AutoNudgeConfig {
   version: 1;
@@ -29,18 +30,19 @@ export interface AutoNudgeClient {
   getSessions(workspaceId: string): Promise<Session[]>;
   getSessionProcesses(sessionId: string): Promise<ExecutionProcess[]>;
   getExecutionProcess(processId: string): Promise<ExecutionProcess>;
+  getExecutionProcessFinalResponse(processId: string): Promise<ExecutionProcessFinalResponse>;
   fetchConversation(processId: string, timeoutMs?: number): Promise<ConversationEntry[]>;
   sendMessage(sessionId: string, body: SendMessageBody): Promise<ExecutionProcess>;
 }
 export interface AutoNudgeOptions {
-  config: AutoNudgeConfig; statePath: string; callbackRegistryPath: string;
+  config: AutoNudgeConfig; statePath: string; callbackRegistryPath: string; responseRoutesPath?: string;
   now: () => Date; unacknowledgedAfterMs: number; operationTimeoutMs: number; responseTimeoutMs: number;
   concurrency: number; dryRun: boolean; discordWebhookUrl?: string;
   deliverDiscord?: (url: string, content: string) => Promise<void>;
   signal?: AbortSignal;
   checkpointPollMs?: number;
 }
-export interface AutoNudgeCycleResult { workspaces: number; teammateNudges: number; checkpoints: number; discordDeliveries: number; errors: string[] }
+export interface AutoNudgeCycleResult { workspaces: number; teammateNudges: number; checkpoints: number; responseRoutes: number; discordDeliveries: number; errors: string[] }
 
 function requiredString(value: unknown, name: string): string {
   if (typeof value !== 'string' || !value.trim()) throw new Error(`${name} must be a non-empty string`);
@@ -101,6 +103,9 @@ function finalMessage(entries: ConversationEntry[]): string | null {
   const messages = entries.filter(entry => conversationEntryType(entry) === 'assistant_message').map(conversationEntryText).map(text => text.trim()).filter(Boolean);
   return messages.at(-1) ?? null;
 }
+function respondMessage(role: string, response: string): string {
+  return `Response from ${role}:\n\n${response}`;
+}
 function terminalTime(process: ExecutionProcess): number { return new Date(process.completed_at ?? process.updated_at ?? process.created_at).getTime(); }
 async function deadline<T>(promise: Promise<T>, ms: number, label: string): Promise<T> {
   let timer: NodeJS.Timeout | undefined;
@@ -121,6 +126,47 @@ async function processOutbox(options: AutoNudgeOptions, state: AutoNudgeState, r
       await deadline((options.deliverDiscord ?? defaultDiscordDelivery)(options.discordWebhookUrl, item.content), options.operationTimeoutMs, 'Discord delivery');
       item.deliveredAt = options.now().toISOString(); writeAutoNudgeState(options.statePath, state); result.discordDeliveries++;
     } catch (error) { result.errors.push(`Discord event ${item.id}: ${(error as Error).message}`); writeAutoNudgeState(options.statePath, state); }
+  }
+}
+
+async function processResponseRoutes(client: AutoNudgeClient, options: AutoNudgeOptions, result: AutoNudgeCycleResult): Promise<void> {
+  if (options.dryRun) return;
+  const responseRoutesPath = options.responseRoutesPath ?? DEFAULT_RESPONSE_ROUTES_PATH;
+  const routeState = readResponseRouteState(responseRoutesPath);
+  for (const route of Object.values(routeState.routes).filter(route => route.status === 'pending')) {
+    try {
+      const final = await deadline(client.getExecutionProcessFinalResponse(route.processId), options.operationTimeoutMs, 'get final response');
+      if (!final.finished) continue;
+      if (!final.final_response) {
+        route.status = 'terminal-no-response';
+        route.updatedAt = options.now().toISOString();
+        route.error = final.terminal_no_response ? 'target process ended without a final assistant response' : null;
+        writeResponseRouteState(responseRoutesPath, routeState);
+        continue;
+      }
+      const delivered = await deadline(
+        client.sendMessage(route.replySessionId, {
+          prompt: respondMessage(route.targetRole, final.final_response),
+          executor_config: { executor: 'CODEX' },
+          retry_process_id: null,
+          force_when_dirty: null,
+          perform_git_reset: null,
+        }),
+        options.operationTimeoutMs,
+        'deliver response route',
+      );
+      route.status = 'delivered';
+      route.deliveredProcessId = delivered.id;
+      route.updatedAt = options.now().toISOString();
+      route.error = null;
+      writeResponseRouteState(responseRoutesPath, routeState);
+      result.responseRoutes++;
+    } catch (error) {
+      route.error = (error as Error).message;
+      route.updatedAt = options.now().toISOString();
+      writeResponseRouteState(responseRoutesPath, routeState);
+      result.errors.push(`response route ${route.id}: ${(error as Error).message}`);
+    }
   }
 }
 async function mapLimit<T>(values: T[], limit: number, task: (value: T) => Promise<void>): Promise<void> {
@@ -152,7 +198,8 @@ async function waitForTerminalProcess(client: AutoNudgeClient, processId: string
 
 export async function runAutoNudgeCycle(client: AutoNudgeClient, options: AutoNudgeOptions): Promise<AutoNudgeCycleResult> {
   const state = readAutoNudgeState(options.statePath);
-  const result: AutoNudgeCycleResult = { workspaces: 0, teammateNudges: 0, checkpoints: 0, discordDeliveries: 0, errors: [] };
+  const result: AutoNudgeCycleResult = { workspaces: 0, teammateNudges: 0, checkpoints: 0, responseRoutes: 0, discordDeliveries: 0, errors: [] };
+  await processResponseRoutes(client, options, result);
   await mapLimit(options.config.workspaces, options.concurrency, async configured => {
     result.workspaces++;
     try {
@@ -191,8 +238,8 @@ export async function runAutoNudgeCycle(client: AutoNudgeClient, options: AutoNu
         const baselineIds = new Set(trigger.baselineProcessIds ?? []);
         try {
           const checkpoint = await waitForTerminalProcess(client, trigger.checkpointProcessId, options);
-          const entries = await deadline(client.fetchConversation(checkpoint.id, options.operationTimeoutMs), options.operationTimeoutMs, 'fetch checkpoint response');
-          const response = finalMessage(entries);
+          const final = await deadline(client.getExecutionProcessFinalResponse(checkpoint.id), options.operationTimeoutMs, 'fetch checkpoint final response');
+          const response = final.final_response;
           trigger.error = null;
           if (response?.trim() === 'DONE') {
             trigger.status = 'done';
@@ -202,8 +249,7 @@ export async function runAutoNudgeCycle(client: AutoNudgeClient, options: AutoNu
               options.operationTimeoutMs,
               'verify checkpoint delegation',
             );
-            const checkpointFinishedAt = terminalTime(checkpoint);
-            const delegated = refreshed.flat().some(item => !baselineIds.has(item.id) && new Date(item.created_at).getTime() > checkpointFinishedAt);
+            const delegated = refreshed.flat().some(item => item.run_reason === 'codingagent' && !item.dropped && !baselineIds.has(item.id));
             const callbackRegistered = callbacksForTrigger(options.callbackRegistryPath, checkpoint.id, options.now())
               .some(item => item.status === 'running' || item.status === 'completed');
             if (delegated || callbackRegistered) trigger.status = 'delegated';
@@ -234,14 +280,16 @@ export async function runAutoNudgeCycle(client: AutoNudgeClient, options: AutoNu
         const processes = (processMap.get(teammate.id) ?? []).filter(item => item.run_reason === 'codingagent' && !item.dropped).sort((a, b) => terminalTime(b) - terminalTime(a));
         if (processes.some(isActiveProcess)) continue;
         const latest = processes[0]; if (!latest) continue;
-        const entries = await deadline(client.fetchConversation(latest.id, options.operationTimeoutMs), options.operationTimeoutMs, 'fetch conversation');
-        const decision = decideNudgeForProcess(latest, entries, { enableActiveStaleNudge: false, now: options.now() });
+        const final = await deadline(client.getExecutionProcessFinalResponse(latest.id), options.operationTimeoutMs, 'fetch final response');
+        const decision = final.terminal_no_response && latest.status !== 'completed'
+          ? { shouldNudge: true }
+          : decideNudgeForProcess(latest, final.final_response ? [{ content: { entry_type: { type: 'assistant_message' }, content: final.final_response } }] : [], { enableActiveStaleNudge: false, now: options.now() });
         if (decision.shouldNudge && !state.nudgedProcessIds.includes(latest.id)) {
           if (!options.dryRun) await deadline(client.sendMessage(teammate.id, body('Please continue', teammate)), options.operationTimeoutMs, 'send teammate nudge');
           if (!options.dryRun) { state.nudgedProcessIds.push(latest.id); writeAutoNudgeState(options.statePath, state); }
           result.teammateNudges++; return;
         }
-        if (latest.status !== 'completed' || !finalMessage(entries)) continue;
+        if (latest.status !== 'completed' || !final.final_response) continue;
         const age = options.now().getTime() - terminalTime(latest); if (age < options.unacknowledgedAfterMs) continue;
         const now = options.now().toISOString();
         const trigger = state.triggers[latest.id] ?? { processId: latest.id, workspaceId: configured.workspaceId, sessionId: teammate.id, observedAt: now, status: 'observed' as const, checkpointProcessId: null, baselineProcessIds: [], updatedAt: now, error: null };
@@ -260,7 +308,7 @@ export async function runAutoNudgeCycle(client: AutoNudgeClient, options: AutoNu
           return;
         }
         if (options.dryRun) { result.checkpoints++; return; }
-        const baselineIds = new Set(trigger.baselineProcessIds ?? teammateProcesses.map(item => item.id));
+        const baselineIds = new Set(trigger.baselineProcessIds?.length ? trigger.baselineProcessIds : teammateProcesses.map(item => item.id));
         try {
           if (!trigger.checkpointProcessId) {
             trigger.status = 'checkpoint-sent'; trigger.baselineProcessIds = [...baselineIds]; trigger.updatedAt = now;
@@ -314,12 +362,13 @@ export async function runWithOwnerLock<T>(lockPath: string, task: () => Promise<
   try { return await task(); }
   finally { release(); }
 }
-type VibeClientAdapterSource = Pick<typeof defaultClient, 'getSessions' | 'getSessionProcesses' | 'fetchConversation' | 'sendMessage' | 'getExecutionProcess'>;
+type VibeClientAdapterSource = Pick<typeof defaultClient, 'getSessions' | 'getSessionProcesses' | 'fetchConversation' | 'sendMessage' | 'getExecutionProcess' | 'getExecutionProcessFinalResponse'>;
 
 export function createAutoNudgeClient(source: VibeClientAdapterSource): AutoNudgeClient {
   return {
     getSessions: id => source.getSessions(id), getSessionProcesses: id => source.getSessionProcesses(id),
     getExecutionProcess: id => source.getExecutionProcess(id),
+    getExecutionProcessFinalResponse: id => source.getExecutionProcessFinalResponse(id),
     fetchConversation: (id, timeout) => source.fetchConversation(id, timeout), sendMessage: (id, request) => source.sendMessage(id, request),
   };
 }
@@ -332,7 +381,7 @@ async function main(): Promise<void> {
   await runWithOwnerLock(process.env.VD_AUTO_NUDGE_LOCK_PATH ?? DEFAULT_LOCK_PATH, async () => {
     const abortController = new AbortController();
     const stop = () => { stopping = true; abortController.abort(); }; process.once('SIGINT', stop); process.once('SIGTERM', stop);
-    const options: AutoNudgeOptions = { config, statePath: args.statePath, callbackRegistryPath: process.env.VD_CALLBACK_REGISTRY_PATH ?? DEFAULT_CALLBACK_REGISTRY_PATH, now: () => new Date(), unacknowledgedAfterMs: 60_000, operationTimeoutMs: 15_000, responseTimeoutMs: 30 * 60_000, concurrency: 4, dryRun: args.dryRun, discordWebhookUrl: process.env.DISCORD_WEBHOOK_URL, signal: abortController.signal };
+    const options: AutoNudgeOptions = { config, statePath: args.statePath, callbackRegistryPath: process.env.VD_CALLBACK_REGISTRY_PATH ?? DEFAULT_CALLBACK_REGISTRY_PATH, responseRoutesPath: process.env.VD_RESPONSE_ROUTES_PATH ?? DEFAULT_RESPONSE_ROUTES_PATH, now: () => new Date(), unacknowledgedAfterMs: 60_000, operationTimeoutMs: 15_000, responseTimeoutMs: 30 * 60_000, concurrency: 4, dryRun: args.dryRun, discordWebhookUrl: process.env.DISCORD_WEBHOOK_URL, signal: abortController.signal };
     void origin;
     do { const result = await runAutoNudgeCycle(makeClient(), options); console.log(JSON.stringify({ type: 'auto-nudge-cycle', at: new Date().toISOString(), ...result })); if (!args.once && !stopping) { try { await abortableDelay(DEFAULT_POLL_MS, abortController.signal); } catch { /* Shutdown aborts the poll delay. */ } } } while (!args.once && !stopping);
   });

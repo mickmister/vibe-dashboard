@@ -5,9 +5,9 @@ import type { SendMessageBody } from '../types.js';
 import { FakeVkServer, type FakeVkProcess, type FakeVkScenario } from './fake-vk-server.js';
 
 const now = '2026-09-21T00:00:00.000Z';
-const process = (id: string, sessionId = 'impl', status = 'completed'): FakeVkProcess => ({
-  id, session_id: sessionId, status, created_at: now, updated_at: now,
-  completed_at: status === 'running' ? null : now, run_reason: 'codingagent', dropped: false,
+const process = (id: string, sessionId = 'impl', status: FakeVkProcess['status'] = 'completed'): FakeVkProcess => ({
+  id, session_id: sessionId, status, created_at: now, started_at: now, updated_at: now,
+  completed_at: status === 'running' ? null : now, exit_code: status === 'completed' ? 0 : 1, run_reason: 'codingagent', dropped: false, executor_action: { typ: { prompt: 'work' } },
   conversation: [{ content: { entry_type: { type: 'assistant_message' }, content: 'DONE' } }],
 });
 const scenario = (): FakeVkScenario => ({
@@ -30,6 +30,13 @@ describe('real VibeClient against fake VK transport', () => {
     expect((await client.getSessions('workspace')).map(item => item.id)).toEqual(['impl', 'overseer']);
     expect((await client.sendMessage('overseer', body)).id).toBe('checkpoint');
     expect((await client.getExecutionProcess('checkpoint')).status).toBe('running');
+    expect(await client.getExecutionProcessFinalResponse('turn')).toMatchObject({
+      process_id: 'turn',
+      status: 'completed',
+      finished: true,
+      final_response: 'DONE',
+      terminal_no_response: false,
+    });
     expect(server.journal.find(item => item.type === 'follow-up-validated')).toMatchObject({
       method: 'POST', path: '/api/sessions/overseer/follow-up',
       metadata: {
@@ -50,8 +57,23 @@ describe('real VibeClient against fake VK transport', () => {
     expect(entries[0]).toMatchObject({ content: { content: 'DONE' } });
   });
 
+  it('rejects unknown WebSocket routes and malformed session queries', async () => {
+    const { server } = await start();
+    async function rejected(path: string): Promise<void> {
+      await expect(new Promise((resolve, reject) => {
+        const ws = new WebSocket(`${server.baseUrl.replace(/^http/, 'ws')}${path}`);
+        ws.addEventListener('open', () => reject(new Error('unexpected open')));
+        ws.addEventListener('error', () => resolve(undefined));
+        ws.addEventListener('close', () => resolve(undefined));
+      })).resolves.toBeUndefined();
+    }
+    await rejected('/api/execution-processes/stream/session/ws');
+    await rejected('/api/execution-processes/stream/session/ws?session_id=impl&extra=1');
+    await rejected('/api/not-real/ws?session_id=impl');
+  });
+
   it('distinguishes server acceptance from a dropped follow-up response', async () => {
-    const value = scenario(); value.faults = [{ id: 'drop', operation: 'follow-up', targetId: 'overseer', kind: 'drop-after-accept' }];
+    const value = scenario(); value.faults = [{ id: 'drop', operation: 'follow-up', targetId: 'overseer', kind: 'accept-then-drop' }];
     const { server, client } = await start(value);
     await expect(client.sendMessage('overseer', body)).rejects.toThrow();
     expect(server.journal.map(item => item.type)).toContain('follow-up-accepted');
@@ -60,11 +82,20 @@ describe('real VibeClient against fake VK transport', () => {
     server.assertAllDeclarationsUsed();
   });
 
+  it('distinguishes pre-accept follow-up rejection from accepted response loss', async () => {
+    const value = scenario(); value.faults = [{ id: 'reject', operation: 'follow-up', targetId: 'overseer', kind: 'reject-before-accept' }];
+    const { server, client } = await start(value);
+    await expect(client.sendMessage('overseer', body)).rejects.toThrow(/HTTP 503/);
+    expect(server.journal.map(item => item.type)).not.toContain('follow-up-accepted');
+    await expect(client.getExecutionProcess('checkpoint')).rejects.toThrow(/Not found/);
+    server.assertAllDeclarationsUsed();
+  });
+
   it('covers missing, rejected and never-completing REST operations', async () => {
     const value = scenario(); value.faults = [
       { id: 'missing', operation: 'process-get', targetId: 'missing', kind: 'missing' },
       { id: 'reject', operation: 'process-get', targetId: 'rejected', kind: 'reject' },
-      { id: 'never', operation: 'process-get', targetId: 'never', kind: 'never-complete' },
+      { id: 'never', operation: 'process-get', targetId: 'never', kind: 'hang' },
     ];
     const { server, client } = await start(value);
     await expect(client.getExecutionProcess('missing')).rejects.toThrow(/Not found/);
@@ -75,7 +106,7 @@ describe('real VibeClient against fake VK transport', () => {
   });
 
   it('fails safely for malformed log data and closes before Ready', async () => {
-    for (const kind of ['malformed-json', 'invalid-patch', 'ws-close'] as const) {
+    for (const kind of ['malformed-json', 'invalid-patch', 'close-before-ready'] as const) {
       const value = scenario(); value.faults = [{ id: kind, operation: 'logs-ws', targetId: 'turn', kind }];
       const { server, client } = await start(value);
       await expect(client.fetchConversation('turn', 100)).rejects.toThrow();
@@ -88,16 +119,16 @@ describe('real VibeClient against fake VK transport', () => {
     const value = scenario(); value.barriers = [{ id: 'poll-gate', operation: 'process-get', targetId: 'turn' }];
     value.faults = [{ id: 'delay', operation: 'process-get', targetId: 'turn', kind: 'delay', delayMs: 5 }];
     const { server, client } = await start(value); const waiting = client.getExecutionProcess('turn');
-    await new Promise(resolve => setTimeout(resolve, 5)); server.releaseBarrier('poll-gate');
+    await new Promise(resolve => setTimeout(resolve, 25)); server.releaseBarrier('poll-gate');
     await expect(waiting).resolves.toMatchObject({ id: 'turn' }); server.assertAllDeclarationsUsed();
     const disconnected = scenario(); disconnected.faults = [{ id: 'disconnect', operation: 'process-get', targetId: 'turn', kind: 'disconnect' }];
     const next = await start(disconnected); await expect(next.client.getExecutionProcess('turn')).rejects.toThrow(); next.server.assertAllDeclarationsUsed();
   });
 
   it('rejects invalid and unused scenario declarations', async () => {
-    const duplicate = scenario(); duplicate.faults = [{ id: 'same', operation: 'logs-ws', kind: 'ws-close' }, { id: 'same', operation: 'logs-ws', kind: 'ws-close' }];
+    const duplicate = scenario(); duplicate.faults = [{ id: 'same', operation: 'logs-ws', kind: 'close-before-ready' }, { id: 'same', operation: 'logs-ws', kind: 'close-before-ready' }];
     expect(() => new FakeVkServer(duplicate)).toThrow(/duplicate fault id/);
-    const value = scenario(); value.faults = [{ id: 'unused', operation: 'logs-ws', kind: 'ws-close' }];
+    const value = scenario(); value.faults = [{ id: 'unused', operation: 'logs-ws', kind: 'close-before-ready' }];
     const { server } = await start(value); expect(() => server.assertAllDeclarationsUsed()).toThrow(/unused/);
     const wrongWorkspace = scenario(); wrongWorkspace.sessions[0]!.workspace_id = 'absent';
     expect(() => new FakeVkServer(wrongWorkspace)).toThrow(/unknown workspace/);

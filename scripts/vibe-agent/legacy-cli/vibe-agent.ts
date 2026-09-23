@@ -27,6 +27,10 @@ import {
   failCallbackStart,
   updateCallback,
 } from '../nudge/callback-registry.js';
+import {
+  appendResponseRoute,
+  DEFAULT_RESPONSE_ROUTES_PATH,
+} from '../nudge/response-routes.js';
 
 // Message helpers
 
@@ -107,12 +111,14 @@ export interface ParsedSendArgs {
   message: string;
   jsonOutput: boolean;
   respond: boolean;
+  fireAndForget: boolean;
   timeoutMs?: number;
 }
 
 export function parseSendArgs(args: string[]): ParsedSendArgs {
   let jsonOutput = false;
   let respond = false;
+  let fireAndForget = false;
   let timeoutMs: number | undefined;
   const positionalArgs: string[] = [];
 
@@ -124,6 +130,10 @@ export function parseSendArgs(args: string[]): ParsedSendArgs {
     }
     if (arg === '--respond') {
       respond = true;
+      continue;
+    }
+    if (arg === '--fire-and-forget') {
+      fireAndForget = true;
       continue;
     }
     if (arg === '--timeout' || arg === '--timeout-ms') {
@@ -154,6 +164,7 @@ export function parseSendArgs(args: string[]): ParsedSendArgs {
     message: message ?? '',
     jsonOutput,
     respond,
+    fireAndForget,
   };
   if (timeoutMs !== undefined) parsed.timeoutMs = timeoutMs;
   return parsed;
@@ -1321,15 +1332,10 @@ async function respondRunner(args: string[]): Promise<void> {
 
     await sendRespondMessage(payload.replySessionId, formatRespondMessage(payload.targetRole, response));
   } catch (err) {
-    const message = `vibe-agent send --respond failed while waiting for ${payload.targetRole}: ${(err as Error).message}`;
-    try {
-      await sendRespondMessage(payload.replySessionId, message);
-    } catch (sendErr) {
-      fs.appendFileSync(
-        payload.outputFile,
-        `${new Date().toISOString()} ${message}\nFailed to send failure response: ${(sendErr as Error).message}\n`
-      );
-    }
+    fs.appendFileSync(
+      payload.outputFile,
+      `${new Date().toISOString()} response routing failed while waiting for ${payload.targetRole}: ${(err as Error).message}\n`
+    );
   }
 }
 
@@ -1402,14 +1408,15 @@ async function send(args: string[]): Promise<void> {
     parsed = parseSendArgs(args);
   } catch (err) {
     console.error(`Error: ${(err as Error).message}`);
-    console.error('Usage: vibe-agent send [--respond] <role> "<message>" [--timeout <duration>] [--json]');
+    console.error('Usage: vibe-agent send [--respond] [--fire-and-forget] <role> "<message>" [--json]');
     process.exit(1);
   }
 
-  const { targetRoleArg, message, jsonOutput, respond, timeoutMs } = parsed;
+  const { targetRoleArg, message, jsonOutput, fireAndForget } = parsed;
+  const routeResponse = !fireAndForget;
 
   if (!targetRoleArg || !message) {
-    console.error('Usage: vibe-agent send [--respond] <role> "<message>" [--timeout <duration>] [--json]');
+    console.error('Usage: vibe-agent send [--respond] [--fire-and-forget] <role> "<message>" [--json]');
     console.error(`Standard roles: ${BASE_ROLES.join(', ')} (or with suffix: reviewer-2, etc.), human`);
     console.error('Custom roles are also allowed (use CODEX by default)');
     process.exit(1);
@@ -1487,37 +1494,23 @@ async function send(args: string[]): Promise<void> {
       perform_git_reset: null,
     });
 
-    let respondRunnerPid: number | undefined;
     let replySessionId: string | null = null;
-    let respondOutputFile: string | null = null;
 
-    if (respond) {
+    if (routeResponse) {
       const ctx = await getAgentContext();
       replySessionId = process.env.VK_SESSION_ID ?? ctx.sessionId;
       if (!replySessionId) {
         throw new Error('Could not determine reply session; VK_SESSION_ID was not set and session discovery failed');
       }
-
-      const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'vibe-agent-respond-'));
-      respondOutputFile = path.join(tempDir, 'output.log');
-      fs.closeSync(fs.openSync(respondOutputFile, 'w'));
-
-      const payload: RespondRunnerPayload = {
+      const now = new Date().toISOString();
+      appendResponseRoute(process.env.VD_RESPONSE_ROUTES_PATH ?? DEFAULT_RESPONSE_ROUTES_PATH, {
         processId: result.id,
         replySessionId,
         targetRole,
-        outputFile: respondOutputFile,
-        ...(timeoutMs !== undefined ? { timeoutMs } : {}),
-      };
-
-      const runner = spawn(process.execPath, [fileURLToPath(import.meta.url), '__respond-runner', JSON.stringify(payload)], {
-        detached: true,
-        stdio: 'ignore',
-        env: process.env,
-        cwd: process.cwd(),
+        targetSessionId: session.id,
+        createdAt: now,
+        updatedAt: now,
       });
-      runner.unref();
-      respondRunnerPid = runner.pid;
     }
 
     if (jsonOutput) {
@@ -1525,24 +1518,17 @@ async function send(args: string[]): Promise<void> {
         session_id: session.id,
         process_id: result.id,
         status: result.status,
-        ...(respond ? {
-          respond_monitor_pid: respondRunnerPid ?? null,
+        ...(routeResponse ? {
           reply_session_id: replySessionId,
-          respond_output_file: respondOutputFile,
+          response_routing: 'pending',
         } : {}),
       }, null, 2));
-    } else if (respond) {
+    } else if (routeResponse) {
       console.log(`Message sent to ${targetRole}; response will be routed back to this session when ready.`);
       console.log(`Session:      ${session.id}`);
       console.log(`Process:      ${result.id}`);
       console.log(`Status:       ${result.status}`);
       console.log(`Reply Session:${replySessionId ? ` ${replySessionId}` : ' (unknown)'}`);
-      if (respondRunnerPid) {
-        console.log(`Monitor PID:  ${respondRunnerPid}`);
-      }
-      if (respondOutputFile) {
-        console.log(`Monitor Log:  ${respondOutputFile}`);
-      }
     } else {
       console.log(`Message sent to ${targetRole}`);
       console.log(`Session:  ${session.id}`);
@@ -2296,9 +2282,10 @@ Commands:
     (Use this as first agent in workspace to register yourself)
 
   send <role> "<message>"      Send message to another agent
-    --respond                  Route the receiving agent final response back to this session
-    --timeout <duration>       Timeout for --respond wait (for example: 30s, 10m, 1h)
-    --timeout-ms <ms>          Timeout for --respond wait in milliseconds
+    --respond                  Accepted alias; response routing is the default
+    --fire-and-forget          Do not route the receiving agent final response back
+    --timeout <duration>       Deprecated compatibility flag; response routing is daemon-scanned
+    --timeout-ms <ms>          Deprecated compatibility flag in milliseconds
     --json                     Output as JSON
     (Auto-creates and registers session if none exists for the role)
 

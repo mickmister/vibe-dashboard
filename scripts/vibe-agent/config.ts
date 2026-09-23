@@ -29,6 +29,7 @@ export const config = {
     createSession: `${BASE_URL}/api/sessions`,
     sessionFollowUp: (sessionId: string) => `${BASE_URL}/api/sessions/${sessionId}/follow-up`,
     executionProcess: (processId: string) => `${BASE_URL}/api/execution-processes/${processId}`,
+    executionProcessFinalResponse: (processId: string) => `${BASE_URL}/api/execution-processes/${processId}/final-response`,
     info: `${BASE_URL}/api/info`,
   },
 

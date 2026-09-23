@@ -9,9 +9,9 @@ import { FakeDiscordServer } from './fake-discord-server.js';
 import { FakeVkServer, type FakeVkProcess, type FakeVkScenario } from './fake-vk-server.js';
 
 const now = '2026-09-21T00:10:00.000Z'; const old = '2026-09-21T00:00:00.000Z';
-const process = (id: string, sessionId: string, status: string, final?: string): FakeVkProcess => ({
-  id, session_id: sessionId, status, created_at: old, updated_at: old, completed_at: status === 'running' ? null : old,
-  run_reason: 'codingagent', dropped: false,
+const process = (id: string, sessionId: string, status: FakeVkProcess['status'], final?: string): FakeVkProcess => ({
+  id, session_id: sessionId, status, created_at: old, started_at: old, updated_at: old, completed_at: status === 'running' ? null : old,
+  exit_code: status === 'completed' ? 0 : 1, run_reason: 'codingagent', dropped: false, executor_action: { typ: { prompt: 'work' } },
   conversation: final == null ? [{ content: { entry_type: { type: 'tool_use' }, content: 'work' } }] : [{ content: { entry_type: { type: 'assistant_message' }, content: final } }],
 });
 function base(processes: FakeVkProcess[]): FakeVkScenario { return {
@@ -51,6 +51,23 @@ describe('auto-nudge across real VK transport', () => {
     const { options, client } = await setup(scenario);
     await runAutoNudgeCycle(client, options);
     expect(readAutoNudgeState(options.statePath).triggers.complete).toMatchObject({ status: 'done', checkpointProcessId: 'checkpoint' });
+  });
+
+  it('treats an in-turn teammate handoff as delegated even before checkpoint terminal', async () => {
+    const scenario = base([process('complete', 'impl', 'completed', 'Finished')]);
+    const checkpoint = process('checkpoint', 'overseer', 'running'); checkpoint.statusSequence = ['completed'];
+    scenario.sessions.push({ id: 'review', workspace_id: 'workspace', name: 'review', executor: 'CODEX', created_at: old, updated_at: old, processes: [] });
+    scenario.followUps = [{ sessionId: 'overseer', process: checkpoint }];
+    const { options, client } = await setup(scenario);
+    let reads = 0;
+    const original = client.getSessionProcesses;
+    client.getSessionProcesses = async sessionId => {
+      const processes = await original(sessionId);
+      if (sessionId === 'review' && ++reads > 1) return [process('handoff', 'review', 'running')];
+      return processes;
+    };
+    await runAutoNudgeCycle(client, options);
+    expect(readAutoNudgeState(options.statePath).triggers.complete).toMatchObject({ status: 'delegated' });
   });
 
   it('restarts from persisted checkpoint identity without another follow-up', async () => {
