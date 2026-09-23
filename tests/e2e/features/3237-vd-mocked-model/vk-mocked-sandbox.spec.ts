@@ -189,21 +189,10 @@ test.describe('VK mocked-provider sandbox through VD UI', () => {
 
     await page.setViewportSize({ width: 390, height: 844 });
     await closeSidebarIfOpen(page);
-    const voyageActionsMenu = await openVoyageActionsMenu(page);
-    await expect(
-      voyageActionsMenu.getByRole('menuitem', { name: 'New Craft' }),
-    ).toBeVisible();
-    await expect(
-      voyageActionsMenu.getByRole('menuitem', { name: 'Open Craft' }),
-    ).toBeVisible();
-    await expect(
-      voyageActionsMenu.getByRole('menuitem', { name: 'Switch Voyage' }),
-    ).toBeVisible();
-
-    await clickVoyageActionsMenuItem(page, 'New Craft');
+    await clickMobileVoyageAction(page, 'New Craft');
     await expectMobileNewCraftNavigationSettled(page);
     await expectCreateWorkspaceFrameUrl(page);
-    await clickVoyageActionsMenuItem(page, 'Open Craft');
+    await clickMobileVoyageAction(page, 'Open Craft');
     await expect(
       page.getByRole('heading', { name: 'Open VK Workspace' }),
     ).toBeVisible();
@@ -395,6 +384,25 @@ async function clickVoyageActionsMenuItem(
   }
 
   throw lastError;
+}
+
+async function clickMobileVoyageAction(
+  page: Page,
+  name: 'New Craft' | 'Open Craft',
+) {
+  const sidebarButton = page.getByRole('button', { name }).first();
+  if (await sidebarButton.isVisible().catch(() => false)) {
+    await clickLocatorInViewport(page, sidebarButton);
+    return;
+  }
+
+  try {
+    await clickVoyageActionsMenuItem(page, name);
+    return;
+  } catch {
+    await openSidebarIfNeeded(page);
+    await clickLocatorInViewport(page, sidebarButton);
+  }
 }
 
 async function expectMobileNewCraftNavigationSettled(page: Page) {

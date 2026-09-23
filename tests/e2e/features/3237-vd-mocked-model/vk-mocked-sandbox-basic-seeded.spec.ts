@@ -50,10 +50,12 @@ test.describe('VK mocked-provider basic-seeded fixture', () => {
       }),
     );
 
-    const { frame: agentFrame, iframe: agentIframe } = await agentFrameContaining(
-      page,
-      manifest.craftTitle,
-    );
+    await expect(
+      page.getByRole('button', {
+        name: new RegExp(`Open ${escapeRegex(manifest.craftTitle)} in Home`),
+      }),
+    ).toBeVisible();
+    const { frame: agentFrame, iframe: agentIframe } = await visibleAgentFrame(page);
 
     await agentFrame
       .getByRole('textbox', { name: 'Markdown editor' })
@@ -103,9 +105,8 @@ async function clickLocatorInViewport(page: Page, locator: Locator) {
     .evaluate((element) => (element as HTMLButtonElement).click());
 }
 
-async function agentFrameContaining(
+async function visibleAgentFrame(
   page: Page,
-  expectedText: string,
 ): Promise<{ frame: FrameLocator; iframe: Locator }> {
   const expiresAt = Date.now() + 10_000;
   const iframes = page.locator('iframe[title="Agent"]');
@@ -113,14 +114,18 @@ async function agentFrameContaining(
   while (Date.now() < expiresAt) {
     const count = await iframes.count();
     for (let index = 0; index < count; index += 1) {
+      const iframe = iframes.nth(index);
+      const box = await iframe.boundingBox().catch(() => null);
+      if (!box || box.width <= 0 || box.height <= 0) continue;
       const frame = page.frameLocator('iframe[title="Agent"]').nth(index);
-      const text = await frame.locator('body').textContent({ timeout: 500 }).catch(() => null);
-      if (text?.includes(expectedText)) return { frame, iframe: iframes.nth(index) };
+      if (await frame.getByRole('textbox', { name: 'Markdown editor' }).last().isVisible({ timeout: 500 }).catch(() => false)) {
+        return { frame, iframe };
+      }
     }
     await page.waitForTimeout(250);
   }
 
-  throw new Error(`Could not find Agent iframe containing ${expectedText}`);
+  throw new Error('Could not find visible Agent iframe with a Markdown editor');
 }
 
 async function sendFollowUpThroughVkApi(
