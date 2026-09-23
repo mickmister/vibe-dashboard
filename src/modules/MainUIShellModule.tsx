@@ -15,7 +15,9 @@ import {
   buildSavedVoyageDashboardPath,
   buildVoyageParam,
   getStoredLastDashboardUrl,
+  hasHomepageLegacyDashboardToken,
   parseCraftParam,
+  parseViewParam,
   parseViewsParam,
   setStoredLastDashboardUrl,
   shortIdTokenMatches,
@@ -50,6 +52,13 @@ import type { WorkspaceState, SavedWorkspaceSession } from "../types";
 import { useModule } from "../hooks/useModule";
 
 const URL_PARSE_BASE = "https://workspace.local";
+const ROUTE_RECOVERY_LABEL = "Route recovery";
+const ROUTE_RECOVERY_TITLE = "This dashboard link cannot be opened safely.";
+const ROUTE_RECOVERY_PREFIX = "Reason:";
+const ROUTE_RECOVERY_SUFFIX = "The Voyage layout was not changed.";
+const ROUTE_RECOVERY_SEPARATOR = " ";
+const ROUTE_RECOVERY_PERIOD = ".";
+const ROUTE_RECOVERY_ACTION = "Open dashboard";
 const MOBILE_TAB_EMOJIS = [
   "🚀",
   "🧠",
@@ -93,6 +102,7 @@ function resolveQueryCraftSelection(
   workspace: WorkspaceState,
   session: SavedWorkspaceSession | undefined,
   craftParam: string | undefined,
+  panelParam: string | undefined,
   viewParam: string | undefined,
 ): {
   spaceId?: string;
@@ -101,6 +111,35 @@ function resolveQueryCraftSelection(
   voyageEntryId?: string;
   viewIds?: string[];
 } {
+  if (!(session && (craftParam || panelParam))) return {};
+  const panelSuffix = parseViewParam(panelParam);
+  if (session && panelSuffix && !craftParam) {
+    const matches = workspace.tabGroups.flatMap((tabGroup) => {
+      const tabIds = tabGroup.tabs.map((tab) => tab.id);
+      const tab = tabGroup.tabs.find((candidate) =>
+        shortIdTokenMatches(candidate.id, panelSuffix, tabIds),
+      );
+      if (!tab) return [];
+      const entry = session.voyageEntries.find(
+        (candidate) =>
+          candidate.tabGroupId === tabGroup.id &&
+          candidate.viewIds.includes(tab.id),
+      );
+      if (!entry) return [];
+      return [{ tabGroup, tab, entry }];
+    });
+    if (matches.length !== 1) return {};
+    const { tabGroup, tab, entry } = matches[0]!;
+    return {
+      spaceId: workspace.spaces.find((space) =>
+        space.tabGroupIds.includes(tabGroup.id),
+      )?.id,
+      tabGroupId: tabGroup.id,
+      itemId: tab.id,
+      voyageEntryId: entry.id,
+      viewIds: [tab.id],
+    };
+  }
   if (!(session && craftParam)) return {};
   const parsedCraft = parseCraftParam(craftParam);
   if (!parsedCraft) return {};
@@ -125,7 +164,7 @@ function resolveQueryCraftSelection(
   );
   if (!tabGroup) return {};
 
-  const viewSuffixes = parseViewsParam(viewParam);
+  const viewSuffixes = panelSuffix ? [panelSuffix] : parseViewsParam(viewParam);
   const tabIds = tabGroup.tabs.map((tab) => tab.id);
   const viewIds = viewSuffixes
     .map(
@@ -196,8 +235,16 @@ springboard.registerModule("MainUIShell", {}, async (moduleAPI) => {
     })();
     const queryCraftParam =
       sessionSearchParams.get("craft")?.trim() || undefined;
+    const queryPanelParam =
+      sessionSearchParams.get("panel")?.trim() || undefined;
     const queryViewsParam =
       sessionSearchParams.get("views")?.trim() || undefined;
+    const hasHomepageLegacyToken = hasHomepageLegacyDashboardToken(
+      location.search,
+    );
+    const duplicateRouteParam = ["voyage", "craft", "panel", "views"].find(
+      (key) => sessionSearchParams.getAll(key).length > 1,
+    );
     const storedDashboardUrl =
       typeof window === "undefined" || location.search
         ? undefined
@@ -260,9 +307,16 @@ springboard.registerModule("MainUIShell", {}, async (moduleAPI) => {
           effectiveWorkspace,
           activeSavedSession,
           queryCraftParam,
+          queryPanelParam,
           queryViewsParam,
         ),
-      [activeSavedSession, effectiveWorkspace, queryCraftParam, queryViewsParam],
+      [
+        activeSavedSession,
+        effectiveWorkspace,
+        queryCraftParam,
+        queryPanelParam,
+        queryViewsParam,
+      ],
     );
     const sessionNav = useSessionWorkspaceNav(
       effectiveWorkspace,
@@ -278,6 +332,19 @@ springboard.registerModule("MainUIShell", {}, async (moduleAPI) => {
         persistToSessionStorage: false,
       },
     );
+    const invalidFocusReason =
+      dashboardVoyage.status === "resolved" &&
+      activeSavedSession &&
+      !hasHomepageLegacyToken
+        ? queryPanelParam && !querySelection.viewIds?.length
+          ? "panel-not-found"
+          : queryCraftParam && !querySelection.voyageEntryId
+            ? "craft-not-found"
+            : undefined
+        : undefined;
+    const routeRecoveryReason = duplicateRouteParam
+      ? `duplicate-${duplicateRouteParam}`
+      : invalidFocusReason;
 
     const firstVoyageNameIsInvalid =
       !firstVoyageName.trim() || isHomeVoyageDisplayName(firstVoyageName);
@@ -333,7 +400,38 @@ springboard.registerModule("MainUIShell", {}, async (moduleAPI) => {
     };
 
     useEffect(() => {
+      if (routeRecoveryReason) return;
+      if (location.pathname !== "/dashboard") return;
+      const nextPath = `/${location.search}`;
+      if (nextPath !== `${location.pathname}${location.search}`) {
+        navigate(nextPath, { replace: true });
+      }
+    }, [
+      location.pathname,
+      location.search,
+      navigate,
+      routeRecoveryReason,
+    ]);
+
+    useEffect(() => {
+      if (routeRecoveryReason) return;
+      if (!hasHomepageLegacyToken) return;
+      const nextPath = buildCanonicalDashboardPath(location.search, undefined);
+      if (nextPath !== `${location.pathname}${location.search}`) {
+        navigate(nextPath, { replace: true });
+      }
+    }, [
+      hasHomepageLegacyToken,
+      location.pathname,
+      location.search,
+      navigate,
+      routeRecoveryReason,
+    ]);
+
+    useEffect(() => {
+      if (routeRecoveryReason) return;
       if (dashboardVoyage.status !== "missing-param") return;
+      if (hasHomepageLegacyToken) return;
       if (!missingParamRedirectPath) return;
       const currentPath = `${location.pathname}${location.search}`;
       if (missingParamRedirectPath !== currentPath) {
@@ -345,13 +443,23 @@ springboard.registerModule("MainUIShell", {}, async (moduleAPI) => {
       location.search,
       missingParamRedirectPath,
       navigate,
+      hasHomepageLegacyToken,
+      routeRecoveryReason,
     ]);
 
     useEffect(() => {
+      if (routeRecoveryReason) return;
       if (dashboardVoyage.status !== "resolved") return;
+      if (hasHomepageLegacyToken) return;
       const currentPath = `${location.pathname}${location.search}`;
       setStoredLastDashboardUrl(currentPath);
-    }, [dashboardVoyage.status, location.pathname, location.search]);
+    }, [
+      dashboardVoyage.status,
+      hasHomepageLegacyToken,
+      location.pathname,
+      location.search,
+      routeRecoveryReason,
+    ]);
 
     // Update document title to reflect active space and tab group
     useEffect(() => {
@@ -373,15 +481,25 @@ springboard.registerModule("MainUIShell", {}, async (moduleAPI) => {
 
     // Record visit timestamp when active tab group changes
     useEffect(() => {
+      if (routeRecoveryReason) return;
+      if (hasHomepageLegacyToken) return;
       if (dashboardVoyage.status === "not-found") return;
       if (sessionNav.activeTabGroupId) {
         actions.touchTabGroup({ tabGroupId: sessionNav.activeTabGroupId });
       }
-    }, [actions, dashboardVoyage.status, sessionNav.activeTabGroupId]);
+    }, [
+      actions,
+      dashboardVoyage.status,
+      hasHomepageLegacyToken,
+      routeRecoveryReason,
+      sessionNav.activeTabGroupId,
+    ]);
 
     // Sync URL to match canonical voyage/craft/views query params
     useEffect(() => {
+      if (routeRecoveryReason) return;
       if (dashboardVoyage.status !== "resolved") return;
+      if (hasHomepageLegacyToken) return;
       if (!activeSavedSession) return;
 
       const pendingActivation = pendingSavedSessionActivationRef.current;
@@ -420,11 +538,17 @@ springboard.registerModule("MainUIShell", {}, async (moduleAPI) => {
         savedVoyages,
       );
 
-      if (queryCraftParam && queryViewsParam && querySelection.voyageEntryId) {
+      if (
+        queryCraftParam &&
+        (queryPanelParam || queryViewsParam) &&
+        querySelection.voyageEntryId
+      ) {
         const nextPath = buildCanonicalDashboardPath(location.search, {
           slug: currentVoyageSlug,
           craftParam: queryCraftParam,
-          viewTokens: queryViewsParam.split(",").filter(Boolean),
+          ...(queryPanelParam
+            ? { panelToken: queryPanelParam }
+            : { viewTokens: queryViewsParam?.split(",").filter(Boolean) }),
         });
         if (nextPath !== currentPath) {
           navigate(nextPath, { replace: true });
@@ -456,9 +580,12 @@ springboard.registerModule("MainUIShell", {}, async (moduleAPI) => {
       location.search,
       navigate,
       queryCraftParam,
+      queryPanelParam,
       querySelection,
       queryViewsParam,
       savedVoyages,
+      hasHomepageLegacyToken,
+      routeRecoveryReason,
     ]);
 
     const updateBookmarkedSessionSearch = (
@@ -916,6 +1043,41 @@ springboard.registerModule("MainUIShell", {}, async (moduleAPI) => {
         });
       },
     };
+
+    if (routeRecoveryReason) {
+      const openDashboard = () => {
+        navigate(buildCanonicalDashboardPath(location.search, undefined), {
+          replace: true,
+        });
+      };
+      return (
+        <div className="dark w-screen h-screen fixed inset-0 bg-neutral-950 text-neutral-100 flex items-center justify-center p-6">
+          <div className="w-full max-w-md rounded-2xl border border-neutral-800 bg-neutral-900 p-6 shadow-2xl">
+            <div className="text-xs font-semibold uppercase tracking-[0.2em] text-neutral-500">
+              {ROUTE_RECOVERY_LABEL}
+            </div>
+            <h1 className="mt-3 text-2xl font-semibold">
+              {ROUTE_RECOVERY_TITLE}
+            </h1>
+            <p className="mt-3 text-sm leading-6 text-neutral-400">
+              {ROUTE_RECOVERY_PREFIX}
+              {ROUTE_RECOVERY_SEPARATOR}
+              {routeRecoveryReason}
+              {ROUTE_RECOVERY_PERIOD}
+              {ROUTE_RECOVERY_SEPARATOR}
+              {ROUTE_RECOVERY_SUFFIX}
+            </p>
+            <button
+              type="button"
+              className="mt-6 rounded-lg bg-primary-500 px-4 py-2 text-sm font-semibold text-white transition hover:bg-primary-400"
+              onClick={openDashboard}
+            >
+              {ROUTE_RECOVERY_ACTION}
+            </button>
+          </div>
+        </div>
+      );
+    }
 
     if (dashboardVoyage.status === "not-found") {
       const fallbackSession =

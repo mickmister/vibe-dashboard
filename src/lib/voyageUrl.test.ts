@@ -8,6 +8,7 @@ import {
   buildVoyageSlug,
   getShortIdToken,
   getStoredLastDashboardUrl,
+  hasHomepageLegacyDashboardToken,
   parseCraftParam,
   parseViewParam,
   parseViewsParam,
@@ -87,22 +88,22 @@ describe('voyageUrl', () => {
   it('preserves unknown dashboard query params while replacing voyage-owned params', () => {
     expect(
       buildCanonicalDashboardPath(
-        '?referrer_url=https%3A%2F%2Fgithub.com%2Fowner%2Frepo%2Fpull%2F1&session=legacy&voyage=old&craft=old&views=old',
+        '?referrer_url=https%3A%2F%2Fgithub.com%2Fowner%2Frepo%2Fpull%2F1&session=legacy&voyage=old&craft=old&panel=old&views=old',
         {
           slug: 'focused-session_1',
           craftParam: 'craft-1-2',
-          viewTokens: ['agent-1', 'code-2'],
+          panelToken: 'code-2',
         },
       ),
     ).toBe(
-      '/?referrer_url=https%3A%2F%2Fgithub.com%2Fowner%2Frepo%2Fpull%2F1&voyage=focused-session_1&craft=craft-1-2&views=agent-1%2Ccode-2',
+      '/?referrer_url=https%3A%2F%2Fgithub.com%2Fowner%2Frepo%2Fpull%2F1&voyage=focused-session_1&craft=craft-1-2&panel=code-2',
     );
   });
 
   it('preserves unknown dashboard query params when clearing voyage params', () => {
     expect(
       buildCanonicalDashboardPath(
-        '?referrer_url=https%3A%2F%2Fgithub.com%2Fowner%2Frepo%2Fissues%2F2&voyage=old&craft=old&views=old',
+        '?referrer_url=https%3A%2F%2Fgithub.com%2Fowner%2Frepo%2Fissues%2F2&voyage=old&craft=old&panel=old&views=old',
         undefined,
       ),
     ).toBe(
@@ -157,8 +158,55 @@ describe('voyageUrl', () => {
         tabId: 'tab_code_2',
       }),
     ).toBe(
-      '/?referrer_url=https%3A%2F%2Fgithub.com%2Fowner%2Frepo%2Fpull%2F1&voyage=focused-abc&craft=workspace-42-42&views=code-2',
+      '/?referrer_url=https%3A%2F%2Fgithub.com%2Fowner%2Frepo%2Fpull%2F1&voyage=focused-abc&craft=workspace-42-42&panel=code-2',
     );
+  });
+
+  it('keeps split legacy views when more than one Panel is selected', () => {
+    const workspace = {
+      spaces: [],
+      nextId: 0,
+      tabGroups: [
+        {
+          id: 'tg_workspace_42',
+          label: 'Workspace',
+          tabs: [
+            { id: 'tab_agent_1', title: 'Agent', url: 'https://agent.invalid' },
+            { id: 'tab_code_2', title: 'Code', url: 'https://code.invalid' },
+          ],
+          pairs: [],
+          order: 0,
+        },
+      ],
+    } satisfies WorkspaceState;
+    const session = {
+      id: 'session_abc',
+      slug: 'focused-session_abc',
+      name: 'Focused',
+      createdAt: '2026-06-11T00:00:00.000Z',
+      updatedAt: '2026-06-11T00:00:00.000Z',
+      activeVoyageEntryId: 've_tg_workspace_42',
+      voyageEntries: [
+        {
+          id: 've_tg_workspace_42',
+          tabGroupId: 'tg_workspace_42',
+          viewIds: ['tab_agent_1', 'tab_code_2'],
+        },
+      ],
+      activeSpaceId: 'space_1',
+      activeTabGroupId: 'tg_workspace_42',
+      activeItemsByVoyageEntryId: { ve_tg_workspace_42: 'tab_agent_1' },
+      visitedTabGroupIds: ['tg_workspace_42'],
+    } satisfies SavedWorkspaceSession;
+
+    expect(
+      buildSavedVoyageDashboardPath({
+        currentSearch: '?panel=old',
+        workspace,
+        session,
+        savedSessions: [session],
+      }),
+    ).toBe('/?voyage=focused-abc&craft=workspace-42-42&views=agent-1%2Ccode-2');
   });
 
   it('stores only canonical root Voyage URLs with a voyage param as resume hints', () => {
@@ -174,11 +222,11 @@ describe('voyageUrl', () => {
     };
 
     setStoredLastDashboardUrl(
-      '/dashboard?referrer_url=https%3A%2F%2Fgithub.com%2Fowner%2Frepo%2Fpull%2F1&voyage=focused-session_abc&craft=workspace-42-42&views=agent-1',
+      '/dashboard?referrer_url=https%3A%2F%2Fgithub.com%2Fowner%2Frepo%2Fpull%2F1&voyage=focused-session_abc&craft=workspace-42-42&panel=agent-1',
       storage,
     );
     expect(getStoredLastDashboardUrl(storage)).toBe(
-      '/?voyage=focused-session_abc&craft=workspace-42-42&views=agent-1',
+      '/?voyage=focused-session_abc&craft=workspace-42-42&panel=agent-1',
     );
 
     setStoredLastDashboardUrl('/dashboard?craft=workspace-42-42', storage);
@@ -186,5 +234,11 @@ describe('voyageUrl', () => {
 
     setStoredLastDashboardUrl('/settings?voyage=focused-session_abc', storage);
     expect(getStoredLastDashboardUrl(storage)).toBeUndefined();
+  });
+
+  it('recognizes homepage legacy tokens without treating them as Voyage state', () => {
+    expect(hasHomepageLegacyDashboardToken('?voyage=tg_home')).toBe(true);
+    expect(hasHomepageLegacyDashboardToken('?views=agent-1,internal%3A%2F%2Fspaces-overview')).toBe(true);
+    expect(hasHomepageLegacyDashboardToken('?voyage=focused-abc&panel=agent-1')).toBe(false);
   });
 });

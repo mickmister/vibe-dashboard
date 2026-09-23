@@ -64,6 +64,20 @@ describe('resolveLastDashboardVoyageSessionId', () => {
     ).toBeUndefined();
   });
 
+  it('rejects ambiguous generated voyage tokens without guessing', () => {
+    const savedSessions = [
+      session('session_a_123', 'legacy-alpha-full'),
+      session('session_b_123', 'legacy-beta-full'),
+    ];
+
+    expect(
+      resolveRequestedVoyageSessionId({
+        savedSessions,
+        requestedVoyageKey: 'legacy-123',
+      }),
+    ).toBeUndefined();
+  });
+
   it('reads a stored full dashboard URL only when it names an existing voyage', () => {
     expect(
       resolveLastDashboardVoyageSessionId({
@@ -109,6 +123,15 @@ describe('resolveDashboardVoyage', () => {
         storedDashboardUrl: '/dashboard?voyage=beta-b&craft=craft-1-2',
       }),
     ).toEqual({ status: 'missing-param', sessionId: 'b' });
+  });
+
+  it('treats homepage legacy voyage tokens as a non-mutating missing-param route', () => {
+    expect(
+      resolveDashboardVoyage({
+        savedSessions: [session('a', 'alpha-a')],
+        requestedVoyageKey: 'tg_home',
+      }),
+    ).toEqual({ status: 'missing-param' });
   });
 
   it('does not let stale decomposed storage choose a missing-param voyage', () => {

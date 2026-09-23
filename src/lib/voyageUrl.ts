@@ -8,6 +8,7 @@ import type {
 export const LAST_DASHBOARD_URL_STORAGE_KEY = 'workspace-last-dashboard-url';
 export const CANONICAL_DASHBOARD_PATHNAME = '/';
 const URL_PARSE_BASE = 'https://workspace.local';
+const HOMEPAGE_LEGACY_TOKENS = new Set(['tg_home', 'tab_overview', 'internal://spaces-overview']);
 
 type DashboardUrlStorage = Pick<Storage, 'getItem' | 'setItem' | 'removeItem'>;
 
@@ -109,6 +110,20 @@ export function parseViewParam(value: string | null | undefined): string | null 
   return parts[parts.length - 1] || null;
 }
 
+export function isHomepageLegacyToken(value: string | null | undefined): boolean {
+  return Boolean(value && HOMEPAGE_LEGACY_TOKENS.has(value.trim()));
+}
+
+export function hasHomepageLegacyDashboardToken(search: string): boolean {
+  const params = new URLSearchParams(search);
+  return ['voyage', 'craft', 'panel', 'views'].some((key) =>
+    params.getAll(key).some((value) => {
+      if (key !== 'views') return isHomepageLegacyToken(value);
+      return value.split(',').some((entry) => isHomepageLegacyToken(entry.trim()));
+    }),
+  );
+}
+
 export function parseViewsParam(value: string | null | undefined): string[] {
   if (!value) return [];
   return value
@@ -123,6 +138,7 @@ export function buildCanonicalDashboardPath(
     | {
         slug: string;
         craftParam?: string | null;
+        panelToken?: string | null;
         viewTokens?: string[];
       }
     | undefined,
@@ -131,6 +147,7 @@ export function buildCanonicalDashboardPath(
   searchParams.delete('session');
   searchParams.delete('voyage');
   searchParams.delete('craft');
+  searchParams.delete('panel');
   searchParams.delete('views');
 
   if (voyage?.slug) {
@@ -138,7 +155,9 @@ export function buildCanonicalDashboardPath(
     if (voyage.craftParam) {
       searchParams.set('craft', voyage.craftParam);
     }
-    if (voyage.viewTokens?.length) {
+    if (voyage.panelToken) {
+      searchParams.set('panel', voyage.panelToken);
+    } else if (voyage.viewTokens?.length) {
       searchParams.set('views', voyage.viewTokens.join(','));
     }
   }
@@ -194,6 +213,7 @@ export function buildSavedVoyageDashboardPath({
           })
           .filter((token): token is string => Boolean(token))
       : undefined;
+  const panelToken = viewTokens?.length === 1 ? viewTokens[0] : undefined;
 
   return buildCanonicalDashboardPath(currentSearch, {
     slug: buildVoyageParam(session, savedSessions),
@@ -201,7 +221,8 @@ export function buildSavedVoyageDashboardPath({
       tabGroups: workspace.tabGroups,
       voyageEntries: session.voyageEntries,
     }),
-    viewTokens,
+    panelToken,
+    viewTokens: panelToken ? undefined : viewTokens,
   });
 }
 
@@ -223,6 +244,8 @@ export function normalizeStoredDashboardUrl(value: string | null | undefined): s
     cachedSearch.set('voyage', voyageKey);
     const craft = url.searchParams.get('craft')?.trim();
     if (craft) cachedSearch.set('craft', craft);
+    const panel = url.searchParams.get('panel')?.trim();
+    if (panel) cachedSearch.set('panel', panel);
     const views = url.searchParams.get('views')?.trim();
     if (views) cachedSearch.set('views', views);
 

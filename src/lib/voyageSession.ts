@@ -3,6 +3,7 @@ import {
   buildVoyageParam,
   getVoyageKeyFromDashboardUrl,
   getVoyageSlug,
+  isHomepageLegacyToken,
   shortIdTokenMatches,
 } from './voyageUrl';
 
@@ -18,32 +19,28 @@ export function resolveRequestedVoyageSessionId({
   savedSessions: SavedWorkspaceSession[];
   requestedVoyageKey?: string;
 }): string | undefined {
-  const matchedRequestedVoyage = requestedVoyageKey
-    ? savedSessions.find(
-        (session) =>
-          session.id === requestedVoyageKey ||
-          getVoyageSlug(session) === requestedVoyageKey ||
-          buildVoyageParam(session, savedSessions) === requestedVoyageKey,
-      )
-    : undefined;
-  const requestedStableId = requestedVoyageKey
-    ? savedSessions.find((session) => requestedVoyageKey.endsWith(`-${session.id}`))?.id
-    : undefined;
-  const requestedShortId = requestedVoyageKey
-    ? savedSessions.find((session) =>
-        shortIdTokenMatches(
-          session.id,
-          getTrailingToken(requestedVoyageKey),
-          savedSessions.map((entry) => entry.id),
-        ),
-      )?.id
-    : undefined;
-
-  return (
-    matchedRequestedVoyage?.id ||
-    requestedStableId ||
-    requestedShortId
+  if (!requestedVoyageKey || isHomepageLegacyToken(requestedVoyageKey)) return undefined;
+  const matches = new Set<string>();
+  const matchedRequestedVoyage = savedSessions.find(
+    (session) =>
+      session.id === requestedVoyageKey ||
+      getVoyageSlug(session) === requestedVoyageKey ||
+      buildVoyageParam(session, savedSessions) === requestedVoyageKey,
   );
+  if (matchedRequestedVoyage) matches.add(matchedRequestedVoyage.id);
+  const requestedStableId = savedSessions.find((session) => requestedVoyageKey.endsWith(`-${session.id}`))?.id;
+  if (requestedStableId) matches.add(requestedStableId);
+  for (const session of savedSessions) {
+    if (
+      shortIdTokenMatches(
+        session.id,
+        getTrailingToken(requestedVoyageKey),
+        savedSessions.map((entry) => entry.id),
+      )
+    ) matches.add(session.id);
+  }
+
+  return matches.size === 1 ? [...matches][0] : undefined;
 }
 
 export function resolveLastDashboardVoyageSessionId({
@@ -77,6 +74,7 @@ export function resolveDashboardVoyage({
   storedDashboardUrl?: string;
 }): DashboardVoyageResolution {
   if (requestedVoyageKey) {
+    if (isHomepageLegacyToken(requestedVoyageKey)) return { status: 'missing-param' };
     const requestedSessionId = resolveRequestedVoyageSessionId({
       savedSessions,
       requestedVoyageKey,
