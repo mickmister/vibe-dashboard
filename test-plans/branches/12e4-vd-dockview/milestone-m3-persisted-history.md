@@ -108,8 +108,10 @@ Steps:
 2. Change focus/activation recency several times without creating history.
 3. Undo a structural change that keeps some Panels and recreates another Panel.
 4. Redo the structural change.
-5. Invoke an MRU-dependent selection, such as the approved Open-beside selector,
-   using current recency evidence.
+5. Inspect the M3.3-local visible computed MRU Panel from the harness or
+   repository test surface. It must use the same durable selector/tie-break that
+   later Open-beside workflows will use, but Open Code/Open-beside UI itself is
+   not required until M4.
 
 Expected:
 
@@ -119,8 +121,8 @@ Expected:
 - Surviving Panels retain current `last_activated_sequence`.
 - Structurally recreated Panels start with null recency.
 - Restore-generated Dockview callbacks do not create activation evidence.
-- MRU selection uses current recency after undo/redo, not checkpoint-time
-  recency.
+- The computed MRU Panel uses current recency after undo/redo, not
+  checkpoint-time recency.
 
 Error cases:
 
