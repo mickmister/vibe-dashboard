@@ -17,6 +17,7 @@ const PANEL_RECOVERY_BODY = 'This Panel target is unavailable or unsafe to rende
 export interface DockviewControllerApi {
   fromJSON(snapshot: SerializedDockview): void;
   toJSON(): SerializedDockview;
+  focusPanel?(panelId: string): void;
   onDidActivePanelChange?(listener: (event: { panel?: { id: string } | null }) => void): { dispose(): void };
   onDidLayoutChange?(listener: () => void): { dispose(): void };
 }
@@ -196,10 +197,12 @@ export function DockviewWorkbench(input: {
   repository?: DockviewMutationRepository;
   gestureDebounceMs?: number;
   onCoordinator?: (coordinator: DockviewMutationCoordinator) => void;
+  onDockviewApi?: (api: DockviewControllerApi) => void;
   onRestore?: (result: DockviewControllerRestoreResult) => void;
   onQuarantine?: (event: DockviewLayoutQuarantineEvent) => void;
 }) {
   const holder = useMemo<{ current: DockviewController | null }>(() => ({ current: null }), []);
+  const userActivation = useMemo<{ current: 'pointer' | 'keyboard' | null }>(() => ({ current: null }), []);
   const components = useMemo(() => ({
     'iframe-panel': (props: IDockviewPanelProps<{ panelId?: string }>) => (
       <DockviewPanelContent
@@ -211,6 +214,7 @@ export function DockviewWorkbench(input: {
 
   const onReady = (event: DockviewReadyEvent) => {
     const api = event.api as DockviewControllerApi;
+    input.onDockviewApi?.(api);
     const result = restoreDockviewController({
       api: api as DockviewApi,
       aggregate: input.aggregate,
@@ -237,28 +241,61 @@ export function DockviewWorkbench(input: {
         },
       });
       input.onCoordinator?.(coordinator);
+      const layoutGesture = createDockviewLayoutGestureAdapter({
+        api,
+        coordinator,
+        quietMs: input.gestureDebounceMs ?? 50,
+      });
       api.onDidActivePanelChange?.((change) => {
         const panelId = change.panel?.id;
-        if (panelId) void coordinator.handleActivePanelChange(panelId, { origin: 'user' });
+        const intent = userActivation.current;
+        userActivation.current = null;
+        if (panelId) void coordinator.handleActivePanelChange(panelId, intent ? { origin: 'user', input: intent } : { origin: 'api' });
       });
-      api.onDidLayoutChange?.(() => {
-        try {
-          const token = coordinator.beginGesture('dockview-layout');
-          coordinator.captureGestureSnapshot(token, api.toJSON());
-          void coordinator.completeGesture(token);
-        } catch (error) {
-          if (!(error instanceof VoyageInvariantError)) throw error;
-        }
-      });
+      api.onDidLayoutChange?.(() => layoutGesture.capture());
     }
     input.onRestore?.(result);
   };
 
   return (
-    <div className="dockview-theme-dark h-full w-full" data-voyage-id={input.aggregate.id}>
+    <div
+      className="dockview-theme-dark h-full w-full"
+      data-voyage-id={input.aggregate.id}
+      onPointerDownCapture={() => { userActivation.current = 'pointer'; }}
+      onKeyDownCapture={() => { userActivation.current = 'keyboard'; }}
+    >
       <DockviewReact components={components} onReady={onReady} />
     </div>
   );
+}
+
+export function createDockviewLayoutGestureAdapter(input: {
+  api: DockviewControllerApi;
+  coordinator: DockviewMutationCoordinator;
+  quietMs: number;
+}) {
+  let token: symbol | null = null;
+  let timer: ReturnType<typeof setTimeout> | null = null;
+  const complete = () => {
+    if (!token) return;
+    const completing = token;
+    token = null;
+    timer = null;
+    void input.coordinator.completeGesture(completing, { debounceMs: 0 });
+  };
+  return {
+    capture() {
+      try {
+        token ??= input.coordinator.beginGesture('dockview-layout');
+        input.coordinator.captureGestureSnapshot(token, input.api.toJSON());
+        if (timer) clearTimeout(timer);
+        timer = setTimeout(complete, input.quietMs);
+      } catch (error) {
+        if (!(error instanceof VoyageInvariantError)) throw error;
+      }
+    },
+    complete,
+  };
 }
 
 function emptyController(voyageId: string, revision: number): DockviewController {

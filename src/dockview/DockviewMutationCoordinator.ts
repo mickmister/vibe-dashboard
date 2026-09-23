@@ -110,6 +110,11 @@ class SerializedDockviewMutationCoordinator implements DockviewMutationCoordinat
   }
 
   enqueueCommand(command: DockviewMutationCommand): Promise<CommandOutcome> {
+    const gesture = this.pendingGesture;
+    if (gesture?.promise) {
+      const gestureCommit = this.commitGestureNow(gesture);
+      return gestureCommit.then(() => this.enqueueCommand(command));
+    }
     if (command.dedupeKey && command.unsafeDuplicate) {
       const pending = this.pendingByDedupe.get(command.dedupeKey);
       if (pending) return pending;
@@ -163,22 +168,7 @@ class SerializedDockviewMutationCoordinator implements DockviewMutationCoordinat
     }
     const promise = new Promise<CommandOutcome>((resolve) => {
       gesture.resolve = resolve;
-      const run = () => {
-        if (this.pendingGesture !== gesture) {
-          resolve(this.skipped('stale-debounce'));
-          return;
-        }
-        if (gesture.generation !== this.generation) {
-          this.pendingGesture = null;
-          resolve(this.skipped('stale-debounce'));
-          return;
-        }
-        this.pendingGesture = null;
-        this.enqueueCommand({
-          id: `gesture:${gesture.label}`,
-          apply: (current) => ({ panels: structuralPanels(current), snapshot: gesture.latestSnapshot }),
-        }).then(resolve);
-      };
+      const run = () => this.commitGestureNow(gesture).then(resolve);
       const debounceMs = options.debounceMs ?? this.input.gestureDebounceMs ?? 0;
       if (debounceMs <= 0) run();
       else gesture.timer = setTimeout(run, debounceMs);
@@ -220,14 +210,8 @@ class SerializedDockviewMutationCoordinator implements DockviewMutationCoordinat
 
   async flush(_reason: string): Promise<{ status: 'flushed' | 'recovery'; reason?: string; revision: number }> {
     const gesture = this.pendingGesture;
-    if (gesture?.timer) {
-      clearTimeout(gesture.timer);
-      gesture.timer = null;
-      this.pendingGesture = null;
-      this.enqueueCommand({
-        id: `flush:${gesture.label}`,
-        apply: (current) => ({ panels: structuralPanels(current), snapshot: gesture.latestSnapshot }),
-      }).then(gesture.resolve ?? (() => undefined));
+    if (gesture?.promise) {
+      await this.commitGestureNow(gesture);
     }
     await this.queue.catch(() => undefined);
     if (this.lastConflict) return { status: 'recovery', reason: this.lastConflict, revision: this.accepted.revision };
@@ -267,7 +251,7 @@ class SerializedDockviewMutationCoordinator implements DockviewMutationCoordinat
       await command.validate?.(before);
       const applied = command.apply(before);
       productionDockviewSnapshotCodec.validateAndCanonicalize(applied.snapshot);
-      await this.input.repository.commitLayoutMutation({
+      const revision = await this.input.repository.commitLayoutMutation({
         voyageId: before.id,
         expectedRevision: before.revision,
         panels: applied.panels,
@@ -275,6 +259,11 @@ class SerializedDockviewMutationCoordinator implements DockviewMutationCoordinat
         ...(applied.activationPanelId ? { activationPanelId: applied.activationPanelId } : {}),
       });
       const committed = await this.input.repository.loadVoyage(before.id);
+      if (committed.revision !== revision) {
+        this.restoreFromAggregate(committed);
+        this.lastConflict = 'committed-revision-mismatch';
+        return { status: 'conflict', reason: 'committed-revision-mismatch', revision: committed.revision };
+      }
       this.restoreFromAggregate(committed);
       this.lastConflict = null;
       return { status: 'committed', revision: committed.revision };
@@ -300,7 +289,7 @@ class SerializedDockviewMutationCoordinator implements DockviewMutationCoordinat
       try {
         await command.validate?.(winner);
         const applied = command.apply(winner);
-        await this.input.repository.commitLayoutMutation({
+        const revision = await this.input.repository.commitLayoutMutation({
           voyageId: winner.id,
           expectedRevision: winner.revision,
           panels: applied.panels,
@@ -308,6 +297,11 @@ class SerializedDockviewMutationCoordinator implements DockviewMutationCoordinat
           ...(applied.activationPanelId ? { activationPanelId: applied.activationPanelId } : {}),
         });
         const committed = await this.input.repository.loadVoyage(winner.id);
+        if (committed.revision !== revision) {
+          this.restoreFromAggregate(committed);
+          this.lastConflict = 'committed-revision-mismatch';
+          return { status: 'conflict', reason: 'committed-revision-mismatch', revision: committed.revision };
+        }
         this.restoreFromAggregate(committed);
         this.lastConflict = null;
         return { status: 'replayed', revision: committed.revision };
@@ -319,6 +313,36 @@ class SerializedDockviewMutationCoordinator implements DockviewMutationCoordinat
     }
     this.lastConflict = 'stale-revision';
     return { status: 'conflict', reason: 'stale-revision', revision: winner.revision };
+  }
+
+  private commitGestureNow(gesture: PendingGesture): Promise<CommandOutcome> {
+    if (this.pendingGesture !== gesture) return Promise.resolve(this.skipped('stale-debounce'));
+    if (gesture.timer) {
+      clearTimeout(gesture.timer);
+      gesture.timer = null;
+    }
+    this.pendingGesture = null;
+    const promise = this.enqueueCommandNow({
+      id: `gesture:${gesture.label}`,
+      apply: (current) => ({ panels: structuralPanels(current), snapshot: gesture.latestSnapshot }),
+    });
+    promise.then(gesture.resolve ?? (() => undefined));
+    return promise;
+  }
+
+  private enqueueCommandNow(command: DockviewMutationCommand): Promise<CommandOutcome> {
+    if (command.dedupeKey && command.unsafeDuplicate) {
+      const pending = this.pendingByDedupe.get(command.dedupeKey);
+      if (pending) return pending;
+    }
+    this.generation += 1;
+    const promise = this.enqueue(command.id, () => this.runCommand(command));
+    if (command.dedupeKey && command.unsafeDuplicate) {
+      const dedupeKey = command.dedupeKey;
+      this.pendingByDedupe.set(dedupeKey, promise);
+      promise.finally(() => this.pendingByDedupe.delete(dedupeKey));
+    }
+    return promise;
   }
 
   private async recordActivation(panelId: string): Promise<ActivationOutcome> {

@@ -35,6 +35,7 @@ import { createProductionPanelTargetAuthorityServices } from "./store/production
 import { NormalizedVoyageProjection } from "./store/normalizedVoyageProjection";
 import { VoyageRepository } from "./store/voyageRepository";
 import { productionDockviewSnapshotCodec } from "./store/dockviewSnapshotCodec";
+import { createDockviewM32HarnessAggregate } from "./dockview/DockviewM32HarnessFixture";
 import "./modules/plugins/kanban/jira/serverModule";
 import "./modules/plugins/kanban/linear/serverModule";
 // @platform end
@@ -512,9 +513,12 @@ const createWorkspaceModule = async (moduleAPI: ModuleAPI) => {
       createDefaultWorkspace(),
     );
   if (voyageDatabase && !voyageDatabase.legacyTargetContextForCraft) throw new Error("Normalized Voyage target authority is unavailable.");
-  const normalizedProjection = voyageDatabase
+  const voyageRepository = voyageDatabase
+    ? new VoyageRepository(voyageDatabase.db, { snapshotCodec: productionDockviewSnapshotCodec })
+    : undefined;
+  const normalizedProjection = voyageDatabase && voyageRepository
     ? new NormalizedVoyageProjection(
-        new VoyageRepository(voyageDatabase.db, { snapshotCodec: productionDockviewSnapshotCodec }),
+        voyageRepository,
         () => workspaceState.getState(),
         voyageDatabase.legacyTargetContextForCraft!,
       )
@@ -548,6 +552,34 @@ const createWorkspaceModule = async (moduleAPI: ModuleAPI) => {
   }
 
   const actions = moduleAPI.createActions({
+    ensureDockviewM32HarnessVoyage: async () => {
+      if (!voyageRepository) throw new Error("Normalized Voyage authority is unavailable.");
+      const aggregate = createDockviewM32HarnessAggregate();
+      try {
+        return await voyageRepository.loadVoyage(aggregate.id);
+      } catch {
+        await voyageRepository.createVoyage({
+          id: aggregate.id,
+          name: aggregate.metadata.name,
+          crafts: aggregate.crafts,
+          panels: aggregate.panels.map(({ lastActivatedSequence: _lastActivatedSequence, ...panel }) => panel),
+          snapshot: aggregate.layout.snapshot,
+        });
+        return voyageRepository.loadVoyage(aggregate.id);
+      }
+    },
+    commitDockviewM32HarnessLayoutMutation: async (args: Parameters<VoyageRepository["commitLayoutMutation"]>[0]) => {
+      if (!voyageRepository) throw new Error("Normalized Voyage authority is unavailable.");
+      return voyageRepository.commitLayoutMutation(args);
+    },
+    recordDockviewM32HarnessActivation: async (args: { voyageId: string; panelId: string; expectedRevision: number }) => {
+      if (!voyageRepository) throw new Error("Normalized Voyage authority is unavailable.");
+      return voyageRepository.recordActivation(args.voyageId, args.panelId, args.expectedRevision);
+    },
+    loadDockviewM32HarnessVoyage: async (args?: { voyageId?: string }) => {
+      if (!voyageRepository) throw new Error("Normalized Voyage authority is unavailable.");
+      return voyageRepository.loadVoyage(args?.voyageId ?? createDockviewM32HarnessAggregate().id);
+    },
     addSpace: async (args: { name: string }) => {
       let spaceId: string | undefined;
       let tabGroupId: string | undefined;

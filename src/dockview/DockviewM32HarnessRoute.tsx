@@ -1,24 +1,47 @@
-import React, { useMemo, useRef, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { Orientation, type SerializedDockview } from 'dockview';
 import { FormattedMessage } from 'react-intl';
 import { productionDockviewSnapshotCodec } from '../store/dockviewSnapshotCodec';
 import type { PanelTargetResolutionContext } from '../store/panelTargetRegistry';
 import {
-  VoyageConflictError,
   type StructuralPanelHistoryRecord,
   type VoyageAggregate,
   type VoyagePanelRecord,
 } from '../store/voyageRepository';
+import { useModule } from '../hooks/useModule';
 import { DockviewWorkbench } from './DockviewWorkbench';
-import type { CoordinatorVisibleState, DockviewMutationCoordinator, DockviewMutationRepository } from './DockviewMutationCoordinator';
+import type { CommitLayoutMutationInput } from '../store/voyageRepository';
+import type { CoordinatorVisibleState, DockviewMutationApi, DockviewMutationCoordinator, DockviewMutationRepository } from './DockviewMutationCoordinator';
+import { createDockviewM32HarnessAggregate } from './DockviewM32HarnessFixture';
 
 const voyageId = 'm3-2-harness-voyage';
 const workspaceId = 'workspace-a';
 const emptyVisibleValue = 'none';
 
 export function DockviewM32HarnessRoute() {
-  const aggregate = useMemo(() => harnessAggregate(), []);
-  const repository = useMemo(() => createHarnessRepository(aggregate), [aggregate]);
+  const workspaceModule = useModule('workspace');
+  const [aggregate, setAggregate] = useState<VoyageAggregate | null>(null);
+  const repository = useMemo(
+    () => createActionRepository(workspaceModule.actions),
+    [workspaceModule.actions],
+  );
+  useEffect(() => {
+    let cancelled = false;
+    void workspaceModule.actions.ensureDockviewM32HarnessVoyage().then(async (loaded) => {
+      if (!cancelled) setAggregate(await loaded);
+    });
+    return () => { cancelled = true; };
+  }, [workspaceModule.actions]);
+  if (!aggregate) {
+    return (
+      <main className="dark flex h-screen items-center justify-center bg-neutral-950 text-neutral-100" data-testid="dockview-m3-2-harness-loading">
+        <FormattedMessage
+          defaultMessage="Loading DockView M3.2 harness"
+          description="Loading text for the DockView M3.2 serialized mutation coordinator harness."
+        />
+      </main>
+    );
+  }
   return (
     <DockviewM32SemanticHarness
       aggregate={aggregate}
@@ -34,6 +57,7 @@ export function DockviewM32SemanticHarness(input: {
   contextForCraft: (craftWorkspaceId: string) => PanelTargetResolutionContext | null;
 }) {
   const coordinator = useRef<DockviewMutationCoordinator | null>(null);
+  const dockviewApi = useRef<(DockviewMutationApi & { focusPanel?(panelId: string): void }) | null>(null);
   const gesture = useRef<symbol | null>(null);
   const [state, setState] = useState<CoordinatorVisibleState>(() => ({
     revision: input.aggregate.revision,
@@ -76,7 +100,7 @@ export function DockviewM32SemanticHarness(input: {
         })}>
           <FormattedMessage defaultMessage="Complete gesture" description="DockView M3.2 test harness control that completes a Dockview gesture boundary." />
         </button>
-        <button type="button" onClick={() => run(() => coordinator.current?.focusPanelFromCommand('panel-d'))}>
+        <button type="button" onClick={() => run(() => coordinator.current?.focusPanelFromCommand('panel-d', () => dockviewApi.current?.focusPanel?.('panel-d')))}>
           <FormattedMessage defaultMessage="Programmatic focus Panel D" description="DockView M3.2 test harness control that focuses Panel D programmatically." />
         </button>
         <button type="button" onClick={() => run(() => coordinator.current?.flush('tester-flush'))}>
@@ -102,6 +126,7 @@ export function DockviewM32SemanticHarness(input: {
           aggregate={input.aggregate}
           contextForCraft={input.contextForCraft}
           repository={input.repository}
+          onDockviewApi={(api) => { dockviewApi.current = api; }}
           onCoordinator={(value) => {
             coordinator.current = value;
             setState(value.visibleState());
@@ -112,35 +137,16 @@ export function DockviewM32SemanticHarness(input: {
   );
 }
 
-function createHarnessRepository(seed: VoyageAggregate): DockviewMutationRepository {
-  let current = seed;
+function createActionRepository(actions: {
+  commitDockviewM32HarnessLayoutMutation(input: CommitLayoutMutationInput): Promise<number | Promise<number>>;
+  recordDockviewM32HarnessActivation(input: { voyageId: string; panelId: string; expectedRevision: number }): Promise<boolean | Promise<boolean>>;
+  loadDockviewM32HarnessVoyage(input?: { voyageId?: string }): Promise<VoyageAggregate | Promise<VoyageAggregate>>;
+}): DockviewMutationRepository {
   return {
-    async commitLayoutMutation(input) {
-      if (input.expectedRevision !== current.revision) throw new VoyageConflictError(input.voyageId, input.expectedRevision);
-      const recency = new Map(current.panels.map((panel) => [panel.id, panel.lastActivatedSequence]));
-      current = {
-        ...current,
-        revision: current.revision + 1,
-        panels: input.panels.map((panel) => ({ ...panel, lastActivatedSequence: recency.get(panel.id) ?? null })),
-        layout: productionDockviewSnapshotCodec.validateAndCanonicalize(input.snapshot),
-      };
-      return current.revision;
-    },
-    async recordActivation(_voyageId, panelId, expectedRevision) {
-      if (expectedRevision !== current.revision) throw new VoyageConflictError(current.id, expectedRevision);
-      current = {
-        ...current,
-        revision: current.revision + 1,
-        activationSequence: current.activationSequence + 1,
-        panels: current.panels.map((panel) => panel.id === panelId
-          ? { ...panel, lastActivatedSequence: current.activationSequence + 1 }
-          : panel),
-      };
-      return true;
-    },
-    async loadVoyage() {
-      return current;
-    },
+    commitLayoutMutation: async (mutation) => actions.commitDockviewM32HarnessLayoutMutation(mutation),
+    recordActivation: async (voyageId, panelId, expectedRevision) =>
+      actions.recordDockviewM32HarnessActivation({ voyageId, panelId, expectedRevision }),
+    loadVoyage: async (voyageId) => actions.loadDockviewM32HarnessVoyage({ voyageId }),
   };
 }
 
@@ -158,28 +164,6 @@ function openPanelCommand(id: string) {
         snapshot: snapshot([...panelIds(current.layout.snapshot), id], id),
       };
     },
-  };
-}
-
-function harnessAggregate(): VoyageAggregate {
-  const ids = ['panel-a', 'panel-b', 'panel-c'];
-  return {
-    id: voyageId,
-    revision: 0,
-    activationSequence: 0,
-    historyCursorSequence: 0,
-    metadata: {
-      name: 'M3.2 harness Voyage',
-      mission: null,
-      lifecycleState: 'active',
-      lastOpenedAt: null,
-      createdAt: '2026-01-01T00:00:00Z',
-      updatedAt: '2026-01-01T00:00:00Z',
-    },
-    crafts: [{ craftWorkspaceId: workspaceId, sortKey: 'a' }],
-    panels: ids.map(panel),
-    layout: productionDockviewSnapshotCodec.validateAndCanonicalize(snapshot(ids)),
-    history: [],
   };
 }
 

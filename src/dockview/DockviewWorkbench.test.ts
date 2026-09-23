@@ -3,21 +3,32 @@ import { renderToStaticMarkup } from 'react-dom/server';
 import { IntlProvider } from 'react-intl';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { Orientation, type SerializedDockview } from 'dockview';
+import Database from 'better-sqlite3';
+import { Kysely, SqliteDialect } from 'kysely';
 import {
   DockviewWorkbench,
   DockviewPanelContent,
   createDockviewControllerCache,
+  createDockviewLayoutGestureAdapter,
   restoreDockviewController,
   type DockviewControllerApi,
 } from './DockviewWorkbench';
-import { DockviewM32HarnessRoute } from './DockviewM32HarnessRoute';
-import type { DockviewMutationCoordinator, DockviewMutationRepository } from './DockviewMutationCoordinator';
+import { DockviewM32SemanticHarness } from './DockviewM32HarnessRoute';
+import { createDockviewM32HarnessAggregate } from './DockviewM32HarnessFixture';
+import {
+  createDockviewMutationCoordinator,
+  type DockviewMutationCoordinator,
+  type DockviewMutationRepository,
+} from './DockviewMutationCoordinator';
 import { productionDockviewSnapshotCodec } from '../store/dockviewSnapshotCodec';
 import type { PanelTargetResolutionContext } from '../store/panelTargetRegistry';
 import {
   VoyageConflictError,
+  VoyageRepository,
   type VoyageAggregate,
 } from '../store/voyageRepository';
+import { migrateExternalIntegrationsDb } from '../modules/plugins/kanban/server/migrate';
+import type { DB } from '../store/kysely_types';
 
 const hostOrigin = 'https://vd.test';
 const workspaceId = 'workspace-a';
@@ -355,6 +366,7 @@ describe('Dockview M3.1 controller restore and Panel rendering', () => {
   });
 
   it('installs one coordinator at the Workbench boundary so Dockview callbacks persist through it', async () => {
+    vi.useFakeTimers();
     const stored = aggregate({ panels: [{ id: 'panel-a', craftWorkspaceId }, { id: 'panel-b', craftWorkspaceId }] });
     const store = mutationRepository(stored);
     const coordinators: DockviewMutationCoordinator[] = [];
@@ -374,7 +386,7 @@ describe('Dockview M3.1 controller restore and Panel rendering', () => {
 
     dockviewReactBoundary.activeListeners[0]?.({ panel: { id: 'panel-a' } });
     await coordinators[0]!.flush('test');
-    expect(store.activations).toEqual([{ panelId: 'panel-a', expectedRevision: 7 }]);
+    expect(store.activations).toEqual([]);
 
     dockviewReactBoundary.api!.toJSON = () => snapshot(['panel-a', 'panel-b']);
     dockviewReactBoundary.layoutListeners[0]?.();
@@ -383,13 +395,96 @@ describe('Dockview M3.1 controller restore and Panel rendering', () => {
 
     dockviewReactBoundary.api!.toJSON = () => snapshot(['panel-b', 'panel-a']);
     dockviewReactBoundary.layoutListeners[0]?.();
+    expect(store.commits).toEqual([]);
+    await vi.advanceTimersByTimeAsync(50);
     await coordinators[0]!.flush('test');
-    expect(store.commits).toEqual([{ expectedRevision: 8, panelIds: ['panel-a', 'panel-b'] }]);
+    expect(store.commits).toEqual([{ expectedRevision: 7, panelIds: ['panel-a', 'panel-b'] }]);
+    vi.useRealTimers();
+  });
+
+  it('coalesces production layout callbacks into one quiet-debounced Dockview gesture boundary', async () => {
+    vi.useFakeTimers();
+    const store = mutationRepository(aggregate({ panels: [{ id: 'panel-a', craftWorkspaceId }, { id: 'panel-b', craftWorkspaceId }] }));
+    const coordinator = createDockviewLayoutGestureAdapter({
+      api: {
+        fromJSON: vi.fn(),
+        toJSON: vi.fn()
+          .mockReturnValueOnce(snapshot(['panel-a', 'panel-b']))
+          .mockReturnValueOnce(snapshot(['panel-b', 'panel-a']))
+          .mockReturnValueOnce(snapshot(['panel-b', 'panel-a'])),
+      },
+      coordinator: createDockviewMutationCoordinator({
+        aggregate: store.current,
+        api: { fromJSON: vi.fn(), toJSON: () => snapshot(['panel-b', 'panel-a']) },
+        repository: store.repo,
+      }),
+      quietMs: 25,
+    });
+
+    coordinator.capture();
+    coordinator.capture();
+    await vi.advanceTimersByTimeAsync(24);
+    expect(store.commits).toEqual([]);
+    await vi.advanceTimersByTimeAsync(1);
+    expect(store.commits).toEqual([{ expectedRevision: 7, panelIds: ['panel-a', 'panel-b'] }]);
+    vi.useRealTimers();
+  });
+
+  it('renders the TEST_CASE_M3_2F semantic browser harness with real normalized VoyageRepository storage', async () => {
+    const sqlite = new Database(':memory:');
+    sqlite.pragma('foreign_keys = ON');
+    const db = new Kysely<DB>({ dialect: new SqliteDialect({ database: sqlite }) });
+    try {
+      await migrateExternalIntegrationsDb(db);
+      const repository = new VoyageRepository(db, { snapshotCodec: productionDockviewSnapshotCodec });
+      const fixture = createDockviewM32HarnessAggregate();
+      await repository.createVoyage({
+        id: fixture.id,
+        name: fixture.metadata.name,
+        crafts: fixture.crafts,
+        panels: fixture.panels.map(({ lastActivatedSequence: _lastActivatedSequence, ...panel }) => panel),
+        snapshot: fixture.layout.snapshot,
+      });
+      const aggregateFromSqlite = await repository.loadVoyage(fixture.id);
+
+      await repository.commitLayoutMutation({
+        voyageId: aggregateFromSqlite.id,
+        expectedRevision: aggregateFromSqlite.revision,
+        panels: aggregateFromSqlite.panels.map(({ lastActivatedSequence: _lastActivatedSequence, ...panel }) => panel),
+        snapshot: snapshot(['panel-c', 'panel-b', 'panel-a']),
+      });
+      expect((await repository.loadVoyage(fixture.id)).history).toHaveLength(2);
+
+      const markup = renderToStaticMarkup(
+        React.createElement(IntlProvider, { locale: 'en' }, React.createElement(DockviewM32SemanticHarness, {
+          aggregate: await repository.loadVoyage(fixture.id),
+          repository,
+          contextForCraft: () => context(),
+        })),
+      );
+
+      expect(markup).toContain('data-testid="dockview-m3-2-harness"');
+      expect(markup).toContain('Queue open Panel');
+      expect(markup).toContain('Start gesture');
+      expect(markup).toContain('Complete gesture');
+      expect(markup).toContain('Programmatic focus Panel D');
+      expect(markup).toContain('Flush before eviction');
+      expect(markup).toContain('DockView M3.2 visible coordinator state');
+      expect(markup).toContain('topologyAgreement');
+      expect(dockviewReactBoundary.panelMarkupDuringFromJSON).toContain('data-renderer-key="craft-overview"');
+    } finally {
+      await db.destroy();
+      sqlite.close();
+    }
   });
 
   it('renders the TEST_CASE_M3_2F semantic browser harness route with labeled controls and visible state', () => {
     const markup = renderToStaticMarkup(
-      React.createElement(IntlProvider, { locale: 'en' }, React.createElement(DockviewM32HarnessRoute)),
+      React.createElement(IntlProvider, { locale: 'en' }, React.createElement(DockviewM32SemanticHarness, {
+        aggregate: createDockviewM32HarnessAggregate(),
+        repository: mutationRepository(createDockviewM32HarnessAggregate()).repo,
+        contextForCraft: () => context(),
+      })),
     );
 
     expect(markup).toContain('data-testid="dockview-m3-2-harness"');

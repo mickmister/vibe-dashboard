@@ -228,13 +228,35 @@ describe('DockView M3.2 serialized mutation coordinator', () => {
       apply: (current) => ({ panels: current.panels, snapshot: snapshot(current.panels.map(({ id }) => id), 'panel-b') }),
     });
     await vi.advanceTimersByTimeAsync(60);
-    await expect(staleFlush).resolves.toEqual(expect.objectContaining({ status: 'skipped', reason: 'stale-debounce' }));
-    expect(store.calls).toHaveLength(2);
+    await expect(staleFlush).resolves.toEqual(expect.objectContaining({ status: 'committed', revision: 2 }));
+    expect(store.calls).toHaveLength(3);
 
     const invalid = coordinator.beginGesture('invalid');
     coordinator.captureGestureSnapshot(invalid, { invalid: true });
     await expect(coordinator.completeGesture(invalid, { debounceMs: 0 })).resolves.toEqual(expect.objectContaining({ status: 'rejected' }));
     expect(dockview.fromJSON).toHaveBeenLastCalledWith(snapshot(['panel-a', 'panel-b', 'panel-c'], 'panel-b'));
+  });
+
+  it('serializes a completed debounced gesture before later structural commands instead of dropping it', async () => {
+    vi.useFakeTimers();
+    const store = repository();
+    const coordinator = createDockviewMutationCoordinator({ aggregate: store.current, api: api(), repository: store.repo, gestureDebounceMs: 50 });
+
+    const gesture = coordinator.beginGesture('drag');
+    coordinator.captureGestureSnapshot(gesture, snapshot(['panel-c', 'panel-b', 'panel-a'], 'panel-c'));
+    const debounced = coordinator.completeGesture(gesture);
+    const structural = coordinator.enqueueCommand({
+      id: 'open-panel-d',
+      apply: (current) => ({
+        panels: [...current.panels, panel('panel-d')],
+        snapshot: snapshot(['panel-c', 'panel-b', 'panel-a', 'panel-d'], 'panel-d'),
+      }),
+    });
+
+    await expect(debounced).resolves.toEqual(expect.objectContaining({ status: 'committed', revision: 1 }));
+    await expect(structural).resolves.toEqual(expect.objectContaining({ status: 'committed', revision: 2 }));
+    expect(store.calls.map(({ expectedRevision }) => expectedRevision)).toEqual([0, 1]);
+    vi.useRealTimers();
   });
 
   it('TEST_CASE_M3_2C restores CAS winner and replays only deterministic commands with valid preconditions', async () => {
@@ -284,6 +306,30 @@ describe('DockView M3.2 serialized mutation coordinator', () => {
     expect(coordinator.visibleState()).toMatchObject({ revision: 1, activePanelId: 'panel-b' });
     expect(store.current.panels.find(({ id }) => id === 'panel-b')?.lastActivatedSequence).toBe(5);
     expect(dockview.fromJSON).toHaveBeenLastCalledWith(snapshot(['panel-a', 'panel-b'], 'panel-b'));
+  });
+
+  it('surfaces recovery instead of publishing a post-commit load from the wrong revision', async () => {
+    const store = repository();
+    const originalCommit = store.repo.commitLayoutMutation;
+    store.repo.commitLayoutMutation = async (input) => {
+      const revision = await originalCommit(input);
+      store.current = { ...store.current, revision: revision + 1 };
+      return revision;
+    };
+    const coordinator = createDockviewMutationCoordinator({ aggregate: store.current, api: api(), repository: store.repo });
+
+    await expect(coordinator.enqueueCommand({
+      id: 'commit-race',
+      apply: (current) => ({
+        panels: current.panels,
+        snapshot: snapshot(current.panels.map(({ id }) => id), 'panel-b'),
+      }),
+    })).resolves.toEqual(expect.objectContaining({
+      status: 'conflict',
+      reason: 'committed-revision-mismatch',
+      revision: 2,
+    }));
+    expect(coordinator.visibleState().lastConflict).toBe('committed-revision-mismatch');
   });
 
   it('wraps programmatic focus suppression around the actual focus callback', async () => {
