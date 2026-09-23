@@ -139,16 +139,47 @@ export function isSandboxRuntimeProcessLine(line: string): boolean {
     !line.includes('ci-run-vk-mocked-sandbox-e2e.sh');
 }
 
+function linePid(line: string): string | null {
+  return line.trim().match(/^(\d+)\b/)?.[1] ?? null;
+}
+
+function isPathWithin(parent: string, child: string): boolean {
+  const relative = path.relative(parent, child);
+  return relative === '' || (!relative.startsWith('..') && !path.isAbsolute(relative));
+}
+
+export async function isSandboxRuntimeProcessLineForWorkspace(line: string): Promise<boolean> {
+  if (!isSandboxRuntimeProcessLine(line)) return false;
+  if (line.includes(repoRoot) || line.includes(workspaceRoot)) return true;
+
+  const pid = linePid(line);
+  if (!pid) return true;
+
+  try {
+    const { stdout } = await execFileAsync('pwdx', [pid]);
+    const cwd = stdout.replace(/^\d+:\s*/, '').trim();
+    return isPathWithin(workspaceRoot, cwd);
+  } catch {
+    // If we cannot identify ownership, keep the guard fail-closed.
+    return true;
+  }
+}
+
 async function runningSandboxProcesses(): Promise<string[]> {
   try {
     const { stdout } = await execFileAsync('pgrep', [
       '-af',
       sandboxProcessPattern,
     ]);
-    return stdout
+    const candidates = stdout
       .split('\n')
       .map((line) => line.trim())
       .filter(isSandboxRuntimeProcessLine);
+    const owned: string[] = [];
+    for (const line of candidates) {
+      if (await isSandboxRuntimeProcessLineForWorkspace(line)) owned.push(line);
+    }
+    return owned;
   } catch {
     return [];
   }

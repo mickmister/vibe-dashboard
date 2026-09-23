@@ -23,7 +23,10 @@ import {
   writeSandboxFiles,
   type PortAllocator,
 } from './vk-mocked-sandbox';
-import { isSandboxRuntimeProcessLine } from './e2e-vk-mocked-sandbox-fixtures';
+import {
+  isSandboxRuntimeProcessLine,
+  isSandboxRuntimeProcessLineForWorkspace,
+} from './e2e-vk-mocked-sandbox-fixtures';
 
 describe('VK mocked sandbox helpers', () => {
   it('terminates a timed-out setup command instead of orphaning it', async () => {
@@ -86,6 +89,12 @@ describe('VK mocked sandbox helpers', () => {
     expect(isSandboxRuntimeProcessLine(
       '6789 /tmp/workspace/vibe-kanban-vscode-web/.vk-mocked-sandbox/vk-release-assets/ff79144e3842e5454ffc36b5546a1336ab4da993/31655931916/extracted/vibe-kanban',
     )).toBe(true);
+  });
+
+  it('ignores live sandbox processes from another worktree when checking fixtures', async () => {
+    await expect(isSandboxRuntimeProcessLineForWorkspace(
+      '2285905 caddy run --config /var/tmp/vibe-kanban/worktrees/other/vibe-kanban-vscode-web/.vk-mocked-sandbox/current/Caddyfile --adapter caddyfile',
+    )).resolves.toBe(false);
   });
 
   it('uses explicit env port overrides when present', async () => {
