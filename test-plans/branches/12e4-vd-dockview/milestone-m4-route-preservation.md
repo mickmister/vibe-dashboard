@@ -80,7 +80,11 @@ Steps:
    Craft has an existing most-recent Panel.
 4. Open a Craft route where no Panel exists but a deterministic default Panel can
    be opened by the current registry.
-5. Open with both `panel` and `craft`.
+5. Open equivalent Voyage, Craft, and Panel focus URLs using generated slug
+   tokens.
+6. Open equivalent Voyage, Craft, and Panel focus URLs using collision-aware
+   short ID tokens.
+7. Open with both `panel` and `craft`.
 
 Expected:
 
@@ -88,6 +92,8 @@ Expected:
 - Valid `panel` activates/focuses that Panel.
 - Without valid `panel`, valid `craft` focuses the Craft's most-recent Panel or
   opens its default Panel only through trusted deterministic resolution.
+- Generated slug tokens and collision-aware short ID tokens resolve to the same
+  canonical Voyage/Craft/Panel focus as their full stable tokens.
 - If both `panel` and `craft` are present, the documented single focal target
   precedence is deterministic and visible.
 - Invalid focus intent never mutates layout or creates fallback Panels.
@@ -98,6 +104,8 @@ Error cases:
   focus/mutation.
 - Missing Voyage, stale Panel, stale Craft, or removed target definition produces
   typed recovery with a safe Back/dashboard path.
+- Ambiguous, malformed, or colliding slug/short tokens produce typed
+  non-mutating recovery and do not guess a focus target.
 
 ### TEST_CASE_M4_2C — Legacy `views` and stored URL compatibility
 
@@ -106,9 +114,11 @@ Steps:
 1. Open legacy URLs containing comma-separated `views` tokens that map to
    migrated Panels.
 2. Open legacy URLs whose `views` tokens require deterministic open commands.
-3. Open a stored `workspace-last-dashboard-url` using `/` and `/dashboard` forms
+3. Open legacy URLs whose `views` entries use generated slugs or collision-aware
+   short ID tokens for migrated views.
+4. Open a stored `workspace-last-dashboard-url` using `/` and `/dashboard` forms
    with supported focus intent.
-4. Verify resulting canonical URL and repository state.
+5. Verify resulting canonical URL and repository state.
 
 Expected:
 
@@ -118,6 +128,8 @@ Expected:
   possible.
 - Where deterministic open is allowed, exactly one trusted command runs and then
   canonicalizes to the resulting Panel focus.
+- Legacy generated slugs and collision-aware short ID tokens resolve
+  deterministically before canonicalization.
 - Supported focus intent is preserved across stored URL normalization.
 - Unrelated query parameters survive normalization.
 
@@ -126,6 +138,8 @@ Error cases:
 - Ambiguous, removed-plugin, malformed, unauthorized, or cross-Voyage `views`
   tokens show non-destructive recovery and do not mutate layouts.
 - Duplicate legacy view tokens do not duplicate Panels or commands.
+- Ambiguous slug collisions and malformed short tokens in `views` show typed
+  non-mutating recovery.
 
 ### TEST_CASE_M4_2D — Homepage legacy tokens are non-mutating
 
