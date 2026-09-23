@@ -2188,6 +2188,10 @@ export function WorkspaceShell({
           savedSessions={savedSessions}
           currentSessionId={currentSessionId}
           onRequestClose={() => setIsSidebarOpen(false)}
+          onOpenHome={() => {
+            navigate("/");
+            setIsSidebarOpen(false);
+          }}
           onOpenPluginAdmin={() => {
             setIsSidebarOpen(false);
             navigate("/dashboard/admin/plugins");
