@@ -9,6 +9,8 @@ import {
   hasHomepageLegacyDashboardToken,
   normalizeStoredDashboardUrl,
   parseViewsParam,
+  resolveFocusToken,
+  resolveFocusTokens,
 } from './voyageUrl';
 import { resolveDashboardVoyage, resolveRequestedVoyageSessionId } from './voyageSession';
 
@@ -68,6 +70,11 @@ describe('DockView M4.2 route preservation contracts', () => {
       .toBe('/?voyage=alpha-1&craft=alpha-craft-1-1&panel=agent-1');
   });
 
+  it('TEST_CASE_M4_2C fails closed for legacy views that would require deterministic open authority', () => {
+    expect(resolveFocusTokens('plugin-panel-99', ['panel_agent_1', 'panel_code_2']))
+      .toEqual({ status: 'invalid', reason: 'ambiguous-or-missing' });
+  });
+
   it('TEST_CASE_M4_2D recognizes homepage legacy tokens as non-mutating dashboard intent', () => {
     expect(hasHomepageLegacyDashboardToken('?voyage=tg_home')).toBe(true);
     expect(resolveDashboardVoyage({ savedSessions: [savedSession], requestedVoyageKey: 'internal://spaces-overview' }))
@@ -88,5 +95,13 @@ describe('DockView M4.2 route preservation contracts', () => {
       ],
       requestedVoyageKey: 'voyage-123',
     })).toBeUndefined();
+    expect(resolveFocusToken('missing-panel', ['panel_agent_1'])).toEqual({
+      status: 'invalid',
+      reason: 'ambiguous-or-missing',
+    });
+    expect(resolveFocusToken('panel-1', ['panel_agent_1', 'panel_code_1'])).toEqual({
+      status: 'invalid',
+      reason: 'ambiguous-or-missing',
+    });
   });
 });

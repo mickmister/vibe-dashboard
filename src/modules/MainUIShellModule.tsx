@@ -16,11 +16,7 @@ import {
   buildVoyageParam,
   getStoredLastDashboardUrl,
   hasHomepageLegacyDashboardToken,
-  parseCraftParam,
-  parseViewParam,
-  parseViewsParam,
   setStoredLastDashboardUrl,
-  shortIdTokenMatches,
 } from "../lib/voyageUrl";
 import {
   ExternalKanbanDashboardRoute,
@@ -41,6 +37,7 @@ import { getCraftPluginAuthorizationSnapshot, usePluginRegistry } from "./plugin
 import type { ResolvedWorkspaceComposition } from "./plugins/vibe-dashboard/workspace-composition";
 import { createEffectiveWorkspaceWithCraftSurfaces } from "./plugins/vibe-dashboard/craft-surfaces";
 import { VibeIntlProvider } from "../i18n";
+import { resolveDashboardFocusSelection } from "../lib/dashboardRouteIntent";
 
 // Ensure dark class is on the document root so portaled elements (modals, popovers)
 // inherit dark mode styles
@@ -98,104 +95,6 @@ function isHomeVoyageDisplayName(displayName: string): boolean {
   return displayName.trim().toLowerCase() === "home";
 }
 
-function resolveQueryCraftSelection(
-  workspace: WorkspaceState,
-  session: SavedWorkspaceSession | undefined,
-  craftParam: string | undefined,
-  panelParam: string | undefined,
-  viewParam: string | undefined,
-): {
-  spaceId?: string;
-  tabGroupId?: string;
-  itemId?: string;
-  voyageEntryId?: string;
-  viewIds?: string[];
-} {
-  if (!(session && (craftParam || panelParam))) return {};
-  const panelSuffix = parseViewParam(panelParam);
-  if (session && panelSuffix && !craftParam) {
-    const matches = workspace.tabGroups.flatMap((tabGroup) => {
-      const tabIds = tabGroup.tabs.map((tab) => tab.id);
-      const tab = tabGroup.tabs.find((candidate) =>
-        shortIdTokenMatches(candidate.id, panelSuffix, tabIds),
-      );
-      if (!tab) return [];
-      const entry = session.voyageEntries.find(
-        (candidate) =>
-          candidate.tabGroupId === tabGroup.id &&
-          candidate.viewIds.includes(tab.id),
-      );
-      if (!entry) return [];
-      return [{ tabGroup, tab, entry }];
-    });
-    if (matches.length !== 1) return {};
-    const { tabGroup, tab, entry } = matches[0]!;
-    return {
-      spaceId: workspace.spaces.find((space) =>
-        space.tabGroupIds.includes(tabGroup.id),
-      )?.id,
-      tabGroupId: tabGroup.id,
-      itemId: tab.id,
-      voyageEntryId: entry.id,
-      viewIds: [tab.id],
-    };
-  }
-  if (!(session && craftParam)) return {};
-  const parsedCraft = parseCraftParam(craftParam);
-  if (!parsedCraft) return {};
-
-  const matchingEntry = session.voyageEntries?.find(
-    (entry) =>
-      shortIdTokenMatches(
-        entry.id,
-        parsedCraft.entrySuffix,
-        session.voyageEntries.map((candidate) => candidate.id),
-      ) &&
-      shortIdTokenMatches(
-        entry.tabGroupId,
-        parsedCraft.tabGroupSuffix,
-        workspace.tabGroups.map((candidate) => candidate.id),
-      ),
-  );
-  if (!matchingEntry) return {};
-
-  const tabGroup = workspace.tabGroups.find(
-    (entry) => entry.id === matchingEntry.tabGroupId,
-  );
-  if (!tabGroup) return {};
-
-  const viewSuffixes = panelSuffix ? [panelSuffix] : parseViewsParam(viewParam);
-  const tabIds = tabGroup.tabs.map((tab) => tab.id);
-  const viewIds = viewSuffixes
-    .map(
-      (suffix) =>
-        tabGroup.tabs.find((tab) => shortIdTokenMatches(tab.id, suffix, tabIds))
-          ?.id,
-    )
-    .filter((id): id is string => Boolean(id));
-  const resolvedViewIds = viewIds.length ? viewIds : matchingEntry.viewIds;
-  const itemId =
-    resolvedViewIds.length > 1
-      ? tabGroup.pairs.find(
-          (pair) =>
-            pair.tabIds.length === resolvedViewIds.length &&
-            pair.tabIds.every(
-              (tabId, index) => tabId === resolvedViewIds[index],
-            ),
-        )?.id || resolvedViewIds[0]
-      : resolvedViewIds[0];
-
-  return {
-    spaceId: workspace.spaces.find((space) =>
-      space.tabGroupIds.includes(tabGroup.id),
-    )?.id,
-    tabGroupId: tabGroup.id,
-    itemId,
-    voyageEntryId: matchingEntry.id,
-    viewIds: resolvedViewIds,
-  };
-}
-
 springboard.registerModule("MainUIShell", {}, async (moduleAPI) => {
   const DashboardRoute = () => {
     const location = useLocation();
@@ -244,7 +143,7 @@ springboard.registerModule("MainUIShell", {}, async (moduleAPI) => {
     );
     const duplicateRouteParam = ["voyage", "craft", "panel", "views"].find(
       (key) => sessionSearchParams.getAll(key).length > 1,
-    );
+    ) || (queryPanelParam && queryViewsParam ? "focus" : undefined);
     const storedDashboardUrl =
       typeof window === "undefined" || location.search
         ? undefined
@@ -303,7 +202,7 @@ springboard.registerModule("MainUIShell", {}, async (moduleAPI) => {
 
     const querySelection = useMemo(
       () =>
-        resolveQueryCraftSelection(
+        resolveDashboardFocusSelection(
           effectiveWorkspace,
           activeSavedSession,
           queryCraftParam,
@@ -337,8 +236,10 @@ springboard.registerModule("MainUIShell", {}, async (moduleAPI) => {
       activeSavedSession &&
       !hasHomepageLegacyToken
         ? queryPanelParam && !querySelection.viewIds?.length
-          ? "panel-not-found"
-          : queryCraftParam && !querySelection.voyageEntryId
+          ? querySelection.focusReason || "panel-not-found"
+          : queryViewsParam && querySelection.focusStatus === "invalid"
+            ? querySelection.focusReason || "views-not-found"
+            : queryCraftParam && !querySelection.voyageEntryId
             ? "craft-not-found"
             : undefined
         : undefined;

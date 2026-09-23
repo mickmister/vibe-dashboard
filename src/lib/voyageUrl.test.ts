@@ -1,3 +1,4 @@
+/* eslint-disable formatjs/no-literal-string-in-object */
 import { describe, expect, it } from 'vitest';
 import {
   buildCanonicalDashboardPath,
@@ -12,6 +13,8 @@ import {
   parseCraftParam,
   parseViewParam,
   parseViewsParam,
+  resolveFocusToken,
+  resolveFocusTokens,
   setStoredLastDashboardUrl,
 } from './voyageUrl';
 import type { Craft, SavedWorkspaceSession, VoyageEntry, WorkspaceState } from '../types';
@@ -240,5 +243,30 @@ describe('voyageUrl', () => {
     expect(hasHomepageLegacyDashboardToken('?voyage=tg_home')).toBe(true);
     expect(hasHomepageLegacyDashboardToken('?views=agent-1,internal%3A%2F%2Fspaces-overview')).toBe(true);
     expect(hasHomepageLegacyDashboardToken('?voyage=focused-abc&panel=agent-1')).toBe(false);
+  });
+
+  it('resolves requested Panel/views tokens only when exact and unambiguous', () => {
+    const peers = ['tab_agent_left_1', 'tab_agent_right_1', 'tab_code_2'];
+
+    expect(resolveFocusToken('agent-left-left_1', peers)).toEqual({
+      status: 'valid',
+      id: 'tab_agent_left_1',
+    });
+    expect(resolveFocusToken('agent-1', peers)).toEqual({
+      status: 'invalid',
+      reason: 'ambiguous-or-missing',
+    });
+    expect(resolveFocusTokens('agent-left-left_1,code-2', peers)).toEqual({
+      status: 'valid',
+      ids: ['tab_agent_left_1', 'tab_code_2'],
+    });
+    expect(resolveFocusTokens('code-2,code-2', peers)).toEqual({
+      status: 'invalid',
+      reason: 'duplicate',
+    });
+    expect(resolveFocusTokens('missing', peers)).toEqual({
+      status: 'invalid',
+      reason: 'ambiguous-or-missing',
+    });
   });
 });

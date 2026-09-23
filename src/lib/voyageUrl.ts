@@ -132,6 +132,47 @@ export function parseViewsParam(value: string | null | undefined): string[] {
     .filter((entry): entry is string => Boolean(entry));
 }
 
+export type FocusTokenResolution =
+  | { status: 'absent' }
+  | { status: 'valid'; id: string }
+  | { status: 'invalid'; reason: 'malformed' | 'ambiguous-or-missing' };
+type InvalidFocusTokenReason = Extract<FocusTokenResolution, { status: 'invalid' }>['reason'];
+
+export type FocusTokensResolution =
+  | { status: 'absent' }
+  | { status: 'valid'; ids: string[] }
+  | { status: 'invalid'; reason: InvalidFocusTokenReason | 'duplicate' };
+
+export function resolveFocusToken(
+  token: string | null | undefined,
+  peerIds: string[],
+): FocusTokenResolution {
+  const suffix = parseViewParam(token);
+  if (!suffix) return { status: 'absent' };
+  const matches = peerIds.filter((id) => shortIdTokenMatches(id, suffix, peerIds));
+  return matches.length === 1
+    ? { status: 'valid', id: matches[0]! }
+    : { status: 'invalid', reason: 'ambiguous-or-missing' };
+}
+
+export function resolveFocusTokens(
+  value: string | null | undefined,
+  peerIds: string[],
+): FocusTokensResolution {
+  if (!value) return { status: 'absent' };
+  const tokens = value.split(',').map((entry) => entry.trim()).filter(Boolean);
+  if (!tokens.length) return { status: 'invalid', reason: 'malformed' };
+  const ids: string[] = [];
+  for (const token of tokens) {
+    const resolved = resolveFocusToken(token, peerIds);
+    if (resolved.status === 'absent') return { status: 'invalid', reason: 'malformed' };
+    if (resolved.status === 'invalid') return { status: 'invalid', reason: resolved.reason };
+    if (ids.includes(resolved.id)) return { status: 'invalid', reason: 'duplicate' };
+    ids.push(resolved.id);
+  }
+  return { status: 'valid', ids };
+}
+
 export function buildCanonicalDashboardPath(
   currentSearch: string,
   voyage:
