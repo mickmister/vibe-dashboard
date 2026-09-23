@@ -15,7 +15,7 @@ const PANEL_RECOVERY_HEADING = 'Panel recovery';
 const PANEL_RECOVERY_BODY = 'This Panel target is unavailable or unsafe to render.';
 
 export interface DockviewControllerApi {
-  fromJSON(snapshot: SerializedDockview): void;
+  fromJSON(snapshot: SerializedDockview, options?: { reuseExistingPanels?: boolean }): void;
   toJSON(): SerializedDockview;
   getPanel?(panelId: string): { api: { setActive(): void } } | undefined;
   onDidActivePanelChange?(listener: (event: { panel?: { id: string } | null; origin: 'user' | 'api' }) => void): { dispose(): void };
@@ -99,7 +99,7 @@ export function restoreDockviewController(input: {
   const snapshot = canonical.snapshot as unknown as SerializedDockview;
   const result = createResult('restored', input.aggregate, resolvedPanels, snapshot);
   input.onBeforeFromJSON?.(result);
-  input.api.fromJSON(snapshot);
+  input.api.fromJSON(snapshot, { reuseExistingPanels: true });
   return result;
 }
 
@@ -111,7 +111,7 @@ function restoreSafe(
   const snapshot = buildSafeSnapshot(panels.map(({ id }) => id));
   const result = createResult('quarantined', input.aggregate, panels, snapshot, reason);
   input.onBeforeFromJSON?.(result);
-  input.api.fromJSON(snapshot);
+  input.api.fromJSON(snapshot, { reuseExistingPanels: true });
   return result;
 }
 

@@ -41,6 +41,7 @@ const craftId = 'craft-a';
 const dockviewReactBoundary = vi.hoisted(() => ({
   panelMarkupDuringFromJSON: '',
   api: undefined as DockviewControllerApi | undefined,
+  fromJSONCalls: [] as Array<{ snapshot: SerializedDockview; options?: { reuseExistingPanels?: boolean } }>,
   activeListeners: [] as Array<(event: { panel?: { id: string } | null; origin: 'user' | 'api' }) => void>,
   layoutListeners: [] as Array<() => void>,
   focusCalls: [] as string[],
@@ -55,7 +56,8 @@ vi.mock('dockview-react', async () => {
       onReady: (event: { api: DockviewControllerApi }) => void;
     }) => {
       const api: DockviewControllerApi = {
-        fromJSON(snapshotValue) {
+        fromJSON(snapshotValue, options) {
+          dockviewReactBoundary.fromJSONCalls.push({ snapshot: snapshotValue, options });
           const panelId = Object.keys(snapshotValue.panels)[0] ?? 'panel-a';
           const Component = props.components['iframe-panel'];
           if (!Component) throw new Error('missing iframe-panel component');
@@ -104,6 +106,7 @@ vi.mock('react-intl', async () => {
 beforeEach(() => {
   dockviewReactBoundary.panelMarkupDuringFromJSON = '';
   dockviewReactBoundary.api = undefined;
+  dockviewReactBoundary.fromJSONCalls = [];
   dockviewReactBoundary.activeListeners = [];
   dockviewReactBoundary.layoutListeners = [];
   dockviewReactBoundary.focusCalls = [];
@@ -291,7 +294,7 @@ describe('Dockview M3.1 controller restore and Panel rendering', () => {
 
     expect(result.status).toBe('restored');
     expect(dockview.fromJSON).toHaveBeenCalledTimes(1);
-    expect(dockview.fromJSON).toHaveBeenCalledWith(snapshot(['panel-a']));
+    expect(dockview.fromJSON).toHaveBeenCalledWith(snapshot(['panel-a']), { reuseExistingPanels: true });
     expect(result.panels.map(({ id, resolved }) => [id, resolved.status])).toEqual([['panel-a', 'resolved']]);
   });
 
@@ -311,7 +314,7 @@ describe('Dockview M3.1 controller restore and Panel rendering', () => {
       reason: 'workspace-owner-mismatch',
     }));
     expect(dockview.fromJSON).toHaveBeenCalledTimes(1);
-    expect(dockview.fromJSON).toHaveBeenCalledWith(snapshot([]));
+    expect(dockview.fromJSON).toHaveBeenCalledWith(snapshot([]), { reuseExistingPanels: true });
     expect(result.panels).toEqual([]);
 
     const markup = renderToStaticMarkup(
@@ -350,7 +353,7 @@ describe('Dockview M3.1 controller restore and Panel rendering', () => {
     expect(quarantine).toHaveBeenCalledWith(expect.objectContaining({
       reason: 'invalid-dockview-snapshot',
     }));
-    expect(dockview.fromJSON).toHaveBeenCalledWith(snapshot(['panel-a']));
+    expect(dockview.fromJSON).toHaveBeenCalledWith(snapshot(['panel-a']), { reuseExistingPanels: true });
   });
 
   it('renders resolved Panels from trusted current definitions using stable Panel IDs', () => {
@@ -386,6 +389,7 @@ describe('Dockview M3.1 controller restore and Panel rendering', () => {
     expect(dockviewReactBoundary.panelMarkupDuringFromJSON).toContain('data-renderer-key="craft-overview"');
     expect(dockviewReactBoundary.panelMarkupDuringFromJSON).toContain('<iframe');
     expect(dockviewReactBoundary.panelMarkupDuringFromJSON).not.toContain('Panel recovery');
+    expect(dockviewReactBoundary.fromJSONCalls.at(-1)?.options).toEqual({ reuseExistingPanels: true });
   });
 
   it('installs one coordinator at the Workbench boundary so Dockview callbacks persist through it', async () => {

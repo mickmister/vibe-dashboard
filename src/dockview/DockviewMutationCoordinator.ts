@@ -10,7 +10,7 @@ import {
 
 export interface DockviewMutationApi {
   toJSON(): SerializedDockview;
-  fromJSON(snapshot: SerializedDockview): void;
+  fromJSON(snapshot: SerializedDockview, options?: { reuseExistingPanels?: boolean }): void;
 }
 
 export interface DockviewMutationRepository {
@@ -225,7 +225,7 @@ class SerializedDockviewMutationCoordinator implements DockviewMutationCoordinat
       this.accepted = aggregate;
       this.currentActivePanelId = activePanelId(aggregate.layout.snapshot);
       this.input.onAcceptedAggregate?.(aggregate);
-      this.input.api.fromJSON(aggregate.layout.snapshot as unknown as SerializedDockview);
+      this.input.api.fromJSON(aggregate.layout.snapshot as unknown as SerializedDockview, { reuseExistingPanels: true });
     } finally {
       this.suppressActivations = false;
     }

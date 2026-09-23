@@ -195,7 +195,7 @@ function api(initial = snapshot(['panel-a', 'panel-b', 'panel-c'])) {
   return {
     restored: [] as SerializedDockview[],
     toJSON: vi.fn(() => value),
-    fromJSON: vi.fn((next: SerializedDockview) => {
+    fromJSON: vi.fn((next: SerializedDockview, _options?: { reuseExistingPanels?: boolean }) => {
       value = next;
       apiState.restored.push(next);
     }),
@@ -259,7 +259,7 @@ describe('DockView M3.2 serialized mutation coordinator', () => {
       apply: (current) => ({ panels: current.panels, snapshot: current.layout.snapshot }),
       validate: () => { throw new VoyageInvariantError('invalid command'); },
     })).resolves.toEqual(expect.objectContaining({ status: 'rejected', reason: 'invalid command' }));
-    expect(dockview.fromJSON).toHaveBeenLastCalledWith(snapshot(['panel-a', 'panel-c', 'panel-d'], 'panel-d'));
+    expect(dockview.fromJSON).toHaveBeenLastCalledWith(snapshot(['panel-a', 'panel-c', 'panel-d'], 'panel-d'), { reuseExistingPanels: true });
     expect(store.calls).toHaveLength(2);
   });
 
@@ -299,7 +299,7 @@ describe('DockView M3.2 serialized mutation coordinator', () => {
     const invalid = coordinator.beginGesture('invalid');
     coordinator.captureGestureSnapshot(invalid, { invalid: true });
     await expect(coordinator.completeGesture(invalid, { debounceMs: 0 })).resolves.toEqual(expect.objectContaining({ status: 'rejected' }));
-    expect(dockview.fromJSON).toHaveBeenLastCalledWith(snapshot(['panel-a', 'panel-b', 'panel-c'], 'panel-b'));
+    expect(dockview.fromJSON).toHaveBeenLastCalledWith(snapshot(['panel-a', 'panel-b', 'panel-c'], 'panel-b'), { reuseExistingPanels: true });
   });
 
   it('serializes a completed debounced gesture before later structural commands instead of dropping it', async () => {
@@ -340,7 +340,7 @@ describe('DockView M3.2 serialized mutation coordinator', () => {
       canReplay: (winner) => winner.panels.some(({ id }) => id === 'panel-d'),
       apply: (current) => ({ panels: current.panels.filter(({ id }) => id !== 'panel-a'), snapshot: snapshot(['panel-b', 'panel-c', 'panel-d'], 'panel-d') }),
     })).resolves.toEqual(expect.objectContaining({ status: 'replayed', revision: 2 }));
-    expect(clientBApi.fromJSON).toHaveBeenCalledWith(snapshot(['panel-a', 'panel-b', 'panel-c', 'panel-d'], 'panel-d'));
+    expect(clientBApi.fromJSON).toHaveBeenCalledWith(snapshot(['panel-a', 'panel-b', 'panel-c', 'panel-d'], 'panel-d'), { reuseExistingPanels: true });
 
     const staleAgain = createDockviewMutationCoordinator({ aggregate: aggregate(['panel-a', 'panel-b', 'panel-c'], 0), api: api(), repository: store.repo });
     await expect(staleAgain.enqueueCommand({
@@ -370,7 +370,7 @@ describe('DockView M3.2 serialized mutation coordinator', () => {
 
     expect(coordinator.visibleState()).toMatchObject({ revision: 1, activePanelId: 'panel-b' });
     expect(store.current.panels.find(({ id }) => id === 'panel-b')?.lastActivatedSequence).toBe(5);
-    expect(dockview.fromJSON).toHaveBeenLastCalledWith(snapshot(['panel-a', 'panel-b'], 'panel-b'));
+    expect(dockview.fromJSON).toHaveBeenLastCalledWith(snapshot(['panel-a', 'panel-b'], 'panel-b'), { reuseExistingPanels: true });
   });
 
   it('surfaces recovery instead of publishing a post-commit load from the wrong revision', async () => {
@@ -526,10 +526,15 @@ describe('DockView M3.2 serialized mutation coordinator', () => {
       apply: (current) => ({ panels: current.panels.filter(({ id }) => id !== 'panel-b'), snapshot: snapshot(['panel-a', 'panel-c', 'panel-d'], 'panel-d') }),
     });
 
+    dockview.fromJSON.mockImplementationOnce((next: SerializedDockview) => {
+      void coordinator.handleActivePanelChange('panel-a', { origin: 'user', input: 'pointer' });
+      apiState.restored.push(next);
+    });
     await expect(coordinator.undoHistory()).resolves.toEqual(expect.objectContaining({ status: 'restored', direction: 'undo', revision: 3 }));
-    expect(dockview.fromJSON).toHaveBeenLastCalledWith(snapshot(['panel-a', 'panel-b', 'panel-c', 'panel-d'], 'panel-d'));
+    expect(dockview.fromJSON).toHaveBeenLastCalledWith(snapshot(['panel-a', 'panel-b', 'panel-c', 'panel-d'], 'panel-d'), { reuseExistingPanels: true });
+    expect(store.current.activationSequence).toBe(0);
     await expect(coordinator.redoHistory()).resolves.toEqual(expect.objectContaining({ status: 'restored', direction: 'redo', revision: 4 }));
-    expect(dockview.fromJSON).toHaveBeenLastCalledWith(snapshot(['panel-a', 'panel-c', 'panel-d'], 'panel-d'));
+    expect(dockview.fromJSON).toHaveBeenLastCalledWith(snapshot(['panel-a', 'panel-c', 'panel-d'], 'panel-d'), { reuseExistingPanels: true });
     expect(coordinator.visibleState()).toMatchObject({ revision: 4, historyCount: 3, historyCursorSequence: 2, topologyAgreement: true });
   });
 
