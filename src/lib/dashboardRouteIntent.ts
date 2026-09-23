@@ -83,9 +83,11 @@ export function resolveDashboardFocusSelection(
   );
   if (!tabGroup) return empty('invalid', 'craft-not-found');
 
-  const tabIds = tabGroup.tabs.map((tab) => tab.id);
-  const panelResolution = resolveFocusToken(panelParam, tabIds);
-  const viewsResolution = resolveFocusTokens(viewParam, tabIds);
+  const entryPanelIds = matchingEntry.viewIds.filter((viewId) =>
+    tabGroup.tabs.some((tab) => tab.id === viewId),
+  );
+  const panelResolution = resolveFocusToken(panelParam, entryPanelIds);
+  const viewsResolution = resolveFocusTokens(viewParam, entryPanelIds);
   if (panelResolution.status === 'invalid') return empty('invalid', 'panel-not-found');
   if (viewsResolution.status === 'invalid') return empty('invalid', 'views-not-found');
   const resolvedViewIds = panelResolution.status === 'valid'

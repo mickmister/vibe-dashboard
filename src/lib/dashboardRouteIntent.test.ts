@@ -67,24 +67,47 @@ describe('resolveDashboardFocusSelection', () => {
   it('does not guess colliding panel tokens', () => {
     expect(resolveDashboardFocusSelection(
       collidingWorkspace,
-      session,
+      {
+        ...session,
+        voyageEntries: [{ ...session.voyageEntries[0]!, viewIds: ['panel_agent_1', 'panel_code_1'] }],
+      },
       'alpha-craft-1-1',
       'panel-1',
       undefined,
     )).toEqual({ focusStatus: 'invalid', focusReason: 'panel-not-found' });
   });
 
-  it('resolves exact valid panel focus', () => {
+  it('fails closed when requested panel is a workspace tab outside the selected Voyage entry', () => {
     expect(resolveDashboardFocusSelection(
       workspace,
       session,
       'alpha-craft-1-1',
       'code-2',
       undefined,
+    )).toEqual({ focusStatus: 'invalid', focusReason: 'panel-not-found' });
+  });
+
+  it('fails closed when requested legacy views include a workspace tab outside the selected Voyage entry', () => {
+    expect(resolveDashboardFocusSelection(
+      workspace,
+      session,
+      'alpha-craft-1-1',
+      undefined,
+      'code-2',
+    )).toEqual({ focusStatus: 'invalid', focusReason: 'views-not-found' });
+  });
+
+  it('resolves exact valid panel focus for current Voyage entry Panels only', () => {
+    expect(resolveDashboardFocusSelection(
+      workspace,
+      session,
+      'alpha-craft-1-1',
+      'agent-1',
+      undefined,
     )).toMatchObject({
       focusStatus: 'valid',
-      itemId: 'panel_code_2',
-      viewIds: ['panel_code_2'],
+      itemId: 'panel_agent_1',
+      viewIds: ['panel_agent_1'],
     });
   });
 });
