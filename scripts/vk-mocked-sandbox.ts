@@ -676,12 +676,18 @@ export function createSandboxPlan(input: {
     {
       name: 'vd-dashboard',
       cwd: vdRoot,
-      command: 'npm',
-      args: ['run', 'dev'],
+      command: 'bash',
+      args: ['-lc', [
+        `until curl --fail --silent --show-error http://127.0.0.1:${input.ports.vkBackend}/api/workspaces >/dev/null; do`,
+        '  sleep 1;',
+        'done;',
+        'npm run dev',
+      ].join(' ')],
       env: {
         ...commonEnv,
         PORT: String(input.ports.vdDashboard),
         SERVER_PORT: String(input.ports.vdServer),
+        VIBE_API_URL: `http://127.0.0.1:${input.ports.vkBackend}/api`,
         VITE_VK_BASE_ORIGIN: vkFrontendUrl,
         CADDY_PORT: String(input.ports.vdCaddy),
       },
