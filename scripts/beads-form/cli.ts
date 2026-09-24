@@ -153,8 +153,17 @@ export type AttachResult = {
       dir: string;
       workspace?: string;
     };
+    authoringNextSteps: AuthoringNextSteps;
   }>;
   metadata: JsonObject;
+};
+
+export type AuthoringNextSteps = {
+  message: string;
+  commands: {
+    showFirstQuestion: string;
+    updateQuestionFromFile: string;
+  };
 };
 
 export type AppendQuestionsPatch = {
@@ -387,8 +396,8 @@ function normalizeQuestionSelectorOptions(options: CliOptions, commandName: stri
   if ((questionId ? 1 : 0) + (rawIndex ? 1 : 0) !== 1) {
     throw new Error(`${commandName} requires exactly one of --question <question-id> or --index <one-based-index>`);
   }
-  const questionIndex = rawIndex ? Number.parseInt(rawIndex, 10) : undefined;
-  if (rawIndex && (!Number.isInteger(questionIndex) || questionIndex < 1)) {
+  const parsedQuestionIndex = rawIndex ? Number.parseInt(rawIndex, 10) : undefined;
+  if (rawIndex && (!Number.isInteger(parsedQuestionIndex) || (parsedQuestionIndex ?? 0) < 1)) {
     throw new Error(`${commandName} --index must be a one-based positive integer`);
   }
   return {
@@ -396,7 +405,7 @@ function normalizeQuestionSelectorOptions(options: CliOptions, commandName: stri
     beadId,
     formId,
     ...(questionId ? { questionId } : {}),
-    ...(questionIndex ? { questionIndex } : {}),
+    ...(parsedQuestionIndex ? { questionIndex: parsedQuestionIndex } : {}),
   };
 }
 
@@ -788,9 +797,30 @@ export async function attachBeadsForms(input: {
         title: form.title,
         url: urls.workspace ?? urls.dir,
         urls,
+        authoringNextSteps: buildAuthoringNextSteps({
+          dir: input.options.dir,
+          beadId: input.options.beadId,
+          form,
+        }),
       };
     }),
     metadata,
+  };
+}
+
+function buildAuthoringNextSteps(input: {
+  dir: string;
+  beadId: string;
+  form: BeadsFormDefinition;
+}): AuthoringNextSteps {
+  const questionFile = `.vk-mocked-sandbox/beads-form-authoring/${input.form.id}-question.json`;
+  const common = `--dir ${shQuote(input.dir)} --bead ${shQuote(input.beadId)} --form ${shQuote(input.form.id)}`;
+  return {
+    message: 'Review and refine questions before sharing this BeadsForm.',
+    commands: {
+      showFirstQuestion: `beads-form show-question ${common} --index 1`,
+      updateQuestionFromFile: `cat ${shQuote(questionFile)} | beads-form update-question ${common} --question <question-id> --base-hash ${shQuote(buildFormDefinitionHash(input.form))} --stdin`,
+    },
   };
 }
 
@@ -906,9 +936,119 @@ export function appendQuestionsToMetadata(
   };
 }
 
+export async function showBeadsFormQuestion(input: {
+  options: QuestionSelectorOptions;
+  execFile?: ExecFileLike;
+}): Promise<ShowQuestionResult> {
+  const bead = await readBead({ execFile: input.execFile ?? defaultExecFile, dir: input.options.dir, beadId: input.options.beadId });
+  const form = selectFormForShow(getFormsFromMetadata(bead.metadata), input.options.formId);
+  return buildShowQuestionResult(input.options.beadId, form, input.options);
+}
+
+export async function updateBeadsFormQuestion(input: {
+  options: UpdateQuestionOptions;
+  replacement: BeadsFormQuestionDefinition;
+  execFile?: ExecFileLike;
+}): Promise<UpdateQuestionResult> {
+  const exec = input.execFile ?? defaultExecFile;
+  const bead = await readBead({ execFile: exec, dir: input.options.dir, beadId: input.options.beadId });
+  const mutation = updateQuestionInMetadata(bead.metadata, input.options.formId, {
+    questionId: input.options.questionId,
+    questionIndex: input.options.questionIndex,
+    replacement: input.replacement,
+    baseHash: input.options.baseHash,
+  });
+  await updateMetadata({ execFile: exec, dir: input.options.dir, beadId: input.options.beadId, metadata: mutation.metadata });
+  const urls = buildFillOutUrls({
+    dir: input.options.dir,
+    beadId: input.options.beadId,
+    formId: input.options.formId,
+    origin: input.options.origin,
+    workspaceId: input.options.workspaceId,
+  });
+  return {
+    beadId: input.options.beadId,
+    formId: input.options.formId,
+    questionId: mutation.questionId,
+    questionIndex: mutation.questionIndex,
+    formHashBefore: mutation.formHashBefore,
+    formHashAfter: mutation.formHashAfter,
+    questionHashBefore: mutation.questionHashBefore,
+    questionHashAfter: mutation.questionHashAfter,
+    url: urls.workspace ?? urls.dir,
+    urls,
+    metadata: mutation.metadata,
+  };
+}
+
+export function updateQuestionInMetadata(
+  metadata: unknown,
+  formId: string,
+  patch: {
+    questionId?: string;
+    questionIndex?: number;
+    replacement: BeadsFormQuestionDefinition;
+    baseHash?: string;
+  },
+): {
+  metadata: JsonObject;
+  questionId: string;
+  questionIndex: number;
+  formHashBefore: string;
+  formHashAfter: string;
+  questionHashBefore: string;
+  questionHashAfter: string;
+} {
+  const next: JsonObject = isObject(metadata) ? structuredClone(metadata) as JsonObject : {};
+  const beadForms = isObject(next.beadForms) ? next.beadForms : undefined;
+  if (!beadForms || !Array.isArray(beadForms.forms)) throw new Error('No canonical beadForms.forms[] metadata found on bead');
+
+  assertNoForbiddenAppendQuestionFields(patch.replacement, 'question');
+  const forms = getFormsFromMetadata(next);
+  const formIndex = forms.findIndex((candidate) => candidate.id === formId);
+  if (formIndex < 0) throw new Error(`Form not found: ${formId}`);
+  const form = forms[formIndex]!;
+  const formHashBefore = buildFormDefinitionHash(form);
+  if (patch.baseHash && patch.baseHash !== formHashBefore) {
+    throw new Error(`Form ${formId} changed since base hash ${patch.baseHash}; current hash is ${formHashBefore}`);
+  }
+
+  const selected = selectQuestion(form, patch);
+  if (patch.replacement.id !== selected.question.id) {
+    throw new Error(`update-question cannot change question id from ${selected.question.id} to ${patch.replacement.id}`);
+  }
+  const questions = form.questions.map((question, index) => (
+    index === selected.zeroBasedIndex ? patch.replacement : question
+  )) as StandardBeadsForm['questions'];
+  const updatedForm = stripGeneratedBeadsFormFields({
+    ...form,
+    questions,
+  } as StoredBeadsForm);
+  compileBeadsForm(updatedForm);
+
+  forms[formIndex] = updatedForm;
+  const storedForms = forms.map(stripResponsesFromForm);
+  next.beadForms = { ...beadForms, forms: storedForms };
+  writeSplitResponses(next, forms);
+  next.beadFormsSummary = buildBeadsFormsSummary(getFormsFromMetadata(next));
+  return {
+    metadata: next,
+    questionId: selected.question.id,
+    questionIndex: selected.zeroBasedIndex + 1,
+    formHashBefore,
+    formHashAfter: buildFormDefinitionHash(updatedForm),
+    questionHashBefore: buildQuestionDefinitionHash(selected.question),
+    questionHashAfter: buildQuestionDefinitionHash(patch.replacement),
+  };
+}
+
 export function buildFormDefinitionHash(form: BeadsFormDefinition): string {
   const { responses: _responses, ...definition } = stripGeneratedBeadsFormFields(form as StoredBeadsForm) as BeadsFormDefinition;
   return createHash('sha256').update(stableStringify(definition)).digest('hex');
+}
+
+export function buildQuestionDefinitionHash(question: BeadsFormQuestionDefinition): string {
+  return createHash('sha256').update(stableStringify(question)).digest('hex');
 }
 
 function normalizeStoredForm(value: unknown): BeadsFormDefinition {
@@ -1118,6 +1258,45 @@ export function selectFormForShow(forms: BeadsFormDefinition[], formId?: string)
   throw new Error(`Multiple forms attached; pass --form. Available forms: ${forms.map((form) => form.id).join(', ')}`);
 }
 
+function buildShowQuestionResult(
+  beadId: string,
+  form: BeadsFormDefinition,
+  selector: Pick<QuestionSelectorOptions, 'questionId' | 'questionIndex'>,
+): ShowQuestionResult {
+  const selected = selectQuestion(form, selector);
+  return {
+    beadId,
+    formId: form.id,
+    formHash: buildFormDefinitionHash(form),
+    questionId: selected.question.id,
+    questionIndex: selected.zeroBasedIndex + 1,
+    questionHash: buildQuestionDefinitionHash(selected.question),
+    question: selected.question,
+  };
+}
+
+function selectQuestion(
+  form: BeadsFormDefinition,
+  selector: Pick<QuestionSelectorOptions, 'questionId' | 'questionIndex'>,
+): { question: BeadsFormQuestionDefinition; zeroBasedIndex: number } {
+  if ((selector.questionId ? 1 : 0) + (selector.questionIndex !== undefined ? 1 : 0) !== 1) {
+    throw new Error('Question selection requires exactly one of questionId or questionIndex');
+  }
+  if (selector.questionId) {
+    const zeroBasedIndex = form.questions.findIndex((question) => question.id === selector.questionId);
+    if (zeroBasedIndex < 0) throw new Error(`Question not found on form ${form.id}: ${selector.questionId}`);
+    return { question: form.questions[zeroBasedIndex]!, zeroBasedIndex };
+  }
+  const questionIndex = selector.questionIndex;
+  if (!Number.isInteger(questionIndex) || questionIndex! < 1) {
+    throw new Error('Question index must be a one-based positive integer');
+  }
+  const zeroBasedIndex = questionIndex! - 1;
+  const question = form.questions[zeroBasedIndex];
+  if (!question) throw new Error(`Question index out of range on form ${form.id}: ${questionIndex}`);
+  return { question, zeroBasedIndex };
+}
+
 export function buildShowResult(input: {
   bead: BeadLike;
   form: BeadsFormDefinition;
@@ -1242,16 +1421,24 @@ function stableStringify(value: unknown): string {
   return JSON.stringify(value);
 }
 
+function shQuote(value: string): string {
+  return `'${value.replace(/'/g, `'\\''`)}'`;
+}
+
 function printHelp(): void {
   console.log(`Usage:
   beads-form attach --bead <id> (--file form.json | --json raw-json | --stdin) [--dir repo] [--origin origin] [--workspace id] [--session id]
   beads-form append-questions --bead <id> --form <form-id> (--file questions.json | --json raw-json | --stdin) [--dir repo] [--after-question id] [--base-hash sha256] [--origin origin] [--workspace id]
+  beads-form show-question --bead <id> --form <form-id> (--question question-id | --index one-based-index) [--dir repo]
+  beads-form update-question --bead <id> --form <form-id> (--question question-id | --index one-based-index) (--file question.json | --json raw-json | --stdin) [--dir repo] [--base-hash sha256] [--origin origin] [--workspace id]
   beads-form show --bead <id> [--form form-id] [--dir repo]
   beads-form pending --parent-dir <all-repos-dir> [--limit 80] [--origin origin]
 
 Also supported:
   npm run beads-form -- attach --bead <id> (--file form.json | --json raw-json | --stdin) [--dir repo] [--origin origin] [--workspace id] [--session id]
   npm run beads-form -- append-questions --bead <id> --form <form-id> (--file questions.json | --json raw-json | --stdin) [--dir repo] [--after-question id] [--base-hash sha256] [--origin origin] [--workspace id]
+  npm run beads-form -- show-question --bead <id> --form <form-id> (--question question-id | --index one-based-index) [--dir repo]
+  npm run beads-form -- update-question --bead <id> --form <form-id> (--question question-id | --index one-based-index) (--file question.json | --json raw-json | --stdin) [--dir repo] [--base-hash sha256] [--origin origin] [--workspace id]
   npm run beads-form -- show --bead <id> [--form form-id] [--dir repo]
   npm run beads-form -- pending --parent-dir <all-repos-dir> [--limit 80] [--origin origin]
 
@@ -1285,6 +1472,20 @@ async function main(): Promise<void> {
     const text = await readAppendQuestionsInput(command.options);
     const patch = parseQuestionsJsonForAppend(text);
     const result = await appendQuestionsToBeadsForm({ options: command.options, patch });
+    console.log(JSON.stringify(result, null, 2));
+    return;
+  }
+
+  if (command.command === 'show-question') {
+    const result = await showBeadsFormQuestion({ options: command.options });
+    console.log(JSON.stringify(result, null, 2));
+    return;
+  }
+
+  if (command.command === 'update-question') {
+    const text = await readUpdateQuestionInput(command.options);
+    const replacement = parseQuestionJsonForUpdate(text);
+    const result = await updateBeadsFormQuestion({ options: command.options, replacement });
     console.log(JSON.stringify(result, null, 2));
     return;
   }

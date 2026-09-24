@@ -2,9 +2,9 @@
 
 Use BeadsForm when you need structured answers from a human before proceeding. Prefer bead-backed forms for real workflow.
 
-## 1. Draft standard form JSON inline
+## 1. Draft standard form JSON in a workspace-local file
 
-Write standard BeadsForm JSON. Use the standard DSL, not raw HTML. The default bead-backed workflow is **inline JSON via stdin** so agents do not need to create a temporary `form.json` file first. Use a file only when the form is large enough that audit/debuggability matters.
+Write standard BeadsForm JSON. Use the standard DSL, not raw HTML. The default bead-backed workflow is **file plus pipe**: write the DSL to a repo/workspace-local ignored file, review it, then pipe it into the CLI with `cat ... | beads-form attach --stdin`. This avoids shell escaping mistakes with Markdown, code fences, quotes, and long choice explanations.
 
 Example JSON shape:
 
@@ -67,20 +67,17 @@ Guidelines:
 - Use `allowCodeFileChanges`; if the answer returns `allow_code_file_changes=false`, do not edit files—make another form or continue discussion.
 - Keep `additional_notes` as the master notes field.
 
-## 2. Attach the form to a bead with inline JSON
+## 2. Attach the form to a bead with file-plus-pipe
 
-Create or choose a bead in the repo where the work belongs, then attach the form with `--stdin`:
+Create or choose a bead in the repo where the work belongs. Put authoring files under `.vk-mocked-sandbox/beads-form-authoring/` so they are local, inspectable, and ignored by git:
 
 ```bash
 MY_BEADS_DIR=$PWD/vibe-kanban-vscode-web # just an example
 cd $MY_BEADS_DIR 
 bd create "Decide implementation questions" --type task --priority 2
+mkdir -p .vk-mocked-sandbox/beads-form-authoring
 
-beads-form attach \
-  --bead <bead-id> \
-  --dir $MY_BEADS_DIR \
-  --origin https://jamtools.dev \
-  --stdin <<'JSON'
+cat > .vk-mocked-sandbox/beads-form-authoring/implementation_questions.json <<'JSON'
 {
   "format": "standard",
   "id": "implementation_questions",
@@ -102,11 +99,47 @@ beads-form attach \
   ]
 }
 JSON
+
+cat .vk-mocked-sandbox/beads-form-authoring/implementation_questions.json | beads-form attach \
+  --bead <bead-id> \
+  --dir $MY_BEADS_DIR \
+  --origin https://jamtools.dev \
+  --stdin
 ```
 
-For very small forms, `--json '<raw-json>'` also works. For large forms, `--file form.json` is still supported and can be easier to review/debug.
+`--file .vk-mocked-sandbox/beads-form-authoring/implementation_questions.json` also works, but `cat ... | ... --stdin` matches the same reviewed-file workflow and avoids inline shell-escaping hazards. Avoid `/tmp` for user-facing authoring artifacts because agents/review worktrees can outlive or lose those paths.
 
-`beads-form attach` stamps non-empty `VK_WORKSPACE_ID` and `VK_SESSION_ID` values from the environment into bead metadata. Attach also maintains `metadata.beadFormsSummary` (`hasForms`, `hasPendingAnswer`, `pendingResponseCount`, `formIds`, `pendingFormIds`) so Forms can discover pending work efficiently without bulk `bd show` over every bead.
+After attach, read the CLI's `authoringNextSteps`. Before sharing the URL, refine unclear questions one by one:
+
+```bash
+beads-form show-question --bead <bead-id> --form implementation_questions --index 1 --dir $MY_BEADS_DIR \
+  > .vk-mocked-sandbox/beads-form-authoring/question-1.show.json
+
+# Copy the "question" object from the show-question output, improve it, and save:
+cat > .vk-mocked-sandbox/beads-form-authoring/question-1.refined.json <<'JSON'
+{
+  "operation": "update_question",
+  "question": {
+    "type": "textarea",
+    "id": "additional_notes",
+    "title": "Additional notes",
+    "description": "Anything else the next agent should know? Include blockers, exact file paths, or constraints."
+  }
+}
+JSON
+
+cat .vk-mocked-sandbox/beads-form-authoring/question-1.refined.json | beads-form update-question \
+  --bead <bead-id> \
+  --form implementation_questions \
+  --question additional_notes \
+  --base-hash <formHash-from-show-question> \
+  --dir $MY_BEADS_DIR \
+  --stdin
+```
+
+For very small forms, `--json '<raw-json>'` still works, but prefer a file when the form contains Markdown examples, code fences, complete choice explanations, `prosAndCons`, or more than one short question.
+
+`beads-form attach` stamps non-empty `VK_WORKSPACE_ID` and `VK_SESSION_ID` values from the environment into bead metadata. Attach also maintains `metadata.beadFormsSummary` (`hasForms`, `hasPendingAnswer`, `pendingResponseCount`, `formIds`, `pendingFormIds`) so Forms can discover pending work efficiently without bulk `bd show` over every bead. `show-question` and `update-question` let creators fetch/refine one question without rewriting unrelated form content; `update-question --base-hash` rejects stale edits when another agent changed the form first.
 Persisted bead metadata stores standard DSL-only form definitions in `metadata.beadForms.forms[]`; responses are stored separately in `metadata.beadFormResponses.responsesByFormId[formId]` so multi-form beads have more room under the Dolt TEXT-column limit. The tool strips stale generated `html`/`controls` from valid standard forms, rejects raw/custom HTML forms, joins definitions/responses at runtime for show/render, compacts older inline responses during mutations, and preflights metadata size before updating a bead.
 
 In the VD Docker/dev runtime, `beads-form` should be available on `PATH` globally and should work from any bead repo directory.

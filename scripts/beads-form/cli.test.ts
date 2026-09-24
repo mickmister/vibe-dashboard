@@ -63,13 +63,23 @@ const storedReviewForm = {
   ...standardForm,
 };
 
+function mutableQuestion(question: unknown) {
+  return JSON.parse(JSON.stringify(question));
+}
+
 describe('beads-form CLI helpers', () => {
   it('documents canonical structured choice tradeoffs instead of putting pros and cons in descriptions', async () => {
     const onboarding = await readFile(new URL('../../skills/beads-form-agent-onboarding.md', import.meta.url), 'utf8');
+    const skill = await readFile(new URL('../../packages/beads-form/SKILL.md', import.meta.url), 'utf8');
 
     expect(onboarding).not.toContain('include the pros/cons in the choice descriptions');
     expect(onboarding).toContain('choice.prosAndCons: { pros?: string[]; cons?: string[] }');
     expect(onboarding).toContain('Descriptions should contain only contextual prose that is not a structured pro/con.');
+    expect(onboarding).not.toContain('The default bead-backed workflow is **inline JSON via stdin**');
+    expect(`${onboarding}\n${skill}`).toContain('file plus pipe');
+    expect(`${onboarding}\n${skill}`).toContain('cat .vk-mocked-sandbox/beads-form-authoring');
+    expect(`${onboarding}\n${skill}`).toContain('beads-form show-question');
+    expect(`${onboarding}\n${skill}`).toContain('beads-form update-question');
   });
 
   it('runs the CLI help entrypoint under Node strip-types', async () => {
@@ -416,7 +426,7 @@ describe('beads-form CLI helpers', () => {
       },
     };
     const replacement = {
-      ...storedReviewForm.questions[0],
+      ...mutableQuestion(storedReviewForm.questions[0]),
       title: 'Refined decision',
       description: 'Use **Markdown**, code fences, and complete choice explanations.',
       choices: [{
@@ -425,7 +435,7 @@ describe('beads-form CLI helpers', () => {
         description: 'Ready once the listed issues are addressed.',
         prosAndCons: { pros: ['Clear next action'], cons: ['Requires follow-up validation'] },
       }],
-    } as const;
+    };
 
     const result = updateQuestionInMetadata(metadata, 'review', {
       questionId: 'decision',
@@ -457,9 +467,9 @@ describe('beads-form CLI helpers', () => {
   it('updates one question by one-based index and rejects id changes, hash conflicts, and missing selectors before mutation', () => {
     const metadata = { untouched: true, beadForms: { forms: [storedReviewForm] } };
     const replacement = {
-      ...storedReviewForm.questions[0],
+      ...mutableQuestion(storedReviewForm.questions[0]),
       title: 'Refined decision',
-    } as const;
+    };
 
     expect(updateQuestionInMetadata(metadata, 'review', {
       questionIndex: 1,
@@ -853,7 +863,16 @@ describe('beads-form CLI helpers', () => {
         workspace: '/dashboard/forms?workspace=workspace-1&dir=%2Frepo&bead=bd-1&form=review',
         dir: '/dashboard/forms?dir=%2Frepo&bead=bd-1&form=review',
       },
+      authoringNextSteps: {
+        message: 'Review and refine questions before sharing this BeadsForm.',
+        commands: expect.objectContaining({
+          showFirstQuestion: "beads-form show-question --dir '/repo' --bead 'bd-1' --form 'review' --index 1",
+          updateQuestionFromFile: expect.stringContaining('beads-form update-question'),
+        }),
+      },
     });
+    expect(result.forms[0]?.authoringNextSteps.commands.updateQuestionFromFile).toContain("cat '.vk-mocked-sandbox/beads-form-authoring/review-question.json'");
+    expect(result.forms[0]?.authoringNextSteps.commands.updateQuestionFromFile).toContain('--base-hash');
     expect(result.metadata.untouched).toBe(true);
     expect(result.metadata.VK_WORKSPACE_ID).toBe('workspace-1');
     expect(calls.map((args) => args[0])).toEqual(['show', 'update']);

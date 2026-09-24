@@ -208,10 +208,13 @@ packages/beads-form/examples/storybook-best-of-n-gallery.json
 
 Bead-backed storage is the primary workflow for real agent/user handoff. Folder preview is only a prototyping escape hatch.
 
-1. Write or generate standard BeadsForm JSON. The attach command accepts a direct form object, an array of forms, `{ "forms": [...] }`, or `{ "beadForms": { "forms": [...] } }`.
+1. Write or generate standard BeadsForm JSON in a repo-local ignored file, then inspect it before attaching. Prefer `.vk-mocked-sandbox/beads-form-authoring/<form-id>.json` and pipe it into the CLI with `cat ... | beads-form attach --stdin`; this avoids shell escaping bugs with Markdown examples, code fences, quotes, complete choice explanations, and `prosAndCons`. The attach command accepts a direct form object, an array of forms, `{ "forms": [...] }`, or `{ "beadForms": { "forms": [...] } }`.
 2. Attach it to the bead from the repo that owns the bead:
 
    ```sh
+   mkdir -p .vk-mocked-sandbox/beads-form-authoring
+   # Write/review .vk-mocked-sandbox/beads-form-authoring/form.json first.
+   cat .vk-mocked-sandbox/beads-form-authoring/form.json | beads-form attach --bead <bead-id> --stdin
    beads-form attach --bead <bead-id> --file form.json
    beads-form attach --bead <bead-id> --stdin < form.json
    beads-form attach --bead <bead-id> --json '{"format":"standard",...}'
@@ -230,6 +233,25 @@ Bead-backed storage is the primary workflow for real agent/user handoff. Folder 
    ```
 
    Do not hardcode `jamtools.dev`; use the active deployment origin. Duplicate form ids on the bead are errors by default. Local folder-relative media refs are rejected in bead-backed attach; keep local media in folder preview until bead-backed media policy is designed.
+
+   After attach, read the JSON `authoringNextSteps` in the CLI output before sharing the URL. Use it to refine ambiguous questions one at a time:
+
+   ```sh
+   beads-form show-question --bead <bead-id> --form <form-id> --index 1 --dir <repo-dir> \
+     > .vk-mocked-sandbox/beads-form-authoring/question-1.show.json
+
+   # Copy the "question" object from that output, improve Markdown/examples/choices,
+   # and save it as .vk-mocked-sandbox/beads-form-authoring/question-1.refined.json.
+   cat .vk-mocked-sandbox/beads-form-authoring/question-1.refined.json | beads-form update-question \
+     --bead <bead-id> \
+     --form <form-id> \
+     --question <question-id> \
+     --base-hash <formHash-from-show-question> \
+     --dir <repo-dir> \
+     --stdin
+   ```
+
+   `show-question` accepts `--question <question-id>` or `--index <one-based-index>`. `update-question` replaces only that question, keeps responses and content/attachment blocks, strips generated `html`/`controls`, and rejects stale edits when `--base-hash` no longer matches.
 
 3. Give the human the printed `/dashboard/forms?...` URL.
 
