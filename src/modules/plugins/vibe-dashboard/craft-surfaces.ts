@@ -45,7 +45,6 @@ const BEADS_WEB_DEFAULT_PORT = "3109";
 type BuiltInWorkspaceMetadata = NonNullable<TabGroup["workspace"]>;
 type ViteImportMeta = ImportMeta & {
   env?: {
-    VITE_DOCKVIEW_M3_2_HARNESS?: string;
     VITE_VK_BASE_ORIGIN?: string;
   };
 };
@@ -501,15 +500,6 @@ function getConfiguredVkBaseOrigin(): string | null {
 }
 
 function buildWorkspaceTabUrl(baseOrigin: string, workspaceId: string): string {
-  const harnessEnabled = (
-    (import.meta as ViteImportMeta).env?.VITE_DOCKVIEW_M3_2_HARNESS ??
-    (typeof process !== "undefined"
-      ? process.env?.VD_DOCKVIEW_M3_2_HARNESS
-      : undefined)
-  ) === "1";
-  if (harnessEnabled && workspaceId === "workspace-a") {
-    return `${baseOrigin}/internal/dockview-m3-2-harness/panel-target/workspaces/${workspaceId}/craft-overview`;
-  }
   return `${baseOrigin}/workspaces/${workspaceId}`;
 }
 

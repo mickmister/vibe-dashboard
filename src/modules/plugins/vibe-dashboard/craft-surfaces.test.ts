@@ -152,7 +152,7 @@ describe("dynamic Craft surfaces", () => {
     ]);
   });
 
-  it("points the isolated DockView harness Agent tab at a live QA Panel surface", () => {
+  it("keeps product Agent tabs on real VK workspace URLs even when the harness flag is set", () => {
     const previous = process.env.VD_DOCKVIEW_M3_2_HARNESS;
     process.env.VD_DOCKVIEW_M3_2_HARNESS = "1";
     try {
@@ -178,7 +178,7 @@ describe("dynamic Craft surfaces", () => {
       });
 
       expect(effective.tabGroups[0]!.tabs.find((tab) => tab.id === "agent")?.url)
-        .toBe("http://127.0.0.1:4400/internal/dockview-m3-2-harness/panel-target/workspaces/workspace-a/craft-overview");
+        .toBe("http://127.0.0.1:4400/workspaces/workspace-a");
     } finally {
       if (previous === undefined) {
         delete process.env.VD_DOCKVIEW_M3_2_HARNESS;
