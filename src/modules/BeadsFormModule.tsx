@@ -1,3 +1,4 @@
+/* eslint-disable formatjs/no-literal-string-in-jsx, formatjs/no-literal-string-in-object -- Legacy Forms module predates intl extraction; this bead only changes renderer ownership. */
 import React, { useMemo, useRef, useState } from 'react';
 import { useSearchParams } from 'react-router';
 import springboard from 'springboard';
@@ -32,6 +33,9 @@ import { rewriteFolderPreviewMediaRefs } from '../lib/beadsFormPreviewMedia';
 import { normalizeBeadsFormQueryId } from '../lib/beadsFormUrl';
 import { initializeSingleQuestionMode } from '../lib/beadsFormSingleQuestion';
 import { initializeCompactMoreInfo, refreshCompactMoreInfoState } from '../lib/beadsFormMoreInfo';
+import { useModule } from '../hooks/useModule';
+import type { PluginManifest } from './plugins/vibe-dashboard/types';
+import { createPluginManifest, registerPlugin } from './plugins/vibe-dashboard/registry';
 
 // @platform "node"
 import { serverRegistry } from 'springboard/server/register';
@@ -120,6 +124,47 @@ type LoadPendingFormsInput = {
 
 type LoadPendingFormsResult = PendingBeadsFormQueueResult;
 
+type BeadsFormActions = {
+  loadBeadForms: (input: LoadFormsInput) => MaybeNestedPromise<LoadFormsResult>;
+  loadWorkspaceForms: (input: LoadWorkspaceFormsInput) => MaybeNestedPromise<LoadWorkspaceFormsResult>;
+  loadPendingForms: (input: LoadPendingFormsInput) => MaybeNestedPromise<LoadPendingFormsResult>;
+  submitBeadForm: (input: SubmitFormInput) => MaybeNestedPromise<SubmitFormResult>;
+};
+
+type BeadsFormPreviewActions = {
+  loadPreviewForms: (input: LoadPreviewFormsInput) => MaybeNestedPromise<LoadPreviewFormsResult>;
+  submitPreviewForm: (input: SubmitPreviewFormInput) => MaybeNestedPromise<SubmitPreviewFormResult>;
+};
+
+type BeadsFormRouteParams = {
+  workspaceId: string;
+  dir: string;
+  parentDir: string;
+  beadId: string;
+  formId: string | undefined;
+  includeOtherWorkspaces: boolean;
+  returnTo: string;
+};
+
+const formsPluginManifest: PluginManifest = createPluginManifest({
+  id: 'dev.mickmister.forms',
+  displayName: 'Forms',
+  version: '1.0.0',
+  contributions: {
+    craftSurfaces: [
+      {
+        key: 'forms',
+        title: 'Forms',
+        urlTemplate: 'internal://forms',
+        defaultTitle: 'Forms',
+        order: 40,
+      },
+    ],
+  },
+});
+
+registerPlugin(formsPluginManifest);
+
 function nodeClient() {
   if (typeof createNodeBeadsClient !== 'function') {
     throw new Error('Beads client is only available on the node side of the BeadsForm module');
@@ -199,10 +244,7 @@ function preserveSubmittedFormDom(
   }
 }
 
-function BeadsFormPreviewRoute({ actions }: { actions: {
-  loadPreviewForms: (input: LoadPreviewFormsInput) => MaybeNestedPromise<LoadPreviewFormsResult>;
-  submitPreviewForm: (input: SubmitPreviewFormInput) => MaybeNestedPromise<SubmitPreviewFormResult>;
-} }) {
+function BeadsFormPreviewRoute({ actions }: { actions: BeadsFormPreviewActions }) {
   const [params] = useSearchParams();
   const folder = params.get('folder') ?? '';
   const formId = normalizeBeadsFormQueryId(params.get('form'));
@@ -491,20 +533,25 @@ function BeadsFormPendingQueue({ actions, parentDir }: {
   );
 }
 
-function BeadsFormRoute({ actions }: { actions: {
-  loadBeadForms: (input: LoadFormsInput) => MaybeNestedPromise<LoadFormsResult>;
-  loadWorkspaceForms: (input: LoadWorkspaceFormsInput) => MaybeNestedPromise<LoadWorkspaceFormsResult>;
-  loadPendingForms: (input: LoadPendingFormsInput) => MaybeNestedPromise<LoadPendingFormsResult>;
-  submitBeadForm: (input: SubmitFormInput) => MaybeNestedPromise<SubmitFormResult>;
-} }) {
+function searchParamsToBeadsFormRouteParams(params: URLSearchParams): BeadsFormRouteParams {
+  return {
+    workspaceId: params.get('workspace') ?? '',
+    dir: params.get('dir') ?? '',
+    parentDir: params.get('parentDir') ?? '',
+    beadId: params.get('bead') ?? '',
+    formId: normalizeBeadsFormQueryId(params.get('form')),
+    includeOtherWorkspaces: params.get('scope') === 'all',
+    returnTo: params.get('returnTo') ?? '',
+  };
+}
+
+function BeadsFormRoute({ actions }: { actions: BeadsFormActions }) {
   const [params] = useSearchParams();
-  const workspaceId = params.get('workspace') ?? '';
-  const dir = params.get('dir') ?? '';
-  const parentDir = params.get('parentDir') ?? '';
-  const beadId = params.get('bead') ?? '';
-  const formId = normalizeBeadsFormQueryId(params.get('form'));
-  const includeOtherWorkspaces = params.get('scope') === 'all';
-  const returnTo = params.get('returnTo') ?? '';
+  return <BeadsFormPanel actions={actions} params={searchParamsToBeadsFormRouteParams(params)} />;
+}
+
+function BeadsFormPanel({ actions, params }: { actions: BeadsFormActions; params: BeadsFormRouteParams }) {
+  const { workspaceId, dir, parentDir, beadId, formId, includeOtherWorkspaces, returnTo } = params;
   const [loaded, setLoaded] = useState<LoadWorkspaceFormsResult | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
@@ -798,6 +845,28 @@ function BeadsFormRoute({ actions }: { actions: {
   );
 }
 
+export function BeadsFormWorkspaceSurface({ workspaceId, beadId, formId }: {
+  workspaceId: string;
+  beadId?: string;
+  formId?: string;
+}) {
+  const beadsFormModule = useModule('BeadsForm');
+  return (
+    <BeadsFormPanel
+      actions={beadsFormModule.actions}
+      params={{
+        workspaceId,
+        dir: '',
+        parentDir: '',
+        beadId: beadId ?? '',
+        formId: normalizeBeadsFormQueryId(formId ?? null),
+        includeOtherWorkspaces: false,
+        returnTo: '',
+      }}
+    />
+  );
+}
+
 springboard.registerModule(
   'BeadsForm',
   { rpcMode: 'remote' },
@@ -916,6 +985,17 @@ springboard.registerModule(
       <BeadsFormPreviewRoute actions={actions} />
     ));
 
-    return { actions };
+    return { actions, manifest: formsPluginManifest };
   },
 );
+
+declare module 'springboard/module_registry/module_registry' {
+  interface AllModules {
+    BeadsForm: {
+      manifest: PluginManifest;
+      actions: BeadsFormActions & BeadsFormPreviewActions & {
+        removeReviewLabel: (input: { dir: string; beadId: string; label?: string }) => Promise<{ success: boolean; warnings: string[] }>;
+      };
+    };
+  }
+}

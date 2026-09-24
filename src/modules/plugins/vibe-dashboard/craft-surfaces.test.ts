@@ -1,6 +1,9 @@
+/* eslint-disable formatjs/no-literal-string-in-object -- Tests assert stable fixture metadata, not rendered copy. */
 import { describe, expect, it, vi } from "vitest";
 import {
   createEffectiveWorkspaceWithCraftSurfaces,
+  FIRST_PARTY_FORMS_PLUGIN_ID,
+  FIRST_PARTY_FORMS_SURFACE_KEY,
   filterEphemeralCraftSurfaceActiveItems,
   isEphemeralCraftSurfaceTab,
   stripEphemeralCraftSurfaceSessionRefs,
@@ -53,8 +56,18 @@ const surfaces: RegisteredCraftSurfaceContribution[] = [
   },
 ];
 
+const formsSurface: RegisteredCraftSurfaceContribution = {
+  pluginId: FIRST_PARTY_FORMS_PLUGIN_ID,
+  sourceKey: "forms",
+  key: FIRST_PARTY_FORMS_SURFACE_KEY,
+  title: "Forms",
+  defaultTitle: "Forms",
+  urlTemplate: "internal://forms",
+  order: 40,
+};
+
 describe("dynamic Craft surfaces", () => {
-  it("derives Agent, Code, Beads, Forms, and built-in split pairs from Craft workspace metadata", () => {
+  it("derives Agent, Code, Beads, plugin Forms, and built-in split pairs from Craft workspace metadata", () => {
     const effective = createEffectiveWorkspaceWithCraftSurfaces({
       workspace: {
         ...workspace,
@@ -72,7 +85,7 @@ describe("dynamic Craft surfaces", () => {
           },
         ],
       },
-      craftSurfaces: [],
+      craftSurfaces: [formsSurface],
       origin: "https://vd.example.test",
     });
 
@@ -86,8 +99,15 @@ describe("dynamic Craft surfaces", () => {
         "https://vd.example.test/?folder=%2Fhome%2Fvkuser%2Frepos%2Fapp",
       ],
       ["beads", "Beads", "https://beads-web.vd.example.test"],
-      ["forms", "Forms", "https://vd.example.test/dashboard/forms?workspace=workspace_1"],
+      ["forms", "Forms", "internal://forms"],
     ]);
+    expect(effective.tabGroups[0]!.tabs.find((tab) => tab.id === "forms")?.ephemeral)
+      .toEqual({
+        kind: "craft-surface",
+        pluginId: FIRST_PARTY_FORMS_PLUGIN_ID,
+        surfaceKey: FIRST_PARTY_FORMS_SURFACE_KEY,
+        sourceKey: "forms",
+      });
     expect(effective.tabGroups[0]!.pairs).toEqual([
       { id: "agent+code", tabIds: ["agent", "code"], ratios: [50, 50] },
       { id: "agent+beads", tabIds: ["agent", "beads"], ratios: [50, 50] },
@@ -197,7 +217,7 @@ describe("dynamic Craft surfaces", () => {
     );
   });
 
-  it("includes selected Forms bead id in the generated Forms tab URL", () => {
+  it("includes first-party Forms even when external plugin targets are not authorized", () => {
     const effective = createEffectiveWorkspaceWithCraftSurfaces({
       workspace: {
         ...workspace,
@@ -208,7 +228,6 @@ describe("dynamic Craft surfaces", () => {
             workspace: {
               workspaceId: "workspace_1",
               workspaceDir: "/home/vkuser/repos/app",
-              formsBeadId: "vkvw-123",
             },
             tabs: [],
             pairs: [],
@@ -216,13 +235,13 @@ describe("dynamic Craft surfaces", () => {
           },
         ],
       },
-      craftSurfaces: [],
+      craftSurfaces: [formsSurface, ...surfaces],
+      allowedPluginTargetsByCraftId: { craft_workspace: [] },
       origin: "https://vd.example.test",
     });
 
-    expect(
-      effective.tabGroups[0]!.tabs.find((tab) => tab.id === "forms")?.url,
-    ).toBe("https://vd.example.test/dashboard/forms?workspace=workspace_1&bead=vkvw-123");
+    expect(effective.tabGroups[0]!.tabs.map((tab) => tab.id)).toContain("forms");
+    expect(effective.tabGroups[0]!.tabs.some((tab) => tab.title === "Notes")).toBe(false);
   });
 
   it("derives built-in workspace tabs from the current localhost origin", () => {
@@ -243,7 +262,7 @@ describe("dynamic Craft surfaces", () => {
           },
         ],
       },
-      craftSurfaces: [],
+      craftSurfaces: [formsSurface],
       origin: "http://localhost:3001",
     });
 
@@ -257,7 +276,7 @@ describe("dynamic Craft surfaces", () => {
         "http://localhost:3001/?folder=%2Fhome%2Fvkuser%2Frepos%2Fapp",
       ],
       ["beads", "Beads", "http://beads-web.localhost:3001"],
-      ["forms", "Forms", "http://localhost:3001/dashboard/forms?workspace=workspace_1"],
+      ["forms", "Forms", "internal://forms"],
     ]);
   });
 
@@ -281,7 +300,7 @@ describe("dynamic Craft surfaces", () => {
             },
           ],
         },
-        craftSurfaces: [],
+        craftSurfaces: [formsSurface],
         origin: "http://localhost:4101",
       });
 
@@ -295,7 +314,7 @@ describe("dynamic Craft surfaces", () => {
           "http://localhost:4100/?folder=%2Fhome%2Fvkuser%2Frepos%2Fapp",
         ],
         ["beads", "Beads", "http://beads-web.localhost:4101"],
-        ["forms", "Forms", "http://localhost:4101/dashboard/forms?workspace=workspace_1"],
+        ["forms", "Forms", "internal://forms"],
       ]);
     } finally {
       vi.unstubAllEnvs();

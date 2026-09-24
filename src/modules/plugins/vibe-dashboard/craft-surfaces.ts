@@ -1,3 +1,4 @@
+/* eslint-disable formatjs/no-literal-string-in-object -- Surface titles are stable contribution metadata; rendered UI owns translation. */
 import type {
   SavedWorkspaceSession,
   Tab,
@@ -16,6 +17,8 @@ export const BUILT_IN_BEADS_TAB_ID = "beads";
 export const BUILT_IN_FORMS_TAB_ID = "forms";
 export const BUILT_IN_AGENT_CODE_PAIR_ID = "agent+code";
 export const BUILT_IN_AGENT_BEADS_PAIR_ID = "agent+beads";
+export const FIRST_PARTY_FORMS_PLUGIN_ID = "dev.mickmister.forms";
+export const FIRST_PARTY_FORMS_SURFACE_KEY = `${FIRST_PARTY_FORMS_PLUGIN_ID}/forms`;
 
 const BUILT_IN_WORKSPACE_TAB_IDS = new Set([
   BUILT_IN_AGENT_TAB_ID,
@@ -69,9 +72,13 @@ function createEffectiveCraftWithSurfaces(input: {
   allowedPluginTargets?: readonly string[];
 }): TabGroup {
   const allowed = input.allowedPluginTargets && new Set(input.allowedPluginTargets);
+  const workspaceMetadata = getBuiltInWorkspaceMetadata(input.tabGroup);
   const tabs = getEffectiveTabs(input.tabGroup, {
     craftSurfaces: allowed
-      ? input.craftSurfaces.filter((surface) => allowed.has(surface.key))
+      ? input.craftSurfaces.filter((surface) =>
+          allowed.has(surface.key) ||
+          (workspaceMetadata && surface.key === FIRST_PARTY_FORMS_SURFACE_KEY),
+        )
       : input.craftSurfaces,
     origin: input.origin,
   });
@@ -221,12 +228,6 @@ function getBuiltInWorkspaceTabs(tabGroup: TabGroup, origin: string): Tab[] {
       url: buildBeadsWebUrl(dashboardBaseOrigin),
       pinned: true,
     },
-    {
-      id: BUILT_IN_FORMS_TAB_ID,
-      title: "Forms",
-      url: buildFormsUrl(dashboardBaseOrigin, metadata.workspaceId, metadata.formsBeadId),
-      pinned: true,
-    },
   ];
 }
 
@@ -243,7 +244,9 @@ function getCraftSurfaceTabs(input: {
     )
     .map(
       (surface): Tab => ({
-        id: getCraftSurfaceTabId(input.tabGroup.id, surface.key),
+        id: surface.key === FIRST_PARTY_FORMS_SURFACE_KEY
+          ? BUILT_IN_FORMS_TAB_ID
+          : getCraftSurfaceTabId(input.tabGroup.id, surface.key),
         title: surface.defaultTitle ?? surface.title,
         url: expandCraftSurfaceUrl(surface.urlTemplate, input.origin),
         pinned: true,
@@ -478,12 +481,6 @@ function buildWorkspaceTabUrl(baseOrigin: string, workspaceId: string): string {
     return `${baseOrigin}/internal/dockview-m3-2-harness/panel-target/workspaces/${workspaceId}/craft-overview`;
   }
   return `${baseOrigin}/workspaces/${workspaceId}`;
-}
-
-function buildFormsUrl(baseOrigin: string, workspaceId: string, beadId?: string): string {
-  const params = new URLSearchParams({ workspace: workspaceId });
-  if (beadId) params.set("bead", beadId);
-  return `${baseOrigin}/dashboard/forms?${params.toString()}`;
 }
 
 function buildBeadsWebUrl(baseOrigin: string): string {

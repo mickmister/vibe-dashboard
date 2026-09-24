@@ -1,7 +1,9 @@
+/* eslint-disable formatjs/no-literal-string-in-jsx -- Legacy fallback placeholders are outside this renderer-ownership migration. */
 import React from 'react';
 import type { Tab, TabGroup } from '../../../types';
 import { PreviewRunConfigsPanel } from '../../../components/PreviewRunConfigsPanel';
 import { getBuiltInWorkspaceMetadata } from './craft-surfaces';
+import { BeadsFormWorkspaceSurface } from '../../BeadsFormModule';
 
 export interface ReactCraftSurfaceTarget {
   kind: 'react';
@@ -17,6 +19,13 @@ type ReactCraftSurfaceComponent = (
 const FIRST_PARTY_REACT_SURFACES: Record<string, ReactCraftSurfaceComponent> = {
   'dev.mickmister.preview-server/run-configs': (props) => (
     <PreviewRunConfigsPanel workspaceId={props.workspaceId ?? ''} />
+  ),
+  'dev.mickmister.forms/forms': (props) => (
+    <BeadsFormWorkspaceSurface
+      workspaceId={props.workspaceId ?? ''}
+      beadId={props.beadId}
+      formId={props.formId}
+    />
   ),
 };
 
@@ -35,7 +44,10 @@ export function getReactCraftSurfaceTarget(
     pluginId: tab.ephemeral.pluginId,
     surfaceKey: tab.ephemeral.surfaceKey,
     props: workspace?.workspaceId
-      ? { workspaceId: workspace.workspaceId }
+      ? {
+          workspaceId: workspace.workspaceId,
+          ...(workspace.formsBeadId ? { beadId: workspace.formsBeadId } : {}),
+        }
       : {},
   };
 }
