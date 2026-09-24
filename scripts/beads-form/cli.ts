@@ -396,8 +396,11 @@ function normalizeQuestionSelectorOptions(options: CliOptions, commandName: stri
   if ((questionId ? 1 : 0) + (rawIndex ? 1 : 0) !== 1) {
     throw new Error(`${commandName} requires exactly one of --question <question-id> or --index <one-based-index>`);
   }
+  if (rawIndex && !/^[1-9]\d*$/.test(rawIndex)) {
+    throw new Error(`${commandName} --index must be a one-based positive integer`);
+  }
   const parsedQuestionIndex = rawIndex ? Number.parseInt(rawIndex, 10) : undefined;
-  if (rawIndex && (!Number.isInteger(parsedQuestionIndex) || (parsedQuestionIndex ?? 0) < 1)) {
+  if (rawIndex && !Number.isSafeInteger(parsedQuestionIndex)) {
     throw new Error(`${commandName} --index must be a one-based positive integer`);
   }
   return {

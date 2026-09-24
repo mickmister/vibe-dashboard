@@ -143,6 +143,7 @@ describe('beads-form CLI helpers', () => {
       command: 'show-question',
       options: expect.objectContaining({ beadId: 'bd-1', formId: 'review', questionIndex: 2 }),
     });
+    expect(() => parseBeadsFormCliArgs(['show-question', '--bead', 'bd-1', '--form', 'review', '--index', '1abc'])).toThrow('one-based positive integer');
     expect(parseBeadsFormCliArgs([
       'update-question',
       '--bead',
@@ -165,6 +166,24 @@ describe('beads-form CLI helpers', () => {
         baseHash: 'abc123',
       }),
     });
+  });
+
+  it('rejects malformed update-question indexes before any metadata mutation', async () => {
+    const exec = vi.fn<ExecFileLike>();
+    for (const badIndex of ['1.5', '0']) {
+      expect(() => parseBeadsFormCliArgs([
+        'update-question',
+        '--bead',
+        'bd-1',
+        '--form',
+        'review',
+        '--index',
+        badIndex,
+        '--file',
+        'question.json',
+      ])).toThrow('one-based positive integer');
+    }
+    expect(exec).not.toHaveBeenCalled();
   });
 
   it('parses workspace and session metadata from flags and environment', () => {
