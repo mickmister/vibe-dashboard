@@ -14,8 +14,8 @@ import {
   type StandardBeadsForm,
   type StoredBeadsForm,
 } from '../../packages/beads-form/src/index.ts';
-import { assertMetadataWithinIssueJsonGuard } from '../../src/lib/beadsFormCore.ts';
-import { BeadsClient, type PendingBeadsFormQueueResult } from '../../src/lib/beadsClient.node.ts';
+import { assertMetadataWithinIssueJsonGuard } from '../../src/lib/beadsFormMetadataGuard.ts';
+import type { PendingBeadsFormQueueResult } from '../../src/lib/beadsClient.node.ts';
 
 const execFileAsync = promisify(execFile);
 const DEFAULT_CONFIG_DIR_NAME = 'vibe-dashboard';
@@ -1009,6 +1009,7 @@ export async function scanPendingBeadsForms(input: {
   options: PendingOptions;
   execFile?: ExecFileLike;
 }): Promise<PendingFormsCliResult> {
+  const { BeadsClient } = await import('../../src/lib/beadsClient.node.ts');
   const client = new BeadsClient(input.execFile ? { execFile: input.execFile } : {});
   const queue = await client.listPendingBeadsFormQueue({
     reposRoot: input.options.parentDir,
