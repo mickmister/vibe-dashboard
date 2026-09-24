@@ -130,7 +130,7 @@ describe('auto-nudge across real VK transport', () => {
     if (!targetSession) throw new Error('missing target session');
     const intent = appendResponseRoute(responseRoutesPath, {
       processId: null, targetRole: 'impl', targetSessionId: 'impl', replySessionId: 'overseer',
-      createdAt: old, updatedAt: old,
+      createdAt: old, updatedAt: old, sendStartedAt: old, sendFinishedAt: now,
     });
     await expect(rawClient.sendMessage('impl', body('please work', targetSession))).rejects.toThrow();
     await runAutoNudgeCycle(createAutoNudgeClient(rawClient), options);

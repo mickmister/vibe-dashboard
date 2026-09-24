@@ -273,6 +273,47 @@ describe('auto nudge', () => {
     expect(readResponseRouteState(options.responseRoutesPath).routes[intent.id]).toMatchObject({ processId: 'accepted-process', status: 'delivered' });
   });
 
+  it('does not bind a failed pre-accept response-route intent to later unrelated work', async () => {
+    const { options } = setup();
+    options.responseRoutesPath = join(options.statePath, '..', 'routes.json');
+    const intent = appendResponseRoute(options.responseRoutesPath, {
+      processId: null, targetRole: 'review', targetSessionId: 'review', replySessionId: 'overseer',
+      createdAt: iso(1), updatedAt: iso(2), sendStartedAt: iso(1), sendFinishedAt: iso(2),
+    });
+    updateResponseRoute(options.responseRoutesPath, intent.id, route => ({
+      ...route,
+      status: 'failed',
+      updatedAt: iso(2),
+      error: 'Validation error: unexpected follow-up',
+    }));
+    const later = proc('later-unrelated', 'review', 'completed', 9);
+    const { client, sent } = fake({ processes: { review: [later], impl: [], overseer: [] } });
+    client.getSessions = async () => [session('overseer', 'overseer'), session('review', 'review')];
+    await runAutoNudgeCycle(client, options);
+    expect(sent).toEqual([]);
+    expect(readResponseRouteState(options.responseRoutesPath).routes[intent.id]).toMatchObject({ processId: null, status: 'failed' });
+  });
+
+  it('fails closed instead of binding a stale uncertain response-route intent to much later work', async () => {
+    const { options } = setup();
+    options.responseRoutesPath = join(options.statePath, '..', 'routes.json');
+    const intent = appendResponseRoute(options.responseRoutesPath, {
+      processId: null, targetRole: 'review', targetSessionId: 'review', replySessionId: 'overseer',
+      createdAt: iso(1), updatedAt: iso(2), sendStartedAt: iso(1), sendFinishedAt: iso(2),
+    });
+    updateResponseRoute(options.responseRoutesPath, intent.id, route => ({ ...route, error: 'fetch failed' }));
+    const muchLater = proc('much-later', 'review', 'completed', 9);
+    const { client, sent } = fake({ processes: { review: [muchLater], impl: [], overseer: [] } });
+    client.getSessions = async () => [session('overseer', 'overseer'), session('review', 'review')];
+    await runAutoNudgeCycle(client, options);
+    expect(sent).toEqual([]);
+    expect(readResponseRouteState(options.responseRoutesPath).routes[intent.id]).toMatchObject({
+      processId: null,
+      status: 'failed',
+      error: 'stale response route intent did not reconcile to an accepted process',
+    });
+  });
+
   it('fails closed when a pre-send response-route intent matches multiple processes', async () => {
     const { options } = setup();
     options.responseRoutesPath = join(options.statePath, '..', 'routes.json');

@@ -15,6 +15,8 @@ export interface ResponseRoute {
   replySessionId: string;
   createdAt: string;
   updatedAt: string;
+  sendStartedAt?: string | null;
+  sendFinishedAt?: string | null;
   status: ResponseRouteStatus;
   deliveredProcessId: string | null;
   error: string | null;
@@ -90,6 +92,8 @@ export function readResponseRouteState(filePath: string): ResponseRouteState {
     && typeof (route as ResponseRoute).replySessionId === 'string'
     && typeof (route as ResponseRoute).createdAt === 'string'
     && typeof (route as ResponseRoute).updatedAt === 'string'
+    && (!('sendStartedAt' in (route as ResponseRoute)) || (route as ResponseRoute).sendStartedAt == null || typeof (route as ResponseRoute).sendStartedAt === 'string')
+    && (!('sendFinishedAt' in (route as ResponseRoute)) || (route as ResponseRoute).sendFinishedAt == null || typeof (route as ResponseRoute).sendFinishedAt === 'string')
     && ['pending', 'delivered', 'terminal-no-response', 'failed'].includes((route as ResponseRoute).status)
     && ((route as ResponseRoute).deliveredProcessId == null || typeof (route as ResponseRoute).deliveredProcessId === 'string')
     && ((route as ResponseRoute).error == null || typeof (route as ResponseRoute).error === 'string'));

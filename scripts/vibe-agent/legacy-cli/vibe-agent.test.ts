@@ -3,6 +3,7 @@ import {
   deliverCallbackCompletion,
   formatFullSummaryText,
   getAdvanceableFullSummaryProcessIds,
+  isDeterministicPreAcceptFollowUpError,
   mapWithConcurrency,
   parseFullSummaryArgs,
   parseSendArgs,
@@ -159,6 +160,19 @@ describe('parseSendArgs', () => {
 
   it('supports explicit fire-and-forget sends', () => {
     expect(parseSendArgs(['--fire-and-forget', 'review', 'FYI'])).toMatchObject({ fireAndForget: true });
+  });
+});
+
+describe('isDeterministicPreAcceptFollowUpError', () => {
+  it('classifies validation and HTTP rejection errors as pre-accept failures', () => {
+    expect(isDeterministicPreAcceptFollowUpError(new Error('Validation error: unexpected follow-up'))).toBe(true);
+    expect(isDeterministicPreAcceptFollowUpError(new Error('Not found: http://vk/api/sessions/missing'))).toBe(true);
+    expect(isDeterministicPreAcceptFollowUpError(new Error('HTTP 503: scripted rejection'))).toBe(true);
+  });
+
+  it('leaves dropped network responses uncertain for daemon reconciliation', () => {
+    expect(isDeterministicPreAcceptFollowUpError(new Error('fetch failed'))).toBe(false);
+    expect(isDeterministicPreAcceptFollowUpError(new Error('socket hang up'))).toBe(false);
   });
 });
 

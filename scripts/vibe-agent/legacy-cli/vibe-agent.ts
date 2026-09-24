@@ -31,6 +31,7 @@ import {
   appendResponseRoute,
   bindResponseRouteProcess,
   DEFAULT_RESPONSE_ROUTES_PATH,
+  updateResponseRoute,
 } from '../nudge/response-routes.js';
 
 // Message helpers
@@ -169,6 +170,13 @@ export function parseSendArgs(args: string[]): ParsedSendArgs {
   };
   if (timeoutMs !== undefined) parsed.timeoutMs = timeoutMs;
   return parsed;
+}
+
+export function isDeterministicPreAcceptFollowUpError(error: Error): boolean {
+  const message = error.message;
+  return /^Not found:/.test(message)
+    || /^Validation error:/.test(message)
+    || /^HTTP (400|401|403|404|409|422|503)\b/.test(message);
 }
 
 function isStopHookFeedbackEntry(entry: ConversationEntry | undefined): boolean {
@@ -1502,19 +1510,36 @@ async function send(args: string[]): Promise<void> {
         targetSessionId: session.id,
         createdAt: now,
         updatedAt: now,
+        sendStartedAt: now,
+        sendFinishedAt: null,
       });
       responseRouteId = route.id;
     }
 
-    const result = await client.sendMessage(session.id, {
-      prompt: finalMessage,
-      executor_config: {
-        executor: session.executor,
-      },
-      retry_process_id: null,
-      force_when_dirty: null,
-      perform_git_reset: null,
-    });
+    let result;
+    try {
+      result = await client.sendMessage(session.id, {
+        prompt: finalMessage,
+        executor_config: {
+          executor: session.executor,
+        },
+        retry_process_id: null,
+        force_when_dirty: null,
+        perform_git_reset: null,
+      });
+    } catch (error) {
+      if (routeResponse && responseRouteId) {
+        const finishedAt = new Date().toISOString();
+        updateResponseRoute(process.env.VD_RESPONSE_ROUTES_PATH ?? DEFAULT_RESPONSE_ROUTES_PATH, responseRouteId, route => {
+          if (route.status !== 'pending') return route;
+          const message = (error as Error).message;
+          return isDeterministicPreAcceptFollowUpError(error as Error)
+            ? { ...route, status: 'failed', updatedAt: finishedAt, sendFinishedAt: finishedAt, error: message }
+            : { ...route, updatedAt: finishedAt, sendFinishedAt: finishedAt, error: message };
+        });
+      }
+      throw error;
+    }
 
     if (routeResponse && responseRouteId) {
       bindResponseRouteProcess(process.env.VD_RESPONSE_ROUTES_PATH ?? DEFAULT_RESPONSE_ROUTES_PATH, responseRouteId, result.id, new Date().toISOString());

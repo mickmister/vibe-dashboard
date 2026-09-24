@@ -16,6 +16,7 @@ import {
 const DEFAULT_STATE_PATH = '/var/lib/vd/auto-nudge/state.json';
 const DEFAULT_LOCK_PATH = '/var/lib/vd/auto-nudge/owner.lock';
 const DEFAULT_POLL_MS = 5 * 60_000;
+const RESPONSE_ROUTE_INTENT_STALE_MS = 5 * 60_000;
 const OVERSEER_PROMPT = `- If all milestones are complete, stop and say "DONE" as your full response
 - If you have just completed a milestone, make sure it gets reviewed by the appropriate agents.
 - If you approve the review, continue to the next milestone.
@@ -143,9 +144,21 @@ async function processResponseRoutes(client: AutoNudgeClient, options: AutoNudge
     try {
       let processId = route.processId;
       if (!processId) {
+        const startedAt = new Date(route.sendStartedAt ?? route.createdAt).getTime();
+        const finishedAt = route.sendFinishedAt ? new Date(route.sendFinishedAt).getTime() : null;
+        const candidateWindowEnd = finishedAt ?? startedAt + RESPONSE_ROUTE_INTENT_STALE_MS;
         const candidates = (await deadline(client.getSessionProcesses(route.targetSessionId), options.operationTimeoutMs, 'reconcile response route intent'))
-          .filter(item => item.run_reason === 'codingagent' && !item.dropped && new Date(item.created_at).getTime() >= new Date(route.createdAt).getTime())
+          .filter(item => {
+            const createdAt = new Date(item.created_at).getTime();
+            return item.run_reason === 'codingagent' && !item.dropped && createdAt >= startedAt && createdAt <= candidateWindowEnd;
+          })
           .sort((left, right) => left.created_at.localeCompare(right.created_at) || left.id.localeCompare(right.id));
+        if (candidates.length === 0 && options.now().getTime() > candidateWindowEnd + RESPONSE_ROUTE_INTENT_STALE_MS) {
+          updateResponseRoute(responseRoutesPath, route.id, current => current.status === 'pending'
+            ? { ...current, status: 'failed', updatedAt: options.now().toISOString(), error: 'stale response route intent did not reconcile to an accepted process' }
+            : current);
+          continue;
+        }
         if (candidates.length === 0) continue;
         if (candidates.length > 1) {
           updateResponseRoute(responseRoutesPath, route.id, current => current.status === 'pending'
