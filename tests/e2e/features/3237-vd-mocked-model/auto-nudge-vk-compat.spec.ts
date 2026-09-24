@@ -23,7 +23,7 @@ async function context() {
   const existing = (await client.getSessions(workspace.id))[0]; if (!existing) throw new Error('QA workspace has no seeded session');
   const overseer = await client.createSession({ workspace_id: workspace.id, executor: 'CODEX', name: `auto-nudge-overseer-${Date.now()}` });
   const dir = await mkdtemp(join(tmpdir(), 'auto-nudge-qa-'));
-  const options: AutoNudgeOptions = { config: { version: 1, workspaces: [{ workspaceId: workspace.id, overseerSessionId: overseer.id }] }, statePath: join(dir, 'state.json'), callbackRegistryPath: join(dir, 'callbacks.json'), now: () => new Date(), unacknowledgedAfterMs: 0, operationTimeoutMs: 5_000, responseTimeoutMs: 30_000, checkpointPollMs: 100, concurrency: 2, dryRun: false };
+  const options: AutoNudgeOptions = { config: { version: 1, workspaces: [{ workspaceId: workspace.id, overseerSessionId: overseer.id }] }, statePath: join(dir, 'state.json'), callbackRegistryPath: join(dir, 'callbacks.json'), responseRoutesPath: join(dir, 'response-routes.json'), now: () => new Date(), unacknowledgedAfterMs: 0, operationTimeoutMs: 5_000, responseTimeoutMs: 30_000, checkpointPollMs: 100, concurrency: 2, dryRun: false };
   return { workspace, teammate: existing, overseer, dir, options };
 }
 
