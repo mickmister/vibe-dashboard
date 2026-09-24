@@ -7,6 +7,7 @@ import type {
   SavedWorkspaceSession,
 } from '../types';
 import type { WorkspaceActions, SessionActions } from './WorkspaceShell';
+import { BUILT_IN_AGENT_TAB_ID } from '../modules/plugins/vibe-dashboard/craft-surfaces';
 
 interface UnifiedTabViewProps {
   tabGroups: TabGroup[];
@@ -23,6 +24,12 @@ interface UnifiedTabViewProps {
   onDeleteSession: (sessionId: string) => void;
   onStartNewSession: () => void;
   onNavigateToTabGroup: (spaceId: string, tabGroupId: string) => void;
+  onOpenVKWorkspace: (
+    taskAttemptId: string,
+    name: string,
+    containerRef: string,
+    spaceId: string,
+  ) => Promise<void>;
 }
 
 export function UnifiedTabView({
@@ -40,6 +47,7 @@ export function UnifiedTabView({
   onDeleteSession,
   onStartNewSession,
   onNavigateToTabGroup,
+  onOpenVKWorkspace,
 }: UnifiedTabViewProps) {
   const activeTabGroup = tabGroups.find((tg) => tg.id === activeTabGroupId);
   const activeItemId = activeTabGroup
@@ -86,19 +94,19 @@ export function UnifiedTabView({
             onDeleteSession={onDeleteSession}
             onStartNewSession={onStartNewSession}
             onNavigateToTabGroup={onNavigateToTabGroup}
-            onOpenVKWorkspace={async (taskAttemptId, name, containerRef, spaceId) => {
-              const result = await actions.addVKWorkspace({
-                taskAttemptId,
-                name,
-                containerRef,
-                activeSpaceId: spaceId,
+            onOpenVKWorkspace={onOpenVKWorkspace}
+            onBeadReferenceClick={async (agentTabId, beadId) => {
+              const result = await actions.openFormsForBead({
+                tabGroupId: activeTabGroup.id,
+                agentTabId,
+                beadId,
               });
               if (result) {
-                sessionActions.selectSessionTabGroup(
-                  spaceId,
-                  result.tabGroupId,
-                );
+                sessionActions.selectTab(result.tabGroupId, result.formsTabId);
               }
+            }}
+            onBeadFormSubmitted={() => {
+              sessionActions.selectTab(activeTabGroup.id, BUILT_IN_AGENT_TAB_ID);
             }}
           />
         ) : (

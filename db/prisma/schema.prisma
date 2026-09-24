@@ -1,0 +1,163 @@
+generator kysely {
+  provider = "prisma-kysely"
+  output   = "../../src/store"
+  fileName = "kysely_types.ts"
+}
+
+model BetterAuthUser {
+  id            String   @id
+  name          String
+  email         String   @unique
+  emailVerified Boolean  @default(false)
+  image         String?
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  sessions                    BetterAuthSession[]
+  accounts                    BetterAuthAccount[]
+  externalProviderConnections ExternalProviderConnection[]
+}
+
+model BetterAuthSession {
+  id        String   @id
+  userId    String
+  token     String   @unique
+  expiresAt DateTime
+  ipAddress String?
+  userAgent String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  user BetterAuthUser @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([expiresAt])
+}
+
+model BetterAuthAccount {
+  id                    String   @id
+  userId                String
+  accountId             String
+  providerId            String
+  accessToken           String?
+  refreshToken          String?
+  accessTokenExpiresAt  DateTime?
+  refreshTokenExpiresAt DateTime?
+  scope                 String?
+  idToken               String?
+  password              String?
+  createdAt             DateTime @default(now())
+  updatedAt             DateTime @updatedAt
+
+  user                        BetterAuthUser @relation(fields: [userId], references: [id], onDelete: Cascade)
+  externalProviderConnections ExternalProviderConnection[]
+
+  @@unique([providerId, accountId])
+  @@index([userId])
+  @@index([providerId])
+}
+
+model BetterAuthVerification {
+  id         String    @id
+  identifier String
+  value      String
+  expiresAt  DateTime
+  createdAt  DateTime? @default(now())
+  updatedAt  DateTime? @updatedAt
+
+  @@index([identifier])
+  @@index([expiresAt])
+}
+
+enum ExternalProvider {
+  jira
+  github
+  linear
+}
+
+model ExternalProviderConnection {
+  id                  String           @id
+  userId              String
+  provider            ExternalProvider
+  betterAuthAccountId String
+  providerAccountId   String
+  displayName         String?
+  resourceMetadataJson String?
+  createdAt           DateTime         @default(now())
+  updatedAt           DateTime         @updatedAt
+
+  user              BetterAuthUser    @relation(fields: [userId], references: [id], onDelete: Cascade)
+  betterAuthAccount BetterAuthAccount @relation(fields: [betterAuthAccountId], references: [id], onDelete: Cascade)
+
+  @@unique([provider, providerAccountId])
+  @@index([userId])
+  @@index([provider])
+  @@index([betterAuthAccountId])
+}
+
+model ExternalIssue {
+  id           String           @id
+  provider     ExternalProvider
+  issueKey     String
+  issueId      String?
+  issueUrl     String
+  site         String?
+  metadataJson String?
+  createdAt    DateTime         @default(now())
+  updatedAt    DateTime         @updatedAt
+
+  workspaceLinks ExternalIssueWorkspaceLink[]
+
+  @@unique([provider, site, issueKey])
+  @@index([provider, issueKey])
+  @@index([issueId])
+}
+
+model VKWorkspace {
+  id           String   @id
+  workspaceId  String   @unique
+  workspaceDir String?
+  displayName  String?
+  metadataJson String?
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  externalIssueLinks ExternalIssueWorkspaceLink[]
+
+  @@index([workspaceDir])
+}
+
+model ExternalIssueWorkspaceLink {
+  id              String   @id
+  externalIssueId String
+  vkWorkspaceId   String
+  isPrimary       Boolean  @default(false)
+  lastOpenedAt    DateTime?
+  metadataJson    String?
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  externalIssue ExternalIssue @relation(fields: [externalIssueId], references: [id], onDelete: Cascade)
+  vkWorkspace   VKWorkspace   @relation(fields: [vkWorkspaceId], references: [id], onDelete: Cascade)
+
+  @@unique([externalIssueId, vkWorkspaceId])
+  @@index([externalIssueId])
+  @@index([vkWorkspaceId])
+  @@index([isPrimary])
+}
+
+model ExternalRepoProjectMapping {
+  id            String           @id
+  repoId        String
+  repoName      String?
+  provider      ExternalProvider
+  siteHostname  String
+  projectKey    String
+  issueTypeName String?
+  metadataJson  String?
+  createdAt     DateTime         @default(now())
+  updatedAt     DateTime         @updatedAt
+
+  @@unique([repoId, provider, siteHostname])
+  @@index([provider, siteHostname, projectKey])
+}

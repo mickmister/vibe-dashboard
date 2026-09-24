@@ -6,13 +6,12 @@ import type {
 } from "../types";
 import {
   vkClient,
-  type Workspace,
   type WorkspaceSummary,
   type Repo,
   type RepoWithBranch,
 } from "../lib/vk-client";
 
-interface DashboardWorkspace {
+export interface DashboardWorkspace {
   id: string;
   name: string;
   branch: string;
@@ -387,6 +386,7 @@ function WorkspaceRow({
         ) : onOpenInNewTabGroup ? (
           <button
             onClick={onOpenInNewTabGroup}
+            aria-label={`Open ${ws.name}`}
             className="px-2 py-1 rounded text-xs font-medium bg-zinc-700 text-zinc-300 border border-zinc-600 hover:bg-zinc-600 hover:text-white transition-colors"
           >
             Open
@@ -438,29 +438,56 @@ function SpacePickerModal({
   targetWorkspace,
   onSelect,
   onClose,
+  pendingSpaceId,
+  actionError,
+  onRetry,
 }: {
   workspace: WorkspaceState;
   targetWorkspace: DashboardWorkspace;
   onSelect: (spaceId: string) => void;
   onClose: () => void;
+  pendingSpaceId?: string | null;
+  actionError?: string | null;
+  onRetry?: () => void;
 }) {
-  const spaces = ws.spaces.filter((s) => !s.isSystem);
+  const spaces = ws.spaces;
+  const isPending = Boolean(pendingSpaceId);
 
   return (
     <div
       className="fixed inset-0 z-50 flex items-center justify-center bg-black/60"
-      onClick={onClose}
+      onClick={() => {
+        if (!isPending) onClose();
+      }}
     >
       <div
         className="bg-zinc-900 border border-zinc-700 rounded-xl shadow-2xl w-full max-w-sm mx-4"
         onClick={(e) => e.stopPropagation()}
       >
         <div className="px-5 pt-5 pb-3">
-          <h3 className="text-sm font-semibold text-white">Open in space</h3>
+          <h3 className="text-sm font-semibold text-white">
+            Open craft in space
+          </h3>
           <p className="text-xs text-zinc-500 mt-1 truncate">
             {targetWorkspace.name}
           </p>
         </div>
+        {actionError && (
+          <div
+            role="alert"
+            className="mx-5 mb-3 rounded-md border border-red-500/40 bg-red-500/10 p-3 text-xs text-red-200"
+          >
+            <div>{actionError}</div>
+            {onRetry && (
+              <button
+                className="mt-2 rounded border border-red-400/50 px-2 py-1 font-medium text-red-100 transition-colors hover:bg-red-500/20"
+                onClick={onRetry}
+              >
+                Retry
+              </button>
+            )}
+          </div>
+        )}
         <div className="px-3 pb-3 max-h-64 overflow-y-auto">
           {spaces.length === 0 ? (
             <p className="text-xs text-zinc-500 px-2 py-4 text-center">
@@ -472,9 +499,13 @@ function SpacePickerModal({
                 <button
                   key={space.id}
                   onClick={() => onSelect(space.id)}
-                  className="w-full flex items-center gap-3 px-3 py-2.5 rounded-lg hover:bg-zinc-800 transition-colors text-left"
+                  disabled={isPending}
+                  className="w-full flex items-center gap-3 px-3 py-2.5 rounded-lg hover:bg-zinc-800 transition-colors text-left disabled:cursor-not-allowed disabled:opacity-60 disabled:hover:bg-transparent"
                 >
                   <span className="text-sm text-white">{space.name}</span>
+                  {pendingSpaceId === space.id && (
+                    <span className="text-xs text-cyan-300">Opening…</span>
+                  )}
                   <span className="text-xs text-zinc-600 ml-auto">
                     {
                       ws.tabGroups.filter((tg) =>
@@ -491,7 +522,8 @@ function SpacePickerModal({
         <div className="px-5 pb-4 pt-2 border-t border-zinc-800">
           <button
             onClick={onClose}
-            className="w-full px-3 py-1.5 rounded text-xs font-medium bg-zinc-800 text-zinc-400 border border-zinc-700 hover:bg-zinc-700 hover:text-zinc-300 transition-colors"
+            disabled={isPending}
+            className="w-full px-3 py-1.5 rounded text-xs font-medium bg-zinc-800 text-zinc-400 border border-zinc-700 hover:bg-zinc-700 hover:text-zinc-300 transition-colors disabled:cursor-not-allowed disabled:opacity-60 disabled:hover:bg-zinc-800 disabled:hover:text-zinc-400"
           >
             Cancel
           </button>
@@ -514,7 +546,7 @@ function RunningDevServersSection({
 }: {
   workspaces: DashboardWorkspace[];
   loading: boolean;
-  onStop: (workspaceId: string) => Promise<void>;
+  onStop?: (workspaceId: string) => void | Promise<void>;
   stoppingIds: Set<string>;
   workspaceTabGroupMap: Map<
     string,
@@ -560,7 +592,13 @@ function RunningDevServersSection({
               key={ws.id}
               workspace={ws}
               isStoppingDevServer={stoppingIds.has(ws.id)}
-              onStopDevServer={() => onStop(ws.id)}
+              onStopDevServer={
+                onStop
+                  ? () => {
+                      void onStop(ws.id);
+                    }
+                  : undefined
+              }
               {...(tabGroupNav ? { tabGroupNav } : {})}
               {...(!tabGroupNav && onRequestOpenWorkspace
                 ? {
@@ -1114,11 +1152,11 @@ interface SpacesOverviewProps {
   onStartNewSession: () => void;
   onNavigateToTabGroup: (spaceId: string, tabGroupId: string) => void;
   onOpenVKWorkspace?: (
-    taskAttemptId: string,
+    workspaceId: string,
     name: string,
     containerRef: string,
     spaceId: string,
-  ) => void;
+  ) => void | Promise<void>;
 }
 
 export function SpacesOverview({
@@ -1133,27 +1171,9 @@ export function SpacesOverview({
   onOpenVKWorkspace,
 }: SpacesOverviewProps) {
   const { workspaces, repos, loading, error, refetch } = useVKDashboardData();
-  const [selectedRepoId, setSelectedRepoId] = useState<string | null>(null);
-  const [page, setPage] = useState(0);
-  const [spacePickerTarget, setSpacePickerTarget] =
-    useState<DashboardWorkspace | null>(null);
   const [stoppingDevServerIds, setStoppingDevServerIds] = useState<Set<string>>(
     new Set(),
   );
-  const workspaceNameById = useMemo(() => {
-    const map = new Map<string, string>();
-    for (const item of workspaces) {
-      map.set(item.id, item.name || item.branch);
-    }
-    return map;
-  }, [workspaces]);
-  const tabGroupDisplayLabelById = useMemo(() => {
-    const map = new Map<string, string>();
-    for (const tabGroup of workspace.tabGroups) {
-      map.set(tabGroup.id, getTabGroupDisplayLabel(tabGroup, workspaceNameById));
-    }
-    return map;
-  }, [workspace.tabGroups, workspaceNameById]);
 
   const handleStopDevServer = useCallback(
     async (workspaceId: string) => {
@@ -1181,6 +1201,152 @@ export function SpacesOverview({
     },
     [refetch, stoppingDevServerIds],
   );
+
+  return (
+    <SpacesOverviewView
+      workspace={workspace}
+      savedSessions={savedSessions}
+      currentSessionId={currentSessionId}
+      onResumeSession={onResumeSession}
+      onRenameSession={onRenameSession}
+      onDeleteSession={onDeleteSession}
+      onStartNewSession={onStartNewSession}
+      onNavigateToTabGroup={onNavigateToTabGroup}
+      workspaces={workspaces}
+      repos={repos}
+      loading={loading}
+      error={error}
+      stoppingDevServerIds={stoppingDevServerIds}
+      onStopDevServer={handleStopDevServer}
+      {...(onOpenVKWorkspace
+        ? {
+            onOpenWorkspaceInSpace: (targetWorkspace, spaceId) =>
+              onOpenVKWorkspace(
+                targetWorkspace.id,
+                targetWorkspace.name,
+                targetWorkspace.container_ref || "",
+                spaceId,
+              ),
+          }
+        : {})}
+    />
+  );
+}
+
+export interface SpacesOverviewViewProps extends SpacesOverviewProps {
+  workspaces: DashboardWorkspace[];
+  repos: Repo[];
+  loading: boolean;
+  error: string | null;
+  stoppingDevServerIds?: Set<string>;
+  onStopDevServer?: (workspaceId: string) => void | Promise<void>;
+  onOpenWorkspaceInSpace?: (
+    workspace: DashboardWorkspace,
+    spaceId: string,
+  ) => void | Promise<void>;
+  initialSelectedRepoId?: string | null;
+  initialSpacePickerTargetId?: string | null;
+  initialOpenCraftActionError?: string | null;
+}
+
+export function SpacesOverviewView({
+  workspace,
+  savedSessions,
+  currentSessionId,
+  onResumeSession,
+  onRenameSession,
+  onDeleteSession,
+  onStartNewSession,
+  onNavigateToTabGroup,
+  workspaces,
+  repos,
+  loading,
+  error,
+  stoppingDevServerIds: externalStoppingDevServerIds,
+  onStopDevServer,
+  onOpenWorkspaceInSpace,
+  initialSelectedRepoId = null,
+  initialSpacePickerTargetId = null,
+  initialOpenCraftActionError = null,
+}: SpacesOverviewViewProps) {
+  const [selectedRepoId, setSelectedRepoId] = useState<string | null>(
+    initialSelectedRepoId,
+  );
+  const [page, setPage] = useState(0);
+  const initialSpacePickerTarget = useMemo(() => {
+    if (!initialSpacePickerTargetId) return null;
+    return (
+      workspaces.find((candidate) => candidate.id === initialSpacePickerTargetId) ??
+      null
+    );
+  }, [initialSpacePickerTargetId, workspaces]);
+  const [spacePickerTarget, setSpacePickerTarget] =
+    useState<DashboardWorkspace | null>(initialSpacePickerTarget);
+  const [pendingOpenCraftRequest, setPendingOpenCraftRequest] =
+    useState<{ workspace: DashboardWorkspace; spaceId: string } | null>(null);
+  const [openCraftRetryRequest, setOpenCraftRetryRequest] =
+    useState<{ workspace: DashboardWorkspace; spaceId: string } | null>(null);
+  const [openCraftActionError, setOpenCraftActionError] = useState<
+    string | null
+  >(initialOpenCraftActionError);
+  const stoppingDevServerIds = externalStoppingDevServerIds ?? new Set<string>();
+  const isOpenCraftPending = pendingOpenCraftRequest != null;
+
+  useEffect(() => {
+    setSpacePickerTarget(initialSpacePickerTarget);
+  }, [initialSpacePickerTarget]);
+
+  useEffect(() => {
+    setOpenCraftActionError(initialOpenCraftActionError);
+  }, [initialOpenCraftActionError]);
+
+  useEffect(() => {
+    setSelectedRepoId(initialSelectedRepoId);
+  }, [initialSelectedRepoId]);
+
+  const runOpenCraftRequest = useCallback(
+    async (request: { workspace: DashboardWorkspace; spaceId: string }) => {
+      if (!onOpenWorkspaceInSpace) {
+        setOpenCraftActionError("Open Craft is unavailable.");
+        return;
+      }
+
+      setPendingOpenCraftRequest(request);
+      setOpenCraftRetryRequest(request);
+      setOpenCraftActionError(null);
+      try {
+        await onOpenWorkspaceInSpace(request.workspace, request.spaceId);
+        setSpacePickerTarget(null);
+        setOpenCraftRetryRequest(null);
+      } catch (err) {
+        setOpenCraftActionError(getDashboardOpenCraftErrorMessage(err));
+      } finally {
+        setPendingOpenCraftRequest(null);
+      }
+    },
+    [onOpenWorkspaceInSpace],
+  );
+
+  const workspaceNameById = useMemo(() => {
+    const map = new Map<string, string>();
+    for (const item of workspaces) {
+      map.set(item.id, item.name || item.branch);
+    }
+    return map;
+  }, [workspaces]);
+  const tabGroupDisplayLabelById = useMemo(() => {
+    const map = new Map<string, string>();
+    for (const tabGroup of workspace.tabGroups) {
+      map.set(tabGroup.id, getTabGroupDisplayLabel(tabGroup, workspaceNameById));
+    }
+    return map;
+  }, [workspace.tabGroups, workspaceNameById]);
+
+  const openSpacePickerForWorkspace = (targetWorkspace: DashboardWorkspace) => {
+    setOpenCraftActionError(null);
+    setOpenCraftRetryRequest(null);
+    setSpacePickerTarget(targetWorkspace);
+  };
 
   // Derive repos from workspace data if /api/repos returned empty
   const effectiveRepos = useMemo(() => {
@@ -1282,12 +1448,12 @@ export function SpacesOverview({
         <RunningDevServersSection
           workspaces={workspaces}
           loading={loading}
-          onStop={handleStopDevServer}
+          {...(onStopDevServer ? { onStop: onStopDevServer } : {})}
           stoppingIds={stoppingDevServerIds}
           workspaceTabGroupMap={workspaceTabGroupMap}
           onNavigateToTabGroup={onNavigateToTabGroup}
           onRequestOpenWorkspace={
-            onOpenVKWorkspace ? (ws) => setSpacePickerTarget(ws) : undefined
+            onOpenWorkspaceInSpace ? openSpacePickerForWorkspace : undefined
           }
         />
 
@@ -1360,15 +1526,19 @@ export function SpacesOverview({
                       workspace={ws}
                       isStoppingDevServer={stoppingDevServerIds.has(ws.id)}
                       onStopDevServer={
-                        ws.has_running_dev_server ||
-                        stoppingDevServerIds.has(ws.id)
-                          ? () => handleStopDevServer(ws.id)
+                        onStopDevServer &&
+                        (ws.has_running_dev_server ||
+                          stoppingDevServerIds.has(ws.id))
+                          ? () => {
+                              void onStopDevServer(ws.id);
+                            }
                           : undefined
                       }
                       {...(tabGroupNav ? { tabGroupNav } : {})}
-                      {...(!tabGroupNav && onOpenVKWorkspace
+                      {...(!tabGroupNav && onOpenWorkspaceInSpace
                         ? {
-                            onOpenInNewTabGroup: () => setSpacePickerTarget(ws),
+                            onOpenInNewTabGroup: () =>
+                              openSpacePickerForWorkspace(ws),
                           }
                         : {})}
                     />
@@ -1398,22 +1568,43 @@ export function SpacesOverview({
       </div>
 
       {/* Space picker modal */}
-      {spacePickerTarget && onOpenVKWorkspace && (
+      {spacePickerTarget && onOpenWorkspaceInSpace && (
         <SpacePickerModal
           workspace={workspace}
           targetWorkspace={spacePickerTarget}
           onSelect={(spaceId) => {
-            onOpenVKWorkspace(
-              spacePickerTarget.id,
-              spacePickerTarget.name,
-              spacePickerTarget.container_ref || "",
+            void runOpenCraftRequest({
+              workspace: spacePickerTarget,
               spaceId,
-            );
-            setSpacePickerTarget(null);
+            });
           }}
-          onClose={() => setSpacePickerTarget(null)}
+          onClose={() => {
+            if (isOpenCraftPending) return;
+            setSpacePickerTarget(null);
+            setOpenCraftActionError(null);
+            setOpenCraftRetryRequest(null);
+          }}
+          pendingSpaceId={
+            pendingOpenCraftRequest?.workspace.id === spacePickerTarget.id
+              ? pendingOpenCraftRequest.spaceId
+              : null
+          }
+          actionError={openCraftActionError}
+          onRetry={
+            openCraftRetryRequest
+              ? () => {
+                  void runOpenCraftRequest(openCraftRetryRequest);
+                }
+              : undefined
+          }
         />
       )}
     </div>
   );
+}
+
+function getDashboardOpenCraftErrorMessage(error: unknown): string {
+  if (error instanceof Error && error.message.trim()) return error.message;
+  if (typeof error === "string" && error.trim()) return error;
+  return "Open Craft failed. Please retry or cancel.";
 }

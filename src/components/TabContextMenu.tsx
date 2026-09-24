@@ -1,4 +1,5 @@
 import React, { useEffect, useRef } from 'react';
+import { isEphemeralCraftSurfaceTab } from '../modules/plugins/vibe-dashboard/craft-surfaces';
 import type { TabGroup } from '../types';
 
 const INTERNAL_URL_PREFIX = 'internal://';
@@ -81,6 +82,7 @@ export function TabContextMenu({
   const isPair = !isGroupLabel && tabGroup.pairs.some((p) => p.id === tabId);
   const tab = !isGroupLabel ? tabGroup.tabs.find((t) => t.id === tabId) : undefined;
   const pair = !isGroupLabel ? tabGroup.pairs.find((p) => p.id === tabId) : undefined;
+  const isEphemeralTab = isEphemeralCraftSurfaceTab(tab);
 
   // Get other tabs that can be paired with (exclude current tab and tabs already in pairs)
   const tabsInPairs = new Set(tabGroup.pairs.flatMap((p) => p.tabIds));
@@ -88,6 +90,8 @@ export function TabContextMenu({
     (t) =>
       t.id !== tabId &&
       !tabsInPairs.has(t.id) &&
+      !isEphemeralCraftSurfaceTab(t) &&
+      !isEphemeralTab &&
       !t.url.startsWith(INTERNAL_URL_PREFIX) &&
       !(tab?.url.startsWith(INTERNAL_URL_PREFIX))
   );
@@ -199,7 +203,7 @@ export function TabContextMenu({
       {/* If it's a regular tab, show rename and pair options */}
       {!isGroupLabel && !isPair && tab && (
         <>
-          {onRenameTab && (
+          {onRenameTab && !isEphemeralTab && (
             <button
               className="w-full text-left px-4 py-2 text-sm text-neutral-200 hover:bg-neutral-700 transition-colors"
               onClick={handleRenameTab}
@@ -225,8 +229,8 @@ export function TabContextMenu({
               ))}
             </>
           )}
-          {!tab.pinned && <div className="border-t border-neutral-700 my-1" />}
-          {!tab.pinned && (
+          {!tab.pinned && !isEphemeralTab && <div className="border-t border-neutral-700 my-1" />}
+          {!tab.pinned && !isEphemeralTab && (
             <button
               className="w-full text-left px-4 py-2 text-sm text-red-400 hover:bg-neutral-700 transition-colors"
               onClick={handleCloseTab}
