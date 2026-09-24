@@ -164,15 +164,17 @@ describe('parseSendArgs', () => {
 });
 
 describe('isDeterministicPreAcceptFollowUpError', () => {
-  it('classifies validation and HTTP rejection errors as pre-accept failures', () => {
+  it('classifies validation and HTTP 4xx rejection errors as pre-accept failures', () => {
     expect(isDeterministicPreAcceptFollowUpError(new Error('Validation error: unexpected follow-up'))).toBe(true);
     expect(isDeterministicPreAcceptFollowUpError(new Error('Not found: http://vk/api/sessions/missing'))).toBe(true);
-    expect(isDeterministicPreAcceptFollowUpError(new Error('HTTP 503: scripted rejection'))).toBe(true);
+    expect(isDeterministicPreAcceptFollowUpError(new Error('HTTP 422: scripted validation rejection'))).toBe(true);
   });
 
-  it('leaves dropped network responses uncertain for daemon reconciliation', () => {
+  it('leaves dropped network and HTTP 5xx responses uncertain for daemon reconciliation', () => {
     expect(isDeterministicPreAcceptFollowUpError(new Error('fetch failed'))).toBe(false);
     expect(isDeterministicPreAcceptFollowUpError(new Error('socket hang up'))).toBe(false);
+    expect(isDeterministicPreAcceptFollowUpError(new Error('HTTP 503: server may have accepted before failing'))).toBe(false);
+    expect(isDeterministicPreAcceptFollowUpError(new Error('HTTP 500: internal server error'))).toBe(false);
   });
 });
 
