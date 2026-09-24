@@ -151,13 +151,17 @@ export class VoyageCommandService {
     panel: StructuralPanelHistoryRecord;
     afterPanelId?: string;
     active?: boolean;
+    maximized?: boolean;
   }): Promise<VoyageCommandResult> {
     const aggregate = await this.loadAtRevision(input.voyageId, input.expectedRevision);
     if (aggregate.panels.some(({ id }) => id === input.panel.id)) {
       throw new VoyageInvariantError(`Panel ${input.panel.id} already exists`);
     }
     const panels = [...structuralPanels(aggregate.panels), input.panel];
-    const snapshot = addPanelToSnapshot(asSerialized(aggregate.layout.snapshot), input.panel.id, input.afterPanelId, input.active);
+    const snapshot = addPanelToSnapshot(asSerialized(aggregate.layout.snapshot), input.panel.id, input.afterPanelId, {
+      active: input.active,
+      maximized: input.maximized,
+    });
     const missingCraft = input.panel.craftWorkspaceId !== null
       && !aggregate.crafts.some(({ craftWorkspaceId }) => craftWorkspaceId === input.panel.craftWorkspaceId);
     const revision = missingCraft
@@ -203,13 +207,81 @@ export class VoyageCommandService {
       closePolicy: 'closable',
     };
     const panels = [...structuralPanels(aggregate.panels), duplicated];
-    const snapshot = addPanelToSnapshot(asSerialized(aggregate.layout.snapshot), newPanelId, source.id, input.active);
+    const snapshot = addPanelToSnapshot(asSerialized(aggregate.layout.snapshot), newPanelId, source.id, { active: input.active });
     const revision = await this.repository.commitLayoutMutation({
       voyageId: input.voyageId,
       expectedRevision: input.expectedRevision,
       panels,
       snapshot,
       ...(input.active ? { activationPanelId: newPanelId } : {}),
+    });
+    return { voyageId: input.voyageId, revision };
+  }
+
+  async placePanelBeside(input: {
+    voyageId: string;
+    expectedRevision: number;
+    panelId: string;
+    afterPanelId: string;
+    active?: boolean;
+    maximized?: boolean;
+  }): Promise<VoyageCommandResult> {
+    const aggregate = await this.loadAtRevision(input.voyageId, input.expectedRevision);
+    if (input.panelId === input.afterPanelId) {
+      throw new VoyageInvariantError('Panel cannot be placed beside itself');
+    }
+    if (!aggregate.panels.some(({ id }) => id === input.panelId)) {
+      throw new VoyageInvariantError(`Panel ${input.panelId} is not in Voyage ${input.voyageId}`);
+    }
+    if (!aggregate.panels.some(({ id }) => id === input.afterPanelId)) {
+      throw new VoyageInvariantError(`Panel anchor ${input.afterPanelId} is not in Voyage ${input.voyageId}`);
+    }
+    const snapshot = movePanelAfter(asSerialized(aggregate.layout.snapshot), input.panelId, input.afterPanelId, {
+      active: input.active,
+      maximized: input.maximized,
+    });
+    const revision = await this.repository.commitLayoutMutation({
+      voyageId: input.voyageId,
+      expectedRevision: input.expectedRevision,
+      panels: structuralPanels(aggregate.panels),
+      snapshot,
+      ...(input.active ? { activationPanelId: input.panelId } : {}),
+    });
+    return { voyageId: input.voyageId, revision };
+  }
+
+  async maximizePanel(input: {
+    voyageId: string;
+    expectedRevision: number;
+    panelId: string;
+    active?: boolean;
+  }): Promise<VoyageCommandResult> {
+    const aggregate = await this.loadAtRevision(input.voyageId, input.expectedRevision);
+    if (!aggregate.panels.some(({ id }) => id === input.panelId)) {
+      throw new VoyageInvariantError(`Panel ${input.panelId} is not in Voyage ${input.voyageId}`);
+    }
+    const snapshot = maximizePanelInSnapshot(asSerialized(aggregate.layout.snapshot), input.panelId, input.active);
+    const revision = await this.repository.commitLayoutMutation({
+      voyageId: input.voyageId,
+      expectedRevision: input.expectedRevision,
+      panels: structuralPanels(aggregate.panels),
+      snapshot,
+      ...(input.active ? { activationPanelId: input.panelId } : {}),
+    });
+    return { voyageId: input.voyageId, revision };
+  }
+
+  async restoreMaximized(input: {
+    voyageId: string;
+    expectedRevision: number;
+  }): Promise<VoyageCommandResult> {
+    const aggregate = await this.loadAtRevision(input.voyageId, input.expectedRevision);
+    const snapshot = restoreMaximizedInSnapshot(asSerialized(aggregate.layout.snapshot));
+    const revision = await this.repository.commitLayoutMutation({
+      voyageId: input.voyageId,
+      expectedRevision: input.expectedRevision,
+      panels: structuralPanels(aggregate.panels),
+      snapshot,
     });
     return { voyageId: input.voyageId, revision };
   }
@@ -412,7 +484,7 @@ function makeLeaf(panelId: string): DockviewLeaf {
 
 function addPanelsToSnapshot(snapshot: SerializedDockview, panelIds: readonly string[]): SerializedDockview {
   let next = cloneSnapshot(snapshot);
-  for (const panelId of panelIds) next = addPanelToSnapshot(next, panelId, undefined, false);
+  for (const panelId of panelIds) next = addPanelToSnapshot(next, panelId, undefined, {});
   return next;
 }
 
@@ -420,7 +492,7 @@ function addPanelToSnapshot(
   snapshot: SerializedDockview,
   panelId: string,
   afterPanelId?: string,
-  active = false,
+  options: { active?: boolean; maximized?: boolean } = {},
 ): SerializedDockview {
   const next = cloneSnapshot(snapshot);
   if (next.panels[panelId]) throw new VoyageInvariantError(`Panel ${panelId} already exists in Dockview snapshot`);
@@ -434,7 +506,47 @@ function addPanelToSnapshot(
   const inserted = afterPanelId ? insertLeafAfter(root, afterPanelId, makeLeaf(panelId)) : false;
   if (afterPanelId && !inserted) throw new VoyageInvariantError(`Panel anchor ${afterPanelId} is not in Dockview snapshot`);
   if (!inserted) root.data.push(makeLeaf(panelId));
-  if (active) next.activeGroup = `group-${panelId}`;
+  if (options.active) next.activeGroup = `group-${panelId}`;
+  if (options.maximized) setMaximizedNode(next, panelId);
+  else clearMaximizedNode(next);
+  return next;
+}
+
+function movePanelAfter(
+  snapshot: SerializedDockview,
+  panelId: string,
+  afterPanelId: string,
+  options: { active?: boolean; maximized?: boolean } = {},
+): SerializedDockview {
+  const next = cloneSnapshot(snapshot);
+  if (!next.panels[panelId]) throw new VoyageInvariantError(`Panel ${panelId} does not exist in Dockview snapshot`);
+  const leaf = extractLeaf(next.grid.root as DockviewNode, panelId);
+  if (!leaf) throw new VoyageInvariantError(`Panel ${panelId} is not in Dockview snapshot`);
+  const inserted = insertLeafAfter(next.grid.root as DockviewNode, afterPanelId, leaf);
+  if (!inserted) throw new VoyageInvariantError(`Panel anchor ${afterPanelId} is not in Dockview snapshot`);
+  if (options.active) next.activeGroup = leaf.data.id;
+  if (options.maximized) setMaximizedNode(next, panelId);
+  else clearMaximizedNode(next);
+  normalizeActiveGroup(next);
+  return next;
+}
+
+function maximizePanelInSnapshot(snapshot: SerializedDockview, panelId: string, active = false): SerializedDockview {
+  const next = cloneSnapshot(snapshot);
+  if (!next.panels[panelId]) throw new VoyageInvariantError(`Panel ${panelId} does not exist in Dockview snapshot`);
+  setMaximizedNode(next, panelId);
+  if (active) {
+    const groupId = findLeaf(next.grid.root as DockviewNode, panelId)?.leaf.data.id;
+    if (groupId) next.activeGroup = groupId;
+  }
+  normalizeActiveGroup(next);
+  return next;
+}
+
+function restoreMaximizedInSnapshot(snapshot: SerializedDockview): SerializedDockview {
+  const next = cloneSnapshot(snapshot) as SerializedDockview & { grid: SerializedDockview['grid'] & { maximizedNode?: unknown } };
+  delete next.grid.maximizedNode;
+  normalizeActiveGroup(next);
   return next;
 }
 
@@ -446,7 +558,27 @@ function removePanelsFromSnapshot(snapshot: SerializedDockview, panelIds: Readon
     .map((child) => prunePanel(child, panelIds))
     .filter((child): child is DockviewNode => child !== null);
   normalizeActiveGroup(next);
+  normalizeMaximizedNode(next);
   return next;
+}
+
+function extractLeaf(node: DockviewNode, panelId: string): DockviewLeaf | null {
+  if (node.type === 'leaf') return null;
+  for (let index = 0; index < node.data.length; index += 1) {
+    const child = node.data[index]!;
+    if (child.type === 'leaf' && child.data.views.includes(panelId)) {
+      node.data.splice(index, 1);
+      return child;
+    }
+    if (child.type === 'branch') {
+      const leaf = extractLeaf(child, panelId);
+      if (leaf) {
+        if (!child.data.length) node.data.splice(index, 1);
+        return leaf;
+      }
+    }
+  }
+  return null;
 }
 
 function insertLeafAfter(node: DockviewNode, afterPanelId: string, leaf: DockviewLeaf): boolean {
@@ -460,6 +592,46 @@ function insertLeafAfter(node: DockviewNode, afterPanelId: string, leaf: Dockvie
     if (child.type === 'branch' && insertLeafAfter(child, afterPanelId, leaf)) return true;
   }
   return false;
+}
+
+function setMaximizedNode(snapshot: SerializedDockview, panelId: string): void {
+  const found = findLeaf(snapshot.grid.root as DockviewNode, panelId);
+  if (!found) throw new VoyageInvariantError(`Panel ${panelId} is not in Dockview snapshot`);
+  (snapshot.grid as SerializedDockview['grid'] & { maximizedNode?: { location: number[] } }).maximizedNode = { location: found.path };
+}
+
+function clearMaximizedNode(snapshot: SerializedDockview): void {
+  delete (snapshot.grid as SerializedDockview['grid'] & { maximizedNode?: unknown }).maximizedNode;
+}
+
+function normalizeMaximizedNode(snapshot: SerializedDockview): void {
+  const grid = snapshot.grid as SerializedDockview['grid'] & { maximizedNode?: { location?: unknown } };
+  const location = grid.maximizedNode?.location;
+  if (!Array.isArray(location) || !resolvePath(snapshot.grid.root as DockviewNode, location)) clearMaximizedNode(snapshot);
+}
+
+function resolvePath(node: DockviewNode, path: unknown[]): DockviewLeaf | null {
+  let current: DockviewNode = node;
+  for (const index of path) {
+    if (!Number.isInteger(index)) return null;
+    const offset = index as number;
+    if (current.type !== 'branch' || offset < 0 || offset >= current.data.length) return null;
+    current = current.data[offset]!;
+  }
+  return current.type === 'leaf' ? current : null;
+}
+
+function findLeaf(
+  node: DockviewNode,
+  panelId: string,
+  path: number[] = [],
+): { leaf: DockviewLeaf; path: number[] } | null {
+  if (node.type === 'leaf') return node.data.views.includes(panelId) ? { leaf: node, path } : null;
+  for (let index = 0; index < node.data.length; index += 1) {
+    const found = findLeaf(node.data[index]!, panelId, [...path, index]);
+    if (found) return found;
+  }
+  return null;
 }
 
 function prunePanel(node: DockviewNode, panelIds: ReadonlySet<string>): DockviewNode | null {

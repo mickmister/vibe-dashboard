@@ -20,6 +20,21 @@ describe('production Dockview 8.3.1 snapshot codec', () => {
     expect(canonical.serialized).not.toContain('legacy-pair');
   });
 
+  it('round-trips Dockview maximized group location', () => {
+    const snapshot = buildMigratedDockviewSnapshot({
+      panelIds: ['left', 'right'],
+      pairs: [],
+      activePanelId: 'right',
+    }) as ReturnType<typeof buildMigratedDockviewSnapshot> & { grid: { maximizedNode?: { location: number[] } } };
+    snapshot.grid.maximizedNode = { location: [1] };
+
+    const canonical = productionDockviewSnapshotCodec.validateAndCanonicalize(snapshot);
+
+    expect((canonical.snapshot.grid as { maximizedNode?: { location: number[] } }).maximizedNode).toEqual({ location: [1] });
+    expect(productionDockviewSnapshotCodec.validateAndCanonicalize(JSON.parse(canonical.serialized)))
+      .toEqual(canonical);
+  });
+
   it.each([
     [{}, 'invalid root'],
     [buildMigratedDockviewSnapshot({ panelIds: ['one'], pairs: [], activePanelId: null }), 'extra panel'],
@@ -31,5 +46,16 @@ describe('production Dockview 8.3.1 snapshot codec', () => {
       };
     }
     expect(() => productionDockviewSnapshotCodec.validateAndCanonicalize(candidate)).toThrow();
+  });
+
+  it('rejects maximized locations that do not resolve to a group leaf', () => {
+    const snapshot = buildMigratedDockviewSnapshot({
+      panelIds: ['left'],
+      pairs: [],
+      activePanelId: 'left',
+    }) as ReturnType<typeof buildMigratedDockviewSnapshot> & { grid: { maximizedNode?: { location: number[] } } };
+    snapshot.grid.maximizedNode = { location: [2] };
+
+    expect(() => productionDockviewSnapshotCodec.validateAndCanonicalize(snapshot)).toThrow('Invalid Dockview maximized node');
   });
 });

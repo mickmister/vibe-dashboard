@@ -12,6 +12,7 @@ type JsonObject = { [key: string]: JsonValue };
 type Leaf = { type: 'leaf'; data: { id: string; views: string[]; activeView?: string }; size?: number };
 type Branch = { type: 'branch'; data: Array<Leaf | Branch>; size?: number };
 type Node = Leaf | Branch;
+type MaximizedNode = { location: number[] };
 const ID = /^[A-Za-z0-9][A-Za-z0-9._:-]{0,199}$/;
 
 function record(value: unknown): value is Record<string, unknown> {
@@ -53,9 +54,25 @@ function parseNode(value: unknown, groups: Set<string>, panelIds: string[]): Nod
   };
 }
 
+function parseMaximizedNode(value: unknown, root: Node): MaximizedNode | undefined {
+  if (value === undefined) return undefined;
+  if (!record(value) || !exact(value, ['location']) || !Array.isArray(value.location)) {
+    throw new VoyageInvariantError('Invalid Dockview maximized node');
+  }
+  let node: Node = root;
+  for (const index of value.location) {
+    if (!Number.isInteger(index) || index < 0 || node.type !== 'branch' || index >= node.data.length) {
+      throw new VoyageInvariantError('Invalid Dockview maximized node');
+    }
+    node = node.data[index]!;
+  }
+  if (node.type !== 'leaf') throw new VoyageInvariantError('Invalid Dockview maximized node');
+  return { location: [...value.location] as number[] };
+}
+
 function parseSnapshot(value: unknown): { snapshot: JsonObject; panelIds: readonly string[] } {
   if (!record(value) || !exact(value, ['grid', 'panels', ...(value.activeGroup === undefined ? [] : ['activeGroup'])])
-    || !record(value.grid) || !exact(value.grid, ['root', 'height', 'width', 'orientation'])
+    || !record(value.grid) || !exact(value.grid, ['root', 'height', 'width', 'orientation', ...(value.grid.maximizedNode === undefined ? [] : ['maximizedNode'])])
     || typeof value.grid.width !== 'number' || typeof value.grid.height !== 'number'
     || value.grid.width < 0 || value.grid.height < 0
     || ![Orientation.HORIZONTAL, Orientation.VERTICAL, 'HORIZONTAL', 'VERTICAL'].includes(value.grid.orientation as never)
@@ -65,6 +82,7 @@ function parseSnapshot(value: unknown): { snapshot: JsonObject; panelIds: readon
   const groups = new Set<string>();
   const referenced: string[] = [];
   const root = parseNode(value.grid.root, groups, referenced);
+  const maximizedNode = parseMaximizedNode(value.grid.maximizedNode, root);
   if (root.type !== 'branch') throw new VoyageInvariantError('Dockview root must be a branch');
   if (new Set(referenced).size !== referenced.length) throw new VoyageInvariantError('Dockview Panel referenced more than once');
   const panels: Record<string, JsonObject> = {};
@@ -84,7 +102,13 @@ function parseSnapshot(value: unknown): { snapshot: JsonObject; panelIds: readon
   }
   return {
     snapshot: {
-      grid: { root: root as unknown as JsonValue, width: value.grid.width, height: value.grid.height, orientation: value.grid.orientation as JsonValue },
+      grid: {
+        root: root as unknown as JsonValue,
+        width: value.grid.width,
+        height: value.grid.height,
+        orientation: value.grid.orientation as JsonValue,
+        ...(maximizedNode === undefined ? {} : { maximizedNode: maximizedNode as unknown as JsonValue }),
+      },
       panels,
       ...(value.activeGroup === undefined ? {} : { activeGroup: value.activeGroup as string }),
     },

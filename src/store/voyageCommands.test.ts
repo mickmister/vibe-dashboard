@@ -238,6 +238,36 @@ describe('VoyageCommandService', () => {
     });
   });
 
+  it('maximizes and restores a Panel as structural history checkpoints', async () => {
+    await createVoyage('voyage-maximize', 'workspace-a', [
+      panel('agent', 'workspace-a'),
+      panel('code', 'workspace-a', 'code'),
+    ]);
+
+    const maximized = await commands.maximizePanel({
+      voyageId: 'voyage-maximize',
+      expectedRevision: 0,
+      panelId: 'code',
+      active: true,
+    });
+    expect(maximized).toEqual({ voyageId: 'voyage-maximize', revision: 1 });
+    let aggregate = await repository.loadVoyage('voyage-maximize');
+    expect(aggregate.history).toHaveLength(2);
+    expect(aggregate.panels.find(({ id }) => id === 'code')?.lastActivatedSequence).toBe(1);
+    expect((aggregate.layout.snapshot as unknown as { grid: { maximizedNode?: { location: number[] } } }).grid.maximizedNode)
+      .toEqual({ location: [1] });
+
+    const restored = await commands.restoreMaximized({
+      voyageId: 'voyage-maximize',
+      expectedRevision: 1,
+    });
+    expect(restored).toEqual({ voyageId: 'voyage-maximize', revision: 2 });
+    aggregate = await repository.loadVoyage('voyage-maximize');
+    expect(aggregate.history).toHaveLength(3);
+    expect((aggregate.layout.snapshot as unknown as { grid: { maximizedNode?: { location: number[] } } }).grid.maximizedNode)
+      .toBeUndefined();
+  });
+
   it('opens an active Panel for a new Craft as one structural command with activation', async () => {
     await createVoyage('voyage-new-craft', 'workspace-a', [panel('agent', 'workspace-a')]);
     const acquired: string[] = [];
