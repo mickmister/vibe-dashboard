@@ -18,11 +18,15 @@ import {
   parseBeadsFormCliArgs,
   parseFormsJsonForAttach,
   parseQuestionsJsonForAppend,
+  parseQuestionJsonForUpdate,
   resolveBeadsFormOrigin,
   scanPendingBeadsForms,
   selectFormForShow,
   showBeadsForm,
+  showBeadsFormQuestion,
   type AttachOptions,
+  updateBeadsFormQuestion,
+  updateQuestionInMetadata,
 } from './cli';
 import type { ExecFileLike } from '../../src/lib/beadsClient.node';
 
@@ -118,6 +122,36 @@ describe('beads-form CLI helpers', () => {
         formId: 'review',
         file: 'questions.json',
         afterQuestionId: 'decision',
+        baseHash: 'abc123',
+      }),
+    });
+    expect(parseBeadsFormCliArgs(['show-question', '--bead', 'bd-1', '--form', 'review', '--question', 'decision'])).toEqual({
+      command: 'show-question',
+      options: expect.objectContaining({ beadId: 'bd-1', formId: 'review', questionId: 'decision' }),
+    });
+    expect(parseBeadsFormCliArgs(['show-question', '--bead', 'bd-1', '--form', 'review', '--index', '2'])).toEqual({
+      command: 'show-question',
+      options: expect.objectContaining({ beadId: 'bd-1', formId: 'review', questionIndex: 2 }),
+    });
+    expect(parseBeadsFormCliArgs([
+      'update-question',
+      '--bead',
+      'bd-1',
+      '--form',
+      'review',
+      '--question',
+      'decision',
+      '--file',
+      'question.json',
+      '--base-hash',
+      'abc123',
+    ])).toEqual({
+      command: 'update-question',
+      options: expect.objectContaining({
+        beadId: 'bd-1',
+        formId: 'review',
+        questionId: 'decision',
+        file: 'question.json',
         baseHash: 'abc123',
       }),
     });
@@ -311,6 +345,182 @@ describe('beads-form CLI helpers', () => {
         goal: 'Misplaced form goal',
       }],
     }))).toThrow('forbidden form/generated field "goal"');
+  });
+
+  it('parses update-question input and rejects wrappers with generated fields', () => {
+    const question = {
+      type: 'textarea',
+      id: 'decision',
+      title: 'Refined decision',
+      description: 'Use **Markdown** and explain the tradeoff.',
+    };
+
+    expect(parseQuestionJsonForUpdate(JSON.stringify(question))).toEqual(question);
+    expect(parseQuestionJsonForUpdate(JSON.stringify({
+      operation: 'update_question',
+      question,
+    }))).toEqual(question);
+    expect(() => parseQuestionJsonForUpdate(JSON.stringify(standardForm))).toThrow('one standard DSL question');
+    expect(() => parseQuestionJsonForUpdate(JSON.stringify({
+      operation: 'replace_form',
+      question,
+    }))).toThrow('Unsupported update-question operation');
+    expect(() => parseQuestionJsonForUpdate(JSON.stringify({
+      operation: 'update_question',
+      question: { ...question, html: '<form></form>' },
+    }))).toThrow('forbidden form/generated field "html"');
+  });
+
+  it('shows one question config with form hash for safe one-by-one refinement', async () => {
+    const exec = vi.fn<ExecFileLike>(async (_file, args) => {
+      if (args[0] === 'show') {
+        return {
+          stdout: JSON.stringify([{ id: 'bd-1', title: 'Bead', metadata: { beadForms: { forms: [storedReviewForm] } } }]),
+          stderr: '',
+        };
+      }
+      return { stdout: '', stderr: '' };
+    });
+
+    const result = await showBeadsFormQuestion({
+      execFile: exec,
+      options: { dir: '/repo', beadId: 'bd-1', formId: 'review', questionId: 'decision' },
+    });
+
+    expect(result).toMatchObject({
+      beadId: 'bd-1',
+      formId: 'review',
+      questionId: 'decision',
+      questionIndex: 1,
+      question: storedReviewForm.questions[0],
+      formHash: buildFormDefinitionHash(parseFormsJsonForAttach(JSON.stringify(standardForm))[0]!),
+    });
+    expect(exec.mock.calls.map(([, args]) => args[0])).toEqual(['show']);
+  });
+
+  it('updates one question by id while preserving responses, content blocks, lean storage, and unrelated metadata', () => {
+    const answered = {
+      submittedBy: 'user',
+      submittedAt: '2026-08-04T00:00:00Z',
+      values: { decision: { approve: true } },
+    };
+    const metadata = {
+      untouched: true,
+      beadForms: {
+        forms: [{
+          ...storedReviewForm,
+          responses: [answered],
+          html: '<form>stale</form>',
+          controls: [{ id: 'stale', name: 'stale', type: 'textarea' }],
+        }],
+      },
+    };
+    const replacement = {
+      ...storedReviewForm.questions[0],
+      title: 'Refined decision',
+      description: 'Use **Markdown**, code fences, and complete choice explanations.',
+      choices: [{
+        id: 'approve',
+        label: 'Approve after fixes',
+        description: 'Ready once the listed issues are addressed.',
+        prosAndCons: { pros: ['Clear next action'], cons: ['Requires follow-up validation'] },
+      }],
+    } as const;
+
+    const result = updateQuestionInMetadata(metadata, 'review', {
+      questionId: 'decision',
+      replacement,
+    });
+    const storedForm = (result.metadata.beadForms as any).forms[0];
+
+    expect(result.metadata.untouched).toBe(true);
+    expect(storedForm.content).toEqual(storedReviewForm.content);
+    expect(storedForm.responses).toBeUndefined();
+    expect((result.metadata.beadFormResponses as any).responsesByFormId.review).toEqual([answered]);
+    expect(storedForm).not.toHaveProperty('html');
+    expect(storedForm).not.toHaveProperty('controls');
+    expect(storedForm.questions).toEqual([replacement]);
+    expect(result.questionHashAfter).not.toBe(result.questionHashBefore);
+    expect(metadata).toEqual({
+      untouched: true,
+      beadForms: {
+        forms: [{
+          ...storedReviewForm,
+          responses: [answered],
+          html: '<form>stale</form>',
+          controls: [{ id: 'stale', name: 'stale', type: 'textarea' }],
+        }],
+      },
+    });
+  });
+
+  it('updates one question by one-based index and rejects id changes, hash conflicts, and missing selectors before mutation', () => {
+    const metadata = { untouched: true, beadForms: { forms: [storedReviewForm] } };
+    const replacement = {
+      ...storedReviewForm.questions[0],
+      title: 'Refined decision',
+    } as const;
+
+    expect(updateQuestionInMetadata(metadata, 'review', {
+      questionIndex: 1,
+      replacement,
+      baseHash: buildFormDefinitionHash(parseFormsJsonForAttach(JSON.stringify(standardForm))[0]!),
+    }).questionId).toBe('decision');
+    expect(() => updateQuestionInMetadata(metadata, 'review', {
+      questionId: 'decision',
+      replacement: { ...replacement, id: 'renamed' },
+    })).toThrow('cannot change question id');
+    expect(() => updateQuestionInMetadata(metadata, 'review', {
+      questionId: 'decision',
+      questionIndex: 1,
+      replacement,
+    })).toThrow('requires exactly one');
+    expect(() => updateQuestionInMetadata(metadata, 'review', {
+      questionIndex: 0,
+      replacement,
+    })).toThrow('one-based');
+    expect(() => updateQuestionInMetadata(metadata, 'review', {
+      questionId: 'decision',
+      replacement,
+      baseHash: 'stale-hash',
+    })).toThrow('changed since base hash');
+    expect(metadata).toEqual({ untouched: true, beadForms: { forms: [storedReviewForm] } });
+  });
+
+  it('updates bead metadata for update-question only after validation', async () => {
+    const calls: string[][] = [];
+    const exec = vi.fn<ExecFileLike>(async (_file, args) => {
+      calls.push([...args]);
+      if (args[0] === 'show') {
+        return { stdout: JSON.stringify([{ id: 'bd-1', title: 'Bead', metadata: { beadForms: { forms: [storedReviewForm] } } }]), stderr: '' };
+      }
+      return { stdout: '', stderr: '' };
+    });
+    const replacement = parseQuestionJsonForUpdate(JSON.stringify({
+      ...storedReviewForm.questions[0],
+      title: 'Refined decision',
+    }));
+
+    const result = await updateBeadsFormQuestion({
+      execFile: exec,
+      replacement,
+      options: {
+        dir: '/repo',
+        beadId: 'bd-1',
+        formId: 'review',
+        questionId: 'decision',
+        origin: 'https://example.test',
+      },
+    });
+
+    expect(result).toMatchObject({
+      beadId: 'bd-1',
+      formId: 'review',
+      questionId: 'decision',
+      questionIndex: 1,
+      url: 'https://example.test/dashboard/forms?dir=%2Frepo&bead=bd-1&form=review',
+    });
+    expect(calls.map((args) => args[0])).toEqual(['show', 'update']);
   });
 
   it('appends questions to a canonical form while preserving responses and lean metadata', () => {
