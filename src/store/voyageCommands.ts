@@ -173,6 +173,7 @@ export class VoyageCommandService {
         ],
         panels,
         snapshot,
+        ...(input.active ? { activationPanelId: input.panel.id } : {}),
       })).revision
       : await this.repository.commitLayoutMutation({
         voyageId: input.voyageId,
@@ -181,9 +182,6 @@ export class VoyageCommandService {
         snapshot,
         ...(input.active ? { activationPanelId: input.panel.id } : {}),
       });
-    if (missingCraft && input.active) {
-      return this.focusPanel({ voyageId: input.voyageId, expectedRevision: revision, panelId: input.panel.id });
-    }
     return { voyageId: input.voyageId, revision };
   }
 

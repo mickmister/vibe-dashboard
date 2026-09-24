@@ -161,6 +161,38 @@ describe('VoyageRepository', () => {
     expect(aggregate.history).toHaveLength(1);
   });
 
+  it('activates a Panel atomically inside membership mutations', async () => {
+    await create();
+    await repository.commitMembershipMutation({
+      voyageId: 'voyage-a',
+      expectedRevision: 0,
+      crafts: [
+        { craftWorkspaceId: 'craft-a', sortKey: 'a' },
+        { craftWorkspaceId: 'craft-b', sortKey: 'b' },
+      ],
+      panels: [
+        panel('voyage-a-panel', 'craft-a'),
+        panel('new-active-panel', 'craft-b'),
+      ],
+      snapshot: snapshot(['voyage-a-panel', 'new-active-panel']),
+      activationPanelId: 'new-active-panel',
+    });
+
+    const aggregate = await repository.loadVoyage('voyage-a');
+    expect(aggregate.revision).toBe(1);
+    expect(aggregate.activationSequence).toBe(1);
+    expect(aggregate.panels.find(({ id }) => id === 'new-active-panel')?.lastActivatedSequence).toBe(1);
+    expect(aggregate.history).toHaveLength(1);
+    expect(aggregate.historyCursorSequence).toBe(0);
+    expect(aggregate.history[0]).toMatchObject({
+      aggregateRevision: 1,
+      panels: [
+        expect.objectContaining({ id: 'new-active-panel' }),
+        expect.objectContaining({ id: 'voyage-a-panel' }),
+      ],
+    });
+  });
+
   it('moves a Craft atomically in stable lock order and validates both resulting layouts', async () => {
     await create('voyage-z', 'shared-craft');
     await create('voyage-a', 'destination-craft');

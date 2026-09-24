@@ -238,6 +238,42 @@ describe('VoyageCommandService', () => {
     });
   });
 
+  it('opens an active Panel for a new Craft as one structural command with activation', async () => {
+    await createVoyage('voyage-new-craft', 'workspace-a', [panel('agent', 'workspace-a')]);
+    const acquired: string[] = [];
+    repository = new VoyageRepository(db, {
+      snapshotCodec: productionDockviewSnapshotCodec,
+      onCoordinatorAcquired: (voyageId) => acquired.push(voyageId),
+    });
+    commands = new VoyageCommandService(repository);
+
+    const result = await commands.openPanel({
+      voyageId: 'voyage-new-craft',
+      expectedRevision: 0,
+      panel: panel('forms', 'workspace-b', 'forms'),
+      active: true,
+    });
+
+    expect(result).toEqual({ voyageId: 'voyage-new-craft', revision: 1 });
+    expect(acquired).toEqual(['voyage-new-craft', 'voyage-new-craft']);
+    const aggregate = await repository.loadVoyage('voyage-new-craft');
+    expect(aggregate.revision).toBe(1);
+    expect(aggregate.activationSequence).toBe(1);
+    expect(aggregate.crafts.map(({ craftWorkspaceId }) => craftWorkspaceId)).toEqual(['workspace-a', 'workspace-b']);
+    expect(aggregate.panels.find(({ id }) => id === 'forms')?.lastActivatedSequence).toBe(1);
+    expect(aggregate.layout.panelIds).toEqual(expect.arrayContaining(['agent', 'forms']));
+    expect(aggregate.history).toHaveLength(1);
+    expect(aggregate.history[0]).toMatchObject({ aggregateRevision: 1 });
+
+    await expect(commands.focusPanel({
+      voyageId: 'voyage-new-craft',
+      expectedRevision: 0,
+      panelId: 'forms',
+    })).rejects.toBeInstanceOf(VoyageConflictError);
+    expect((await repository.loadVoyage('voyage-new-craft')).panels.find(({ id }) => id === 'forms')?.lastActivatedSequence)
+      .toBe(1);
+  });
+
   it('adds, removes, and copies Craft memberships through Panels without orphan Panels', async () => {
     await createVoyage('source', 'workspace-a', [
       panel('source-agent', 'workspace-a'),

@@ -472,13 +472,17 @@ export class VoyageRepository {
     crafts: VoyageCraftRecord[];
     panels: StructuralPanelHistoryRecord[];
     snapshot: unknown;
+    activationPanelId?: string;
   }): Promise<{ revision: number; undo: MembershipUndoToken }> {
     const layout = this.snapshotCodec.validateAndCanonicalize(input.snapshot);
     assertSnapshotMatchesPanels(layout, input.panels, 'membership mutation');
     validateAggregate(input.crafts, input.panels);
+    if (input.activationPanelId !== undefined && !input.panels.some(({ id }) => id === input.activationPanelId)) {
+      throw new VoyageInvariantError('Activation intent must reference a resulting Panel');
+    }
     return coordinatorLocks.run([input.voyageId], this.options.onCoordinatorAcquired, () =>
       this.db.transaction().execute(async (transaction) => {
-        await requireRevision(transaction, input.voyageId, input.expectedRevision);
+        const voyage = await requireRevision(transaction, input.voyageId, input.expectedRevision);
         const beforeCrafts = await loadCrafts(transaction, input.voyageId);
         const beforePanels = await loadPanels(transaction, input.voyageId);
         await assertPanelOwnership(transaction, input.voyageId, input.panels);
@@ -487,7 +491,12 @@ export class VoyageRepository {
         const beforeLayout = validateStoredLayout(this.snapshotCodec, beforeLayoutRow);
         const currentRecency = new Map(beforePanels.map((panel) => [panel.id, panel.lastActivatedSequence]));
         const panels = input.panels.map((panel) => ({ ...panel, lastActivatedSequence: currentRecency.get(panel.id) ?? null }));
-        const revision = await advanceRevision(transaction, input.voyageId, input.expectedRevision);
+        let activationSequence = voyage.activationSequence;
+        if (input.activationPanelId !== undefined) {
+          activationSequence += 1;
+          panels.find(({ id }) => id === input.activationPanelId)!.lastActivatedSequence = activationSequence;
+        }
+        const revision = await advanceRevision(transaction, input.voyageId, input.expectedRevision, activationSequence);
         await syncDomainRows(transaction, input.voyageId, input.crafts, panels);
         await writeLayout(transaction, input.voyageId, revision, layout);
         await resetHistoryBaseline(transaction, input.voyageId, revision, layout);
