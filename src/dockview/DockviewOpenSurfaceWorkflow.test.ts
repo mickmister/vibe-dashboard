@@ -10,6 +10,7 @@ import {
   VoyageRepository,
   type StructuralPanelHistoryRecord,
 } from '../store/voyageRepository';
+import { VoyageCommandService, type VoyageCommandResult } from '../store/voyageCommands';
 import { DockviewOpenSurfaceWorkflow } from './DockviewOpenSurfaceWorkflow';
 
 const workspaceId = 'workspace-a';
@@ -44,6 +45,35 @@ function snapshot(ids: string[], activePanelId = ids[0]) {
     },
     panels: Object.fromEntries(ids.map((id) => [id, { id, contentComponent: 'iframe-panel', renderer: 'always', params: { panelId: id } }])),
     activeGroup: `group-${activePanelId}`,
+  };
+}
+
+function nestedVisualRightSnapshot() {
+  return {
+    grid: {
+      root: {
+        type: 'branch',
+        data: [
+          {
+            type: 'branch',
+            size: 50,
+            data: [
+              { type: 'leaf', size: 50, data: { id: 'group-agent', views: ['agent'], activeView: 'agent' } },
+              { type: 'leaf', size: 50, data: { id: 'group-array-neighbor', views: ['array-neighbor'], activeView: 'array-neighbor' } },
+            ],
+          },
+          { type: 'leaf', size: 50, data: { id: 'group-real-neighbor', views: ['real-neighbor'], activeView: 'real-neighbor' } },
+        ],
+      },
+      width: 1000,
+      height: 800,
+      orientation: Orientation.HORIZONTAL,
+    },
+    panels: Object.fromEntries(['agent', 'array-neighbor', 'real-neighbor'].map((id) => [
+      id,
+      { id, contentComponent: 'iframe-panel', renderer: 'always', params: { panelId: id } },
+    ])),
+    activeGroup: 'group-agent',
   };
 }
 
@@ -107,6 +137,16 @@ describe('DockviewOpenSurfaceWorkflow', () => {
     });
   }
 
+  async function createCustom(customSnapshot: ReturnType<typeof snapshot>, panels: StructuralPanelHistoryRecord[]) {
+    await repository.createVoyage({
+      id: 'voyage',
+      name: 'Voyage',
+      crafts: [{ craftWorkspaceId: workspaceId, sortKey: '0' }],
+      panels,
+      snapshot: customSnapshot,
+    });
+  }
+
   it('opens Code beside an Agent idempotently through Voyage commands', async () => {
     await create(['agent'], [panel('agent')]);
     const presentation = { focusPanel: vi.fn(), maximizePanel: vi.fn() };
@@ -163,6 +203,73 @@ describe('DockviewOpenSurfaceWorkflow', () => {
     expect(order.slice(0, 2)).toEqual(['agent', 'code-old']);
   });
 
+  it('uses visual right adjacency instead of flattened DFS order', async () => {
+    await createCustom(nestedVisualRightSnapshot() as ReturnType<typeof snapshot>, [
+      panel('agent'),
+      codePanel('array-neighbor'),
+      codePanel('real-neighbor'),
+    ]);
+    await repository.recordActivation('voyage', 'array-neighbor', 0);
+    await repository.recordActivation('voyage', 'real-neighbor', 1);
+    const workflow = new DockviewOpenSurfaceWorkflow({ repository, contextForCraft: () => context() });
+
+    const result = await workflow.open({
+      voyageId: 'voyage',
+      expectedRevision: 2,
+      invokingPanelId: 'agent',
+      surface: 'code',
+      intent: 'beside',
+    });
+
+    expect(result).toMatchObject({ panelId: 'real-neighbor', focusedOnly: true, moved: false, revision: 2 });
+    const aggregate = await repository.loadVoyage('voyage');
+    expect(aggregate.history).toHaveLength(1);
+    expect(aggregate.panels.find(({ id }) => id === 'real-neighbor')?.lastActivatedSequence).toBe(2);
+  });
+
+  it('coalesces pending identical Open Code invocations and retries after failure', async () => {
+    await create(['agent'], [panel('agent')]);
+    const commands = new DeferredOpenCommands(repository);
+    const workflow = new DockviewOpenSurfaceWorkflow({
+      repository,
+      commands,
+      createPanelId: (_craftWorkspaceId, _surfaceKey, aggregate) => `${aggregate.id}-code`,
+      contextForCraft: () => context(),
+    });
+    commands.deferNextOpenPanel();
+
+    const request = {
+      voyageId: 'voyage',
+      expectedRevision: 0,
+      invokingPanelId: 'agent',
+      surface: 'code' as const,
+      intent: 'beside' as const,
+    };
+    const first = workflow.open(request);
+    const second = workflow.open(request);
+    expect(first).toBe(second);
+    await commands.waitForOpenPanelCall();
+    expect(commands.openPanelCalls).toBe(1);
+    commands.resolveOpenPanel();
+    await expect(first).resolves.toMatchObject({ created: true, panelId: 'voyage-code' });
+
+    await repository.createVoyage({
+      id: 'retry-voyage',
+      name: 'Retry Voyage',
+      crafts: [{ craftWorkspaceId: workspaceId, sortKey: '0' }],
+      panels: [panel('retry-agent')],
+      snapshot: snapshot(['retry-agent']),
+    });
+    commands.failNextOpenPanel = true;
+    const retryRequest = { ...request, voyageId: 'retry-voyage', expectedRevision: 0, invokingPanelId: 'retry-agent' };
+    const failingFirst = workflow.open(retryRequest);
+    const failingSecond = workflow.open(retryRequest);
+    expect(failingFirst).toBe(failingSecond);
+    await expect(failingFirst).rejects.toThrow('injected-open-failure');
+    commands.failNextOpenPanel = false;
+    await expect(workflow.open(retryRequest)).resolves.toMatchObject({ created: true, panelId: 'retry-voyage-code' });
+  });
+
   it('opens maximized Code without browser fullscreen and without moving existing placement', async () => {
     await create(['agent', 'notes', 'code-old'], [panel('agent'), panel('notes', 'forms', { workspaceId }), codePanel('code-old')]);
     const presentation = { focusPanel: vi.fn(), maximizePanel: vi.fn() };
@@ -210,3 +317,38 @@ describe('DockviewOpenSurfaceWorkflow', () => {
     expect((aggregate.layout.snapshot as unknown as { grid: { maximizedNode?: { location: number[] } } }).grid.maximizedNode).toEqual({ location: [1] });
   });
 });
+
+class DeferredOpenCommands extends VoyageCommandService {
+  openPanelCalls = 0;
+  failNextOpenPanel = false;
+  private pendingOpenPanel: { promise: Promise<void>; resolve: () => void } | null = null;
+  private observedOpenPanel: (() => void) | null = null;
+
+  deferNextOpenPanel(): void {
+    let resolve!: () => void;
+    const promise = new Promise<void>((settle) => { resolve = settle; });
+    this.pendingOpenPanel = { promise, resolve };
+  }
+
+  resolveOpenPanel(): void {
+    this.pendingOpenPanel?.resolve();
+    this.pendingOpenPanel = null;
+  }
+
+  waitForOpenPanelCall(): Promise<void> {
+    if (this.openPanelCalls > 0) return Promise.resolve();
+    return new Promise((resolve) => { this.observedOpenPanel = resolve; });
+  }
+
+  override async openPanel(input: Parameters<VoyageCommandService['openPanel']>[0]): Promise<VoyageCommandResult> {
+    this.openPanelCalls += 1;
+    this.observedOpenPanel?.();
+    this.observedOpenPanel = null;
+    if (this.failNextOpenPanel) {
+      this.failNextOpenPanel = false;
+      throw new Error('injected-open-failure');
+    }
+    await this.pendingOpenPanel?.promise;
+    return super.openPanel(input);
+  }
+}

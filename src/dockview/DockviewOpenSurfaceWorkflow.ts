@@ -13,6 +13,7 @@ import {
   type VoyagePanelRecord,
   type VoyageRepository,
 } from '../store/voyageRepository';
+import { visibleRightAdjacentPanelIds } from './DockviewVisualTopology';
 
 export type OpenSurfaceIntent = 'beside' | 'maximized';
 
@@ -29,9 +30,14 @@ export interface OpenSurfacePresentation {
   maximizePanel(panelId: string): void;
 }
 
+export type OpenSurfaceCommandPort = Pick<
+VoyageCommandService,
+  'focusPanel' | 'maximizePanel' | 'openPanel' | 'placePanelBeside'
+>;
+
 export interface OpenSurfaceWorkflowInput {
   repository: VoyageRepository;
-  commands?: VoyageCommandService;
+  commands?: OpenSurfaceCommandPort;
   contextForCraft: (craftWorkspaceId: string) => PanelTargetResolutionContext | null;
   presentation?: OpenSurfacePresentation;
   createPanelId?: (craftWorkspaceId: string, surfaceKey: string, aggregate: VoyageAggregate) => string;
@@ -47,13 +53,26 @@ export interface OpenSurfaceRequest {
 }
 
 export class DockviewOpenSurfaceWorkflow {
-  private readonly commands: VoyageCommandService;
+  private readonly commands: OpenSurfaceCommandPort;
+  private readonly inFlight = new Map<string, Promise<OpenSurfaceResult>>();
 
   constructor(private readonly input: OpenSurfaceWorkflowInput) {
     this.commands = input.commands ?? new VoyageCommandService(input.repository);
   }
 
-  async open(request: OpenSurfaceRequest): Promise<OpenSurfaceResult> {
+  open(request: OpenSurfaceRequest): Promise<OpenSurfaceResult> {
+    const key = openSurfaceRequestKey(request);
+    const existing = this.inFlight.get(key);
+    if (existing) return existing;
+    const operation = this.executeOpen(request);
+    this.inFlight.set(key, operation);
+    void operation.finally(() => {
+      if (this.inFlight.get(key) === operation) this.inFlight.delete(key);
+    }).catch(() => undefined);
+    return operation;
+  }
+
+  private async executeOpen(request: OpenSurfaceRequest): Promise<OpenSurfaceResult> {
     const aggregate = await this.input.repository.loadVoyage(request.voyageId);
     if (aggregate.revision !== request.expectedRevision) {
       throw new VoyageConflictError(request.voyageId, request.expectedRevision);
@@ -68,8 +87,12 @@ export class DockviewOpenSurfaceWorkflow {
       resolvedTarget.equivalenceIdentity,
       this.input.contextForCraft,
     );
+    const rightAdjacentIds = new Set(visibleRightAdjacentPanelIds(
+      aggregate.layout.snapshot as unknown as SerializedDockview,
+      request.invokingPanelId,
+    ));
     const adjacent = equivalent
-      .filter((panel) => isRightAdjacent(aggregate.layout.snapshot as unknown as SerializedDockview, request.invokingPanelId, panel.id))
+      .filter((panel) => rightAdjacentIds.has(panel.id))
       .sort(byRecencyThenId)[0];
     const selected = adjacent ?? [...equivalent].sort(byRecencyThenId)[0] ?? null;
     const useMaximizedBesideFallback = request.intent === 'beside' && !canUseBesideSplit(
@@ -213,20 +236,6 @@ function byRecencyThenId(left: VoyagePanelRecord, right: VoyagePanelRecord): num
   return (right.lastActivatedSequence ?? -1) - (left.lastActivatedSequence ?? -1) || left.id.localeCompare(right.id);
 }
 
-function isRightAdjacent(snapshot: SerializedDockview, invokingPanelId: string, candidatePanelId: string): boolean {
-  const order: string[] = [];
-  const visit = (node: unknown): void => {
-    if (!node || typeof node !== 'object') return;
-    const value = node as { type?: string; data?: unknown };
-    if (value.type === 'leaf' && value.data && typeof value.data === 'object') {
-      const activeView = (value.data as { activeView?: unknown }).activeView;
-      if (typeof activeView === 'string') order.push(activeView);
-    } else if (Array.isArray(value.data)) value.data.forEach(visit);
-  };
-  visit(snapshot.grid.root);
-  return order[order.indexOf(invokingPanelId) + 1] === candidatePanelId;
-}
-
 function canUseBesideSplit(snapshot: SerializedDockview, splitMinWidth: number): boolean {
   return typeof snapshot.grid.width === 'number' && snapshot.grid.width >= splitMinWidth * 2;
 }
@@ -241,4 +250,14 @@ function uniquePanelId(aggregate: VoyageAggregate, preferred: string): string {
 
 function sanitizeId(value: string): string {
   return value.replace(/[^A-Za-z0-9_-]+/g, '-');
+}
+
+function openSurfaceRequestKey(request: OpenSurfaceRequest): string {
+  return [
+    request.voyageId,
+    request.expectedRevision,
+    request.invokingPanelId,
+    request.surface,
+    request.intent,
+  ].join('\0');
 }

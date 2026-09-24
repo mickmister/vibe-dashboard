@@ -97,6 +97,21 @@ describe('DockviewSplitViewWorkflow', () => {
     expect(formsResolution).toMatchObject({ ok: true, selected: { craftWorkspaceId: workspaceA }, splitOnly: true });
   });
 
+  it('scopes existing durable target detection to the current Voyage', () => {
+    const resolution = resolveSplitViewIntent({
+      search: '?voyage=voyage&split=agent-a&withSurface=code',
+      currentVoyageId: 'voyage',
+      panels: [
+        { panelId: 'agent-a', voyageId: 'voyage', craftWorkspaceId: workspaceA, target: agent(workspaceA) },
+        { panelId: 'code-in-other-voyage', voyageId: 'other-voyage', craftWorkspaceId: workspaceA, target: code(workspaceA) },
+      ],
+      candidates,
+      contextForCraft: context,
+    });
+
+    expect(resolution).toMatchObject({ ok: true, selected: { craftWorkspaceId: workspaceA }, splitOnly: true });
+  });
+
   it('supports permitted cross-Craft split targets and fails closed for stale inputs', () => {
     expect(resolveSplitViewIntent({
       search: '?voyage=voyage&split=agent-a&withCraft=workspace-b&withSurface=code',

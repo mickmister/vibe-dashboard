@@ -78,7 +78,8 @@ export function resolveSplitViewIntent(input: {
     selected,
     selectedResolved: compatible.resolved,
     splitOnly: !input.panels.some((panel) =>
-      panel.craftWorkspaceId === selected.craftWorkspaceId
+      panel.voyageId === intent.voyageId
+      && panel.craftWorkspaceId === selected.craftWorkspaceId
       && sameTarget(panel.target, selected.target)),
   };
 }
