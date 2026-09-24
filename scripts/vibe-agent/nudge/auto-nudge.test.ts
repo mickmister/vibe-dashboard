@@ -34,7 +34,7 @@ function setup() {
   const dir = mkdtempSync(join(tmpdir(), 'auto-nudge-')); dirs.push(dir);
   const options: AutoNudgeOptions = {
     config: { version: 1, discord: { enabled: false }, workspaces: [{ workspaceId: 'w1', overseerSessionId: 'overseer' }] },
-    statePath: join(dir, 'state.json'), callbackRegistryPath: join(dir, 'callbacks.json'),
+    statePath: join(dir, 'state.json'), callbackRegistryPath: join(dir, 'callbacks.json'), responseRoutesPath: join(dir, 'response-routes.json'),
     now: () => new Date(iso(10)), unacknowledgedAfterMs: 60_000, operationTimeoutMs: 1_000,
     responseTimeoutMs: 1_000, concurrency: 2, dryRun: false,
   };

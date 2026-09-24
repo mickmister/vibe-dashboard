@@ -14,10 +14,10 @@ function scenario(processes: FakeVkProcess[] = []): FakeVkScenario { return { wo
 async function launch(value: FakeVkScenario, extraArgs: string[] = [], initialState?: unknown) {
   const server = await new FakeVkServer(value).start(); servers.push(server);
   const dir = mkdtempSync(join(tmpdir(), 'auto-nudge-process-')); dirs.push(dir);
-  const config = join(dir, 'config.json'); const state = join(dir, 'state.json'); const lock = join(dir, 'owner.lock');
+  const config = join(dir, 'config.json'); const state = join(dir, 'state.json'); const lock = join(dir, 'owner.lock'); const responseRoutes = join(dir, 'response-routes.json');
   writeFileSync(config, JSON.stringify({ version: 1, workspaces: [{ workspaceId: 'workspace', overseerSessionId: 'overseer' }] }));
   if (initialState) writeFileSync(state, JSON.stringify(initialState));
-  const child = spawn(process.execPath, [builtCli, '--config', config, '--state', state, ...extraArgs], { env: { ...process.env, VIBE_API_URL: server.baseUrl, VK_ORIGIN: 'http://vd.test', VD_AUTO_NUDGE_LOCK_PATH: lock, VD_CALLBACK_REGISTRY_PATH: join(dir, 'callbacks.json') }, stdio: ['ignore', 'pipe', 'pipe'] }); children.push(child);
+  const child = spawn(process.execPath, [builtCli, '--config', config, '--state', state, ...extraArgs], { env: { ...process.env, VIBE_API_URL: server.baseUrl, VK_ORIGIN: 'http://vd.test', VD_AUTO_NUDGE_LOCK_PATH: lock, VD_CALLBACK_REGISTRY_PATH: join(dir, 'callbacks.json'), VD_RESPONSE_ROUTES_PATH: responseRoutes }, stdio: ['ignore', 'pipe', 'pipe'] }); children.push(child);
   let stdout = ''; let stderr = ''; child.stdout!.on('data', chunk => { stdout += chunk; }); child.stderr!.on('data', chunk => { stderr += chunk; });
   return { server, child, dir, state, lock, output: () => ({ stdout, stderr }) };
 }
