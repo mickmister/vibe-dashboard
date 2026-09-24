@@ -82,6 +82,8 @@ type CliOptions = { _: string[] } & Record<string, string | boolean | string[] |
 export type BeadsFormCliCommand =
   | { command: 'attach'; options: AttachOptions }
   | { command: 'append-questions'; options: AppendQuestionsOptions }
+  | { command: 'show-question'; options: QuestionSelectorOptions }
+  | { command: 'update-question'; options: UpdateQuestionOptions }
   | { command: 'show'; options: ShowOptions }
   | { command: 'pending'; options: PendingOptions }
   | { command: 'help'; options: CliOptions };
@@ -107,6 +109,23 @@ export type AppendQuestionsOptions = {
   origin?: string;
   workspaceId?: string;
   afterQuestionId?: string;
+  baseHash?: string;
+};
+
+export type QuestionSelectorOptions = {
+  dir: string;
+  beadId: string;
+  formId: string;
+  questionId?: string;
+  questionIndex?: number;
+};
+
+export type UpdateQuestionOptions = QuestionSelectorOptions & {
+  file?: string;
+  json?: string;
+  stdin?: boolean;
+  origin?: string;
+  workspaceId?: string;
   baseHash?: string;
 };
 
@@ -144,12 +163,43 @@ export type AppendQuestionsPatch = {
   afterQuestionId?: string;
 };
 
+type BeadsFormQuestionDefinition = StandardBeadsForm['questions'][number];
+
 export type AppendQuestionsResult = {
   beadId: string;
   formId: string;
   appendedQuestionIds: string[];
   formHashBefore: string;
   formHashAfter: string;
+  url: string;
+  urls: {
+    dir: string;
+    workspace?: string;
+  };
+  metadata: JsonObject;
+};
+
+export type ShowQuestionResult = {
+  beadId: string;
+  formId: string;
+  formHash: string;
+  questionId: string;
+  /** One-based question index for CLI ergonomics. */
+  questionIndex: number;
+  questionHash: string;
+  question: BeadsFormQuestionDefinition;
+};
+
+export type UpdateQuestionResult = {
+  beadId: string;
+  formId: string;
+  questionId: string;
+  /** One-based question index for CLI ergonomics. */
+  questionIndex: number;
+  formHashBefore: string;
+  formHashAfter: string;
+  questionHashBefore: string;
+  questionHashAfter: string;
   url: string;
   urls: {
     dir: string;
@@ -229,6 +279,12 @@ export function parseBeadsFormCliArgs(argv: string[]): BeadsFormCliCommand {
   }
   if (command === 'append-questions') {
     return { command, options: normalizeAppendQuestionsOptions(options) };
+  }
+  if (command === 'show-question') {
+    return { command, options: normalizeQuestionSelectorOptions(options, 'show-question') };
+  }
+  if (command === 'update-question') {
+    return { command, options: normalizeUpdateQuestionOptions(options) };
   }
   if (command === 'show') {
     return { command, options: normalizeShowOptions(options) };
@@ -320,6 +376,50 @@ function normalizeAppendQuestionsOptions(options: CliOptions): AppendQuestionsOp
   };
 }
 
+function normalizeQuestionSelectorOptions(options: CliOptions, commandName: string): QuestionSelectorOptions {
+  const beadId = stringOption(options, 'bead') ?? stringOption(options, 'bead-id') ?? options._[0];
+  const formId = stringOption(options, 'form') ?? stringOption(options, 'form-id') ?? options._[1];
+  if (!beadId || !formId) {
+    throw new Error(`Usage: npm run beads-form -- ${commandName} --bead <bead-id> --form <form-id> (--question <question-id> | --index <one-based-index>)`);
+  }
+  const questionId = stringOption(options, 'question') ?? stringOption(options, 'question-id');
+  const rawIndex = stringOption(options, 'index') ?? stringOption(options, 'question-index');
+  if ((questionId ? 1 : 0) + (rawIndex ? 1 : 0) !== 1) {
+    throw new Error(`${commandName} requires exactly one of --question <question-id> or --index <one-based-index>`);
+  }
+  const questionIndex = rawIndex ? Number.parseInt(rawIndex, 10) : undefined;
+  if (rawIndex && (!Number.isInteger(questionIndex) || questionIndex < 1)) {
+    throw new Error(`${commandName} --index must be a one-based positive integer`);
+  }
+  return {
+    dir: resolve(stringOption(options, 'dir') ?? process.cwd()),
+    beadId,
+    formId,
+    ...(questionId ? { questionId } : {}),
+    ...(questionIndex ? { questionIndex } : {}),
+  };
+}
+
+function normalizeUpdateQuestionOptions(options: CliOptions): UpdateQuestionOptions {
+  const selector = normalizeQuestionSelectorOptions(options, 'update-question');
+  const file = stringOption(options, 'file');
+  const json = stringOption(options, 'json');
+  const stdin = options.stdin === true;
+  const inputCount = [file, json, stdin ? 'stdin' : undefined].filter(Boolean).length;
+  if (inputCount !== 1) throw new Error('update-question requires exactly one of --file, --json, or --stdin');
+  const origin = resolveBeadsFormOrigin({ explicitOrigin: stringOption(options, 'origin') });
+  const workspaceId = stringOption(options, 'workspace') ?? stringEnv(process.env, 'VK_WORKSPACE_ID');
+  return {
+    ...selector,
+    ...(file ? { file } : {}),
+    ...(json ? { json } : {}),
+    ...(stdin ? { stdin: true } : {}),
+    ...(origin ? { origin } : {}),
+    ...(workspaceId ? { workspaceId } : {}),
+    ...(stringOption(options, 'base-hash') ? { baseHash: stringOption(options, 'base-hash') } : {}),
+  };
+}
+
 function normalizeShowOptions(options: CliOptions): ShowOptions {
   const beadId = stringOption(options, 'bead') ?? stringOption(options, 'bead-id') ?? options._[0];
   if (options.includeHtml === true || options['include-html'] === true) {
@@ -400,6 +500,10 @@ export async function readAttachInput(options: AttachOptions, stdin = process.st
 }
 
 export async function readAppendQuestionsInput(options: AppendQuestionsOptions, stdin = process.stdin): Promise<string> {
+  return readJsonInput(options, stdin);
+}
+
+export async function readUpdateQuestionInput(options: UpdateQuestionOptions, stdin = process.stdin): Promise<string> {
   return readJsonInput(options, stdin);
 }
 
@@ -519,6 +623,45 @@ export function parseQuestionsJsonForAppend(text: string): AppendQuestionsPatch 
   assertNoGeneratedFormFields(parsed);
   assertNoForbiddenAppendQuestionFields(patch.questions);
   return patch;
+}
+
+export function parseQuestionJsonForUpdate(text: string): BeadsFormQuestionDefinition {
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(text);
+  } catch (error) {
+    throw new Error(`Invalid JSON: ${error instanceof Error ? error.message : String(error)}`);
+  }
+  const question = questionFromJsonForUpdate(parsed);
+  assertNoGeneratedFormFields(parsed);
+  assertNoForbiddenAppendQuestionFields(question, 'question');
+  return question;
+}
+
+function questionFromJsonForUpdate(parsed: unknown): BeadsFormQuestionDefinition {
+  if (isQuestionLike(parsed)) return parsed as BeadsFormQuestionDefinition;
+  if (!isObject(parsed)) throw new Error('update-question input must be one standard DSL question or an object with question');
+  if (parsed.operation !== undefined && parsed.operation !== 'update_question') {
+    throw new Error(`Unsupported update-question operation: ${String(parsed.operation)}`);
+  }
+  if ('format' in parsed || ('id' in parsed && 'title' in parsed && 'questions' in parsed)) {
+    throw new Error('update-question accepts one standard DSL question, not a full BeadsForm definition');
+  }
+  if (!isQuestionLike(parsed.question)) {
+    throw new Error('update-question input must include one standard DSL question');
+  }
+  return parsed.question as BeadsFormQuestionDefinition;
+}
+
+function isQuestionLike(value: unknown): boolean {
+  return isObject(value)
+    && (value.type === 'choices' || value.type === 'text' || value.type === 'textarea')
+    && typeof value.id === 'string'
+    && value.id.trim().length > 0
+    && typeof value.title === 'string'
+    && value.title.trim().length > 0
+    && typeof value.description === 'string'
+    && value.description.trim().length > 0;
 }
 
 function questionsPatchFromJson(parsed: unknown): AppendQuestionsPatch {
