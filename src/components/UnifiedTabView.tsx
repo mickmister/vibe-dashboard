@@ -1,4 +1,6 @@
+/* eslint-disable formatjs/no-id -- Legacy shell components are mounted before message extraction wiring in some tests. */
 import React from 'react';
+import { defineMessages, FormattedMessage } from 'react-intl';
 import { AddressBar } from './AddressBar';
 import { IframePanel } from './IframePanel';
 import type {
@@ -8,6 +10,14 @@ import type {
 } from '../types';
 import type { WorkspaceActions, SessionActions } from './WorkspaceShell';
 import { BUILT_IN_AGENT_TAB_ID } from '../modules/plugins/vibe-dashboard/craft-surfaces';
+
+const unifiedTabViewMessages = defineMessages({
+  noCraftSelected: {
+    id: 'unifiedTabView.noCraftSelected',
+    defaultMessage: 'No Craft selected',
+    description: 'Empty workbench message shown when no Craft is selected.',
+  },
+});
 
 interface UnifiedTabViewProps {
   tabGroups: TabGroup[];
@@ -111,7 +121,9 @@ export function UnifiedTabView({
           />
         ) : (
           <div className="flex-1 flex items-center justify-center text-neutral-500">
-            <p>No craft selected</p>
+            <p>
+              <FormattedMessage {...unifiedTabViewMessages.noCraftSelected} />
+            </p>
           </div>
         )}
       </div>
@@ -119,15 +131,24 @@ export function UnifiedTabView({
   );
 }
 
-function getSingleViewActiveItemId(
+export function getSingleViewActiveItemId(
   tabGroup: TabGroup,
   activeItemId: string,
   disableSplitViews: boolean | undefined,
 ): string {
   if (!disableSplitViews) return activeItemId;
 
-  const activePair = tabGroup.pairs.find((pair) => pair.id === activeItemId);
-  if (!activePair) return activeItemId;
+  const activeTab = tabGroup.tabs.find((tab) => tab.id === activeItemId);
+  if (activeTab) return activeItemId;
 
-  return tabGroup.tabs[0]?.id || activePair.tabIds[0] || activeItemId;
+  const activePair = tabGroup.pairs.find((pair) => pair.id === activeItemId);
+  if (activePair) {
+    const firstLivePairTabId = activePair.tabIds.find((tabId) =>
+      tabGroup.tabs.some((tab) => tab.id === tabId),
+    );
+
+    return firstLivePairTabId || tabGroup.tabs[0]?.id || activeItemId;
+  }
+
+  return tabGroup.tabs[0]?.id || activeItemId;
 }

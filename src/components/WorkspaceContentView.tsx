@@ -1,7 +1,17 @@
+/* eslint-disable formatjs/no-id -- Legacy shell components are mounted before message extraction wiring in some tests. */
 import React from 'react';
+import { defineMessages, FormattedMessage } from 'react-intl';
 import { UnifiedTabView } from './UnifiedTabView';
 import type { TabGroup, WorkspaceState, SavedWorkspaceSession } from '../types';
 import type { WorkspaceActions, SessionActions } from './WorkspaceShell';
+
+const workspaceContentViewMessages = defineMessages({
+  emptyVoyage: {
+    id: 'workspaceContentView.emptyVoyage',
+    defaultMessage: 'No Craft in this Voyage. Open the sidebar to switch Voyages or add a Craft.',
+    description: 'Accessible empty-state text shown when the current Voyage has no Crafts.',
+  },
+});
 
 interface WorkspaceContentViewProps {
   activeTabGroups: TabGroup[];
@@ -51,9 +61,13 @@ export function WorkspaceContentView({
 }: WorkspaceContentViewProps) {
   if (activeTabGroups.length === 0) {
     return (
-      <div className="flex-1 flex items-center justify-center text-neutral-500">
+      <div
+        className="flex-1 flex items-center justify-center text-neutral-500"
+        role="status"
+        aria-live="polite"
+      >
         <p>
-          No craft in this space. Hover left to switch spaces.
+          <FormattedMessage {...workspaceContentViewMessages.emptyVoyage} />
         </p>
       </div>
     );
