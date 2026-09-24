@@ -535,13 +535,11 @@ export function createAutoNudgeClient(source: VibeClientAdapterSource): AutoNudg
 export function makeClient(): AutoNudgeClient { return createAutoNudgeClient(defaultClient); }
 async function main(): Promise<void> {
   const args = parseArgs(process.argv.slice(2)); const config = { version: 1 as const, discord: { enabled: false }, workspaces: [] };
-  const origin = requiredString(process.env.VK_ORIGIN, 'VK_ORIGIN');
   let stopping = false;
   await runWithOwnerLock(process.env.VD_AUTO_NUDGE_LOCK_PATH ?? DEFAULT_LOCK_PATH, async () => {
     const abortController = new AbortController();
     const stop = () => { stopping = true; abortController.abort(); }; process.once('SIGINT', stop); process.once('SIGTERM', stop);
     const options: AutoNudgeOptions = { config, statePath: args.statePath, callbackRegistryPath: process.env.VD_CALLBACK_REGISTRY_PATH ?? DEFAULT_CALLBACK_REGISTRY_PATH, responseRoutesPath: process.env.VD_RESPONSE_ROUTES_PATH ?? DEFAULT_RESPONSE_ROUTES_PATH, workspaceRegistryPath: args.registryPath, now: () => new Date(), unacknowledgedAfterMs: 60_000, operationTimeoutMs: 15_000, responseTimeoutMs: 30 * 60_000, concurrency: 4, dryRun: args.dryRun, discordWebhookUrl: process.env.DISCORD_WEBHOOK_URL, signal: abortController.signal };
-    void origin;
     do { const result = await runAutoNudgeCycle(makeClient(), options); console.log(JSON.stringify({ type: 'auto-nudge-cycle', at: new Date().toISOString(), ...result })); if (!args.once && !stopping) { try { await abortableDelay(DEFAULT_POLL_MS, abortController.signal); } catch { /* Shutdown aborts the poll delay. */ } } } while (!args.once && !stopping);
   });
   if (stopping || args.once) process.exit(0);

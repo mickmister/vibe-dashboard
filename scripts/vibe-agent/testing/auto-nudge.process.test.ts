@@ -11,13 +11,17 @@ const processValue = (id: string, sessionId: string, status: FakeVkProcess['stat
 const children: ChildProcess[] = []; const servers: FakeVkServer[] = []; const dirs: string[] = [];
 afterEach(async () => { for (const child of children.splice(0)) if (child.exitCode == null) child.kill('SIGKILL'); await Promise.all(servers.splice(0).map(server => server.stop())); dirs.splice(0).forEach(dir => rmSync(dir, { recursive: true, force: true })); });
 function scenario(processes: FakeVkProcess[] = []): FakeVkScenario { return { workspaces: [{ id: 'workspace' }], sessions: [{ id: 'impl', workspace_id: 'workspace', name: 'impl', executor: 'CODEX', created_at: now, updated_at: now, processes }, { id: 'overseer', workspace_id: 'workspace', name: 'overseer', executor: 'CODEX', created_at: now, updated_at: now, processes: [] }], followUps: [] }; }
-async function launch(value: FakeVkScenario, extraArgs: string[] = [], initialState?: unknown) {
+async function launch(value: FakeVkScenario, extraArgs: string[] = [], initialState?: unknown, options: { emptyRegistry?: boolean; omitVkOrigin?: boolean; responseRoutesState?: unknown } = {}) {
   const server = await new FakeVkServer(value).start(); servers.push(server);
   const dir = mkdtempSync(join(tmpdir(), 'auto-nudge-process-')); dirs.push(dir);
   const registry = join(dir, 'workspaces.json'); const state = join(dir, 'state.json'); const lock = join(dir, 'owner.lock'); const responseRoutes = join(dir, 'response-routes.json');
-  writeFileSync(registry, JSON.stringify({ version: 1, workspaces: { workspace: { workspaceId: 'workspace', overseerSessionId: 'overseer', registeredAt: now, registeredBySessionId: 'overseer' } } }));
+  writeFileSync(registry, JSON.stringify(options.emptyRegistry ? { version: 1, workspaces: {} } : { version: 1, workspaces: { workspace: { workspaceId: 'workspace', overseerSessionId: 'overseer', registeredAt: now, registeredBySessionId: 'overseer' } } }));
   if (initialState) writeFileSync(state, JSON.stringify(initialState));
-  const child = spawn(process.execPath, [builtCli, '--state', state, ...extraArgs], { env: { ...process.env, VIBE_API_URL: server.baseUrl, VK_ORIGIN: 'http://vd.test', VD_AUTO_NUDGE_REGISTRY_PATH: registry, VD_AUTO_NUDGE_LOCK_PATH: lock, VD_CALLBACK_REGISTRY_PATH: join(dir, 'callbacks.json'), VD_RESPONSE_ROUTES_PATH: responseRoutes }, stdio: ['ignore', 'pipe', 'pipe'] }); children.push(child);
+  if (options.responseRoutesState) writeFileSync(responseRoutes, JSON.stringify(options.responseRoutesState));
+  const env: NodeJS.ProcessEnv = { ...process.env, VIBE_API_URL: server.baseUrl, VD_AUTO_NUDGE_REGISTRY_PATH: registry, VD_AUTO_NUDGE_LOCK_PATH: lock, VD_CALLBACK_REGISTRY_PATH: join(dir, 'callbacks.json'), VD_RESPONSE_ROUTES_PATH: responseRoutes };
+  if (!options.omitVkOrigin) env.VK_ORIGIN = 'http://vd.test';
+  else delete env.VK_ORIGIN;
+  const child = spawn(process.execPath, [builtCli, '--state', state, ...extraArgs], { env, stdio: ['ignore', 'pipe', 'pipe'] }); children.push(child);
   let stdout = ''; let stderr = ''; child.stdout!.on('data', chunk => { stdout += chunk; }); child.stderr!.on('data', chunk => { stderr += chunk; });
   return { server, child, dir, state, lock, output: () => ({ stdout, stderr }) };
 }
@@ -47,5 +51,25 @@ describe('built auto-nudge CLI lifecycle', () => {
     expect(await exit(running.child)).toBe(0);
     expect(running.server.journal.filter(item => item.type === 'follow-up-accepted')).toHaveLength(0);
     expect(running.output().stdout).toContain('indeterminate'); expect(existsSync(running.lock)).toBe(false);
+  });
+
+  it('starts with empty registry and no VK_ORIGIN while response-route scanning remains active', async () => {
+    const complete = processValue('complete', 'impl', 'completed', 'Finished');
+    const value = scenario([complete]);
+    value.followUps = [{ sessionId: 'overseer', process: processValue('reply', 'overseer', 'running') }];
+    const responseRoutesState = {
+      version: 1,
+      routes: {
+        'complete:overseer': {
+          id: 'complete:overseer', processId: 'complete', targetRole: 'impl', targetSessionId: 'impl', replySessionId: 'overseer',
+          createdAt: now, updatedAt: now, status: 'pending', deliveredProcessId: null, error: null,
+        },
+      },
+    };
+    const running = await launch(value, ['--once'], undefined, { emptyRegistry: true, omitVkOrigin: true, responseRoutesState });
+    expect(await exit(running.child)).toBe(0);
+    expect(running.output().stderr).toBe('');
+    expect(running.output().stdout).toContain('auto-nudge-cycle');
+    expect(running.server.journal.filter(item => item.type === 'follow-up-accepted' && item.metadata?.sessionId === 'overseer')).toHaveLength(1);
   });
 });
