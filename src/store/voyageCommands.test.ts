@@ -8,7 +8,6 @@ import type { DB } from './kysely_types';
 import { productionDockviewSnapshotCodec } from './dockviewSnapshotCodec';
 import {
   VoyageConflictError,
-  VoyageInvariantError,
   VoyageRepository,
   type StructuralPanelHistoryRecord,
 } from './voyageRepository';
@@ -27,14 +26,6 @@ const panel = (
   titleMode: 'automatic',
   customTitle: null,
   closePolicy: 'closable',
-});
-
-const protectedPanel = (
-  id: string,
-  craftWorkspaceId: string,
-): StructuralPanelHistoryRecord => ({
-  ...panel(id, craftWorkspaceId),
-  closePolicy: 'protected',
 });
 
 function snapshot(panelIds: string[], activePanelId: string | null = panelIds[0] ?? null) {
@@ -98,13 +89,11 @@ describe('VoyageCommandService', () => {
     expect(aggregate.panels[0]?.lastActivatedSequence).toBe(1);
   });
 
-  it('opens, duplicates, closes, and rejects protected Panel closes with one checkpoint per structural command', async () => {
+  it('opens, duplicates, and closes Panels while deriving Craft membership from remaining Panels', async () => {
     await createVoyage('voyage-a', 'workspace-a', [
-      protectedPanel('agent', 'workspace-a'),
+      { ...panel('agent', 'workspace-a'), closePolicy: 'protected' },
+      panel('notes', 'workspace-a', 'notes'),
     ]);
-
-    await expect(commands.closePanel({ voyageId: 'voyage-a', expectedRevision: 0, panelId: 'agent' }))
-      .rejects.toThrow('Panel agent is protected');
 
     let aggregate = await repository.loadVoyage('voyage-a');
     expect(aggregate.revision).toBe(0);
@@ -119,7 +108,7 @@ describe('VoyageCommandService', () => {
     aggregate = await repository.loadVoyage('voyage-a');
     expect(aggregate.revision).toBe(1);
     expect(aggregate.history.map(({ sequence }) => sequence)).toEqual([0, 1]);
-    expect(aggregate.panels.map(({ id }) => id).sort()).toEqual(['agent', 'code']);
+    expect(aggregate.panels.map(({ id }) => id).sort()).toEqual(['agent', 'code', 'notes']);
     expect(aggregate.panels.find(({ id }) => id === 'code')?.lastActivatedSequence).toBe(1);
 
     await commands.duplicatePanel({
@@ -141,9 +130,26 @@ describe('VoyageCommandService', () => {
     await commands.closePanel({ voyageId: 'voyage-a', expectedRevision: 2, panelId: 'code' });
     aggregate = await repository.loadVoyage('voyage-a');
     expect(aggregate.revision).toBe(3);
-    expect(aggregate.panels.map(({ id }) => id).sort()).toEqual(['agent', 'code-copy']);
+    expect(aggregate.crafts.map(({ craftWorkspaceId }) => craftWorkspaceId)).toEqual(['workspace-a']);
+    expect(aggregate.panels.map(({ id }) => id).sort()).toEqual(['agent', 'code-copy', 'notes']);
     expect(aggregate.history.map(({ sequence }) => sequence)).toEqual([0, 1, 2, 3]);
-    expect(aggregate.layout.panelIds).toEqual(expect.arrayContaining(['agent', 'code-copy']));
+    expect(aggregate.layout.panelIds).toEqual(expect.arrayContaining(['agent', 'code-copy', 'notes']));
+
+    await commands.closePanel({ voyageId: 'voyage-a', expectedRevision: 3, panelId: 'agent' });
+    aggregate = await repository.loadVoyage('voyage-a');
+    expect(aggregate.revision).toBe(4);
+    expect(aggregate.crafts.map(({ craftWorkspaceId }) => craftWorkspaceId)).toEqual(['workspace-a']);
+    expect(aggregate.panels.map(({ id }) => id).sort()).toEqual(['code-copy', 'notes']);
+
+    await commands.closePanel({ voyageId: 'voyage-a', expectedRevision: 4, panelId: 'notes' });
+    await commands.closePanel({ voyageId: 'voyage-a', expectedRevision: 5, panelId: 'code-copy' });
+    aggregate = await repository.loadVoyage('voyage-a');
+    expect(aggregate.revision).toBe(6);
+    expect(aggregate.crafts).toEqual([]);
+    expect(aggregate.panels).toEqual([]);
+    expect(aggregate.layout.panelIds).toEqual([]);
+    expect(aggregate.history).toHaveLength(1);
+    expect(aggregate.history[0]).toMatchObject({ aggregateRevision: 6, panels: [] });
   });
 
   it('preserves nested Dockview topology while placing and closing Panels', async () => {
@@ -210,7 +216,29 @@ describe('VoyageCommandService', () => {
     expect(Object.keys(layout.panels).sort()).toEqual(['agent', 'logs']);
   });
 
-  it('adds, removes, and copies Craft memberships without orphan Panels', async () => {
+  it('fails closed for explicit missing Panel anchors without mutating the Voyage', async () => {
+    await createVoyage('voyage-anchor', 'workspace-a', [panel('agent', 'workspace-a')]);
+    const before = await repository.loadVoyage('voyage-anchor');
+
+    await expect(commands.openPanel({
+      voyageId: 'voyage-anchor',
+      expectedRevision: 0,
+      panel: panel('code', 'workspace-a', 'code'),
+      afterPanelId: 'missing-panel',
+      active: true,
+    })).rejects.toThrow('Panel anchor missing-panel is not in Dockview snapshot');
+
+    const after = await repository.loadVoyage('voyage-anchor');
+    expect(after).toMatchObject({
+      revision: before.revision,
+      crafts: before.crafts,
+      panels: before.panels,
+      layout: before.layout,
+      history: before.history,
+    });
+  });
+
+  it('adds, removes, and copies Craft memberships through Panels without orphan Panels', async () => {
     await createVoyage('source', 'workspace-a', [
       panel('source-agent', 'workspace-a'),
       panel('source-code', 'workspace-a', 'code'),
@@ -222,9 +250,19 @@ describe('VoyageCommandService', () => {
       expectedRevision: 0,
       craftWorkspaceId: 'workspace-c',
       sortKey: '00000001',
+      panels: [panel('destination-c-agent', 'workspace-c')],
     });
-    expect((await repository.loadVoyage('destination')).crafts.map(({ craftWorkspaceId }) => craftWorkspaceId))
+    let destination = await repository.loadVoyage('destination');
+    expect(destination.crafts.map(({ craftWorkspaceId }) => craftWorkspaceId))
       .toEqual(['workspace-b', 'workspace-c']);
+    expect(destination.panels.map(({ id }) => id).sort()).toEqual(['destination-agent', 'destination-c-agent']);
+
+    await expect(commands.addCraft({
+      voyageId: 'destination',
+      expectedRevision: 1,
+      craftWorkspaceId: 'workspace-empty',
+      panels: [] as unknown as [StructuralPanelHistoryRecord, ...StructuralPanelHistoryRecord[]],
+    })).rejects.toThrow('Adding a Craft requires at least one initial Panel');
 
     await commands.copyCraft({
       sourceVoyageId: 'source',
@@ -235,10 +273,15 @@ describe('VoyageCommandService', () => {
       destinationSortKey: '00000002',
       clonePanelId: (sourcePanelId) => `copy-${sourcePanelId}`,
     });
-    let destination = await repository.loadVoyage('destination');
+    destination = await repository.loadVoyage('destination');
     expect(destination.revision).toBe(2);
     expect(destination.crafts.map(({ craftWorkspaceId }) => craftWorkspaceId)).toEqual(['workspace-b', 'workspace-c', 'workspace-a']);
-    expect(destination.panels.map(({ id }) => id).sort()).toEqual(['copy-source-agent', 'copy-source-code', 'destination-agent']);
+    expect(destination.panels.map(({ id }) => id).sort()).toEqual([
+      'copy-source-agent',
+      'copy-source-code',
+      'destination-agent',
+      'destination-c-agent',
+    ]);
     expect(destination.history).toHaveLength(1);
 
     await commands.removeCraft({
@@ -249,6 +292,7 @@ describe('VoyageCommandService', () => {
     destination = await repository.loadVoyage('destination');
     expect(destination.crafts.map(({ craftWorkspaceId }) => craftWorkspaceId)).toEqual(['workspace-b', 'workspace-c']);
     expect(destination.panels.map(({ craftWorkspaceId }) => craftWorkspaceId)).not.toContain('workspace-a');
+    expect(destination.panels.map(({ id }) => id).sort()).toEqual(['destination-agent', 'destination-c-agent']);
   });
 
   it('moves a Craft across Voyages atomically and rejects stale writers without partial state', async () => {

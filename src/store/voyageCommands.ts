@@ -46,10 +46,11 @@ export class VoyageCommandService {
   }): Promise<VoyageCommandResult> {
     const voyageId = input.voyageId || this.createId('voyage');
     const panels = input.panels ?? [];
+    const crafts = deriveCraftsForPanels(input.crafts ?? inferCrafts(panels), panels);
     await this.repository.createVoyage({
       id: voyageId,
       name: input.name,
-      crafts: input.crafts ?? inferCrafts(panels),
+      crafts,
       panels,
       snapshot: buildMigratedDockviewSnapshot({
         panelIds: panels.map(({ id }) => id),
@@ -88,10 +89,20 @@ export class VoyageCommandService {
     expectedRevision: number;
     craftWorkspaceId: string;
     sortKey?: string;
+    panels: [StructuralPanelHistoryRecord, ...StructuralPanelHistoryRecord[]];
   }): Promise<VoyageCommandResult> {
     const aggregate = await this.loadAtRevision(input.voyageId, input.expectedRevision);
+    if (!input.panels.length) throw new VoyageInvariantError('Adding a Craft requires at least one initial Panel');
     if (aggregate.crafts.some(({ craftWorkspaceId }) => craftWorkspaceId === input.craftWorkspaceId)) {
       throw new VoyageInvariantError(`Craft ${input.craftWorkspaceId} is already in Voyage ${input.voyageId}`);
+    }
+    for (const panel of input.panels) {
+      if (panel.craftWorkspaceId !== input.craftWorkspaceId) {
+        throw new VoyageInvariantError(`Initial Panel ${panel.id} must reference Craft ${input.craftWorkspaceId}`);
+      }
+      if (aggregate.panels.some(({ id }) => id === panel.id)) {
+        throw new VoyageInvariantError(`Panel ${panel.id} already exists`);
+      }
     }
     const revision = (await this.repository.commitMembershipMutation({
       voyageId: input.voyageId,
@@ -103,8 +114,11 @@ export class VoyageCommandService {
           sortKey: input.sortKey ?? nextSortKey(aggregate.crafts),
         },
       ],
-      panels: structuralPanels(aggregate.panels),
-      snapshot: aggregate.layout.snapshot,
+      panels: [...structuralPanels(aggregate.panels), ...input.panels],
+      snapshot: addPanelsToSnapshot(
+        asSerialized(aggregate.layout.snapshot),
+        input.panels.map(({ id }) => id),
+      ),
     })).revision;
     return { voyageId: input.voyageId, revision };
   }
@@ -142,16 +156,34 @@ export class VoyageCommandService {
     if (aggregate.panels.some(({ id }) => id === input.panel.id)) {
       throw new VoyageInvariantError(`Panel ${input.panel.id} already exists`);
     }
-    this.assertPanelCraftMembership(aggregate, input.panel);
     const panels = [...structuralPanels(aggregate.panels), input.panel];
     const snapshot = addPanelToSnapshot(asSerialized(aggregate.layout.snapshot), input.panel.id, input.afterPanelId, input.active);
-    const revision = await this.repository.commitLayoutMutation({
-      voyageId: input.voyageId,
-      expectedRevision: input.expectedRevision,
-      panels,
-      snapshot,
-      ...(input.active ? { activationPanelId: input.panel.id } : {}),
-    });
+    const missingCraft = input.panel.craftWorkspaceId !== null
+      && !aggregate.crafts.some(({ craftWorkspaceId }) => craftWorkspaceId === input.panel.craftWorkspaceId);
+    const revision = missingCraft
+      ? (await this.repository.commitMembershipMutation({
+        voyageId: input.voyageId,
+        expectedRevision: input.expectedRevision,
+        crafts: [
+          ...aggregate.crafts,
+          {
+            craftWorkspaceId: input.panel.craftWorkspaceId!,
+            sortKey: nextSortKey(aggregate.crafts),
+          },
+        ],
+        panels,
+        snapshot,
+      })).revision
+      : await this.repository.commitLayoutMutation({
+        voyageId: input.voyageId,
+        expectedRevision: input.expectedRevision,
+        panels,
+        snapshot,
+        ...(input.active ? { activationPanelId: input.panel.id } : {}),
+      });
+    if (missingCraft && input.active) {
+      return this.focusPanel({ voyageId: input.voyageId, expectedRevision: revision, panelId: input.panel.id });
+    }
     return { voyageId: input.voyageId, revision };
   }
 
@@ -192,15 +224,24 @@ export class VoyageCommandService {
     const aggregate = await this.loadAtRevision(input.voyageId, input.expectedRevision);
     const panel = aggregate.panels.find(({ id }) => id === input.panelId);
     if (!panel) throw new VoyageInvariantError(`Panel ${input.panelId} is not in Voyage ${input.voyageId}`);
-    if (panel.closePolicy !== 'closable') throw new VoyageInvariantError(`Panel ${input.panelId} is protected`);
     const panels = structuralPanels(aggregate.panels.filter(({ id }) => id !== input.panelId));
     const snapshot = removePanelsFromSnapshot(asSerialized(aggregate.layout.snapshot), new Set([input.panelId]));
-    const revision = await this.repository.commitLayoutMutation({
-      voyageId: input.voyageId,
-      expectedRevision: input.expectedRevision,
-      panels,
-      snapshot,
-    });
+    const crafts = deriveCraftsForPanels(aggregate.crafts, panels);
+    const removedLastCraftPanel = crafts.length !== aggregate.crafts.length;
+    const revision = removedLastCraftPanel
+      ? (await this.repository.commitMembershipMutation({
+        voyageId: input.voyageId,
+        expectedRevision: input.expectedRevision,
+        crafts,
+        panels,
+        snapshot,
+      })).revision
+      : await this.repository.commitLayoutMutation({
+        voyageId: input.voyageId,
+        expectedRevision: input.expectedRevision,
+        panels,
+        snapshot,
+      });
     return { voyageId: input.voyageId, revision };
   }
 
@@ -306,18 +347,21 @@ export class VoyageCommandService {
     if (aggregate.revision !== expectedRevision) throw new VoyageConflictError(voyageId, expectedRevision);
     return aggregate;
   }
-
-  private assertPanelCraftMembership(aggregate: VoyageAggregate, panel: StructuralPanelHistoryRecord): void {
-    if (panel.craftWorkspaceId === null) return;
-    if (!aggregate.crafts.some(({ craftWorkspaceId }) => craftWorkspaceId === panel.craftWorkspaceId)) {
-      throw new VoyageInvariantError(`Panel ${panel.id} references a Craft outside its Voyage`);
-    }
-  }
 }
 
 function inferCrafts(panels: readonly StructuralPanelHistoryRecord[]): VoyageCraftRecord[] {
   const ids = [...new Set(panels.map(({ craftWorkspaceId }) => craftWorkspaceId).filter((id): id is string => Boolean(id)))];
   return ids.map((craftWorkspaceId, index) => ({ craftWorkspaceId, sortKey: String(index).padStart(8, '0') }));
+}
+
+function deriveCraftsForPanels(
+  existingCrafts: readonly VoyageCraftRecord[],
+  panels: readonly StructuralPanelHistoryRecord[],
+): VoyageCraftRecord[] {
+  const referencedCrafts = new Set(panels
+    .map(({ craftWorkspaceId }) => craftWorkspaceId)
+    .filter((id): id is string => Boolean(id)));
+  return existingCrafts.filter(({ craftWorkspaceId }) => referencedCrafts.has(craftWorkspaceId));
 }
 
 function nextSortKey(crafts: readonly VoyageCraftRecord[]): string {
@@ -390,6 +434,7 @@ function addPanelToSnapshot(
   };
   const root = next.grid.root as DockviewBranch;
   const inserted = afterPanelId ? insertLeafAfter(root, afterPanelId, makeLeaf(panelId)) : false;
+  if (afterPanelId && !inserted) throw new VoyageInvariantError(`Panel anchor ${afterPanelId} is not in Dockview snapshot`);
   if (!inserted) root.data.push(makeLeaf(panelId));
   if (active) next.activeGroup = `group-${panelId}`;
   return next;
