@@ -17,8 +17,17 @@ export const BUILT_IN_BEADS_TAB_ID = "beads";
 export const BUILT_IN_FORMS_TAB_ID = "forms";
 export const BUILT_IN_AGENT_CODE_PAIR_ID = "agent+code";
 export const BUILT_IN_AGENT_BEADS_PAIR_ID = "agent+beads";
+export const FIRST_PARTY_AGENT_PLUGIN_ID = "dev.mickmister.vibe-kanban";
+export const FIRST_PARTY_AGENT_SURFACE_KEY = `${FIRST_PARTY_AGENT_PLUGIN_ID}/agent`;
+export const FIRST_PARTY_CODE_PLUGIN_ID = "dev.mickmister.code-server";
+export const FIRST_PARTY_CODE_SURFACE_KEY = `${FIRST_PARTY_CODE_PLUGIN_ID}/code`;
 export const FIRST_PARTY_FORMS_PLUGIN_ID = "dev.mickmister.forms";
 export const FIRST_PARTY_FORMS_SURFACE_KEY = `${FIRST_PARTY_FORMS_PLUGIN_ID}/forms`;
+const ALWAYS_ALLOWED_FIRST_PARTY_SURFACE_KEYS = new Set([
+  FIRST_PARTY_AGENT_SURFACE_KEY,
+  FIRST_PARTY_CODE_SURFACE_KEY,
+  FIRST_PARTY_FORMS_SURFACE_KEY,
+]);
 
 const BUILT_IN_WORKSPACE_TAB_IDS = new Set([
   BUILT_IN_AGENT_TAB_ID,
@@ -77,7 +86,7 @@ function createEffectiveCraftWithSurfaces(input: {
     craftSurfaces: allowed
       ? input.craftSurfaces.filter((surface) =>
           allowed.has(surface.key) ||
-          (workspaceMetadata && surface.key === FIRST_PARTY_FORMS_SURFACE_KEY),
+          (workspaceMetadata && ALWAYS_ALLOWED_FIRST_PARTY_SURFACE_KEYS.has(surface.key)),
         )
       : input.craftSurfaces,
     origin: input.origin,
@@ -106,7 +115,8 @@ export function getEffectiveTabs(
     craftSurfaces: options.craftSurfaces ?? [],
     origin: options.origin ?? "",
   });
-  const generatedTabs = [...builtInWorkspaceTabs, ...craftSurfaceTabs];
+  const generatedTabs = [...builtInWorkspaceTabs, ...craftSurfaceTabs]
+    .sort(byWorkspaceSurfaceOrder);
   const generatedIds = new Set(generatedTabs.map((tab) => tab.id));
   const customTabs = tabGroup.tabs.filter(
     (tab) =>
@@ -205,23 +215,8 @@ export function getBuiltInWorkspaceMetadata(
 function getBuiltInWorkspaceTabs(tabGroup: TabGroup, origin: string): Tab[] {
   const metadata = getBuiltInWorkspaceMetadata(tabGroup);
   if (!metadata) return [];
-  const workspaceBaseOrigin = getBuiltInWorkspaceBaseOrigin(origin, {
-    allowConfiguredVkBaseOrigin: true,
-  });
   const dashboardBaseOrigin = getBuiltInWorkspaceBaseOrigin(origin);
   return [
-    {
-      id: BUILT_IN_AGENT_TAB_ID,
-      title: "Agent",
-      url: buildWorkspaceTabUrl(workspaceBaseOrigin, metadata.workspaceId),
-      pinned: true,
-    },
-    {
-      id: BUILT_IN_CODE_TAB_ID,
-      title: "Code",
-      url: buildWorkspaceFolderUrl(workspaceBaseOrigin, metadata.workspaceDir),
-      pinned: true,
-    },
     {
       id: BUILT_IN_BEADS_TAB_ID,
       title: "Beads",
@@ -244,11 +239,9 @@ function getCraftSurfaceTabs(input: {
     )
     .map(
       (surface): Tab => ({
-        id: surface.key === FIRST_PARTY_FORMS_SURFACE_KEY
-          ? BUILT_IN_FORMS_TAB_ID
-          : getCraftSurfaceTabId(input.tabGroup.id, surface.key),
+        id: getSurfaceTabId(input.tabGroup.id, surface.key),
         title: surface.defaultTitle ?? surface.title,
-        url: expandCraftSurfaceUrl(surface.urlTemplate, input.origin),
+        url: getSurfaceUrl(surface, input.tabGroup, input.origin),
         pinned: true,
         ephemeral: {
           kind: "craft-surface",
@@ -260,13 +253,37 @@ function getCraftSurfaceTabs(input: {
     );
 }
 
-function getBuiltInWorkspacePairs(
+function getSurfaceTabId(tabGroupId: string, surfaceKey: string): string {
+  if (surfaceKey === FIRST_PARTY_AGENT_SURFACE_KEY) return BUILT_IN_AGENT_TAB_ID;
+  if (surfaceKey === FIRST_PARTY_CODE_SURFACE_KEY) return BUILT_IN_CODE_TAB_ID;
+  if (surfaceKey === FIRST_PARTY_FORMS_SURFACE_KEY) return BUILT_IN_FORMS_TAB_ID;
+  return getCraftSurfaceTabId(tabGroupId, surfaceKey);
+}
+
+function getSurfaceUrl(
+  surface: RegisteredCraftSurfaceContribution,
   tabGroup: TabGroup,
   origin: string,
+): string {
+  const metadata = getBuiltInWorkspaceMetadata(tabGroup);
+  if (metadata && surface.key === FIRST_PARTY_AGENT_SURFACE_KEY) {
+    return buildWorkspaceTabUrl(firstPartyWorkspaceOrigin(origin), metadata.workspaceId);
+  }
+  if (metadata && surface.key === FIRST_PARTY_CODE_SURFACE_KEY) {
+    return buildWorkspaceFolderUrl(firstPartyWorkspaceOrigin(origin), metadata.workspaceDir);
+  }
+  return expandCraftSurfaceUrl(surface.urlTemplate, origin);
+}
+
+function firstPartyWorkspaceOrigin(origin: string): string {
+  return getBuiltInWorkspaceBaseOrigin(origin, { allowConfiguredVkBaseOrigin: true });
+}
+
+function getBuiltInWorkspacePairs(
+  tabGroup: TabGroup,
+  _origin: string,
 ): ViewPair[] {
-  const tabIds = new Set(
-    getEffectiveTabs(tabGroup, { origin }).map((tab) => tab.id),
-  );
+  const tabIds = new Set(tabGroup.tabs.map((tab) => tab.id));
   const pairs: ViewPair[] = [];
   if (tabIds.has(BUILT_IN_AGENT_TAB_ID) && tabIds.has(BUILT_IN_CODE_TAB_ID)) {
     pairs.push({
@@ -283,6 +300,19 @@ function getBuiltInWorkspacePairs(
     });
   }
   return pairs;
+}
+
+function byWorkspaceSurfaceOrder(left: Tab, right: Tab): number {
+  return workspaceSurfaceOrder(left.id) - workspaceSurfaceOrder(right.id)
+    || left.id.localeCompare(right.id);
+}
+
+function workspaceSurfaceOrder(tabId: string): number {
+  if (tabId === BUILT_IN_AGENT_TAB_ID) return 10;
+  if (tabId === BUILT_IN_CODE_TAB_ID) return 20;
+  if (tabId === BUILT_IN_BEADS_TAB_ID) return 30;
+  if (tabId === BUILT_IN_FORMS_TAB_ID) return 40;
+  return 100;
 }
 
 export function getCraftSurfaceTabId(

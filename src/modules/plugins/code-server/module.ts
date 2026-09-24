@@ -1,3 +1,4 @@
+/* eslint-disable formatjs/no-literal-string-in-object -- Plugin manifest metadata uses stable contribution titles; rendered UI owns translation. */
 import springboard from 'springboard';
 import type { PluginManifest } from '../vibe-dashboard/types';
 import { createPluginManifest, registerPlugin } from '../vibe-dashboard/registry';
@@ -25,6 +26,13 @@ const manifest: PluginManifest = createPluginManifest({
       },
     ],
     craftSurfaces: [
+      {
+        key: 'code',
+        title: 'Code',
+        urlTemplate: '{{origin}}/?folder={{containerRef}}',
+        defaultTitle: 'Code',
+        order: 20,
+      },
       {
         key: 'editor',
         title: 'Code Server',

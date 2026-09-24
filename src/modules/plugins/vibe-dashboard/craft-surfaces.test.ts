@@ -2,6 +2,10 @@
 import { describe, expect, it, vi } from "vitest";
 import {
   createEffectiveWorkspaceWithCraftSurfaces,
+  FIRST_PARTY_AGENT_PLUGIN_ID,
+  FIRST_PARTY_AGENT_SURFACE_KEY,
+  FIRST_PARTY_CODE_PLUGIN_ID,
+  FIRST_PARTY_CODE_SURFACE_KEY,
   FIRST_PARTY_FORMS_PLUGIN_ID,
   FIRST_PARTY_FORMS_SURFACE_KEY,
   filterEphemeralCraftSurfaceActiveItems,
@@ -66,6 +70,28 @@ const formsSurface: RegisteredCraftSurfaceContribution = {
   order: 40,
 };
 
+const agentSurface: RegisteredCraftSurfaceContribution = {
+  pluginId: FIRST_PARTY_AGENT_PLUGIN_ID,
+  sourceKey: "agent",
+  key: FIRST_PARTY_AGENT_SURFACE_KEY,
+  title: "Agent",
+  defaultTitle: "Agent",
+  urlTemplate: "{{origin}}/workspaces/{{workspaceId}}",
+  order: 10,
+};
+
+const codeSurface: RegisteredCraftSurfaceContribution = {
+  pluginId: FIRST_PARTY_CODE_PLUGIN_ID,
+  sourceKey: "code",
+  key: FIRST_PARTY_CODE_SURFACE_KEY,
+  title: "Code",
+  defaultTitle: "Code",
+  urlTemplate: "{{origin}}/?folder={{containerRef}}",
+  order: 20,
+};
+
+const firstPartySurfaces = [agentSurface, codeSurface, formsSurface];
+
 describe("dynamic Craft surfaces", () => {
   it("derives Agent, Code, Beads, plugin Forms, and built-in split pairs from Craft workspace metadata", () => {
     const effective = createEffectiveWorkspaceWithCraftSurfaces({
@@ -85,7 +111,7 @@ describe("dynamic Craft surfaces", () => {
           },
         ],
       },
-      craftSurfaces: [formsSurface],
+      craftSurfaces: firstPartySurfaces,
       origin: "https://vd.example.test",
     });
 
@@ -107,6 +133,18 @@ describe("dynamic Craft surfaces", () => {
         pluginId: FIRST_PARTY_FORMS_PLUGIN_ID,
         surfaceKey: FIRST_PARTY_FORMS_SURFACE_KEY,
         sourceKey: "forms",
+      });
+    expect(effective.tabGroups[0]!.tabs.find((tab) => tab.id === "agent")?.ephemeral)
+      .toMatchObject({
+        kind: "craft-surface",
+        pluginId: FIRST_PARTY_AGENT_PLUGIN_ID,
+        surfaceKey: FIRST_PARTY_AGENT_SURFACE_KEY,
+      });
+    expect(effective.tabGroups[0]!.tabs.find((tab) => tab.id === "code")?.ephemeral)
+      .toMatchObject({
+        kind: "craft-surface",
+        pluginId: FIRST_PARTY_CODE_PLUGIN_ID,
+        surfaceKey: FIRST_PARTY_CODE_SURFACE_KEY,
       });
     expect(effective.tabGroups[0]!.pairs).toEqual([
       { id: "agent+code", tabIds: ["agent", "code"], ratios: [50, 50] },
@@ -135,7 +173,7 @@ describe("dynamic Craft surfaces", () => {
             },
           ],
         },
-        craftSurfaces: [],
+        craftSurfaces: [agentSurface],
         origin: "http://127.0.0.1:4400",
       });
 
@@ -168,7 +206,7 @@ describe("dynamic Craft surfaces", () => {
           },
         ],
       },
-      craftSurfaces: [],
+      craftSurfaces: [agentSurface, codeSurface],
       origin: "https://port-5173.example.com",
     });
 
@@ -202,7 +240,7 @@ describe("dynamic Craft surfaces", () => {
           },
         ],
       },
-      craftSurfaces: [],
+      craftSurfaces: [agentSurface, codeSurface],
       origin: "http://code-vibe:3001",
     });
 
@@ -235,7 +273,7 @@ describe("dynamic Craft surfaces", () => {
           },
         ],
       },
-      craftSurfaces: [formsSurface, ...surfaces],
+      craftSurfaces: [...firstPartySurfaces, ...surfaces],
       allowedPluginTargetsByCraftId: { craft_workspace: [] },
       origin: "https://vd.example.test",
     });
@@ -262,7 +300,7 @@ describe("dynamic Craft surfaces", () => {
           },
         ],
       },
-      craftSurfaces: [formsSurface],
+      craftSurfaces: firstPartySurfaces,
       origin: "http://localhost:3001",
     });
 
@@ -300,7 +338,7 @@ describe("dynamic Craft surfaces", () => {
             },
           ],
         },
-        craftSurfaces: [formsSurface],
+        craftSurfaces: firstPartySurfaces,
         origin: "http://localhost:4101",
       });
 

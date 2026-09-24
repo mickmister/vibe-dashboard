@@ -1,3 +1,4 @@
+/* eslint-disable formatjs/no-literal-string-in-object -- Plugin manifest metadata uses stable contribution titles; rendered UI owns translation. */
 import springboard from 'springboard';
 import type { PluginManifest } from '../vibe-dashboard/types';
 import type { ResolvedWorkspaceComposition } from '../vibe-dashboard/workspace-composition';
@@ -7,7 +8,17 @@ const manifest: PluginManifest = createPluginManifest({
   id: 'dev.mickmister.vibe-kanban',
   displayName: 'Vibe Kanban',
   version: '1.0.0',
-  contributions: {},
+  contributions: {
+    craftSurfaces: [
+      {
+        key: 'agent',
+        title: 'Agent',
+        urlTemplate: '{{origin}}/workspaces/{{workspaceId}}',
+        defaultTitle: 'Agent',
+        order: 10,
+      },
+    ],
+  },
 });
 
 registerPlugin(manifest);
