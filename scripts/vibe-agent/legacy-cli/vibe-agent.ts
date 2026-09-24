@@ -176,7 +176,7 @@ export function isDeterministicPreAcceptFollowUpError(error: Error): boolean {
   const message = error.message;
   return /^Not found:/.test(message)
     || /^Validation error:/.test(message)
-    || /^HTTP (400|401|403|404|409|422|503)\b/.test(message);
+    || /^HTTP 4\d\d\b/.test(message);
 }
 
 function isStopHookFeedbackEntry(entry: ConversationEntry | undefined): boolean {
