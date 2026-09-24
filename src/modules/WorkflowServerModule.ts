@@ -10,6 +10,7 @@ import { registerVkWorkspaceRoutes } from '../server/vk-workspace-routes';
 import { registerVkRepoRoutes } from '../server/vk-repo-routes';
 import { registerPreviewResolverRoutes } from '../server/preview-resolver-routes';
 import { registerPanelTargetDeliveryRoutes } from '../server/panel-target-delivery-routes';
+import { registerDockviewHarnessPanelRoutes } from '../server/dockview-harness-panel-routes';
 import { workflowRegistry } from '../workflows/registry';
 import type { CachedRepoAlias } from '../workflows/github-ci';
 
@@ -31,6 +32,7 @@ serverRegistry.registerServerModule((api) => {
   registerVkWorkspaceRoutes(api.hono);
   registerVkRepoRoutes(api.hono);
   registerPreviewResolverRoutes(api.hono);
+  registerDockviewHarnessPanelRoutes(api.hono);
   const panelTargetDeliveryOwner = registerPanelTargetDeliveryRoutes(api.hono);
   return () => panelTargetDeliveryOwner.dispose();
 });

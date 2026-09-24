@@ -94,6 +94,42 @@ describe("dynamic Craft surfaces", () => {
     ]);
   });
 
+  it("points the isolated DockView harness Agent tab at a live QA Panel surface", () => {
+    const previous = process.env.VD_DOCKVIEW_M3_2_HARNESS;
+    process.env.VD_DOCKVIEW_M3_2_HARNESS = "1";
+    try {
+      const effective = createEffectiveWorkspaceWithCraftSurfaces({
+        workspace: {
+          ...workspace,
+          tabGroups: [
+            {
+              id: "craft_workspace",
+              label: "Workspace Craft",
+              workspace: {
+                workspaceId: "workspace-a",
+                workspaceDir: "/tmp/dockview-m3-2-harness",
+              },
+              tabs: [],
+              pairs: [],
+              order: 0,
+            },
+          ],
+        },
+        craftSurfaces: [],
+        origin: "http://127.0.0.1:4400",
+      });
+
+      expect(effective.tabGroups[0]!.tabs.find((tab) => tab.id === "agent")?.url)
+        .toBe("http://127.0.0.1:4400/internal/dockview-m3-2-harness/panel-target/workspaces/workspace-a/craft-overview");
+    } finally {
+      if (previous === undefined) {
+        delete process.env.VD_DOCKVIEW_M3_2_HARNESS;
+      } else {
+        process.env.VD_DOCKVIEW_M3_2_HARNESS = previous;
+      }
+    }
+  });
+
   it("strips port-prefixed subdomains from Agent and Code built-in workspace tab URLs", () => {
     const effective = createEffectiveWorkspaceWithCraftSurfaces({
       workspace: {

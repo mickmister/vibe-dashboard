@@ -529,7 +529,10 @@ const createWorkspaceModule = async (moduleAPI: ModuleAPI) => {
         ? createDockviewM32HarnessWorkspace()
         : createDefaultWorkspace(),
     );
-  if (isDockviewM32HarnessWorkspaceSeedEnabled()) {
+  if (
+    isDockviewM32HarnessWorkspaceSeedEnabled() &&
+    moduleAPI.deps.core.isMaestro()
+  ) {
     workspaceState.setState(createDockviewM32HarnessWorkspace());
   }
   if (voyageDatabase && !voyageDatabase.legacyTargetContextForCraft) throw new Error("Normalized Voyage target authority is unavailable.");
@@ -549,10 +552,13 @@ const createWorkspaceModule = async (moduleAPI: ModuleAPI) => {
   // This shared value is a derived UI projection only. Every mutation below
   // must commit through NormalizedVoyageProjection/VoyageRepository first.
   const savedSessionsState =
-    await moduleAPI.statesAPI.createSharedState<SavedWorkspaceSessionState>(
+    await moduleAPI.statesAPI.createPersistentState<SavedWorkspaceSessionState>(
       "normalized-voyage-compatibility-projection",
       projectionSnapshot.state,
     );
+  if (normalizedProjection && moduleAPI.deps.core.isMaestro()) {
+    savedSessionsState.setState(projectionSnapshot.state);
+  }
   const commitSavedVoyageProjection = async (
     update: (current: SavedWorkspaceSessionState) => SavedWorkspaceSessionState,
   ) => {
@@ -567,7 +573,10 @@ const createWorkspaceModule = async (moduleAPI: ModuleAPI) => {
   const currentWorkspace = workspaceState.getState();
   const builtInMigratedWorkspace =
     migrateWorkspaceBuiltInTabs(currentWorkspace);
-  if (builtInMigratedWorkspace !== currentWorkspace) {
+  if (
+    builtInMigratedWorkspace !== currentWorkspace &&
+    moduleAPI.deps.core.isMaestro()
+  ) {
     workspaceState.setState(builtInMigratedWorkspace);
   }
 

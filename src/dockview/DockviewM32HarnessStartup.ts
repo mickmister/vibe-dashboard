@@ -14,6 +14,7 @@ import {
 import { dockviewM32HarnessCraftId } from './DockviewM32HarnessWorkspace';
 
 export const dockviewM32HarnessStartupFlag = 'VD_DOCKVIEW_M3_2_HARNESS';
+export const dockviewM32HarnessPanelRoutePrefix = '/internal/dockview-m3-2-harness/panel-target/workspaces';
 
 export function isDockviewM32HarnessStartupEnabled(env: Record<string, string | undefined> = process.env): boolean {
   return env[dockviewM32HarnessStartupFlag] === '1';
@@ -51,7 +52,7 @@ export function createDockviewM32HarnessTargetContextForCraft(
       previews: {},
       builtInRoutes: {},
       redirectGuards: Object.fromEntries(['craft-overview', 'code', 'changes', 'beads', 'forms']
-        .map((kind) => [`${kind}:${workspaceId}`, { deliveryUrl: `${hostOrigin}/internal/panel-target/workspaces/${workspaceId}/${kind}`, upstreamOrigin: hostOrigin }])),
+        .map((kind) => [`${kind}:${workspaceId}`, { deliveryUrl: `${hostOrigin}${dockviewM32HarnessPanelRoutePrefix}/${workspaceId}/${kind}`, upstreamOrigin: hostOrigin }])),
       getPluginRegistry: () => plugins,
     };
   };

@@ -9,6 +9,7 @@ import { createDockviewM32HarnessAggregate, dockviewM32HarnessVoyageId } from '.
 import {
   initializeDockviewM32HarnessVoyageAuthority,
   isDockviewM32HarnessStartupEnabled,
+  dockviewM32HarnessPanelRoutePrefix,
 } from './DockviewM32HarnessStartup';
 import { createDockviewM32HarnessWorkspace } from './DockviewM32HarnessWorkspace';
 import { productionDockviewSnapshotCodec } from '../store/dockviewSnapshotCodec';
@@ -136,7 +137,10 @@ describe('DockView M3.2 harness actions', () => {
           kind: 'craft-overview',
           version: 1,
           payload: { workspaceId: 'workspace-a' },
-        }, context)).toMatchObject({ status: 'resolved' });
+        }, context)).toMatchObject({
+          status: 'resolved',
+          canonicalLocation: `http://127.0.0.1:4193${dockviewM32HarnessPanelRoutePrefix}/workspace-a/craft-overview`,
+        });
         const migratedProjection = new NormalizedVoyageProjection(
           repository,
           () => migratedWorkspace,
