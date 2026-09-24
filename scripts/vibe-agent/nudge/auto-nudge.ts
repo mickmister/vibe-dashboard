@@ -6,7 +6,12 @@ import { client as defaultClient } from '../core/client.js';
 import type { ConversationEntry, ExecutionProcess, ExecutionProcessFinalResponse, SendMessageBody, Session } from '../types.js';
 import { conversationEntryText, conversationEntryType, decideNudgeForProcess, isActiveProcess } from './criteria.js';
 import { callbacksForTrigger, DEFAULT_CALLBACK_REGISTRY_PATH } from './callback-registry.js';
-import { DEFAULT_RESPONSE_ROUTES_PATH, readResponseRouteState, writeResponseRouteState } from './response-routes.js';
+import {
+  bindResponseRouteProcess,
+  DEFAULT_RESPONSE_ROUTES_PATH,
+  snapshotPendingResponseRoutes,
+  updateResponseRoute,
+} from './response-routes.js';
 
 const DEFAULT_STATE_PATH = '/var/lib/vd/auto-nudge/state.json';
 const DEFAULT_LOCK_PATH = '/var/lib/vd/auto-nudge/owner.lock';
@@ -28,6 +33,7 @@ export interface OutboxItem { id: string; workspaceId: string; content: string; 
 export interface AutoNudgeState { version: 1; nudgedProcessIds: string[]; triggers: Record<string, TriggerState>; outbox: Record<string, OutboxItem> }
 export interface AutoNudgeClient {
   getSessions(workspaceId: string): Promise<Session[]>;
+  getSession(sessionId: string): Promise<Session>;
   getSessionProcesses(sessionId: string): Promise<ExecutionProcess[]>;
   getExecutionProcess(processId: string): Promise<ExecutionProcess>;
   getExecutionProcessFinalResponse(processId: string): Promise<ExecutionProcessFinalResponse>;
@@ -132,22 +138,45 @@ async function processOutbox(options: AutoNudgeOptions, state: AutoNudgeState, r
 async function processResponseRoutes(client: AutoNudgeClient, options: AutoNudgeOptions, result: AutoNudgeCycleResult): Promise<void> {
   if (options.dryRun) return;
   const responseRoutesPath = options.responseRoutesPath ?? DEFAULT_RESPONSE_ROUTES_PATH;
-  const routeState = readResponseRouteState(responseRoutesPath);
-  for (const route of Object.values(routeState.routes).filter(route => route.status === 'pending')) {
+  const pendingRoutes = snapshotPendingResponseRoutes(responseRoutesPath);
+  for (const route of pendingRoutes) {
     try {
-      const final = await deadline(client.getExecutionProcessFinalResponse(route.processId), options.operationTimeoutMs, 'get final response');
+      let processId = route.processId;
+      if (!processId) {
+        const candidates = (await deadline(client.getSessionProcesses(route.targetSessionId), options.operationTimeoutMs, 'reconcile response route intent'))
+          .filter(item => item.run_reason === 'codingagent' && !item.dropped && new Date(item.created_at).getTime() >= new Date(route.createdAt).getTime())
+          .sort((left, right) => left.created_at.localeCompare(right.created_at) || left.id.localeCompare(right.id));
+        if (candidates.length === 0) continue;
+        if (candidates.length > 1) {
+          updateResponseRoute(responseRoutesPath, route.id, current => current.status === 'pending'
+            ? { ...current, status: 'failed', updatedAt: options.now().toISOString(), error: `ambiguous response route intent matched ${candidates.length} processes` }
+            : current);
+          continue;
+        }
+        const candidate = candidates[0];
+        if (!candidate) continue;
+        processId = candidate.id;
+        const bound = bindResponseRouteProcess(responseRoutesPath, route.id, processId, options.now().toISOString());
+        if (!bound || bound.status !== 'pending' || bound.processId !== processId) continue;
+      }
+      const final = await deadline(client.getExecutionProcessFinalResponse(processId), options.operationTimeoutMs, 'get final response');
       if (!final.finished) continue;
       if (!final.final_response) {
-        route.status = 'terminal-no-response';
-        route.updatedAt = options.now().toISOString();
-        route.error = final.terminal_no_response ? 'target process ended without a final assistant response' : null;
-        writeResponseRouteState(responseRoutesPath, routeState);
+        updateResponseRoute(responseRoutesPath, route.id, current => current.status === 'pending' && current.processId === processId
+          ? {
+            ...current,
+            status: 'terminal-no-response',
+            updatedAt: options.now().toISOString(),
+            error: final.terminal_no_response ? 'target process ended without a final assistant response' : null,
+          }
+          : current);
         continue;
       }
+      const replySession = await deadline(client.getSession(route.replySessionId), options.operationTimeoutMs, 'get reply session');
       const delivered = await deadline(
         client.sendMessage(route.replySessionId, {
           prompt: respondMessage(route.targetRole, final.final_response),
-          executor_config: { executor: 'CODEX' },
+          executor_config: { executor: replySession.executor },
           retry_process_id: null,
           force_when_dirty: null,
           perform_git_reset: null,
@@ -155,16 +184,14 @@ async function processResponseRoutes(client: AutoNudgeClient, options: AutoNudge
         options.operationTimeoutMs,
         'deliver response route',
       );
-      route.status = 'delivered';
-      route.deliveredProcessId = delivered.id;
-      route.updatedAt = options.now().toISOString();
-      route.error = null;
-      writeResponseRouteState(responseRoutesPath, routeState);
-      result.responseRoutes++;
+      const updated = updateResponseRoute(responseRoutesPath, route.id, current => current.status === 'pending' && current.processId === processId
+        ? { ...current, status: 'delivered', deliveredProcessId: delivered.id, updatedAt: options.now().toISOString(), error: null }
+        : current);
+      if (updated?.status === 'delivered') result.responseRoutes++;
     } catch (error) {
-      route.error = (error as Error).message;
-      route.updatedAt = options.now().toISOString();
-      writeResponseRouteState(responseRoutesPath, routeState);
+      updateResponseRoute(responseRoutesPath, route.id, current => current.status === 'pending'
+        ? { ...current, error: (error as Error).message, updatedAt: options.now().toISOString() }
+        : current);
       result.errors.push(`response route ${route.id}: ${(error as Error).message}`);
     }
   }
@@ -362,11 +389,12 @@ export async function runWithOwnerLock<T>(lockPath: string, task: () => Promise<
   try { return await task(); }
   finally { release(); }
 }
-type VibeClientAdapterSource = Pick<typeof defaultClient, 'getSessions' | 'getSessionProcesses' | 'fetchConversation' | 'sendMessage' | 'getExecutionProcess' | 'getExecutionProcessFinalResponse'>;
+type VibeClientAdapterSource = Pick<typeof defaultClient, 'getSessions' | 'getSession' | 'getSessionProcesses' | 'fetchConversation' | 'sendMessage' | 'getExecutionProcess' | 'getExecutionProcessFinalResponse'>;
 
 export function createAutoNudgeClient(source: VibeClientAdapterSource): AutoNudgeClient {
   return {
     getSessions: id => source.getSessions(id), getSessionProcesses: id => source.getSessionProcesses(id),
+    getSession: id => source.getSession(id),
     getExecutionProcess: id => source.getExecutionProcess(id),
     getExecutionProcessFinalResponse: id => source.getExecutionProcessFinalResponse(id),
     fetchConversation: (id, timeout) => source.fetchConversation(id, timeout), sendMessage: (id, request) => source.sendMessage(id, request),

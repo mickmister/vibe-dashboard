@@ -5,8 +5,10 @@ import { afterEach, describe, expect, it } from 'vitest';
 import { VibeClient } from '../core/client.js';
 import { createAutoNudgeClient, readAutoNudgeState, runAutoNudgeCycle, writeAutoNudgeState, type AutoNudgeOptions } from '../nudge/auto-nudge.js';
 import { createCallback } from '../nudge/callback-registry.js';
+import { appendResponseRoute, readResponseRouteState } from '../nudge/response-routes.js';
 import { FakeDiscordServer } from './fake-discord-server.js';
 import { FakeVkServer, type FakeVkProcess, type FakeVkScenario } from './fake-vk-server.js';
+import type { SendMessageBody, Session } from '../types.js';
 
 const now = '2026-09-21T00:10:00.000Z'; const old = '2026-09-21T00:00:00.000Z';
 const process = (id: string, sessionId: string, status: FakeVkProcess['status'], final?: string): FakeVkProcess => ({
@@ -20,12 +22,20 @@ function base(processes: FakeVkProcess[]): FakeVkScenario { return {
     { id: 'overseer', workspace_id: 'workspace', name: 'overseer', executor: 'CODEX', created_at: old, updated_at: old, processes: [] },
   ], followUps: [],
 }; }
+const body = (prompt: string, session: Pick<Session, 'executor'>): SendMessageBody => ({
+  prompt,
+  executor_config: { executor: session.executor },
+  retry_process_id: null,
+  force_when_dirty: null,
+  perform_git_reset: null,
+});
 const dirs: string[] = []; const vkServers: FakeVkServer[] = []; const discordServers: FakeDiscordServer[] = [];
 afterEach(async () => { dirs.splice(0).forEach(dir => rmSync(dir, { recursive: true, force: true })); await Promise.all(vkServers.splice(0).map(item => item.stop())); await Promise.all(discordServers.splice(0).map(item => item.stop())); });
 async function setup(scenario: FakeVkScenario) {
   const server = await new FakeVkServer(scenario).start(); vkServers.push(server);
   const dir = mkdtempSync(join(tmpdir(), 'auto-nudge-transport-')); dirs.push(dir);
   const options: AutoNudgeOptions = { config: { version: 1, discord: { enabled: false }, workspaces: [{ workspaceId: 'workspace', overseerSessionId: 'overseer' }] }, statePath: join(dir, 'state.json'), callbackRegistryPath: join(dir, 'callbacks.json'), now: () => new Date(now), unacknowledgedAfterMs: 60_000, operationTimeoutMs: 500, responseTimeoutMs: 1_000, checkpointPollMs: 5, concurrency: 2, dryRun: false };
+  options.responseRoutesPath = join(dir, 'response-routes.json');
   return { server, options, client: createAutoNudgeClient(new VibeClient(server.baseUrl)) };
 }
 
@@ -97,5 +107,34 @@ describe('auto-nudge across real VK transport', () => {
     expect((await runAutoNudgeCycle(client, options)).discordDeliveries).toBe(0);
     expect(discord.deliveries).toEqual([{ content: 'quota event' }, { content: 'quota event' }]);
     expect(readAutoNudgeState(options.statePath).outbox.alert).toMatchObject({ attempts: 2, deliveredAt: now });
+  });
+
+  it('recovers response routing when VK accepts a follow-up then drops the HTTP response', async () => {
+    const accepted = process('accepted-follow-up', 'impl', 'completed', 'Recovered final');
+    const scenario = base([]);
+    scenario.followUps = [
+      { sessionId: 'impl', process: accepted },
+      { sessionId: 'overseer', process: process('delivered-response', 'overseer', 'running') },
+    ];
+    scenario.faults = [{ id: 'drop', operation: 'follow-up', targetId: 'impl', kind: 'accept-then-drop' }];
+    const server = await new FakeVkServer(scenario).start(); vkServers.push(server);
+    const dir = mkdtempSync(join(tmpdir(), 'auto-nudge-transport-')); dirs.push(dir);
+    const options: AutoNudgeOptions = {
+      config: { version: 1, discord: { enabled: false }, workspaces: [{ workspaceId: 'workspace', overseerSessionId: 'overseer' }] },
+      statePath: join(dir, 'state.json'), callbackRegistryPath: join(dir, 'callbacks.json'), responseRoutesPath: join(dir, 'response-routes.json'),
+      now: () => new Date(now), unacknowledgedAfterMs: 60_000, operationTimeoutMs: 1_000, responseTimeoutMs: 1_000, checkpointPollMs: 5, concurrency: 2, dryRun: false,
+    };
+    const rawClient = new VibeClient(server.baseUrl);
+    const responseRoutesPath = options.responseRoutesPath!;
+    const targetSession = scenario.sessions[0];
+    if (!targetSession) throw new Error('missing target session');
+    const intent = appendResponseRoute(responseRoutesPath, {
+      processId: null, targetRole: 'impl', targetSessionId: 'impl', replySessionId: 'overseer',
+      createdAt: old, updatedAt: old,
+    });
+    await expect(rawClient.sendMessage('impl', body('please work', targetSession))).rejects.toThrow();
+    await runAutoNudgeCycle(createAutoNudgeClient(rawClient), options);
+    expect(readResponseRouteState(responseRoutesPath).routes[intent.id]).toMatchObject({ processId: 'accepted-follow-up', status: 'delivered' });
+    expect(server.journal.filter(item => item.type === 'follow-up-accepted').map(item => item.correlationId)).toContain('accepted-follow-up');
   });
 });

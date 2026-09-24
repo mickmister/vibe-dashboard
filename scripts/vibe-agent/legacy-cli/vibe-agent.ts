@@ -29,6 +29,7 @@ import {
 } from '../nudge/callback-registry.js';
 import {
   appendResponseRoute,
+  bindResponseRouteProcess,
   DEFAULT_RESPONSE_ROUTES_PATH,
 } from '../nudge/response-routes.js';
 
@@ -1484,6 +1485,27 @@ async function send(args: string[]): Promise<void> {
     const finalMessage = buildSendPrompt(message);
 
     // Send message using the live follow-up API shape
+    let replySessionId: string | null = null;
+    let responseRouteId: string | null = null;
+
+    if (routeResponse) {
+      const ctx = await getAgentContext();
+      replySessionId = process.env.VK_SESSION_ID ?? ctx.sessionId;
+      if (!replySessionId) {
+        throw new Error('Could not determine reply session; VK_SESSION_ID was not set and session discovery failed');
+      }
+      const now = new Date().toISOString();
+      const route = appendResponseRoute(process.env.VD_RESPONSE_ROUTES_PATH ?? DEFAULT_RESPONSE_ROUTES_PATH, {
+        processId: null,
+        replySessionId,
+        targetRole,
+        targetSessionId: session.id,
+        createdAt: now,
+        updatedAt: now,
+      });
+      responseRouteId = route.id;
+    }
+
     const result = await client.sendMessage(session.id, {
       prompt: finalMessage,
       executor_config: {
@@ -1494,23 +1516,8 @@ async function send(args: string[]): Promise<void> {
       perform_git_reset: null,
     });
 
-    let replySessionId: string | null = null;
-
-    if (routeResponse) {
-      const ctx = await getAgentContext();
-      replySessionId = process.env.VK_SESSION_ID ?? ctx.sessionId;
-      if (!replySessionId) {
-        throw new Error('Could not determine reply session; VK_SESSION_ID was not set and session discovery failed');
-      }
-      const now = new Date().toISOString();
-      appendResponseRoute(process.env.VD_RESPONSE_ROUTES_PATH ?? DEFAULT_RESPONSE_ROUTES_PATH, {
-        processId: result.id,
-        replySessionId,
-        targetRole,
-        targetSessionId: session.id,
-        createdAt: now,
-        updatedAt: now,
-      });
+    if (routeResponse && responseRouteId) {
+      bindResponseRouteProcess(process.env.VD_RESPONSE_ROUTES_PATH ?? DEFAULT_RESPONSE_ROUTES_PATH, responseRouteId, result.id, new Date().toISOString());
     }
 
     if (jsonOutput) {

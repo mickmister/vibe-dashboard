@@ -7,7 +7,7 @@ import {
   abortableDelay, acquireLock, createAutoNudgeClient, loadAutoNudgeConfig, readAutoNudgeState, runAutoNudgeCycle, runWithOwnerLock, writeAutoNudgeState,
   type AutoNudgeClient, type AutoNudgeOptions,
 } from './auto-nudge.js';
-import { appendResponseRoute, readResponseRouteState } from './response-routes.js';
+import { appendResponseRoute, bindResponseRouteProcess, readResponseRouteState, updateResponseRoute } from './response-routes.js';
 
 const dirs: string[] = [];
 afterEach(() => dirs.splice(0).forEach(dir => rmSync(dir, { recursive: true, force: true })));
@@ -17,8 +17,8 @@ const proc = (id: string, sessionId: string, status: ExecutionProcess['status'],
   completed_at: status === 'running' ? null : iso(minute), exit_code: status === 'completed' ? 0 : 1,
   dropped: false, run_reason: 'codingagent', executor_action: { typ: { prompt: 'work' } },
 });
-const session = (id: string, name: string): Session => ({
-  id, name, workspace_id: 'w1', executor: 'CODEX', created_at: iso(0), updated_at: iso(5),
+const session = (id: string, name: string, executor: Session['executor'] = 'CODEX'): Session => ({
+  id, name, workspace_id: 'w1', executor, created_at: iso(0), updated_at: iso(5),
 });
 const msg = (text: string): ConversationEntry => ({ content: { entry_type: { type: 'assistant_message' }, content: text } });
 const tool: ConversationEntry = { content: { entry_type: { type: 'tool_use' }, content: 'tool' } };
@@ -45,6 +45,7 @@ function fake(input: { processes: Record<string, ExecutionProcess[]>; entries?: 
   const sent: Array<{ sessionId: string; body: SendMessageBody }> = [];
   const client: AutoNudgeClient = {
     async getSessions() { return [session('overseer', 'overseer'), session('impl', 'impl')]; },
+    async getSession(id) { return session(id, id); },
     async getSessionProcesses(id) { return input.processes[id] ?? []; },
     async fetchConversation(id) { return id === 'checkpoint' ? [msg(input.response ?? 'Continuing')] : input.entries?.[id] ?? []; },
     async getExecutionProcessFinalResponse(id) {
@@ -201,6 +202,7 @@ describe('auto nudge', () => {
     const sent: string[] = [];
     const client: AutoNudgeClient = {
       async getSessions() { return [session('overseer', 'overseer'), session('impl', 'impl'), session('other', 'other')]; },
+      async getSession(id) { return session(id, id); },
       async getSessionProcesses(id) { return id === 'impl' ? [callbackSource] : id === 'other' ? [otherCompletion] : []; },
       async fetchConversation() { return [msg('Finished')]; }, async getExecutionProcess() { throw new Error('unexpected'); },
       async getExecutionProcessFinalResponse(id) { return finalResponse(id === 'callback-source' ? callbackSource : otherCompletion, 'Finished'); },
@@ -243,12 +245,65 @@ describe('auto nudge', () => {
       createdAt: iso(1), updatedAt: iso(1),
     });
     const { client, sent } = fake({ processes: { impl: [], overseer: [] } });
+    client.getSession = async id => session(id, id, id === 'overseer' ? 'GEMINI' : 'CODEX');
     client.getExecutionProcessFinalResponse = async id => ({
       process_id: id, status: 'completed', finished: true, final_response: 'Looks good.', terminal_no_response: false,
     });
     await runAutoNudgeCycle(client, options);
     expect(sent).toEqual([expect.objectContaining({ sessionId: 'overseer', body: expect.objectContaining({ prompt: 'Response from review:\n\nLooks good.' }) })]);
+    expect(sent[0]!.body.executor_config?.executor).toBe('GEMINI');
     expect(readResponseRouteState(options.responseRoutesPath).routes['target-process:overseer']).toMatchObject({ status: 'delivered' });
+  });
+
+  it('reconciles a pre-send response-route intent after an accepted dropped follow-up', async () => {
+    const { options } = setup();
+    options.responseRoutesPath = join(options.statePath, '..', 'routes.json');
+    const intent = appendResponseRoute(options.responseRoutesPath, {
+      processId: null, targetRole: 'review', targetSessionId: 'review', replySessionId: 'overseer',
+      createdAt: iso(1), updatedAt: iso(1),
+    });
+    const accepted = proc('accepted-process', 'review', 'completed', 2);
+    const { client, sent } = fake({ processes: { review: [accepted], impl: [], overseer: [] } });
+    client.getSessions = async () => [session('overseer', 'overseer'), session('review', 'review')];
+    client.getExecutionProcessFinalResponse = async id => ({
+      process_id: id, status: 'completed', finished: true, final_response: 'Recovered response.', terminal_no_response: false,
+    });
+    await runAutoNudgeCycle(client, options);
+    expect(sent[0]).toMatchObject({ sessionId: 'overseer', body: { prompt: 'Response from review:\n\nRecovered response.' } });
+    expect(readResponseRouteState(options.responseRoutesPath).routes[intent.id]).toMatchObject({ processId: 'accepted-process', status: 'delivered' });
+  });
+
+  it('fails closed when a pre-send response-route intent matches multiple processes', async () => {
+    const { options } = setup();
+    options.responseRoutesPath = join(options.statePath, '..', 'routes.json');
+    const intent = appendResponseRoute(options.responseRoutesPath, {
+      processId: null, targetRole: 'review', targetSessionId: 'review', replySessionId: 'overseer',
+      createdAt: iso(1), updatedAt: iso(1),
+    });
+    const first = proc('first', 'review', 'completed', 2);
+    const second = proc('second', 'review', 'completed', 3);
+    const { client, sent } = fake({ processes: { review: [first, second], impl: [], overseer: [] } });
+    client.getSessions = async () => [session('overseer', 'overseer'), session('review', 'review')];
+    await runAutoNudgeCycle(client, options);
+    expect(sent).toEqual([]);
+    expect(readResponseRouteState(options.responseRoutesPath).routes[intent.id]).toMatchObject({ processId: null, status: 'failed', error: expect.stringContaining('ambiguous') });
+  });
+
+  it('updates one response route without overwriting routes appended under the same file lock', () => {
+    const { options } = setup();
+    options.responseRoutesPath = join(options.statePath, '..', 'routes.json');
+    appendResponseRoute(options.responseRoutesPath, {
+      processId: 'old-process', targetRole: 'review', targetSessionId: 'review', replySessionId: 'overseer',
+      createdAt: iso(1), updatedAt: iso(1),
+    });
+    const added = appendResponseRoute(options.responseRoutesPath, {
+      processId: null, targetRole: 'impl', targetSessionId: 'impl', replySessionId: 'overseer',
+      createdAt: iso(2), updatedAt: iso(2),
+    });
+    updateResponseRoute(options.responseRoutesPath, 'old-process:overseer', route => ({ ...route, status: 'delivered', deliveredProcessId: 'delivery', updatedAt: iso(3) }));
+    bindResponseRouteProcess(options.responseRoutesPath, added.id, 'new-process', iso(3));
+    expect(Object.keys(readResponseRouteState(options.responseRoutesPath).routes).sort()).toEqual(['old-process:overseer', added.id].sort());
+    expect(readResponseRouteState(options.responseRoutesPath).routes[added.id]).toMatchObject({ processId: 'new-process', status: 'pending' });
   });
 
   it('does not notify the sender when a pending response route ends with no final response', async () => {
@@ -372,6 +427,7 @@ describe('auto nudge', () => {
     let active = 0; let maximum = 0;
     const client: AutoNudgeClient = {
       async getSessions(workspaceId) { active++; maximum = Math.max(maximum, active); await new Promise(resolve => setTimeout(resolve, 5)); active--; return [session(`overseer-${workspaceId}`, 'overseer')]; },
+      async getSession(id) { return session(id, id); },
       async getSessionProcesses() { return []; }, async fetchConversation() { return []; },
       async getExecutionProcessFinalResponse() { throw new Error('unexpected'); },
       async getExecutionProcess() { throw new Error('unexpected'); }, async sendMessage() { throw new Error('unexpected'); },
@@ -396,6 +452,7 @@ describe('auto nudge', () => {
     let observedTimeout: number | undefined;
     const adapter = createAutoNudgeClient({
       async getSessions() { return []; }, async getSessionProcesses() { return []; },
+      async getSession(id) { return session(id, id); },
       async sendMessage() { return sentProcess; },
       async fetchConversation(_id, timeout) { observedTimeout = timeout; return [msg('DONE')]; },
       async getExecutionProcess(id) { expect(id).toBe('checkpoint'); return terminalProcess; },
