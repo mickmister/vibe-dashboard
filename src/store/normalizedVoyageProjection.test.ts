@@ -164,4 +164,40 @@ describe('normalized Voyage compatibility projection', () => {
     await projection.replace(before, next);
     expect((await repository.loadVoyage('homepage-only')).panels).toEqual([]);
   });
+
+  it('fails closed for durable entries without authoritative workspace ownership', async () => {
+    const workspaceWithNotes: WorkspaceState = {
+      ...workspace,
+      spaces: [{ ...workspace.spaces[0]!, tabGroupIds: [...workspace.spaces[0]!.tabGroupIds, 'notes'] }],
+      tabGroups: [...workspace.tabGroups, {
+        id: 'notes',
+        label: 'Notes',
+        order: 4,
+        tabs: [{ id: 'notes-tab', title: 'Notes', url: 'https://notes.test/' }],
+        pairs: [],
+      }],
+    };
+    const projection = new NormalizedVoyageProjection(repository, () => workspaceWithNotes, trustedContext);
+    const before = await projection.load();
+    const next = structuredClone(before.state);
+    next.data.push({
+      id: 'non-authoritative-durable',
+      slug: 'non-authoritative-durable',
+      name: 'Non-authoritative durable',
+      createdAt: '2026-01-01T00:00:00.000Z',
+      updatedAt: '2026-01-01T00:00:00.000Z',
+      activeVoyageEntryId: 've_notes',
+      voyageEntries: [{ id: 've_notes', tabGroupId: 'notes', viewIds: ['notes-tab'] }],
+      activeSpaceId: 'space',
+      activeTabGroupId: 'notes',
+      activeItemsByVoyageEntryId: { ve_notes: 'notes-tab' },
+      visitedTabGroupIds: ['notes'],
+    });
+
+    await expect(projection.replace(before, next)).rejects.toMatchObject({
+      name: 'VoyageInvariantError',
+      message: 'Projected Craft has no authoritative workspace owner',
+    });
+    expect(await repository.listVoyageIds()).not.toContain('non-authoritative-durable');
+  });
 });

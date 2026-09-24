@@ -70,11 +70,31 @@ function structuralEqual(left: SavedWorkspaceSession, right: SavedWorkspaceSessi
 function isHomepageVoyageEntry(entry: SavedWorkspaceSession['voyageEntries'][number], workspace: WorkspaceState): boolean {
   const craft = workspace.tabGroups.find(({ id }) => id === entry.tabGroupId);
   if (!craft) return false;
-  if (entry.tabGroupId === 'tg_home') return true;
+  if (entry.viewIds.length === 0) return false;
   return entry.viewIds.every((viewId) => {
     const view = craft.tabs.find(({ id }) => id === viewId);
     return viewId === 'tab_overview' || view?.url === 'internal://spaces-overview';
   });
+}
+
+function isCreateWorkspaceCompatibilityEntry(entry: SavedWorkspaceSession['voyageEntries'][number], workspace: WorkspaceState): boolean {
+  const craft = workspace.tabGroups.find(({ id }) => id === entry.tabGroupId);
+  if (!craft) return false;
+  return entry.viewIds.length > 0 && entry.viewIds.every((viewId) => {
+    const view = craft.tabs.find(({ id }) => id === viewId);
+    if (!view) return false;
+    try {
+      const url = new URL(view.url, 'https://workspace.local');
+      return view.title.trim().toLowerCase() === 'create workspace'
+        && url.pathname === '/workspaces';
+    } catch {
+      return false;
+    }
+  });
+}
+
+function isSkippableCompatibilityEntry(entry: SavedWorkspaceSession['voyageEntries'][number], workspace: WorkspaceState): boolean {
+  return isHomepageVoyageEntry(entry, workspace) || isCreateWorkspaceCompatibilityEntry(entry, workspace);
 }
 
 function getProjectedWorkspaceId(entry: SavedWorkspaceSession['voyageEntries'][number], workspace: WorkspaceState): string {
@@ -83,6 +103,7 @@ function getProjectedWorkspaceId(entry: SavedWorkspaceSession['voyageEntries'][n
 }
 
 function legacyViewForProjection(craft: Craft | undefined, viewId: string, workspaceId: string): { id: string; url: string } | undefined {
+  if (workspaceId && viewId === 'agent') return { id: 'craft-overview', url: '' };
   return craft?.tabs.find(({ id }) => id === viewId)
     ?? (workspaceId && GENERATED_WORKSPACE_VIEW_IDS.has(viewId) ? { id: viewId, url: '' } : undefined);
 }
@@ -92,7 +113,7 @@ function compileStructure(session: SavedWorkspaceSession, aggregate: VoyageAggre
   const registry = createPanelTargetRegistry();
   const durableEntries = session.voyageEntries
     .map((entry, index) => ({ entry, index }))
-    .filter(({ entry }) => !isHomepageVoyageEntry(entry, workspace) && getProjectedWorkspaceId(entry, workspace));
+    .filter(({ entry }) => !isSkippableCompatibilityEntry(entry, workspace));
   const crafts = durableEntries.map(({ entry, index }) => {
     const workspaceId = getProjectedWorkspaceId(entry, workspace);
     if (!workspaceId) throw new VoyageInvariantError('Projected Craft has no authoritative workspace owner');
@@ -185,7 +206,7 @@ function activationPanelId(before: SavedWorkspaceSession | null, after: SavedWor
   if (before && before.activeVoyageEntryId === after.activeVoyageEntryId
     && JSON.stringify(before.activeItemsByVoyageEntryId) === JSON.stringify(after.activeItemsByVoyageEntryId)) return undefined;
   const entry = after.voyageEntries.find(({ id }) => id === after.activeVoyageEntryId);
-  if (!entry || isHomepageVoyageEntry(entry, workspace)) return undefined;
+  if (!entry || isSkippableCompatibilityEntry(entry, workspace)) return undefined;
   const item = entry && after.activeItemsByVoyageEntryId[entry.id];
   const workspaceId = getProjectedWorkspaceId(entry, workspace);
   if (!workspaceId) return undefined;
