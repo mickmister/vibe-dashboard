@@ -11,6 +11,7 @@ import type { VoyagePersistenceAuthorityHandle } from '../store/voyagePersistenc
 import {
   dockviewM32HarnessWorkspaceId,
 } from './DockviewM32HarnessFixture';
+import { dockviewM32HarnessCraftId } from './DockviewM32HarnessWorkspace';
 
 export const dockviewM32HarnessStartupFlag = 'VD_DOCKVIEW_M3_2_HARNESS';
 
@@ -23,12 +24,12 @@ export function createDockviewM32HarnessTargetContextForCraft(
 ): LegacyTargetContextForCraft {
   const hostOrigin = env.VITE_VK_BASE_ORIGIN || env.VK_MOCKED_VD_URL || 'http://127.0.0.1:3005';
   return (craft: Craft, workspaceId: string): PanelTargetResolutionContext | null => {
-    if (workspaceId !== dockviewM32HarnessWorkspaceId || craft.workspace?.workspaceId !== workspaceId) return null;
+    if (workspaceId !== dockviewM32HarnessWorkspaceId || craft.id !== dockviewM32HarnessCraftId || craft.workspace?.workspaceId !== workspaceId) return null;
     const plugins = getPluginRegistrySnapshot();
     return {
-      craftId: craft.id,
+      craftId: dockviewM32HarnessCraftId,
       hostOrigin,
-      crafts: { [craft.id]: { workspaceId, allowedPluginTargets: [] } },
+      crafts: { [dockviewM32HarnessCraftId]: { workspaceId, allowedPluginTargets: [] } },
       workspaces: {
         [workspaceId]: {
           id: workspaceId,

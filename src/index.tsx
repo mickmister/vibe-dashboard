@@ -22,6 +22,7 @@ import type {
   VoyageCraftSelection,
 } from "./types";
 import { createDockviewM32HarnessActions } from "./dockview/DockviewM32HarnessActions";
+import { createDockviewM32HarnessWorkspace } from "./dockview/DockviewM32HarnessWorkspace";
 
 import "./modules/plugins";
 // @platform "browser"
@@ -67,8 +68,17 @@ const MOBILE_TAB_EMOJIS = [
 type ViteImportMeta = ImportMeta & {
   env?: {
     VITE_VK_BASE_ORIGIN?: string;
+    VITE_DOCKVIEW_M3_2_HARNESS?: string;
   };
 };
+
+function isDockviewM32HarnessWorkspaceSeedEnabled(): boolean {
+  return (
+    (import.meta as ViteImportMeta).env?.VITE_DOCKVIEW_M3_2_HARNESS === "1" ||
+    (typeof process !== "undefined" &&
+      process.env?.VD_DOCKVIEW_M3_2_HARNESS === "1")
+  );
+}
 
 function getConfiguredVkBaseOrigin(): string | null {
   const configuredOrigin = (
@@ -515,8 +525,13 @@ const createWorkspaceModule = async (moduleAPI: ModuleAPI) => {
   const workspaceState =
     await moduleAPI.statesAPI.createPersistentState<WorkspaceState>(
       "workspace",
-      createDefaultWorkspace(),
+      isDockviewM32HarnessWorkspaceSeedEnabled()
+        ? createDockviewM32HarnessWorkspace()
+        : createDefaultWorkspace(),
     );
+  if (isDockviewM32HarnessWorkspaceSeedEnabled()) {
+    workspaceState.setState(createDockviewM32HarnessWorkspace());
+  }
   if (voyageDatabase && !voyageDatabase.legacyTargetContextForCraft) throw new Error("Normalized Voyage target authority is unavailable.");
   const voyageRepository = voyageDatabase
     ? new VoyageRepository(voyageDatabase.db, { snapshotCodec: productionDockviewSnapshotCodec })

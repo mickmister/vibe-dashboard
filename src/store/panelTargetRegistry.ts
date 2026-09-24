@@ -528,7 +528,7 @@ export function resolveLegacyPanelTarget(input: {
   else if (input.view.id === 'changes') candidate = { kind: 'changes', version: 1, payload };
   else if (input.view.id === 'beads') candidate = { kind: 'beads', version: 1, payload };
   else if (input.view.id === 'forms') candidate = { kind: 'forms', version: 1, payload };
-  else if (input.view.id === 'overview' || input.view.id === 'craft-overview') candidate = { kind: 'craft-overview', version: 1, payload };
+  else if (input.view.id === 'agent' || input.view.id === 'overview' || input.view.id === 'craft-overview') candidate = { kind: 'craft-overview', version: 1, payload };
   else {
     const pluginRegistry = (input.context.getPluginRegistry ?? getPluginRegistrySnapshot)();
     const matchingSurfaces = Object.values(pluginRegistry.craftSurfaces).filter((surface) => {

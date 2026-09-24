@@ -10,6 +10,8 @@ import {
 import { buildMigratedDockviewSnapshot } from './dockviewSnapshotCodec';
 import { createPanelTargetRegistry, resolveLegacyPanelTarget, type PanelTargetResolutionContext } from './panelTargetRegistry';
 
+const GENERATED_WORKSPACE_VIEW_IDS = new Set(['agent', 'code', 'changes', 'beads', 'forms', 'craft-overview']);
+
 export type PanelTargetContextProvider = (craft: Craft, workspaceId: string) => PanelTargetResolutionContext | null;
 
 export interface NormalizedVoyageProjectionSnapshot {
@@ -18,7 +20,8 @@ export interface NormalizedVoyageProjectionSnapshot {
 }
 
 function legacyViewId(panel: VoyageAggregate['panels'][number], workspace: WorkspaceState): string {
-  if (['code', 'changes', 'beads', 'forms', 'craft-overview'].includes(panel.targetKind)) return panel.targetKind;
+  if (panel.targetKind === 'craft-overview') return 'agent';
+  if (['code', 'changes', 'beads', 'forms'].includes(panel.targetKind)) return panel.targetKind;
   if (panel.targetKind === 'custom-url') {
     const url = panel.targetPayload.url;
     const craft = workspace.tabGroups.find((candidate) => getBuiltInWorkspaceMetadata(candidate)?.workspaceId === panel.craftWorkspaceId);
@@ -64,16 +67,38 @@ function structuralEqual(left: SavedWorkspaceSession, right: SavedWorkspaceSessi
   return JSON.stringify(omitMetadata(left)) === JSON.stringify(omitMetadata(right));
 }
 
+function isHomepageVoyageEntry(entry: SavedWorkspaceSession['voyageEntries'][number], workspace: WorkspaceState): boolean {
+  const craft = workspace.tabGroups.find(({ id }) => id === entry.tabGroupId);
+  if (!craft) return false;
+  if (entry.tabGroupId === 'tg_home') return true;
+  return entry.viewIds.every((viewId) => {
+    const view = craft.tabs.find(({ id }) => id === viewId);
+    return viewId === 'tab_overview' || view?.url === 'internal://spaces-overview';
+  });
+}
+
+function getProjectedWorkspaceId(entry: SavedWorkspaceSession['voyageEntries'][number], workspace: WorkspaceState): string {
+  return getBuiltInWorkspaceMetadata(workspace.tabGroups.find(({ id }) => id === entry.tabGroupId) ?? { tabs: [] })?.workspaceId
+    ?? (entry.id.startsWith('normalized:') ? entry.id.slice('normalized:'.length) : '');
+}
+
+function legacyViewForProjection(craft: Craft | undefined, viewId: string, workspaceId: string): { id: string; url: string } | undefined {
+  return craft?.tabs.find(({ id }) => id === viewId)
+    ?? (workspaceId && GENERATED_WORKSPACE_VIEW_IDS.has(viewId) ? { id: viewId, url: '' } : undefined);
+}
+
 function compileStructure(session: SavedWorkspaceSession, aggregate: VoyageAggregate | null, workspace: WorkspaceState, contextProvider: PanelTargetContextProvider) {
   const used = new Set<string>();
   const registry = createPanelTargetRegistry();
-  const crafts = session.voyageEntries.map((entry, index) => {
-    const workspaceId = getBuiltInWorkspaceMetadata(workspace.tabGroups.find(({ id }) => id === entry.tabGroupId) ?? { tabs: [] })?.workspaceId
-      ?? (entry.id.startsWith('normalized:') ? entry.id.slice('normalized:'.length) : '');
+  const durableEntries = session.voyageEntries
+    .map((entry, index) => ({ entry, index }))
+    .filter(({ entry }) => !isHomepageVoyageEntry(entry, workspace) && getProjectedWorkspaceId(entry, workspace));
+  const crafts = durableEntries.map(({ entry, index }) => {
+    const workspaceId = getProjectedWorkspaceId(entry, workspace);
     if (!workspaceId) throw new VoyageInvariantError('Projected Craft has no authoritative workspace owner');
     return { craftWorkspaceId: workspaceId, sortKey: String(index).padStart(8, '0') };
   });
-  const panels = session.voyageEntries.flatMap((entry) => {
+  const panels = durableEntries.flatMap(({ entry }) => {
     const workspaceId = crafts.find(({ craftWorkspaceId }) => entry.id === `normalized:${craftWorkspaceId}`)?.craftWorkspaceId
       ?? getBuiltInWorkspaceMetadata(workspace.tabGroups.find(({ id }) => id === entry.tabGroupId) ?? { tabs: [] })?.workspaceId;
     if (!workspaceId) throw new VoyageInvariantError('Projected Panel has no authoritative workspace owner');
@@ -86,7 +111,7 @@ function compileStructure(session: SavedWorkspaceSession, aggregate: VoyageAggre
         return structural;
       }
       const craft = workspace.tabGroups.find(({ id }) => id === entry.tabGroupId);
-      const view = craft?.tabs.find(({ id }) => id === viewId);
+      const view = legacyViewForProjection(craft, viewId, workspaceId);
       const context = craft && workspaceId ? contextProvider(craft, workspaceId) : null;
       const target = craft && view && context ? resolveLegacyPanelTarget({ view, workspaceId, context, registry }) : null;
       if (!target) throw new VoyageInvariantError('Projected Panel target is unavailable or unauthorized');
@@ -160,9 +185,10 @@ function activationPanelId(before: SavedWorkspaceSession | null, after: SavedWor
   if (before && before.activeVoyageEntryId === after.activeVoyageEntryId
     && JSON.stringify(before.activeItemsByVoyageEntryId) === JSON.stringify(after.activeItemsByVoyageEntryId)) return undefined;
   const entry = after.voyageEntries.find(({ id }) => id === after.activeVoyageEntryId);
+  if (!entry || isHomepageVoyageEntry(entry, workspace)) return undefined;
   const item = entry && after.activeItemsByVoyageEntryId[entry.id];
-  const workspaceId = entry && (getBuiltInWorkspaceMetadata(workspace.tabGroups.find(({ id }) => id === entry.tabGroupId) ?? { tabs: [] })?.workspaceId
-    ?? (entry.id.startsWith('normalized:') ? entry.id.slice('normalized:'.length) : ''));
+  const workspaceId = getProjectedWorkspaceId(entry, workspace);
+  if (!workspaceId) return undefined;
   const panel = panels.find((candidate) => candidate.craftWorkspaceId === workspaceId && legacyViewId({ ...candidate, lastActivatedSequence: null }, workspace) === item);
   if (!panel) throw new VoyageInvariantError('Projected activation must resolve to a normalized Panel');
   return panel.id;

@@ -11,11 +11,15 @@ import { VoyageConflictError, VoyageRepository, type StructuralPanelHistoryRecor
 import type { PanelTargetContextProvider } from './normalizedVoyageProjection';
 
 const workspace: WorkspaceState = {
-  spaces: [{ id: 'space', name: 'Space', icon: 'x', tabGroupIds: ['craft', 'craft-2'] }],
-  tabGroups: [{ id: 'craft', label: 'Craft', workspace: { workspaceId: 'workspace-1', workspaceDir: '/not-persisted' }, order: 0,
+  spaces: [{ id: 'space', name: 'Space', icon: 'x', tabGroupIds: ['tg_home', 'craft', 'craft-2'] }],
+  tabGroups: [{ id: 'tg_home', label: 'Home', order: 0,
+    tabs: [{ id: 'tab_overview', title: 'Spaces', url: 'internal://spaces-overview', pinned: true }], pairs: [] },
+  { id: 'craft', label: 'Craft', workspace: { workspaceId: 'workspace-1', workspaceDir: '/not-persisted' }, order: 1,
     tabs: [{ id: 'code', title: 'Code', url: '/code' }, { id: 'docs', title: 'Docs', url: 'https://docs.test/' }], pairs: [] },
-  { id: 'craft-2', label: 'Craft 2', workspace: { workspaceId: 'workspace-2', workspaceDir: '/not-persisted' }, order: 1,
-    tabs: [{ id: 'code', title: 'Code', url: '/code' }], pairs: [] }],
+  { id: 'craft-2', label: 'Craft 2', workspace: { workspaceId: 'workspace-2', workspaceDir: '/not-persisted' }, order: 2,
+    tabs: [{ id: 'code', title: 'Code', url: '/code' }], pairs: [] },
+  { id: 'create-workspace', label: 'Create Workspace', order: 3,
+    tabs: [{ id: 'create-workspace-tab', title: 'Create Workspace', url: 'http://localhost:50005/workspaces' }], pairs: [] }],
   nextId: 1,
 };
 const panel = (id: string, kind: string): StructuralPanelHistoryRecord => ({ id, craftWorkspaceId: 'workspace-1', targetKind: kind, targetVersion: 1,
@@ -107,5 +111,57 @@ describe('normalized Voyage compatibility projection', () => {
     const invalid = structuredClone(withCraft.state);
     invalid.data.find(({ id }) => id === 'voyage-created')!.voyageEntries[0]!.viewIds.push('missing');
     await expect(projection.replace(withCraft, invalid)).rejects.toMatchObject({ name: 'VoyageInvariantError' });
+  });
+
+  it('treats legacy homepage entries as homepage state instead of durable Panels', async () => {
+    const projection = new NormalizedVoyageProjection(repository, () => workspace, trustedContext);
+    const before = await projection.load();
+    const next = structuredClone(before.state);
+    next.data.push({
+      id: 'voyage-with-homepage',
+      slug: 'voyage-with-homepage',
+      name: 'Created from product route',
+      createdAt: '2026-01-01T00:00:00.000Z',
+      updatedAt: '2026-01-01T00:00:00.000Z',
+      activeVoyageEntryId: 've_craft',
+      voyageEntries: [
+        { id: 've_home', tabGroupId: 'tg_home', viewIds: ['tab_overview'] },
+        { id: 've_create_workspace', tabGroupId: 'create-workspace', viewIds: ['create-workspace-tab'] },
+        { id: 've_craft', tabGroupId: 'craft', viewIds: ['code'] },
+      ],
+      activeSpaceId: 'space',
+      activeTabGroupId: 'craft',
+      activeItemsByVoyageEntryId: { ve_home: 'tab_overview', ve_craft: 'code' },
+      visitedTabGroupIds: ['tg_home', 'craft'],
+    });
+
+    const committed = await projection.replace(before, next);
+    expect(committed.state.data.find(({ id }) => id === 'voyage-with-homepage')?.voyageEntries)
+      .toEqual([{ id: 'normalized:workspace-1', tabGroupId: 'craft', viewIds: ['code'] }]);
+    expect((await repository.loadVoyage('voyage-with-homepage')).crafts).toEqual([
+      { craftWorkspaceId: 'workspace-1', sortKey: '00000002' },
+    ]);
+  });
+
+  it('allows a homepage-only compatibility Voyage to become an empty normalized Voyage', async () => {
+    const projection = new NormalizedVoyageProjection(repository, () => workspace, trustedContext);
+    const before = await projection.load();
+    const next = structuredClone(before.state);
+    next.data.push({
+      id: 'homepage-only',
+      slug: 'homepage-only',
+      name: 'Homepage only',
+      createdAt: '2026-01-01T00:00:00.000Z',
+      updatedAt: '2026-01-01T00:00:00.000Z',
+      activeVoyageEntryId: 've_home',
+      voyageEntries: [{ id: 've_home', tabGroupId: 'tg_home', viewIds: ['tab_overview'] }],
+      activeSpaceId: 'space',
+      activeTabGroupId: 'tg_home',
+      activeItemsByVoyageEntryId: { ve_home: 'tab_overview' },
+      visitedTabGroupIds: ['tg_home'],
+    });
+
+    await projection.replace(before, next);
+    expect((await repository.loadVoyage('homepage-only')).panels).toEqual([]);
   });
 });
