@@ -4,7 +4,7 @@ import { join } from 'node:path';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { ConversationEntry, ExecutionProcess, SendMessageBody, Session } from '../types.js';
 import {
-  abortableDelay, acquireLock, createAutoNudgeClient, loadAutoNudgeConfig, readAutoNudgeState, runAutoNudgeCycle, runWithOwnerLock, writeAutoNudgeState,
+  abortableDelay, acquireLock, createAutoNudgeClient, disableAutoNudgeWorkspace, enableAutoNudgeWorkspace, loadAutoNudgeConfig, readAutoNudgeState, readAutoNudgeWorkspaceRegistry, runAutoNudgeCycle, runWithOwnerLock, writeAutoNudgeState,
   type AutoNudgeClient, type AutoNudgeOptions,
 } from './auto-nudge.js';
 import { appendResponseRoute, bindResponseRouteProcess, readResponseRouteState, updateResponseRoute } from './response-routes.js';
@@ -67,6 +67,14 @@ describe('auto nudge', () => {
     expect(() => loadAutoNudgeConfig(path)).toThrow(/duplicate workspaceId/);
   });
 
+  it('persists dynamic workspace overseer registration and disablement', () => {
+    const { dir } = setup(); const path = join(dir, 'workspaces.json');
+    enableAutoNudgeWorkspace(path, 'w1', 'overseer', new Date(iso(1)));
+    expect(readAutoNudgeWorkspaceRegistry(path).workspaces.w1).toMatchObject({ workspaceId: 'w1', overseerSessionId: 'overseer' });
+    expect(disableAutoNudgeWorkspace(path, 'w1')).toBe(true);
+    expect(readAutoNudgeWorkspaceRegistry(path).workspaces.w1).toBeUndefined();
+  });
+
   it('nudges an idle teammate terminal turn without a final response exactly once', async () => {
     const { options } = setup();
     const p = proc('failed', 'impl', 'failed', 8);
@@ -75,6 +83,18 @@ describe('auto nudge', () => {
     await runAutoNudgeCycle(client, options);
     expect(sent).toHaveLength(1);
     expect(sent[0]).toMatchObject({ sessionId: 'impl', body: { prompt: 'Please continue' } });
+  });
+
+  it('nudges terminal no-final work in an unregistered workspace without checkpointing', async () => {
+    const { options } = setup();
+    options.config.workspaces = [];
+    const p = proc('failed', 'impl', 'failed', 8);
+    const { client, sent } = fake({ processes: { impl: [p] }, entries: { failed: [tool] } });
+    client.getAllWorkspaces = async () => [{ id: 'w1', archived: false } as any];
+    client.getSessions = async () => [session('impl', 'impl')];
+    await runAutoNudgeCycle(client, options);
+    expect(sent).toHaveLength(1);
+    expect(readAutoNudgeState(options.statePath).triggers).toEqual({});
   });
 
   it('keeps dry-run read-only and sends exactly once on the following real cycle', async () => {
@@ -492,6 +512,7 @@ describe('auto nudge', () => {
     const terminalProcess = proc('checkpoint', 'overseer', 'completed', 9);
     let observedTimeout: number | undefined;
     const adapter = createAutoNudgeClient({
+      async getAllWorkspaces() { return []; },
       async getSessions() { return []; }, async getSessionProcesses() { return []; },
       async getSession(id) { return session(id, id); },
       async sendMessage() { return sentProcess; },

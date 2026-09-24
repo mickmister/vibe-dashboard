@@ -192,7 +192,7 @@ directory=/home/vkuser/.local/share/vibe-dashboard-runtime`;
 
 const VIBE_AGENT_NUDGE_SUPERVISOR = `; vibe-agent nudge daemon (continues newly-stopped coding agent turns)
 [program:vibe-agent-nudge-daemon]
-command=sh -c 'exec node /opt/vibe-kanban-vscode-web-seed/dist/vibe-agent/nudge/auto-nudge.js --config "\${VD_AUTO_NUDGE_CONFIG:?VD_AUTO_NUDGE_CONFIG is required}"'
+command=node /opt/vibe-kanban-vscode-web-seed/dist/vibe-agent/nudge/auto-nudge.js
 autostart=true
 autorestart=true
 startsecs=0
@@ -371,7 +371,7 @@ export const BUILTIN_FIRST_PARTY_SERVICE_PLUGINS: FirstPartyServicePlugin[] = [
       id: 'first-party.vibe-agent-nudge-daemon',
       displayName: 'Vibe Agent Nudge Daemon',
       version: 'bundled',
-      requestedCapabilities: { vkHttpApi: 'agentPrompt', hostShell: { commands: ['node /opt/vibe-kanban-vscode-web-seed/dist/vibe-agent/nudge/auto-nudge.js'] }, filesystem: [{ scope: 'absolute', path: '/var/lib/vd/auto-nudge', access: 'readWrite' }], network: { mode: 'egress' }, env: ['VD_AUTO_NUDGE_CONFIG', 'VD_AUTO_NUDGE_LOCK_PATH', 'VD_CALLBACK_REGISTRY_PATH', 'VD_RESPONSE_ROUTES_PATH', 'DISCORD_WEBHOOK_URL', 'VK_ORIGIN'] },
+      requestedCapabilities: { vkHttpApi: 'agentPrompt', hostShell: { commands: ['node /opt/vibe-kanban-vscode-web-seed/dist/vibe-agent/nudge/auto-nudge.js'] }, filesystem: [{ scope: 'absolute', path: '/var/lib/vd/auto-nudge', access: 'readWrite' }], network: { mode: 'egress' }, env: ['VD_AUTO_NUDGE_REGISTRY_PATH', 'VD_AUTO_NUDGE_LOCK_PATH', 'VD_CALLBACK_REGISTRY_PATH', 'VD_RESPONSE_ROUTES_PATH', 'DISCORD_WEBHOOK_URL', 'VK_ORIGIN'] },
       components: { services: [{ id: 'vibe-agent-nudge-daemon', runtime: 'supervisor', command: 'node /opt/vibe-kanban-vscode-web-seed/dist/vibe-agent/nudge/auto-nudge.js' }] },
     }),
     privilegeTier: 'core-control-plane', bootCritical: false, supervisorPrograms: ['vibe-agent-nudge-daemon'], supervisorConfig: VIBE_AGENT_NUDGE_SUPERVISOR, installStrategy: 'bundled-runtime-artifact', desiredVersion: 'bundled', stagingRequired: true, rollbackable: true,

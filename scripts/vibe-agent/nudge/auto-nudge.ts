@@ -3,7 +3,7 @@ import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { client as defaultClient } from '../core/client.js';
-import type { ConversationEntry, ExecutionProcess, ExecutionProcessFinalResponse, SendMessageBody, Session } from '../types.js';
+import type { ConversationEntry, ExecutionProcess, ExecutionProcessFinalResponse, SendMessageBody, Session, Workspace } from '../types.js';
 import { conversationEntryText, conversationEntryType, decideNudgeForProcess, isActiveProcess } from './criteria.js';
 import { callbacksForTrigger, DEFAULT_CALLBACK_REGISTRY_PATH } from './callback-registry.js';
 import {
@@ -15,6 +15,7 @@ import {
 
 const DEFAULT_STATE_PATH = '/var/lib/vd/auto-nudge/state.json';
 const DEFAULT_LOCK_PATH = '/var/lib/vd/auto-nudge/owner.lock';
+export const DEFAULT_WORKSPACE_REGISTRY_PATH = '/var/lib/vd/auto-nudge/workspaces.json';
 const DEFAULT_POLL_MS = 5 * 60_000;
 const RESPONSE_ROUTE_INTENT_STALE_MS = 5 * 60_000;
 const OVERSEER_PROMPT = `- If all milestones are complete, stop and say "DONE" as your full response
@@ -26,13 +27,16 @@ Use vibe-agent send ... when a teammate response is needed. Use --fire-and-forge
 export interface AutoNudgeConfig {
   version: 1;
   discord?: { enabled: boolean };
-  workspaces: Array<{ workspaceId: string; overseerSessionId: string }>;
+  workspaces?: Array<{ workspaceId: string; overseerSessionId: string | null }>;
 }
+export interface AutoNudgeWorkspaceRegistration { workspaceId: string; overseerSessionId: string; registeredAt: string; registeredBySessionId: string }
+export interface AutoNudgeWorkspaceRegistry { version: 1; workspaces: Record<string, AutoNudgeWorkspaceRegistration> }
 export type TriggerStatus = 'observed' | 'checkpoint-sent' | 'checkpoint-indeterminate' | 'done' | 'delegated' | 'waiting-callback' | 'rate-limited' | 'retryable-failure';
 export interface TriggerState { processId: string; workspaceId: string; sessionId: string; observedAt: string; status: TriggerStatus; checkpointProcessId: string | null; baselineProcessIds?: string[]; updatedAt: string; error: string | null }
 export interface OutboxItem { id: string; workspaceId: string; content: string; createdAt: string; deliveredAt: string | null; attempts: number }
 export interface AutoNudgeState { version: 1; nudgedProcessIds: string[]; triggers: Record<string, TriggerState>; outbox: Record<string, OutboxItem> }
 export interface AutoNudgeClient {
+  getAllWorkspaces?(): Promise<Workspace[]>;
   getSessions(workspaceId: string): Promise<Session[]>;
   getSession(sessionId: string): Promise<Session>;
   getSessionProcesses(sessionId: string): Promise<ExecutionProcess[]>;
@@ -42,7 +46,7 @@ export interface AutoNudgeClient {
   sendMessage(sessionId: string, body: SendMessageBody): Promise<ExecutionProcess>;
 }
 export interface AutoNudgeOptions {
-  config: AutoNudgeConfig; statePath: string; callbackRegistryPath: string; responseRoutesPath?: string;
+  config: AutoNudgeConfig; statePath: string; callbackRegistryPath: string; responseRoutesPath?: string; workspaceRegistryPath?: string;
   now: () => Date; unacknowledgedAfterMs: number; operationTimeoutMs: number; responseTimeoutMs: number;
   concurrency: number; dryRun: boolean; discordWebhookUrl?: string;
   deliverDiscord?: (url: string, content: string) => Promise<void>;
@@ -58,15 +62,89 @@ function requiredString(value: unknown, name: string): string {
 export function loadAutoNudgeConfig(filePath: string): AutoNudgeConfig {
   const value = JSON.parse(fs.readFileSync(filePath, 'utf8')) as Partial<AutoNudgeConfig>;
   if (value.version !== 1) throw new Error('config.version must be 1');
-  if (!Array.isArray(value.workspaces) || value.workspaces.length === 0) throw new Error('config.workspaces must be a non-empty array');
+  if (value.workspaces != null && !Array.isArray(value.workspaces)) throw new Error('config.workspaces must be an array');
   const seen = new Set<string>();
-  const workspaces = value.workspaces.map((item, index) => {
+  const workspaces = (value.workspaces ?? []).map((item, index) => {
     const workspaceId = requiredString(item?.workspaceId, `workspaces[${index}].workspaceId`);
     const overseerSessionId = requiredString(item?.overseerSessionId, `workspaces[${index}].overseerSessionId`);
     if (seen.has(workspaceId)) throw new Error(`duplicate workspaceId: ${workspaceId}`);
     seen.add(workspaceId); return { workspaceId, overseerSessionId };
   });
   return { version: 1, discord: { enabled: value.discord?.enabled === true }, workspaces };
+}
+function workspaceRegistryLockPath(filePath: string): string { return `${filePath}.lock`; }
+function withWorkspaceRegistryLock<T>(filePath: string, task: () => T, timeoutMs = 5_000): T {
+  const lockPath = workspaceRegistryLockPath(filePath);
+  fs.mkdirSync(path.dirname(filePath), { recursive: true });
+  const expiresAt = Date.now() + timeoutMs;
+  while (true) {
+    try {
+      fs.mkdirSync(lockPath);
+      fs.writeFileSync(path.join(lockPath, 'pid'), String(process.pid));
+      break;
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== 'EEXIST') throw error;
+      try {
+        const owner = Number.parseInt(fs.readFileSync(path.join(lockPath, 'pid'), 'utf8'), 10);
+        if (Number.isInteger(owner)) process.kill(owner, 0);
+      } catch (ownerError) {
+        if ((ownerError as NodeJS.ErrnoException).code === 'ESRCH' || (ownerError as NodeJS.ErrnoException).code === 'ENOENT') {
+          fs.rmSync(lockPath, { recursive: true, force: true });
+          continue;
+        }
+      }
+      if (Date.now() >= expiresAt) throw new Error(`Timed out waiting for auto-nudge workspace registry lock ${lockPath}`);
+      Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 10);
+    }
+  }
+  try { return task(); }
+  finally { fs.rmSync(lockPath, { recursive: true, force: true }); }
+}
+export function readAutoNudgeWorkspaceRegistry(filePath: string): AutoNudgeWorkspaceRegistry {
+  let raw: string;
+  try { raw = fs.readFileSync(filePath, 'utf8'); } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === 'ENOENT') return { version: 1, workspaces: {} };
+    throw error;
+  }
+  let value: unknown;
+  try { value = JSON.parse(raw); } catch (error) {
+    throw new Error(`Invalid auto-nudge workspace registry JSON at ${filePath}: ${(error as Error).message}`);
+  }
+  const registry = value as Partial<AutoNudgeWorkspaceRegistry>;
+  const validRegistration = (item: unknown): item is AutoNudgeWorkspaceRegistration => Boolean(item && typeof item === 'object'
+    && typeof (item as AutoNudgeWorkspaceRegistration).workspaceId === 'string'
+    && typeof (item as AutoNudgeWorkspaceRegistration).overseerSessionId === 'string'
+    && typeof (item as AutoNudgeWorkspaceRegistration).registeredAt === 'string'
+    && typeof (item as AutoNudgeWorkspaceRegistration).registeredBySessionId === 'string');
+  if (registry.version !== 1 || !registry.workspaces || typeof registry.workspaces !== 'object'
+    || !Object.entries(registry.workspaces).every(([workspaceId, item]) => validRegistration(item) && item.workspaceId === workspaceId)) {
+    throw new Error(`Invalid auto-nudge workspace registry schema at ${filePath}`);
+  }
+  return registry as AutoNudgeWorkspaceRegistry;
+}
+export function writeAutoNudgeWorkspaceRegistry(filePath: string, registry: AutoNudgeWorkspaceRegistry): void {
+  fs.mkdirSync(path.dirname(filePath), { recursive: true });
+  const temporary = `${filePath}.tmp.${process.pid}.${Date.now()}`;
+  fs.writeFileSync(temporary, `${JSON.stringify(registry, null, 2)}\n`, { mode: 0o600 });
+  fs.renameSync(temporary, filePath);
+}
+export function enableAutoNudgeWorkspace(filePath: string, workspaceId: string, overseerSessionId: string, now = new Date()): AutoNudgeWorkspaceRegistration {
+  return withWorkspaceRegistryLock(filePath, () => {
+    const registry = readAutoNudgeWorkspaceRegistry(filePath);
+    const item = { workspaceId, overseerSessionId, registeredAt: now.toISOString(), registeredBySessionId: overseerSessionId };
+    registry.workspaces[workspaceId] = item;
+    writeAutoNudgeWorkspaceRegistry(filePath, registry);
+    return item;
+  });
+}
+export function disableAutoNudgeWorkspace(filePath: string, workspaceId: string): boolean {
+  return withWorkspaceRegistryLock(filePath, () => {
+    const registry = readAutoNudgeWorkspaceRegistry(filePath);
+    const existed = Object.prototype.hasOwnProperty.call(registry.workspaces, workspaceId);
+    delete registry.workspaces[workspaceId];
+    writeAutoNudgeWorkspaceRegistry(filePath, registry);
+    return existed;
+  });
 }
 export function readAutoNudgeState(filePath: string): AutoNudgeState {
   let raw: string;
@@ -213,6 +291,20 @@ async function mapLimit<T>(values: T[], limit: number, task: (value: T) => Promi
   let index = 0;
   await Promise.all(Array.from({ length: Math.min(limit, values.length) }, async () => { while (index < values.length) { const value = values[index++]; if (value !== undefined) await task(value); } }));
 }
+async function workspacesForCycle(client: AutoNudgeClient, options: AutoNudgeOptions): Promise<Array<{ workspaceId: string; overseerSessionId: string | null }>> {
+  const registered = options.workspaceRegistryPath
+    ? Object.values(readAutoNudgeWorkspaceRegistry(options.workspaceRegistryPath).workspaces)
+    : options.config.workspaces ?? [];
+  const byWorkspace = new Map<string, { workspaceId: string; overseerSessionId: string | null }>();
+  for (const item of registered) byWorkspace.set(item.workspaceId, { workspaceId: item.workspaceId, overseerSessionId: item.overseerSessionId });
+  if (client.getAllWorkspaces) {
+    const workspaces = await deadline(client.getAllWorkspaces(), options.operationTimeoutMs, 'get workspaces');
+    for (const workspace of workspaces.filter(item => !item.archived)) {
+      if (!byWorkspace.has(workspace.id)) byWorkspace.set(workspace.id, { workspaceId: workspace.id, overseerSessionId: null });
+    }
+  }
+  return [...byWorkspace.values()].sort((left, right) => left.workspaceId.localeCompare(right.workspaceId));
+}
 
 export function abortableDelay(ms: number, signal?: AbortSignal): Promise<void> {
   if (signal?.aborted) return Promise.reject(new Error('Cancelled'));
@@ -240,20 +332,44 @@ export async function runAutoNudgeCycle(client: AutoNudgeClient, options: AutoNu
   const state = readAutoNudgeState(options.statePath);
   const result: AutoNudgeCycleResult = { workspaces: 0, teammateNudges: 0, checkpoints: 0, responseRoutes: 0, discordDeliveries: 0, errors: [] };
   await processResponseRoutes(client, options, result);
-  await mapLimit(options.config.workspaces, options.concurrency, async configured => {
+  const workspaces = await workspacesForCycle(client, options);
+  await mapLimit(workspaces, options.concurrency, async configured => {
     result.workspaces++;
     try {
       const sessions = await deadline(client.getSessions(configured.workspaceId), options.operationTimeoutMs, 'get sessions');
-      const overseer = sessions.find(item => item.id === configured.overseerSessionId);
-      if (!overseer) throw new Error(`configured overseer session ${configured.overseerSessionId} was not found`);
+      const overseer = configured.overseerSessionId ? sessions.find(item => item.id === configured.overseerSessionId) : null;
+      if (configured.overseerSessionId && !overseer) throw new Error(`configured overseer session ${configured.overseerSessionId} was not found`);
       const processMap = new Map<string, ExecutionProcess[]>();
       await mapLimit(sessions, options.concurrency, async session => {
         processMap.set(session.id, await deadline(client.getSessionProcesses(session.id), options.operationTimeoutMs, 'get processes'));
       });
       const relevantProcesses = [...processMap.values()].flat().filter(item => item.run_reason === 'codingagent' && !item.dropped);
-      const teammateProcesses = sessions.filter(item => item.id !== overseer.id)
+      const teammateProcesses = sessions.filter(item => item.id !== overseer?.id)
         .flatMap(item => processMap.get(item.id) ?? [])
         .filter(item => item.run_reason === 'codingagent' && !item.dropped);
+      if (!overseer) {
+        if (relevantProcesses.some(isActiveProcess)) return;
+        const teammates = sessions.sort((left, right) => {
+          const leftLatest = Math.max(...(processMap.get(left.id) ?? []).map(terminalTime), 0);
+          const rightLatest = Math.max(...(processMap.get(right.id) ?? []).map(terminalTime), 0);
+          return rightLatest - leftLatest || left.id.localeCompare(right.id);
+        });
+        for (const teammate of teammates) {
+          const processes = (processMap.get(teammate.id) ?? []).filter(item => item.run_reason === 'codingagent' && !item.dropped).sort((a, b) => terminalTime(b) - terminalTime(a));
+          if (processes.some(isActiveProcess)) continue;
+          const latest = processes[0]; if (!latest) continue;
+          const final = await deadline(client.getExecutionProcessFinalResponse(latest.id), options.operationTimeoutMs, 'fetch final response');
+          const decision = final.terminal_no_response && latest.status !== 'completed'
+            ? { shouldNudge: true }
+            : decideNudgeForProcess(latest, final.final_response ? [{ content: { entry_type: { type: 'assistant_message' }, content: final.final_response } }] : [], { enableActiveStaleNudge: false, now: options.now() });
+          if (decision.shouldNudge && !state.nudgedProcessIds.includes(latest.id)) {
+            if (!options.dryRun) await deadline(client.sendMessage(teammate.id, body('Please continue', teammate)), options.operationTimeoutMs, 'send teammate nudge');
+            if (!options.dryRun) { state.nudgedProcessIds.push(latest.id); writeAutoNudgeState(options.statePath, state); }
+            result.teammateNudges++; return;
+          }
+        }
+        return;
+      }
       const orphanedCheckpoint = Object.values(state.triggers)
         .find(trigger => trigger.workspaceId === configured.workspaceId
           && trigger.status === 'checkpoint-sent' && trigger.checkpointProcessId === null);
@@ -371,17 +487,19 @@ export async function runAutoNudgeCycle(client: AutoNudgeClient, options: AutoNu
   return result;
 }
 
-function parseArgs(args: string[]): { configPath: string; statePath: string; once: boolean; dryRun: boolean } {
-  let configPath = '', statePath = DEFAULT_STATE_PATH, once = false, dryRun = false;
+function parseArgs(args: string[]): { registryPath: string; statePath: string; once: boolean; dryRun: boolean } {
+  let registryPath = process.env.VD_AUTO_NUDGE_REGISTRY_PATH ?? DEFAULT_WORKSPACE_REGISTRY_PATH;
+  let statePath = DEFAULT_STATE_PATH, once = false, dryRun = false;
   for (let index = 0; index < args.length; index++) {
-    if (args[index] === '--config') configPath = args[++index] ?? '';
+    if (args[index] === '--registry') registryPath = args[++index] ?? '';
+    else if (args[index] === '--config') throw new Error('--config is no longer supported; use vibe-agent auto-nudge enable to register workspaces');
     else if (args[index] === '--state') statePath = args[++index] ?? '';
     else if (args[index] === '--once') once = true;
     else if (args[index] === '--dry-run') dryRun = true;
     else throw new Error(`Unknown argument: ${args[index]}`);
   }
-  if (!configPath) throw new Error('--config <path> is required');
-  return { configPath, statePath, once, dryRun };
+  if (!registryPath) throw new Error('--registry <path> is required');
+  return { registryPath, statePath, once, dryRun };
 }
 export function acquireLock(lockPath = DEFAULT_LOCK_PATH): () => void {
   fs.mkdirSync(path.dirname(lockPath), { recursive: true });
@@ -402,10 +520,11 @@ export async function runWithOwnerLock<T>(lockPath: string, task: () => Promise<
   try { return await task(); }
   finally { release(); }
 }
-type VibeClientAdapterSource = Pick<typeof defaultClient, 'getSessions' | 'getSession' | 'getSessionProcesses' | 'fetchConversation' | 'sendMessage' | 'getExecutionProcess' | 'getExecutionProcessFinalResponse'>;
+type VibeClientAdapterSource = Pick<typeof defaultClient, 'getAllWorkspaces' | 'getSessions' | 'getSession' | 'getSessionProcesses' | 'fetchConversation' | 'sendMessage' | 'getExecutionProcess' | 'getExecutionProcessFinalResponse'>;
 
 export function createAutoNudgeClient(source: VibeClientAdapterSource): AutoNudgeClient {
   return {
+    getAllWorkspaces: () => source.getAllWorkspaces(),
     getSessions: id => source.getSessions(id), getSessionProcesses: id => source.getSessionProcesses(id),
     getSession: id => source.getSession(id),
     getExecutionProcess: id => source.getExecutionProcess(id),
@@ -415,14 +534,13 @@ export function createAutoNudgeClient(source: VibeClientAdapterSource): AutoNudg
 }
 export function makeClient(): AutoNudgeClient { return createAutoNudgeClient(defaultClient); }
 async function main(): Promise<void> {
-  const args = parseArgs(process.argv.slice(2)); const config = loadAutoNudgeConfig(args.configPath);
+  const args = parseArgs(process.argv.slice(2)); const config = { version: 1 as const, discord: { enabled: false }, workspaces: [] };
   const origin = requiredString(process.env.VK_ORIGIN, 'VK_ORIGIN');
-  if (config.discord?.enabled) requiredString(process.env.DISCORD_WEBHOOK_URL, 'DISCORD_WEBHOOK_URL');
   let stopping = false;
   await runWithOwnerLock(process.env.VD_AUTO_NUDGE_LOCK_PATH ?? DEFAULT_LOCK_PATH, async () => {
     const abortController = new AbortController();
     const stop = () => { stopping = true; abortController.abort(); }; process.once('SIGINT', stop); process.once('SIGTERM', stop);
-    const options: AutoNudgeOptions = { config, statePath: args.statePath, callbackRegistryPath: process.env.VD_CALLBACK_REGISTRY_PATH ?? DEFAULT_CALLBACK_REGISTRY_PATH, responseRoutesPath: process.env.VD_RESPONSE_ROUTES_PATH ?? DEFAULT_RESPONSE_ROUTES_PATH, now: () => new Date(), unacknowledgedAfterMs: 60_000, operationTimeoutMs: 15_000, responseTimeoutMs: 30 * 60_000, concurrency: 4, dryRun: args.dryRun, discordWebhookUrl: process.env.DISCORD_WEBHOOK_URL, signal: abortController.signal };
+    const options: AutoNudgeOptions = { config, statePath: args.statePath, callbackRegistryPath: process.env.VD_CALLBACK_REGISTRY_PATH ?? DEFAULT_CALLBACK_REGISTRY_PATH, responseRoutesPath: process.env.VD_RESPONSE_ROUTES_PATH ?? DEFAULT_RESPONSE_ROUTES_PATH, workspaceRegistryPath: args.registryPath, now: () => new Date(), unacknowledgedAfterMs: 60_000, operationTimeoutMs: 15_000, responseTimeoutMs: 30 * 60_000, concurrency: 4, dryRun: args.dryRun, discordWebhookUrl: process.env.DISCORD_WEBHOOK_URL, signal: abortController.signal };
     void origin;
     do { const result = await runAutoNudgeCycle(makeClient(), options); console.log(JSON.stringify({ type: 'auto-nudge-cycle', at: new Date().toISOString(), ...result })); if (!args.once && !stopping) { try { await abortableDelay(DEFAULT_POLL_MS, abortController.signal); } catch { /* Shutdown aborts the poll delay. */ } } } while (!args.once && !stopping);
   });

@@ -33,6 +33,12 @@ import {
   DEFAULT_RESPONSE_ROUTES_PATH,
   updateResponseRoute,
 } from '../nudge/response-routes.js';
+import {
+  DEFAULT_WORKSPACE_REGISTRY_PATH,
+  disableAutoNudgeWorkspace,
+  enableAutoNudgeWorkspace,
+  readAutoNudgeWorkspaceRegistry,
+} from '../nudge/auto-nudge.js';
 
 // Message helpers
 
@@ -1778,6 +1784,74 @@ async function registerSelf(args: string[]): Promise<void> {
   }
 }
 
+async function autoNudgeCommand(args: string[]): Promise<void> {
+  const subcommand = args[0];
+  const commandArgs = args.slice(1);
+  const jsonOutput = commandArgs.includes('--json');
+  const registryPath = process.env.VD_AUTO_NUDGE_REGISTRY_PATH ?? DEFAULT_WORKSPACE_REGISTRY_PATH;
+  const workspaceId = process.env.VK_WORKSPACE_ID;
+  if (!workspaceId) {
+    console.error('Error: VK_WORKSPACE_ID not set - not running in VK context');
+    process.exit(1);
+  }
+
+  if (subcommand === 'enable') {
+    try {
+      const ctx = await getAgentContext();
+      const sessionId = process.env.VK_SESSION_ID ?? ctx.sessionId;
+      if (!sessionId) throw new Error('Could not determine invoking session; VK_SESSION_ID was not set and session discovery failed');
+      const session = await client.getSession(sessionId);
+      if (session.workspace_id !== workspaceId) throw new Error(`Session ${sessionId} does not belong to workspace ${workspaceId}`);
+      const registration = enableAutoNudgeWorkspace(registryPath, workspaceId, sessionId);
+      if (jsonOutput) {
+        console.log(JSON.stringify({ enabled: true, registry_path: registryPath, ...registration }, null, 2));
+      } else {
+        console.log('Auto-nudge overseer coordination enabled for this workspace.');
+        console.log(`Workspace: ${workspaceId}`);
+        console.log(`Overseer:  ${sessionId}`);
+      }
+    } catch (error) {
+      console.error(`Error: ${(error as Error).message}`);
+      process.exit(1);
+    }
+    return;
+  }
+
+  if (subcommand === 'disable') {
+    try {
+      const disabled = disableAutoNudgeWorkspace(registryPath, workspaceId);
+      if (jsonOutput) console.log(JSON.stringify({ enabled: false, disabled, registry_path: registryPath, workspace_id: workspaceId }, null, 2));
+      else console.log(disabled ? 'Auto-nudge overseer coordination disabled for this workspace.' : 'Auto-nudge overseer coordination was not enabled for this workspace.');
+    } catch (error) {
+      console.error(`Error: ${(error as Error).message}`);
+      process.exit(1);
+    }
+    return;
+  }
+
+  if (subcommand === 'status') {
+    try {
+      const registry = readAutoNudgeWorkspaceRegistry(registryPath);
+      const registration = registry.workspaces[workspaceId] ?? null;
+      if (jsonOutput) console.log(JSON.stringify({ enabled: Boolean(registration), registry_path: registryPath, workspace_id: workspaceId, registration }, null, 2));
+      else if (registration) {
+        console.log('Auto-nudge overseer coordination is enabled for this workspace.');
+        console.log(`Workspace: ${workspaceId}`);
+        console.log(`Overseer:  ${registration.overseerSessionId}`);
+      } else {
+        console.log('Auto-nudge overseer coordination is not enabled for this workspace.');
+      }
+    } catch (error) {
+      console.error(`Error: ${(error as Error).message}`);
+      process.exit(1);
+    }
+    return;
+  }
+
+  console.error('Usage: vibe-agent auto-nudge <enable|status|disable> [--json]');
+  process.exit(1);
+}
+
 async function sessionsCommand(args: string[]): Promise<void> {
   const subcommand = args[0];
   const commandArgs = subcommand === 'list' ? args.slice(1) : args;
@@ -2313,6 +2387,13 @@ Commands:
     --json                     Output as JSON
     (Use this as first agent in workspace to register yourself)
 
+  auto-nudge enable            Make this session the overseer for this workspace
+                               in the auto-nudge scanner
+  auto-nudge status            Show whether this workspace has auto-nudge
+                               overseer coordination enabled
+  auto-nudge disable           Disable overseer coordination for this workspace
+    --json                     Output as JSON
+
   send <role> "<message>"      Send message to another agent
     --respond                  Accepted alias; response routing is the default
     --fire-and-forget          Do not route the receiving agent final response back
@@ -2702,6 +2783,9 @@ async function main(): Promise<void> {
       break;
     case 'register-self':
       await registerSelf(commandArgs);
+      break;
+    case 'auto-nudge':
+      await autoNudgeCommand(commandArgs);
       break;
     case 'send':
       await send(commandArgs);
