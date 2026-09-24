@@ -13,6 +13,29 @@ A docker container will run the following:
 - `code-server`
 - `caddy` as the main UI entrypoint
 
+## Local dev / preview startup
+
+`npm run dev` bootstraps a clean checkout before starting Vite. If
+`node_modules/.bin/vite` is missing, or the pnpm install state is older than
+`pnpm-lock.yaml`, the script runs `pnpm install --frozen-lockfile` and then
+starts Vite. Warm checkouts skip the install. The install uses repo-local
+`node_modules` only and must not modify package manifests or lockfiles.
+
+For BeadsForm preview slots, keep preview state in the ignored repo-local
+sandbox and disable pending-queue warmup:
+
+```sh
+BEADS_FORM_PENDING_CACHE_DIR="$PWD/.vk-mocked-sandbox/beads-form-pending-cache" \
+BEADS_FORM_PENDING_WARM_ON_STARTUP=0 \
+npm run dev
+```
+
+To inspect the bootstrap decision without starting Vite:
+
+```sh
+node --experimental-strip-types scripts/preview-run-bootstrap.ts --print-only -- vite
+```
+
 ## Dynamic port forwarding
 
 Caddy forwards `port-<port>.*` subdomains to `localhost:<port>` inside the container:

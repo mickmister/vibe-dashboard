@@ -178,7 +178,7 @@ Use folder mode for low-friction testing before attaching forms to beads.
    npm run dev:beads-form-preview -- --folder "$PWD/.vk-mocked-sandbox/beads-form-preview"
    ```
 
-   The command validates the folder, starts the existing Springboard/Vite dev server, and prints the exact preview URL with the folder path encoded. It sets `BEADS_FORM_DISABLE_HMR=1` by default so Vite does not push HMR/full-reload updates into an open form; manual browser refresh still loads the latest code. Set `BEADS_FORM_DISABLE_HMR=0` only when you want normal dev-server auto-reload behavior.
+   The command validates the folder, starts the existing Springboard/Vite dev server, and prints the exact preview URL with the folder path encoded. `npm run dev` first bootstraps missing preview dependencies with `pnpm install --frozen-lockfile` when `node_modules/.bin/vite` is absent or pnpm state is stale, then skips install work on warm checkouts. It sets `BEADS_FORM_DISABLE_HMR=1` by default so Vite does not push HMR/full-reload updates into an open form; manual browser refresh still loads the latest code. Set `BEADS_FORM_DISABLE_HMR=0` only when you want normal dev-server auto-reload behavior.
    To force a port, set `BEADS_FORM_PREVIEW_PORT=<port>`.
 
 4. The preview page lists all `.json` forms in the folder. Submitting a form copies the BeadsForm XML handoff to the clipboard and displays it on screen. It does not update beads.
@@ -323,4 +323,4 @@ Defaults:
 - Log: `<checkout>/.vk-mocked-sandbox/logs/beadsform-shared-preview-55123.log`
 - Pending cache: `<checkout>/.vk-mocked-sandbox/beads-form-pending-cache`, with startup warming disabled
 
-The command stops the tmux session, syncs the stable checkout to `origin/<branch>`, runs `pnpm install --frozen-lockfile`, and starts `npm run dev:beads-form-preview` with browser auto-reload disabled. Use `--print-only` to show the planned commands without changing the running server. Do not use or delete the stable checkout for review worktrees.
+The command stops the tmux session, syncs the stable checkout to `origin/<branch>`, runs `pnpm install --frozen-lockfile`, and starts `npm run dev:beads-form-preview` with browser auto-reload disabled. The underlying `npm run dev` also has a clean-checkout bootstrap guard for preview run configs such as `web-vd-only`/`vdweb`; if a run config starts the repo without a prior install, logs show the missing/stale dependency reason before the same frozen pnpm install runs. Use `--print-only` to show the planned commands without changing the running server. Do not use or delete the stable checkout for review worktrees.
