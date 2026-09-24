@@ -95,6 +95,9 @@ describe('VK mocked sandbox helpers', () => {
     const script = await readFile('scripts/ci-run-vk-mocked-sandbox-e2e.sh', 'utf8');
     expect(script).toContain('npx playwright test --config playwright.vk-mocked-sandbox.config.ts');
     expect(script).toContain('VK_MOCKED_EXTERNAL_SERVER=1');
+    expect(script).toContain("import { allocatePorts } from './scripts/vk-mocked-sandbox.ts'");
+    expect(script).not.toContain('VK_MOCKED_BACKEND_PORT="${VK_MOCKED_BACKEND_PORT:-50000}"');
+    expect(script).not.toContain('VK_MOCKED_CADDY_PORT="${VK_MOCKED_CADDY_PORT:-50005}"');
     expect(script).not.toContain('npm run test:e2e:vk-mocked-sandbox');
     expect(script).not.toContain('scripts/vk-mocked-sandbox.ts test');
   });

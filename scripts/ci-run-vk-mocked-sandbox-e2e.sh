@@ -1,17 +1,30 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-SANDBOX_URL="${VK_MOCKED_SANDBOX_URL:-http://localhost:50005}"
 RUN_DIR="${VK_MOCKED_SANDBOX_RUN_DIR:-.vk-mocked-sandbox/current}"
 SANDBOX_LOG="$RUN_DIR/ci-sandbox.log"
 READY_TIMEOUT_SECONDS="${VK_MOCKED_SANDBOX_READY_TIMEOUT_SECONDS:-1200}"
 
-export VK_MOCKED_BACKEND_PORT="${VK_MOCKED_BACKEND_PORT:-50000}"
-export VK_MOCKED_FRONTEND_PORT="${VK_MOCKED_FRONTEND_PORT:-50001}"
-export VK_MOCKED_PREVIEW_PROXY_PORT="${VK_MOCKED_PREVIEW_PROXY_PORT:-50002}"
-export VK_MOCKED_VD_DASHBOARD_PORT="${VK_MOCKED_VD_DASHBOARD_PORT:-50003}"
-export VK_MOCKED_VD_SERVER_PORT="${VK_MOCKED_VD_SERVER_PORT:-50004}"
-export VK_MOCKED_CADDY_PORT="${VK_MOCKED_CADDY_PORT:-50005}"
+eval "$(
+  node --experimental-strip-types --input-type=module <<'NODE'
+import { allocatePorts } from './scripts/vk-mocked-sandbox.ts';
+
+const ports = await allocatePorts(process.env);
+const env = {
+  VK_MOCKED_BACKEND_PORT: ports.vkBackend,
+  VK_MOCKED_FRONTEND_PORT: ports.vkFrontend,
+  VK_MOCKED_PREVIEW_PROXY_PORT: ports.vkPreviewProxy,
+  VK_MOCKED_VD_DASHBOARD_PORT: ports.vdDashboard,
+  VK_MOCKED_VD_SERVER_PORT: ports.vdServer,
+  VK_MOCKED_CADDY_PORT: ports.vdCaddy,
+};
+
+for (const [key, value] of Object.entries(env)) {
+  console.log(`export ${key}=${JSON.stringify(String(value))}`);
+}
+NODE
+)"
+SANDBOX_URL="${VK_MOCKED_SANDBOX_URL:-http://localhost:${VK_MOCKED_CADDY_PORT}}"
 
 cleanup() {
   if [[ -n "${sandbox_pid:-}" ]] && kill -0 "$sandbox_pid" 2>/dev/null; then
