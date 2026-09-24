@@ -37,10 +37,10 @@ export default defineConfig({
         command:
           'npm run e2e:vk-mocked-sandbox:reset -- --variant basic-seeded' +
           ` && ${sandboxEnv} npm run dev:vk-mocked-sandbox`,
-        // Wait for a VK-backed route, not just the VD dev server, so local
-        // Rust builds finish before the browser tests begin. CI prepares and
-        // starts the sandbox explicitly before invoking Playwright.
-        url: `${sandboxUrl}/workspaces`,
+        // Wait for the VD root through Caddy. The dashboard startup itself
+        // waits for VK, so this catches both VK readiness and VD rollback
+        // failures before the browser starts.
+        url: `${sandboxUrl}/`,
         reuseExistingServer: false,
         timeout: 600_000,
       },

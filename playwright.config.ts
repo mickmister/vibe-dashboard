@@ -23,7 +23,7 @@ export default defineConfig({
     trace: 'on-first-retry',
   },
   webServer: {
-    command: `node ./tests/e2e/clean-state.mjs ${port} && VD_DOCKVIEW_M3_2_HARNESS=1 VITE_DOCKVIEW_M3_2_HARNESS=1 VITE_VK_BASE_ORIGIN=http://127.0.0.1:${port} VD_DB_PATH=${voyageDatabaseFile} VD_KV_DB_PATH=${sqliteDatabaseFile} SQLITE_DATABASE_FILE=${sqliteDatabaseFile} SERVER_PORT=${port + 1} PORT=${port} npm run dev -- --host 127.0.0.1`,
+    command: `node ./tests/e2e/clean-state.mjs ${port} && VD_DOCKVIEW_M3_2_HARNESS=1 VITE_VK_BASE_ORIGIN=http://127.0.0.1:${port} VD_DB_PATH=${voyageDatabaseFile} VD_KV_DB_PATH=${sqliteDatabaseFile} SQLITE_DATABASE_FILE=${sqliteDatabaseFile} SERVER_PORT=${port + 1} PORT=${port} npm run dev -- --host 127.0.0.1`,
     url: `http://127.0.0.1:${port}/kv/get-all`,
     reuseExistingServer: false,
     timeout: 120_000,

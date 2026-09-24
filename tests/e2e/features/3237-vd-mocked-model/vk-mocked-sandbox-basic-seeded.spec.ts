@@ -45,6 +45,12 @@ test.describe('VK mocked-provider basic-seeded fixture', () => {
       .click();
 
     const agentFrame = page.frameLocator('iframe[title="Agent"]').first();
+    const agentFrameSrc = await page
+      .locator('iframe[title="Agent"]')
+      .first()
+      .evaluate((iframe) => (iframe as HTMLIFrameElement).src);
+    expect(agentFrameSrc).toContain('/workspaces/');
+    expect(agentFrameSrc).not.toContain('/internal/');
     await expect(agentFrame.locator('body')).toContainText(manifest.craftTitle);
 
     await agentFrame

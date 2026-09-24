@@ -34,19 +34,20 @@ VK_MOCKED_SKIP_SETUP_COMMANDS=1 npm run dev:vk-mocked-sandbox >"$SANDBOX_LOG" 2>
 sandbox_pid=$!
 
 deadline=$((SECONDS + READY_TIMEOUT_SECONDS))
-until curl --fail --silent --show-error "$SANDBOX_URL/workspaces" >/dev/null; do
+until curl --fail --silent --show-error "$SANDBOX_URL/workspaces" >/dev/null \
+  && curl --fail --silent --show-error "$SANDBOX_URL/" >/dev/null; do
   if ! kill -0 "$sandbox_pid" 2>/dev/null; then
     echo "VK mocked sandbox exited before becoming ready. Last log lines:" >&2
     tail -200 "$SANDBOX_LOG" >&2 || true
     exit 1
   fi
   if (( SECONDS >= deadline )); then
-    echo "Timed out waiting ${READY_TIMEOUT_SECONDS}s for $SANDBOX_URL/workspaces. Last log lines:" >&2
+    echo "Timed out waiting ${READY_TIMEOUT_SECONDS}s for $SANDBOX_URL/workspaces and $SANDBOX_URL/. Last log lines:" >&2
     tail -200 "$SANDBOX_LOG" >&2 || true
     exit 1
   fi
   sleep 2
 done
 
-echo "VK mocked sandbox is ready at $SANDBOX_URL/workspaces"
+echo "VK mocked sandbox is ready at $SANDBOX_URL"
 npm run test:e2e:vk-mocked-sandbox
