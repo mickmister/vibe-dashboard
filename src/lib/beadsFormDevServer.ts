@@ -20,10 +20,15 @@ export function buildViteDevServerOptions(env: DevServerEnv = process.env): {
   port: number;
   host: true;
   hmr?: false;
+  proxy?: Record<string, string>;
 } {
+  const nodeServerPort = Number.parseInt(env.SERVER_PORT ?? env.PORT ?? '3005', 10);
   return {
     port: resolveDevPort(env),
     host: true,
+    proxy: Number.isNaN(nodeServerPort) ? undefined : {
+      '/internal': `http://127.0.0.1:${nodeServerPort}`,
+    },
     ...(shouldDisableBeadsFormHmr(env) ? { hmr: false as const } : {}),
   };
 }

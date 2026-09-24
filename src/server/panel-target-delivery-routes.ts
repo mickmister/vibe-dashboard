@@ -5,12 +5,14 @@ const WORKSPACE_PREFIX = '/internal/panel-target/workspaces';
 const WORKSPACE_KINDS = new Set(['overview', 'code', 'changes', 'beads', 'forms']);
 
 export function registerPanelTargetDeliveryRoutes(app: Hono, options: { vkOrigin?: string } = {}): { dispose(): void } {
-  const origin = new URL(options.vkOrigin ?? process.env.VITE_VK_BASE_ORIGIN ?? '').origin;
+  const configuredOrigin = parseOrigin(options.vkOrigin ?? process.env.VITE_VK_BASE_ORIGIN);
   let active = true;
   const createGuardOwner = (isRegistered: () => boolean): PanelTargetDeliveryGuardOwner => ({
     isCurrent: () => active && isRegistered(),
     issueWorkspace(kind, workspaceId, applicationOrigin): IssuedPanelDelivery | null {
       if (!active || !isRegistered() || !WORKSPACE_KINDS.has(kind)) return null;
+      const origin = configuredOrigin ?? parseOrigin(applicationOrigin);
+      if (!origin) return null;
       const upstream = new URL(`/workspaces/${encodeURIComponent(workspaceId)}${kind === 'code' ? '/vscode' : ''}`, origin);
       const delivery = new URL(`${WORKSPACE_PREFIX}/${encodeURIComponent(workspaceId)}/${encodeURIComponent(kind)}`, applicationOrigin);
       return Object.freeze({ location: upstream.href, guard: Object.freeze({ deliveryUrl: delivery.href, upstreamOrigin: upstream.origin }) });
@@ -42,4 +44,14 @@ export function registerPanelTargetDeliveryRoutes(app: Hono, options: { vkOrigin
     active = false;
     registration.dispose();
   } };
+}
+
+function parseOrigin(value: string | undefined): string | null {
+  const trimmed = value?.trim();
+  if (!trimmed) return null;
+  try {
+    return new URL(trimmed).origin;
+  } catch {
+    return null;
+  }
 }

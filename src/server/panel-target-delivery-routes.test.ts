@@ -28,6 +28,18 @@ describe('production Panel target delivery route owner', () => {
     registration.dispose();
   });
 
+  it('falls back to the application origin when no VK origin is configured', async () => {
+    const app = new Hono();
+    const registration = registerPanelTargetDeliveryRoutes(app);
+    const snapshot = getProductionPanelTargetRouterAuthoritySnapshot();
+    if (snapshot.status !== 'ready') throw new Error('route owner not ready');
+    expect(snapshot.definitions.deliveryGuardOwner.issueWorkspace('overview', 'workspace-1', 'https://dashboard.test')).toEqual({
+      location: 'https://dashboard.test/workspaces/workspace-1',
+      guard: { deliveryUrl: 'https://dashboard.test/internal/panel-target/workspaces/workspace-1/overview', upstreamOrigin: 'https://dashboard.test' },
+    });
+    registration.dispose();
+  });
+
   it('revokes captured providers atomically and idempotently', () => {
     const registration = registerPanelTargetDeliveryRoutes(new Hono(), { vkOrigin: 'https://vk.test' });
     const snapshot = getProductionPanelTargetRouterAuthoritySnapshot();
