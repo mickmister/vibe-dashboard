@@ -793,7 +793,10 @@ jobs:
               if (inpCacheRef) {
                 const registryRef = `${inpCacheRef}-${cacheScope}`;
                 core.setOutput('cache-from', `type=registry,ref=${registryRef}`);
-                core.setOutput('cache-to', `type=registry,ref=${registryRef},mode=${inpCacheMode}`);
+                core.setOutput(
+                  'cache-to',
+                  `type=registry,ref=${registryRef},mode=${inpCacheMode},ignore-error=true`
+                );
               } else {
                 core.setOutput('cache-from', `type=gha,scope=${cacheScope}`);
                 core.setOutput('cache-to', `type=gha,ignore-error=true,scope=${cacheScope},mode=${inpCacheMode}`);
