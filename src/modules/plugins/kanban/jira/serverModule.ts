@@ -3,10 +3,10 @@ import { createExternalTrackerAuth, createExternalTrackerAuthService } from './s
 import { getExternalIntegrationsDb } from '../server/database';
 import { registerExternalTrackerBoardRoutes } from './server/boardRoutes';
 import { registerExternalTrackerAuthRoutes } from './server/routes';
-import { dockviewM32HarnessDataMigrationDependencies } from '../../../../dockview/DockviewM32HarnessStartup';
+import { externalTrackerDataMigrationDependencies } from '../server/voyageDataMigrationDependencies';
 
 serverRegistry.registerServerModule(async (api) => {
-  const handle = await getExternalIntegrationsDb(dockviewM32HarnessDataMigrationDependencies());
+  const handle = await getExternalIntegrationsDb(await externalTrackerDataMigrationDependencies());
   const auth = createExternalTrackerAuthService(createExternalTrackerAuth({
     sqlite: handle.sqlite,
     kysely: handle.db,

@@ -8,9 +8,23 @@ import {
   createProductionPanelTargetAuthorityServices,
   type ProductionPanelTargetAuthorityServices,
 } from './productionPanelTargetAuthority';
+import type { DataMigrationDependencies } from './db/data_migrations/runner';
 import type { LegacyTargetContextForCraft } from './db/data_migrations/20260917100000_migrate_legacy_voyages';
 
 export type VoyagePersistenceAuthorityHandle = ExternalIntegrationsDbHandle & { legacyTargetContextForCraft?: LegacyTargetContextForCraft };
+export type VoyageDataMigrationDependencies = DataMigrationDependencies & {
+  services: { legacyTargetContextForCraft: LegacyTargetContextForCraft };
+};
+
+export async function createProductionVoyageDataMigrationDependencies(
+  authorityServices: ProductionPanelTargetAuthorityServices = createProductionPanelTargetAuthorityServices(),
+): Promise<VoyageDataMigrationDependencies> {
+  return {
+    services: {
+      legacyTargetContextForCraft: await createProductionPanelTargetContextProvider(authorityServices),
+    },
+  };
+}
 
 /**
  * Application startup gate for the one-way Voyage authority cutover.
@@ -23,9 +37,9 @@ export async function initializeVoyagePersistenceAuthority(
 ): Promise<VoyagePersistenceAuthorityHandle> {
   let productionProvider: LegacyTargetContextForCraft | undefined;
   const open = openDatabase ?? (async () => {
-    const legacyTargetContextForCraft = await createProductionPanelTargetContextProvider(authorityServices);
-    productionProvider = legacyTargetContextForCraft;
-    return getExternalIntegrationsDb({ services: { legacyTargetContextForCraft } });
+    const dependencies = await createProductionVoyageDataMigrationDependencies(authorityServices);
+    productionProvider = dependencies.services.legacyTargetContextForCraft;
+    return getExternalIntegrationsDb(dependencies);
   });
   const handle = await open();
   const completed = handle.sqlite.prepare('SELECT 1 AS completed FROM Migration WHERE name = ?')
