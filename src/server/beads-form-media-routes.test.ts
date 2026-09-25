@@ -79,7 +79,7 @@ describe('BeadsForm preview media routes', () => {
     await expect(response.text()).resolves.toBe('# Decision');
   });
 
-  it('serves explicit staging-root refs when the route declares the staging root', async () => {
+  it('serves explicit staging-root refs only through trusted server-side resolver input', async () => {
     const repo = await mkdtemp(join(tmpdir(), 'beads-form-repo-'));
     const stagingRoot = await mkdtemp(join(tmpdir(), 'beads-form-staging-'));
     await mkdir(join(stagingRoot, 'exports'), { recursive: true });
@@ -90,6 +90,20 @@ describe('BeadsForm preview media routes', () => {
       contentType: 'text/markdown; charset=utf-8',
       filename: 'summary.md',
     });
+  });
+
+  it('ignores public stagingRoot query params so callers cannot choose an arbitrary allowed root', async () => {
+    const repo = await mkdtemp(join(tmpdir(), 'beads-form-repo-'));
+    const stagingRoot = await mkdtemp(join(tmpdir(), 'beads-form-staging-'));
+    await mkdir(join(stagingRoot, 'exports'), { recursive: true });
+    await writeFile(join(stagingRoot, 'exports', 'summary.md'), '# Staged', 'utf8');
+    const app = new Hono();
+    registerBeadsFormMediaRoutes(app);
+
+    const response = await app.request(`/dashboard/api/beads-form/bead-attachment?dir=${encodeURIComponent(repo)}&file=${encodeURIComponent('exports/summary.md')}&stagingRoot=${encodeURIComponent(stagingRoot)}`);
+
+    expect(response.status).toBe(404);
+    await expect(response.text()).resolves.toContain('bead attachment not found');
   });
 
   it('serves legacy attachment refs from .beads/attachments for compatibility', async () => {

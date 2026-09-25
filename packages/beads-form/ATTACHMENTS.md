@@ -9,8 +9,9 @@ generated HTML, or generated controls.
 - `markdown-attachment`: a single Markdown file reference with `ref`, optional
   `label`, and optional Markdown `description`.
 - `media-gallery`: image/video gallery. Image `src`/video `src`/video `poster`
-  can be repo-relative refs, explicit staging-root refs when a trusted preview
-  or authoring flow declares that staging root, or hosted `http(s)` URLs.
+  can be repo-relative refs, server-authorized staging-root refs when a trusted
+  preview or authoring flow declares that root outside the public URL, or hosted
+  `http(s)` URLs.
 - `attachments`: arbitrary file links. Each item has `id`, `label`, `ref`,
   optional `description`, and optional `mediaType:
   "markdown" | "image" | "video" | "file"`.
@@ -36,8 +37,9 @@ Bead-backed repo-relative links and media are rewritten by VD to
 `/dashboard/api/beads-form/bead-attachment?dir=<repo>&file=<ref>`. The route:
 
 - resolves normal refs only under the bead repo cwd/working tree;
-- may also resolve under an explicit staging root only when that root is passed
-  by a trusted authoring/preview flow;
+- may also resolve under an explicit staging root only when that root is
+  supplied by trusted server-side configuration/callers, not a public query
+  parameter;
 - keeps legacy `attachment://...` refs scoped to `<repo>/.beads/attachments`
   for backwards compatibility only;
 - rejects traversal, absolute paths, backslashes, nested schemes, unsafe

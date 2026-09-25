@@ -10,11 +10,10 @@ export function buildPreviewMediaUrl(folder: string, ref: string): string {
   return `${MEDIA_ROUTE}?${params.toString()}`;
 }
 
-export function buildBeadAttachmentUrl(dir: string, ref: string, options: { stagingRoot?: string } = {}): string {
+export function buildBeadAttachmentUrl(dir: string, ref: string): string {
   const params = new URLSearchParams();
   params.set('dir', dir);
   params.set('file', ref);
-  if (options.stagingRoot) params.set('stagingRoot', options.stagingRoot);
   return `${BEAD_ATTACHMENT_ROUTE}?${params.toString()}`;
 }
 

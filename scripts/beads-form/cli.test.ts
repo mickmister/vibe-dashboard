@@ -86,12 +86,14 @@ describe('beads-form CLI helpers', () => {
     expect(skill).toContain('Bead-backed forms should use repo-relative refs');
     expect(skill).toContain('Legacy `attachment://...` refs are compatibility-only');
     expect(skill).toContain('Never paste Markdown file contents');
+    expect(skill).toContain('public URLs cannot choose');
     expect(skill).not.toContain('Bead-backed local artifacts must use `attachment://...` refs');
     expect(skill).not.toContain('Local folder-relative media refs are rejected in bead-backed attach');
     expect(attachments).toContain('Preferred bead-backed refs are repo-relative working-tree paths');
     expect(attachments).toContain('Legacy `attachment://path/to/file` refs are still');
     expect(attachments).toContain('new forms should not use');
     expect(attachments).toContain('never inlines Markdown files');
+    expect(attachments).toContain('public query');
   });
 
   it('runs the CLI help entrypoint under Node strip-types', async () => {

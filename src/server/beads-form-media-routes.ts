@@ -40,8 +40,7 @@ export function registerBeadsFormMediaRoutes(app: Hono): void {
   app.get('/dashboard/api/beads-form/bead-attachment', async (c) => {
     const dir = c.req.query('dir') ?? '';
     const file = c.req.query('file') ?? '';
-    const stagingRoot = c.req.query('stagingRoot') ?? undefined;
-    const resolved = await resolveBeadAttachmentPath(dir, file, stagingRoot ? { stagingRoot } : {});
+    const resolved = await resolveBeadAttachmentPath(dir, file);
     if (!resolved.ok) return c.text(resolved.error, resolved.status);
 
     const bytes = await readFile(resolved.path);

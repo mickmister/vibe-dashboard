@@ -189,8 +189,8 @@ Use folder mode for low-friction testing before attaching forms to beads.
 
 BeadsForm embedding is ref-only. Never paste Markdown file contents, screenshots,
 videos, or arbitrary file bytes into bead metadata. Put files in the repo working
-tree or in an explicit staging folder for preview/authoring, then reference them
-by path.
+tree or in a server-authorized explicit staging folder for preview/authoring,
+then reference them by path.
 
 Supported content blocks:
 
@@ -214,9 +214,10 @@ Unsafe refs are rejected or ignored: absolute paths, `../` traversal, backslash
 paths, nested schemes such as `attachment://https://...`, `javascript:`/`data:`
 URLs, symlinks that resolve outside the allowed root, and unsupported extensions
 such as `.exe`. Runtime serving resolves bead-backed refs only under the repo
-cwd/working tree, or under an explicit staging root when the invoking preview or
-authoring flow declares one. Folder preview resolves refs under the declared
-preview folder. Legacy `attachment://...` still resolves from
+cwd/working tree, or under an explicit staging root only when trusted
+server-side configuration/callers authorize that root; public URLs cannot choose
+arbitrary staging roots. Folder preview resolves refs under the declared preview
+folder. Legacy `attachment://...` still resolves from
 `.beads/attachments` for old forms only; do not recommend or create new
 `.beads/attachments`-first forms.
 
