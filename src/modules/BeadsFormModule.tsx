@@ -4,7 +4,6 @@ import { useSearchParams } from 'react-router';
 import springboard from 'springboard';
 
 import {
-  ALLOW_CODE_FILE_CHANGES_FIELD,
   buildAgentResultMessage,
   buildPrettySummary,
   beadFormDraftScopeKey,
@@ -15,6 +14,7 @@ import {
   normalizeSubmittedValues,
   sanitizeBeadsFormHtml,
   validateSubmittedValues,
+  withDeclaredCodeFileChangeIntent,
   type BeadLike,
   type BeadsFormDefinition,
   type BeadsFormDraft,
@@ -1203,10 +1203,10 @@ function AggregateBeadsFormCard({ item, submitBeadForm, saveBeadFormDraft, regis
         const element = formHostRef.current?.querySelector('form');
         if (!element) throw new Error(`Form DOM is not ready for ${item.ref.beadId}/${item.ref.formId}.`);
         if (!element.reportValidity()) throw new Error(`Complete required fields for ${item.ref.beadId}/${item.ref.formId}.`);
-        const values = normalizeSubmittedValues(form, {
-          ...normalizeFormData(new FormData(element)),
-          [ALLOW_CODE_FILE_CHANGES_FIELD]: allowCodeFileChanges ? 'true' : 'false',
-        });
+        const values = normalizeSubmittedValues(
+          form,
+          withDeclaredCodeFileChangeIntent(form, normalizeFormData(new FormData(element)), allowCodeFileChanges),
+        );
         return {
           key: item.key,
           ref: item.ref,

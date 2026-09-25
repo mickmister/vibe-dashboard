@@ -421,6 +421,18 @@ export function normalizeSubmittedValues(
   return next;
 }
 
+export function withDeclaredCodeFileChangeIntent(
+  form: { controls?: BeadsFormControl[] },
+  values: JsonObject,
+  allowCodeFileChanges: boolean,
+): JsonObject {
+  if (!form.controls?.some((control) => control.name === ALLOW_CODE_FILE_CHANGES_FIELD)) return values;
+  return {
+    ...values,
+    [ALLOW_CODE_FILE_CHANGES_FIELD]: allowCodeFileChanges ? 'true' : 'false',
+  };
+}
+
 function normalizeChoiceQuestionValue(question: ChoicesQuestion, value: unknown): Record<string, boolean> {
   const selectedValues = new Set<string>();
   if (Array.isArray(value)) {

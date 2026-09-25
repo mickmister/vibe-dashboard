@@ -116,5 +116,7 @@ describe('BeadsForm pending queue UI source', () => {
     expect(source).toContain('batchSubmissionIdsRef.current');
     expect(source).toContain('Invalidated or unavailable forms block the batch');
     expect(source).toContain('Combined BeadsForm XML handoff');
+    expect(source).toContain('withDeclaredCodeFileChangeIntent(form, normalizeFormData(new FormData(element)), allowCodeFileChanges)');
+    expect(source).not.toContain('[ALLOW_CODE_FILE_CHANGES_FIELD]: allowCodeFileChanges');
   });
 });

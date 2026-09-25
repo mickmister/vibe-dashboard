@@ -16,6 +16,7 @@ import {
   normalizeSubmittedValues,
   sanitizeBeadsFormHtml,
   validateSubmittedValues,
+  withDeclaredCodeFileChangeIntent,
 } from './beadsFormCore';
 
 const storedForm = (id: string, title = 'Review') => ({
@@ -338,6 +339,32 @@ describe('BeadsForm core', () => {
     expect(normalizeSubmittedValues(form, {})).toEqual({
       [ALLOW_CODE_FILE_CHANGES_FIELD]: false,
     });
+  });
+
+  it('only injects aggregate batch submit intent when the source form declares it', () => {
+    const enabledForm = {
+      controls: [
+        { id: 'comment', name: 'comment', type: 'textarea' as const },
+        { id: ALLOW_CODE_FILE_CHANGES_FIELD, name: ALLOW_CODE_FILE_CHANGES_FIELD, type: 'submit' as const },
+      ],
+    };
+    const disabledForm = {
+      controls: [{ id: 'comment', name: 'comment', type: 'textarea' as const }],
+    };
+
+    const enabledValues = normalizeSubmittedValues(
+      enabledForm,
+      withDeclaredCodeFileChangeIntent(enabledForm, { comment: 'ready' }, true),
+    );
+    const disabledValues = normalizeSubmittedValues(
+      disabledForm,
+      withDeclaredCodeFileChangeIntent(disabledForm, { comment: 'ready' }, true),
+    );
+
+    expect(enabledValues).toEqual({ comment: 'ready', [ALLOW_CODE_FILE_CHANGES_FIELD]: true });
+    expect(validateSubmittedValues(enabledForm, enabledValues)).toEqual([]);
+    expect(disabledValues).toEqual({ comment: 'ready' });
+    expect(validateSubmittedValues(disabledForm, disabledValues)).toEqual([]);
   });
 
   it('normalizes standard choice groups to explicit per-option booleans and omits empty notes', () => {
