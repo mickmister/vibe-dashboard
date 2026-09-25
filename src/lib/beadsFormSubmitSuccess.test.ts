@@ -22,6 +22,7 @@ describe('BeadsForm submit success helpers', () => {
       decision_approve_more_info: 'Ship because A & B are ready.',
       decision_more_info: 'Question-level note with a ]]> sequence.',
       additional_notes: 'Use <safe> escaping & preserve text.',
+      next_instruction: '## Next\n\nImplement the follow-up with `<safe>` XML & report back.',
     }, {
       beadId: 'beads-web-9iu',
       formId: 'markdown_handoff',
@@ -42,6 +43,7 @@ describe('BeadsForm submit success helpers', () => {
     expect(text).toContain('<note id="decision_approve_more_info" type="markdown">\n\nShip because A &amp; B are ready.\n\n    </note>');
     expect(text).toContain('<note id="decision_more_info" type="markdown">\n\nQuestion-level note with a ]]&gt; sequence.\n\n    </note>');
     expect(text).toContain('<additionalNotes id="additional_notes" type="markdown">\n\nUse &lt;safe&gt; escaping &amp; preserve text.\n\n    </additionalNotes>');
+    expect(text).toContain('<nextInstruction id="next_instruction" type="markdown">\n\n## Next\n\nImplement the follow-up with `&lt;safe&gt;` XML &amp; report back.\n\n    </nextInstruction>');
     expect(text).not.toContain('type="markdown">Ship because');
   });
 

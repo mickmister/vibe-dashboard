@@ -510,7 +510,14 @@ describe('BeadsForm single-question mode', () => {
         <form>
           <fieldset><legend>First</legend><input name="first" value="ok" required></fieldset>
           <fieldset><legend>Second</legend><input name="second" value="ok" required></fieldset>
-          <div class="beads-form-submit-actions"><button type="submit">Submit</button></div>
+          <div class="beads-form-submit-actions">
+            <div class="beads-form-next-instruction">
+              <label for="next_instruction">Next Instruction <span class="beads-form-optional">(optional)</span></label>
+              <p id="next_instruction_help">Tell the agent what work to carry out after processing these answers. This is separate from Additional Notes.</p>
+              <textarea id="next_instruction" name="next_instruction" aria-describedby="next_instruction_help"></textarea>
+            </div>
+            <button type="submit">Submit</button>
+          </div>
         </form>
       </div>
     `;
@@ -526,6 +533,8 @@ describe('BeadsForm single-question mode', () => {
     expect(document.querySelector<HTMLElement>('.beadsform-single-question-review')?.hidden).toBe(true);
     expect(document.querySelector<HTMLElement>('.beads-form-submit-actions')?.hidden).toBe(false);
     expect(document.querySelector<HTMLElement>('.beads-form-submit-actions')?.parentElement?.className).toBe('beadsform-single-question-direct-submit');
+    expect(document.querySelector<HTMLTextAreaElement>('.beadsform-single-question-direct-submit textarea[name="next_instruction"]')).toBeTruthy();
+    expect(document.querySelector<HTMLTextAreaElement>('textarea[name="next_instruction"]')?.getAttribute('aria-describedby')).toBe('next_instruction_help');
   });
 
   it('keeps final review submit actions at the bottom of the wizard review flow', () => {
@@ -535,6 +544,11 @@ describe('BeadsForm single-question mode', () => {
           <fieldset><legend>First</legend><input name="first" value="ok" required></fieldset>
           <fieldset><legend>Second</legend><input name="second" value="ok" required></fieldset>
           <div class="beads-form-submit-actions" role="group" aria-label="Submit intent">
+            <div class="beads-form-next-instruction">
+              <label for="next_instruction">Next Instruction <span class="beads-form-optional">(optional)</span></label>
+              <p id="next_instruction_help">Tell the agent what work to carry out after processing these answers. This is separate from Additional Notes.</p>
+              <textarea id="next_instruction" name="next_instruction" aria-describedby="next_instruction_help">After review, continue.</textarea>
+            </div>
             <p>Choose how to submit.</p>
             <button name="allow_code_file_changes" type="submit" value="true">Submit and allow implementation for the selected next milestone</button>
             <button name="allow_code_file_changes" type="submit" value="false">Submit for planning only; no code/file changes</button>
@@ -552,6 +566,7 @@ describe('BeadsForm single-question mode', () => {
     expect(submitActions.hidden).toBe(false);
     expect(submitActions.parentElement).toBe(review);
     expect(review.lastElementChild).toBe(submitActions);
+    expect(review.querySelector<HTMLTextAreaElement>('textarea[name="next_instruction"]')?.value).toBe('After review, continue.');
     expect(Array.from(submitActions.querySelectorAll<HTMLButtonElement>('button')).map((button) => button.value)).toEqual(['true', 'false']);
   });
 

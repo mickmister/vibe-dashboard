@@ -465,18 +465,31 @@ describe('BeadsClient', () => {
       actor: 'reviewer',
     });
 
-    const result = await client.submitForm({ dir: '/repo', beadId: 'beads-web-biu', formId: 'review', submissionId, values: { comment: 'LGTM' } });
+    const result = await client.submitForm({
+      dir: '/repo',
+      beadId: 'beads-web-biu',
+      formId: 'review',
+      submissionId,
+      values: { comment: 'LGTM', next_instruction: '## Next\n\nImplement and report back.' },
+    });
 
     expect(result.submittedAt).toBe('2026-06-29T00:00:00.000Z');
     expect(result.submittedBy).toBe('reviewer');
     expect(result.prettySummary).toContain('- comment: LGTM');
+    expect(result.values).toMatchObject({
+      comment: 'LGTM',
+      next_instruction: '## Next\n\nImplement and report back.',
+    });
     expect(result.warnings).toEqual([]);
     expect(result.metadata.beadFormResponses).toMatchObject({
       responsesByFormId: {
         review: [{
           submittedAt: '2026-06-29T00:00:00.000Z',
           submittedBy: 'reviewer',
-          values: { comment: 'LGTM' },
+          values: {
+            comment: 'LGTM',
+            next_instruction: '## Next\n\nImplement and report back.',
+          },
         }],
       },
     });

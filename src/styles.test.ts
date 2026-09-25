@@ -18,6 +18,14 @@ describe('BeadsForm styles', () => {
     expect(css).toMatch(/@media \(max-width:\s*640px\)[\s\S]*\.beadsform-root \.beads-form-submit-actions button\s*\{[^}]*box-sizing:\s*border-box[^}]*max-width:\s*100%[^}]*width:\s*100%[^}]*white-space:\s*normal[^}]*overflow-wrap:\s*anywhere/s);
   });
 
+  it('keeps the Next Instruction prompt full-width and mobile-safe near submit actions', async () => {
+    const css = await readFile(new URL('./styles.css', import.meta.url), 'utf8');
+
+    expect(css).toMatch(/\.beadsform-root \.beads-form-next-instruction\s*\{[^}]*flex-basis:\s*100%[^}]*display:\s*grid/s);
+    expect(css).toMatch(/\.beadsform-root \.beads-form-next-instruction textarea\s*\{[^}]*min-height:\s*5\.5rem[^}]*resize:\s*vertical/s);
+    expect(css).toMatch(/\.beadsform-root \.beads-form-optional\s*\{[^}]*font-weight:\s*500/s);
+  });
+
   it('lays out single-question mode as a centered wide column with notes above the question', async () => {
     const css = await readFile(new URL('./styles.css', import.meta.url), 'utf8');
 

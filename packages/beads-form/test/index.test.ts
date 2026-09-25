@@ -1,6 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import {
   ALLOW_CODE_FILE_CHANGES_FIELD,
+  NEXT_INSTRUCTION_FIELD,
+  NEXT_INSTRUCTION_MAX_CHARS,
   buildAttachmentList,
   buildBeadsFormMetadata,
   buildChoicesQuestion,
@@ -36,6 +38,9 @@ describe('@vibe-dashboard/beads-form', () => {
     const compiled = compileBeadsForm(form);
 
     expect(compiled.html).toContain('<fieldset>');
+    expect(compiled.html).toContain(`name="${NEXT_INSTRUCTION_FIELD}"`);
+    expect(compiled.html).toContain(`maxlength="${NEXT_INSTRUCTION_MAX_CHARS}"`);
+    expect(compiled.html).toContain('This is separate from Additional Notes.');
     expect(compiled.html).toContain(`name="${ALLOW_CODE_FILE_CHANGES_FIELD}" type="submit" value="true"`);
     expect(compiled.html).toContain(`name="${ALLOW_CODE_FILE_CHANGES_FIELD}" type="submit" value="false"`);
     expect(compiled.html).not.toContain(`name="${ALLOW_CODE_FILE_CHANGES_FIELD}" type="checkbox"`);
@@ -44,6 +49,7 @@ describe('@vibe-dashboard/beads-form', () => {
     expect(compiled.html).toContain('name="entry_point_forms_tab_more_info"');
     expect(compiled.html).toContain('name="entry_point_more_info"');
     expect(compiled.controls).toEqual([
+      { id: NEXT_INSTRUCTION_FIELD, name: NEXT_INSTRUCTION_FIELD, type: 'textarea' },
       { id: ALLOW_CODE_FILE_CHANGES_FIELD, name: ALLOW_CODE_FILE_CHANGES_FIELD, type: 'submit' },
       { id: 'entry_point_forms_tab', name: 'entry_point', type: 'checkbox', required: true, multiple: true },
       { id: 'entry_point_forms_tab_more_info', name: 'entry_point_forms_tab_more_info', type: 'textarea' },
@@ -285,6 +291,7 @@ describe('@vibe-dashboard/beads-form', () => {
     expect(compiled.html).toContain('name="decision_more_info"');
     expect(compiled.html).toContain('name="notes_more_info"');
     expect(compiled.controls).toEqual([
+      { id: NEXT_INSTRUCTION_FIELD, name: NEXT_INSTRUCTION_FIELD, type: 'textarea' },
       { id: ALLOW_CODE_FILE_CHANGES_FIELD, name: ALLOW_CODE_FILE_CHANGES_FIELD, type: 'submit' },
       { id: 'decision_ship', name: 'decision', type: 'checkbox', required: undefined, multiple: true },
       { id: 'decision_ship_more_info', name: 'decision_ship_more_info', type: 'textarea' },
@@ -325,10 +332,12 @@ describe('@vibe-dashboard/beads-form', () => {
       'decision_wait_more_info',
       'decision_more_info',
       'additional_notes',
+      NEXT_INSTRUCTION_FIELD,
     ]);
     expect(compiled.html).toContain('name="additional_notes"');
     expect(compiled.html).not.toContain('name="additional_notes_more_info"');
     expect(compiled.controls.map((control) => control.name)).toEqual([
+      NEXT_INSTRUCTION_FIELD,
       ALLOW_CODE_FILE_CHANGES_FIELD,
       'decision',
       'decision_ship_more_info',
@@ -354,7 +363,9 @@ describe('@vibe-dashboard/beads-form', () => {
       ],
     }));
     expect(hidden.html).not.toContain(ALLOW_CODE_FILE_CHANGES_FIELD);
+    expect(hidden.html).toContain(`name="${NEXT_INSTRUCTION_FIELD}"`);
     expect(hidden.controls.map((control) => control.name)).not.toContain(ALLOW_CODE_FILE_CHANGES_FIELD);
+    expect(hidden.controls.map((control) => control.name)).toContain(NEXT_INSTRUCTION_FIELD);
 
     const customized = compileBeadsForm(defineBeadsForm({
       id: 'custom_permission',
@@ -413,6 +424,7 @@ describe('@vibe-dashboard/beads-form', () => {
     expect(compiled.html).toContain('<img src="attachments/candidate-a.png" alt="Candidate A">');
     expect(compiled.html).toContain('<video src="attachment://candidate-b.webm" poster="attachments/candidate-b.png" controls preload="metadata">');
     expect(compiled.controls.map((control) => control.name)).toEqual([
+      NEXT_INSTRUCTION_FIELD,
       ALLOW_CODE_FILE_CHANGES_FIELD,
       'preferred_candidate',
       'preferred_candidate_candidate_a_more_info',
@@ -544,6 +556,7 @@ describe('@vibe-dashboard/beads-form', () => {
     const compiled = compileBeadsForm(formInput);
     expect(compiled.html).toContain('&lt;script&gt;bad&lt;/script&gt;');
     expect(compiled.controls.map((control) => control.name)).toEqual([
+      NEXT_INSTRUCTION_FIELD,
       ALLOW_CODE_FILE_CHANGES_FIELD,
       'notes',
       'notes_more_info',

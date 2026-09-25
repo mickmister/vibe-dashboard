@@ -3,6 +3,8 @@ import { describe, expect, it } from 'vitest';
 import {
   appendBeadsFormResponse,
   ALLOW_CODE_FILE_CHANGES_FIELD,
+  NEXT_INSTRUCTION_FIELD,
+  NEXT_INSTRUCTION_MAX_CHARS,
   buildBeadsFormsSummary,
   assertMetadataWithinIssueJsonGuard,
   buildAgentResultMessage,
@@ -78,6 +80,7 @@ describe('BeadsForm core', () => {
     expect(forms[0]!.html).not.toContain('<img src=x');
     expect(sanitizeBeadsFormHtml(forms[0]!.html)).toContain('beads-form-choice-tradeoffs');
     expect(forms[0]!.controls?.map((control) => control.name)).toEqual([
+      NEXT_INSTRUCTION_FIELD,
       ALLOW_CODE_FILE_CHANGES_FIELD,
       'entry_point',
       'entry_point_forms_tab_more_info',
@@ -453,13 +456,23 @@ describe('BeadsForm core', () => {
     expect(form.html).toContain('name="additional_notes"');
     expect(form.html).not.toContain('name="additional_notes_more_info"');
     expect(form.controls?.map((control) => control.name)).toEqual([
+      NEXT_INSTRUCTION_FIELD,
       ALLOW_CODE_FILE_CHANGES_FIELD,
       'additional_notes',
     ]);
     expect(normalizeSubmittedValues(form, {
       additional_notes: 'Please keep this concise.',
+      next_instruction: '  ',
     })).toEqual({
       additional_notes: 'Please keep this concise.',
+      [ALLOW_CODE_FILE_CHANGES_FIELD]: false,
+    });
+    expect(normalizeSubmittedValues(form, {
+      additional_notes: 'Please keep this concise.',
+      next_instruction: '## Continue\n\nImplement the selected follow-up.',
+    })).toEqual({
+      additional_notes: 'Please keep this concise.',
+      next_instruction: '## Continue\n\nImplement the selected follow-up.',
       [ALLOW_CODE_FILE_CHANGES_FIELD]: false,
     });
   });
@@ -557,6 +570,19 @@ describe('BeadsForm core', () => {
     }, { extra: 'nope' })).toEqual([
       'Submitted field "extra" is not declared in controls[]',
       'Required field "comment" is missing',
+    ]);
+  });
+
+  it('validates bounded Next Instruction values as declared submit metadata', () => {
+    expect(validateSubmittedValues({
+      id: 'review',
+      title: 'Review',
+      html: '<form></form>',
+      controls: [{ id: NEXT_INSTRUCTION_FIELD, name: NEXT_INSTRUCTION_FIELD, type: 'textarea' }],
+    }, {
+      [NEXT_INSTRUCTION_FIELD]: 'x'.repeat(NEXT_INSTRUCTION_MAX_CHARS + 1),
+    })).toEqual([
+      `Next Instruction exceeds the ${NEXT_INSTRUCTION_MAX_CHARS}-character limit`,
     ]);
   });
 

@@ -202,6 +202,8 @@ const DEFAULT_CHOICE_NOTES_ROWS = 4;
 const DESCRIPTION_TRUNCATE_THRESHOLD = 480;
 const DESCRIPTION_PREVIEW_LENGTH = 320;
 export const ALLOW_CODE_FILE_CHANGES_FIELD = 'allow_code_file_changes';
+export const NEXT_INSTRUCTION_FIELD = 'next_instruction';
+export const NEXT_INSTRUCTION_MAX_CHARS = 8000;
 
 function assertIdentifier(id: string, label: string): void {
   if (!/^[A-Za-z][A-Za-z0-9_-]*$/.test(id)) {
@@ -459,7 +461,20 @@ function compileSubmitActions(
   config: StandardBeadsForm['allowCodeFileChanges'],
   controls: BeadsFormControl[],
 ): string {
-  if (config === false) return '<button type="submit">Submit</button>';
+  controls.push({
+    id: NEXT_INSTRUCTION_FIELD,
+    name: NEXT_INSTRUCTION_FIELD,
+    type: 'textarea',
+  });
+  const nextInstruction = compileNextInstructionPrompt();
+  if (config === false) {
+    return [
+      '<div class="beads-form-submit-actions" role="group" aria-label="Submit intent">',
+      nextInstruction,
+      '<button type="submit">Submit</button>',
+      '</div>',
+    ].join('');
+  }
   const allowLabel = config?.allowLabel ?? config?.label ?? 'Submit and allow code/file changes';
   const avoidLabel = config?.avoidLabel ?? 'Submit and avoid code/file changes';
   const description = config?.description
@@ -472,9 +487,20 @@ function compileSubmitActions(
 
   return [
     '<div class="beads-form-submit-actions" role="group" aria-label="Submit intent">',
+    nextInstruction,
     renderMarkdown(description),
     `<button id="${ALLOW_CODE_FILE_CHANGES_FIELD}_true" name="${ALLOW_CODE_FILE_CHANGES_FIELD}" type="submit" value="true">${escapeHtml(allowLabel)}</button>`,
     `<button id="${ALLOW_CODE_FILE_CHANGES_FIELD}_false" name="${ALLOW_CODE_FILE_CHANGES_FIELD}" type="submit" value="false">${escapeHtml(avoidLabel)}</button>`,
+    '</div>',
+  ].join('');
+}
+
+function compileNextInstructionPrompt(): string {
+  return [
+    '<div class="beads-form-next-instruction">',
+    `<label for="${NEXT_INSTRUCTION_FIELD}">Next Instruction <span class="beads-form-optional">(optional)</span></label>`,
+    `<p id="${NEXT_INSTRUCTION_FIELD}_help">Tell the agent what work to carry out after processing these answers. This is separate from Additional Notes.</p>`,
+    `<textarea id="${NEXT_INSTRUCTION_FIELD}" name="${NEXT_INSTRUCTION_FIELD}" rows="3" maxlength="${NEXT_INSTRUCTION_MAX_CHARS}" aria-describedby="${NEXT_INSTRUCTION_FIELD}_help" placeholder="Optional Markdown instruction for what should happen next"></textarea>`,
     '</div>',
   ].join('');
 }

@@ -2,6 +2,8 @@ import createDOMPurify from 'dompurify';
 import {
   ALLOW_CODE_FILE_CHANGES_FIELD,
   compileBeadsForm,
+  NEXT_INSTRUCTION_FIELD,
+  NEXT_INSTRUCTION_MAX_CHARS,
   stripGeneratedBeadsFormFields,
   type BeadsFormControl,
   type ChoicesQuestion,
@@ -16,6 +18,7 @@ import {
 import { beadsFormSubmissionXml } from './beadsFormSubmissionHandoff.ts';
 
 export { ALLOW_CODE_FILE_CHANGES_FIELD };
+export { NEXT_INSTRUCTION_FIELD, NEXT_INSTRUCTION_MAX_CHARS };
 export {
   assertMetadataWithinIssueJsonGuard,
   BEAD_ISSUE_METADATA_JSON_MAX_BYTES,
@@ -381,6 +384,7 @@ export function normalizeSubmittedValues(
   for (const [key, value] of Object.entries(values)) {
     if (value === '') continue;
     if (Array.isArray(value) && value.length === 0) continue;
+    if (key === NEXT_INSTRUCTION_FIELD && typeof value === 'string' && value.trim().length === 0) continue;
     next[key] = value;
   }
 
@@ -552,6 +556,10 @@ export function validateSubmittedValues(
   const errors: string[] = [];
   for (const key of Object.keys(values)) {
     if (!allowedNames.has(key)) errors.push(`Submitted field "${key}" is not declared in controls[]`);
+  }
+  const nextInstruction = values[NEXT_INSTRUCTION_FIELD];
+  if (typeof nextInstruction === 'string' && nextInstruction.length > NEXT_INSTRUCTION_MAX_CHARS) {
+    errors.push(`Next Instruction exceeds the ${NEXT_INSTRUCTION_MAX_CHARS}-character limit`);
   }
 
   for (const [name, namedControls] of controlsByName) {

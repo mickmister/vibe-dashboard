@@ -416,6 +416,26 @@ textarea {
   margin: 0;
 }
 
+.beadsform-root .beads-form-next-instruction {
+  flex-basis: 100%;
+  display: grid;
+  gap: 0.35rem;
+}
+
+.beadsform-root .beads-form-next-instruction label {
+  font-weight: 650;
+}
+
+.beadsform-root .beads-form-next-instruction textarea {
+  min-height: 5.5rem;
+  resize: vertical;
+}
+
+.beadsform-root .beads-form-optional {
+  color: #a1a1aa;
+  font-weight: 500;
+}
+
 .beadsform-root .beads-form-submit-actions button[value="true"] {
   border-color: #22c55e;
 }

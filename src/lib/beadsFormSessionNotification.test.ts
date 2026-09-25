@@ -27,7 +27,11 @@ describe('BeadsForm creating-session notifications', () => {
         controls: [{ id: 'comment', name: 'comment', type: 'textarea' }],
         responses: [{ submittedBy: 'old', submittedAt: '2026-01-01T00:00:00Z', values: { comment: 'old' } }],
       } as never,
-      values: { comment: '# Approved', allow_code_file_changes: false },
+      values: {
+        comment: '# Approved',
+        next_instruction: '## Next\n\nImplement follow-up & report.',
+        allow_code_file_changes: false,
+      },
       submittedAt: '2026-09-15T00:00:00.000Z',
       submittedBy: 'human',
     });
@@ -35,7 +39,10 @@ describe('BeadsForm creating-session notifications', () => {
     expect(message).toContain('beads-web-rwu');
     expect(message).toContain('"questions"');
     expect(message).toContain('"comment": "# Approved"');
+    expect(message).toContain('"next_instruction": "## Next\\n\\nImplement follow-up & report."');
     expect(message).toContain('<beadsFormSubmission>');
+    expect(message).toContain('<nextInstruction id="next_instruction" type="markdown">');
+    expect(message).toContain('Implement follow-up &amp; report.');
     expect(message).toContain('vibe-agent full_summary');
     expect(message).not.toContain('generated');
     expect(message).not.toContain('"controls"');

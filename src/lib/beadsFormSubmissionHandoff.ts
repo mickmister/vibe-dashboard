@@ -69,7 +69,8 @@ function choiceGroupLines(id: string, choices: Record<string, boolean>, indent: 
   return lines;
 }
 
-function answerTagForId(id: string): 'additionalNotes' | 'note' | 'answer' {
+function answerTagForId(id: string): 'nextInstruction' | 'additionalNotes' | 'note' | 'answer' {
+  if (id === 'next_instruction') return 'nextInstruction';
   if (id === 'additional_notes' || id === 'overall_more_info') return 'additionalNotes';
   if (id.endsWith('_more_info')) return 'note';
   return 'answer';
