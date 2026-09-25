@@ -274,7 +274,7 @@ Bead-backed storage is the primary workflow for real agent/user handoff. Folder 
      --stdin
    ```
 
-   `show-question` accepts `--question <question-id>` or `--index <one-based-index>`. `update-question` replaces only that question, keeps responses and content/attachment blocks, strips generated `html`/`controls`, and rejects stale edits when `--base-hash` no longer matches.
+   `show-question` accepts `--question <question-id>` or `--index <one-based-index>`. `update-question` replaces only that question, keeps responses and content/attachment blocks, strips generated `html`/`controls`, and rejects stale edits when `--base-hash` no longer matches. If the new form supersedes an older pending form, run `beads-form invalidate --bead <bead-id> --form <old-form-id> --reason "Superseded by <new-form-id>" --dir <repo-dir>`; invalidation marks the old form stale without deleting historical submitted responses, removes it from the default pending feed, and makes its URL non-answerable.
 
 3. Give the human the printed `/dashboard/forms?...` URL.
 

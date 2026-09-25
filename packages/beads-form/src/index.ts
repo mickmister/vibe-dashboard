@@ -160,6 +160,10 @@ export type StandardBeadsForm = {
   };
   content?: BeadsFormContentBlock[];
   questions: BeadsFormQuestion[];
+  /** Marks a stale/superseded form as no longer answerable without deleting its historical responses. */
+  invalidatedAt?: string;
+  invalidatedBy?: string;
+  invalidatedReason?: string;
 };
 
 export type BeadsFormResponse = {
@@ -450,10 +454,14 @@ export function buildBeadsFormMetadata(forms: StandardBeadsForm[]): BeadsFormMet
   };
 }
 
-export function buildBeadsFormsSummary(forms: readonly Pick<StoredBeadsForm, 'id' | 'responses'>[]): BeadsFormsSummary {
+export function isBeadsFormInvalidated(form: Pick<StandardBeadsForm, 'invalidatedAt'>): boolean {
+  return typeof form.invalidatedAt === 'string' && form.invalidatedAt.trim().length > 0;
+}
+
+export function buildBeadsFormsSummary(forms: readonly Pick<StoredBeadsForm, 'id' | 'responses' | 'invalidatedAt'>[]): BeadsFormsSummary {
   const formIds = forms.map((form) => form.id);
   const pendingFormIds = forms
-    .filter((form) => (form.responses?.length ?? 0) === 0)
+    .filter((form) => !isBeadsFormInvalidated(form) && (form.responses?.length ?? 0) === 0)
     .map((form) => form.id);
   return {
     hasForms: formIds.length > 0,

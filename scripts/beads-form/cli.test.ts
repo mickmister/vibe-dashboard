@@ -15,6 +15,8 @@ import {
   buildFillOutUrl,
   buildFillOutUrls,
   buildShowResult,
+  invalidateBeadsForm,
+  invalidateFormInMetadata,
   parseBeadsFormCliArgs,
   parseFormsJsonForAttach,
   parseQuestionsJsonForAppend,
@@ -160,6 +162,10 @@ describe('beads-form CLI helpers', () => {
     expect(parseBeadsFormCliArgs(['show-question', '--bead', 'bd-1', '--form', 'review', '--index', '2'])).toEqual({
       command: 'show-question',
       options: expect.objectContaining({ beadId: 'bd-1', formId: 'review', questionIndex: 2 }),
+    });
+    expect(parseBeadsFormCliArgs(['invalidate', '--bead', 'bd-1', '--form', 'review', '--reason', 'superseded'])).toEqual({
+      command: 'invalidate',
+      options: expect.objectContaining({ beadId: 'bd-1', formId: 'review', reason: 'superseded' }),
     });
     expect(() => parseBeadsFormCliArgs(['show-question', '--bead', 'bd-1', '--form', 'review', '--index', '1abc'])).toThrow('one-based positive integer');
     expect(parseBeadsFormCliArgs([
@@ -753,6 +759,18 @@ describe('beads-form CLI helpers', () => {
     expect(metadata).toEqual({ untouched: true, beadForms: { forms: [storedReviewForm] } });
   });
 
+  it('rejects append/update question mutations on invalidated forms', () => {
+    const metadata = { beadForms: { forms: [{ ...storedReviewForm, invalidatedAt: '2026-09-25T00:00:00.000Z', invalidatedBy: 'agent' }] } };
+    expect(() => appendQuestionsToMetadata(metadata, 'review', {
+      operation: 'append_questions',
+      questions: [{ type: 'text', id: 'later', title: 'Later', description: 'Later.' }],
+    })).toThrow('invalidated and cannot be changed');
+    expect(() => updateQuestionInMetadata(metadata, 'review', {
+      questionId: 'decision',
+      replacement: { type: 'textarea', id: 'decision', title: 'Changed', description: 'Changed.' },
+    })).toThrow('invalidated and cannot be changed');
+  });
+
   it('rejects nested generated append fields before metadata mutation', () => {
     const metadata = { untouched: true, beadForms: { forms: [storedReviewForm] } };
     expect(() => appendQuestionsToMetadata(metadata, 'review', {
@@ -959,7 +977,7 @@ describe('beads-form CLI helpers', () => {
         dir: '/dashboard/forms?dir=%2Frepo&bead=bd-1&form=review',
       },
       authoringNextSteps: {
-        message: 'Review and refine questions before sharing this BeadsForm.',
+        message: 'Review and refine questions before sharing this BeadsForm; invalidate any previous forms that are no longer relevant.',
         commands: expect.objectContaining({
           showFirstQuestion: "beads-form show-question --dir '/repo' --bead 'bd-1' --form 'review' --index 1",
           updateQuestionFromFile: expect.stringContaining('beads-form update-question'),
@@ -968,9 +986,72 @@ describe('beads-form CLI helpers', () => {
     });
     expect(result.forms[0]?.authoringNextSteps.commands.updateQuestionFromFile).toContain("cat '.vk-mocked-sandbox/beads-form-authoring/review-question.json'");
     expect(result.forms[0]?.authoringNextSteps.commands.updateQuestionFromFile).toContain('--base-hash');
+    expect(result.validUnfilledForms).toEqual([expect.objectContaining({ id: 'review', title: 'Review form' })]);
     expect(result.metadata.untouched).toBe(true);
     expect(result.metadata.VK_WORKSPACE_ID).toBe('workspace-1');
     expect(calls.map((args) => args[0])).toEqual(['show', 'update']);
+  });
+
+  it('invalidates forms idempotently while preserving responses and split storage', async () => {
+    const response = { submittedBy: 'user', submittedAt: '2026-09-24T00:00:00.000Z', values: { comment: 'old' } };
+    const metadata = {
+      beadForms: { forms: [{ ...standardForm, responses: [response] }] },
+      keep: true,
+    };
+
+    const first = invalidateFormInMetadata(metadata, 'review', {
+      reason: 'Superseded by a clearer form',
+      actor: 'agent-a',
+      now: () => new Date('2026-09-25T00:00:00.000Z'),
+    });
+    const second = invalidateFormInMetadata(first.metadata, 'review', {
+      reason: 'different reason should not rewrite',
+      actor: 'agent-b',
+      now: () => new Date('2026-09-26T00:00:00.000Z'),
+    });
+
+    expect(first.changed).toBe(true);
+    expect(second.changed).toBe(false);
+    expect(second.form).toMatchObject({
+      invalidatedAt: '2026-09-25T00:00:00.000Z',
+      invalidatedBy: 'agent-a',
+      invalidatedReason: 'Superseded by a clearer form',
+    });
+    expect((second.metadata.beadFormsSummary as Record<string, unknown>).pendingFormIds).toEqual([]);
+    expect((second.metadata.beadFormResponses as { responsesByFormId: Record<string, unknown[]> }).responsesByFormId.review).toEqual([response]);
+    expect(((second.metadata.beadForms as { forms: Array<Record<string, unknown>> }).forms[0]!).responses).toBeUndefined();
+    expect(second.metadata.keep).toBe(true);
+  });
+
+  it('updates bead metadata for invalidate only once when already invalidated', async () => {
+    let metadata: Record<string, unknown> = { beadForms: { forms: [standardForm] } };
+    const calls: string[][] = [];
+    const exec = vi.fn<ExecFileLike>(async (_file, args) => {
+      calls.push([...args]);
+      if (args[0] === 'show') {
+        return { stdout: JSON.stringify([{ id: 'bd-1', metadata }]), stderr: '' };
+      }
+      const metadataArg = args.find((arg) => arg.startsWith('@'));
+      if (metadataArg) metadata = JSON.parse(await readFile(metadataArg.slice(1), 'utf8')) as Record<string, unknown>;
+      return { stdout: '', stderr: '' };
+    });
+
+    const first = await invalidateBeadsForm({
+      execFile: exec,
+      options: { dir: '/repo', beadId: 'bd-1', formId: 'review', reason: 'superseded' },
+      actor: 'agent',
+      now: () => new Date('2026-09-25T00:00:00.000Z'),
+    });
+    const second = await invalidateBeadsForm({
+      execFile: exec,
+      options: { dir: '/repo', beadId: 'bd-1', formId: 'review' },
+      actor: 'agent',
+      now: () => new Date('2026-09-26T00:00:00.000Z'),
+    });
+
+    expect(first.changed).toBe(true);
+    expect(second.changed).toBe(false);
+    expect(calls.map((args) => args[0])).toEqual(['show', 'update', 'show']);
   });
 
   it('preflights metadata size before bd update without writing a recovery artifact', async () => {
@@ -1077,6 +1158,25 @@ describe('beads-form CLI helpers', () => {
     const second = buildShowResult({ bead: { id: 'bd-1' }, form });
     expect(second.form).not.toHaveProperty('html');
     expect(second.form).not.toHaveProperty('controls');
+  });
+
+  it('shows invalidated status in handoff output', () => {
+    const [form] = parseFormsJsonForAttach(JSON.stringify(standardForm));
+    const result = buildShowResult({
+      bead: { id: 'bd-1', title: 'Bead' },
+      form: {
+        ...form!,
+        invalidatedAt: '2026-09-25T00:00:00.000Z',
+        invalidatedBy: 'agent',
+        invalidatedReason: 'Superseded',
+      },
+    });
+
+    expect(result.form).toMatchObject({
+      invalidatedAt: '2026-09-25T00:00:00.000Z',
+      invalidatedBy: 'agent',
+      invalidatedReason: 'Superseded',
+    });
   });
 
   it('allows bead-backed repo-relative and legacy attachment refs without inlining file contents', () => {

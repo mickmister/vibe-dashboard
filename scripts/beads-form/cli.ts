@@ -10,6 +10,7 @@ import { promisify } from 'node:util';
 
 import {
   compileBeadsForm,
+  isBeadsFormInvalidated,
   stripGeneratedBeadsFormFields,
   type StandardBeadsForm,
   type StoredBeadsForm,
@@ -51,6 +52,9 @@ export type BeadsFormDefinition = {
   format: 'standard';
   questions: StandardBeadsForm['questions'];
   content?: StandardBeadsForm['content'];
+  invalidatedAt?: string;
+  invalidatedBy?: string;
+  invalidatedReason?: string;
 };
 
 export type BeadsFormsSummary = {
@@ -85,6 +89,7 @@ export type BeadsFormCliCommand =
   | { command: 'append-questions'; options: AppendQuestionsOptions }
   | { command: 'show-question'; options: QuestionSelectorOptions }
   | { command: 'update-question'; options: UpdateQuestionOptions }
+  | { command: 'invalidate'; options: InvalidateOptions }
   | { command: 'show'; options: ShowOptions }
   | { command: 'pending'; options: PendingOptions }
   | { command: 'help'; options: CliOptions };
@@ -136,6 +141,13 @@ export type ShowOptions = {
   formId?: string;
 };
 
+export type InvalidateOptions = {
+  dir: string;
+  beadId: string;
+  formId: string;
+  reason?: string;
+};
+
 export type PendingOptions = {
   parentDir: string;
   limit: number;
@@ -155,6 +167,15 @@ export type AttachResult = {
       workspace?: string;
     };
     authoringNextSteps: AuthoringNextSteps;
+  }>;
+  validUnfilledForms: Array<{
+    id: string;
+    title: string;
+    url: string;
+    urls: {
+      dir: string;
+      workspace?: string;
+    };
   }>;
   metadata: JsonObject;
 };
@@ -218,6 +239,16 @@ export type UpdateQuestionResult = {
   metadata: JsonObject;
 };
 
+export type InvalidateResult = {
+  beadId: string;
+  formId: string;
+  changed: boolean;
+  invalidatedAt: string;
+  invalidatedBy: string;
+  invalidatedReason?: string;
+  metadata: JsonObject;
+};
+
 export type ShowResult = {
   bead: Pick<BeadLike, 'id' | 'title' | 'description'>;
   form: ShowForm;
@@ -236,6 +267,9 @@ export type ShowForm = {
   format?: BeadsFormDefinition['format'];
   content?: BeadsFormDefinition['content'];
   questions?: BeadsFormDefinition['questions'];
+  invalidatedAt?: string;
+  invalidatedBy?: string;
+  invalidatedReason?: string;
 };
 
 export type ShowMediaRef = {
@@ -296,6 +330,9 @@ export function parseBeadsFormCliArgs(argv: string[]): BeadsFormCliCommand {
   if (command === 'update-question') {
     return { command, options: normalizeUpdateQuestionOptions(options) };
   }
+  if (command === 'invalidate') {
+    return { command, options: normalizeInvalidateOptions(options) };
+  }
   if (command === 'show') {
     return { command, options: normalizeShowOptions(options) };
   }
@@ -303,6 +340,21 @@ export function parseBeadsFormCliArgs(argv: string[]): BeadsFormCliCommand {
     return { command, options: normalizePendingOptions(options) };
   }
   return { command: 'help', options };
+}
+
+function normalizeInvalidateOptions(options: CliOptions): InvalidateOptions {
+  const beadId = stringOption(options, 'bead') ?? stringOption(options, 'bead-id') ?? options._[0];
+  const formId = stringOption(options, 'form') ?? stringOption(options, 'form-id') ?? options._[1];
+  if (!beadId || !formId) {
+    throw new Error('Usage: npm run beads-form -- invalidate --bead <bead-id> --form <form-id> [--reason text] [--dir repo]');
+  }
+  const reason = stringOption(options, 'reason');
+  return {
+    dir: resolve(stringOption(options, 'dir') ?? process.cwd()),
+    beadId,
+    formId,
+    ...(reason ? { reason } : {}),
+  };
 }
 
 function parseOptions(argv: string[]): CliOptions {
@@ -774,6 +826,23 @@ export async function attachBeadsForms(input: {
     sessionId: input.options.sessionId,
   });
   await updateMetadata({ execFile: exec, dir: input.options.dir, beadId: input.options.beadId, metadata });
+  const validUnfilledForms = getFormsFromMetadata(metadata)
+    .filter((form) => !isBeadsFormInvalidated(form) && (form.responses?.length ?? 0) === 0)
+    .map((form) => {
+      const urls = buildFillOutUrls({
+        dir: input.options.dir,
+        beadId: input.options.beadId,
+        formId: form.id,
+        origin: input.options.origin,
+        workspaceId: input.options.workspaceId,
+      });
+      return {
+        id: form.id,
+        title: form.title,
+        url: urls.workspace ?? urls.dir,
+        urls,
+      };
+    });
   return {
     beadId: input.options.beadId,
     forms: input.forms.map((form) => {
@@ -796,6 +865,7 @@ export async function attachBeadsForms(input: {
         }),
       };
     }),
+    validUnfilledForms,
     metadata,
   };
 }
@@ -808,7 +878,7 @@ function buildAuthoringNextSteps(input: {
   const questionFile = `.vk-mocked-sandbox/beads-form-authoring/${input.form.id}-question.json`;
   const common = `--dir ${shQuote(input.dir)} --bead ${shQuote(input.beadId)} --form ${shQuote(input.form.id)}`;
   return {
-    message: 'Review and refine questions before sharing this BeadsForm.',
+    message: 'Review and refine questions before sharing this BeadsForm; invalidate any previous forms that are no longer relevant.',
     commands: {
       showFirstQuestion: `beads-form show-question ${common} --index 1`,
       updateQuestionFromFile: `cat ${shQuote(questionFile)} | beads-form update-question ${common} --question <question-id> --base-hash ${shQuote(buildFormDefinitionHash(input.form))} --stdin`,
@@ -887,6 +957,7 @@ export function appendQuestionsToMetadata(
   const formIndex = forms.findIndex((candidate) => candidate.id === formId);
   if (formIndex < 0) throw new Error(`Form not found: ${formId}`);
   const form = forms[formIndex]!;
+  if (isBeadsFormInvalidated(form)) throw new Error(`Form ${formId} is invalidated and cannot be changed.`);
   const formHashBefore = buildFormDefinitionHash(form);
   if (options.baseHash && options.baseHash !== formHashBefore) {
     throw new Error(`Form ${formId} changed since base hash ${options.baseHash}; current hash is ${formHashBefore}`);
@@ -1001,6 +1072,7 @@ export function updateQuestionInMetadata(
   const formIndex = forms.findIndex((candidate) => candidate.id === formId);
   if (formIndex < 0) throw new Error(`Form not found: ${formId}`);
   const form = forms[formIndex]!;
+  if (isBeadsFormInvalidated(form)) throw new Error(`Form ${formId} is invalidated and cannot be changed.`);
   const formHashBefore = buildFormDefinitionHash(form);
   if (patch.baseHash && patch.baseHash !== formHashBefore) {
     throw new Error(`Form ${formId} changed since base hash ${patch.baseHash}; current hash is ${formHashBefore}`);
@@ -1033,6 +1105,64 @@ export function updateQuestionInMetadata(
     questionHashBefore: buildQuestionDefinitionHash(selected.question),
     questionHashAfter: buildQuestionDefinitionHash(patch.replacement),
   };
+}
+
+export async function invalidateBeadsForm(input: {
+  options: InvalidateOptions;
+  execFile?: ExecFileLike;
+  now?: () => Date;
+  actor?: string;
+}): Promise<InvalidateResult> {
+  const exec = input.execFile ?? defaultExecFile;
+  const bead = await readBead({ execFile: exec, dir: input.options.dir, beadId: input.options.beadId });
+  const mutation = invalidateFormInMetadata(bead.metadata, input.options.formId, {
+    reason: input.options.reason,
+    actor: input.actor ?? defaultActor(),
+    now: input.now ?? (() => new Date()),
+  });
+  if (mutation.changed) {
+    await updateMetadata({ execFile: exec, dir: input.options.dir, beadId: input.options.beadId, metadata: mutation.metadata });
+  }
+  return {
+    beadId: input.options.beadId,
+    formId: input.options.formId,
+    changed: mutation.changed,
+    invalidatedAt: mutation.form.invalidatedAt!,
+    invalidatedBy: mutation.form.invalidatedBy!,
+    ...(mutation.form.invalidatedReason ? { invalidatedReason: mutation.form.invalidatedReason } : {}),
+    metadata: mutation.metadata,
+  };
+}
+
+export function invalidateFormInMetadata(
+  metadata: unknown,
+  formId: string,
+  options: { reason?: string; actor: string; now: () => Date },
+): { metadata: JsonObject; form: BeadsFormDefinition; changed: boolean } {
+  const next: JsonObject = isObject(metadata) ? structuredClone(metadata) as JsonObject : {};
+  const beadForms = isObject(next.beadForms) ? next.beadForms : undefined;
+  if (!beadForms || !Array.isArray(beadForms.forms)) throw new Error('No canonical beadForms.forms[] metadata found on bead');
+
+  const forms = getFormsFromMetadata(next);
+  const formIndex = forms.findIndex((candidate) => candidate.id === formId);
+  if (formIndex < 0) throw new Error(`Form not found: ${formId}`);
+  const form = forms[formIndex]!;
+  if (isBeadsFormInvalidated(form)) {
+    return { metadata: next, form, changed: false };
+  }
+
+  const reason = options.reason?.trim();
+  const invalidated = stripGeneratedBeadsFormFields({
+    ...form,
+    invalidatedAt: options.now().toISOString(),
+    invalidatedBy: options.actor.trim() || 'agent',
+    ...(reason ? { invalidatedReason: reason } : {}),
+  } as StoredBeadsForm) as BeadsFormDefinition;
+  forms[formIndex] = invalidated;
+  next.beadForms = { ...beadForms, forms: forms.map(stripResponsesFromForm) };
+  writeSplitResponses(next, forms);
+  next.beadFormsSummary = buildBeadsFormsSummary(getFormsFromMetadata(next));
+  return { metadata: next, form: invalidated, changed: true };
 }
 
 export function buildFormDefinitionHash(form: BeadsFormDefinition): string {
@@ -1105,7 +1235,7 @@ function writeSplitResponses(next: JsonObject, forms: BeadsFormDefinition[]): vo
 export function buildBeadsFormsSummary(forms: readonly BeadsFormDefinition[]): BeadsFormsSummary {
   const formIds = forms.map((form) => form.id);
   const pendingFormIds = forms
-    .filter((form) => (form.responses?.length ?? 0) === 0)
+    .filter((form) => !isBeadsFormInvalidated(form) && (form.responses?.length ?? 0) === 0)
     .map((form) => form.id);
   return {
     hasForms: formIds.length > 0,
@@ -1114,6 +1244,10 @@ export function buildBeadsFormsSummary(forms: readonly BeadsFormDefinition[]): B
     formIds,
     pendingFormIds,
   };
+}
+
+function defaultActor(): string {
+  return process.env.USER?.trim() || process.env.USERNAME?.trim() || 'agent';
 }
 
 function stampStringMetadata(metadata: JsonObject, key: string, value: string | undefined): void {
@@ -1304,6 +1438,9 @@ export function buildShowResult(input: {
     ...(form.format ? { format: form.format } : {}),
     ...(form.content ? { content: form.content } : {}),
     ...(form.questions ? { questions: form.questions } : {}),
+    ...(form.invalidatedAt ? { invalidatedAt: form.invalidatedAt } : {}),
+    ...(form.invalidatedBy ? { invalidatedBy: form.invalidatedBy } : {}),
+    ...(form.invalidatedReason ? { invalidatedReason: form.invalidatedReason } : {}),
   };
   const responses = form.responses ?? [];
   return {
@@ -1424,6 +1561,7 @@ function printHelp(): void {
   beads-form append-questions --bead <id> --form <form-id> (--file questions.json | --json raw-json | --stdin) [--dir repo] [--after-question id] [--base-hash sha256] [--origin origin] [--workspace id]
   beads-form show-question --bead <id> --form <form-id> (--question question-id | --index one-based-index) [--dir repo]
   beads-form update-question --bead <id> --form <form-id> (--question question-id | --index one-based-index) (--file question.json | --json raw-json | --stdin) [--dir repo] [--base-hash sha256] [--origin origin] [--workspace id]
+  beads-form invalidate --bead <id> --form <form-id> [--reason text] [--dir repo]
   beads-form show --bead <id> [--form form-id] [--dir repo]
   beads-form pending --parent-dir <all-repos-dir> [--limit 80] [--origin origin]
 
@@ -1432,6 +1570,7 @@ Also supported:
   npm run beads-form -- append-questions --bead <id> --form <form-id> (--file questions.json | --json raw-json | --stdin) [--dir repo] [--after-question id] [--base-hash sha256] [--origin origin] [--workspace id]
   npm run beads-form -- show-question --bead <id> --form <form-id> (--question question-id | --index one-based-index) [--dir repo]
   npm run beads-form -- update-question --bead <id> --form <form-id> (--question question-id | --index one-based-index) (--file question.json | --json raw-json | --stdin) [--dir repo] [--base-hash sha256] [--origin origin] [--workspace id]
+  npm run beads-form -- invalidate --bead <id> --form <form-id> [--reason text] [--dir repo]
   npm run beads-form -- show --bead <id> [--form form-id] [--dir repo]
   npm run beads-form -- pending --parent-dir <all-repos-dir> [--limit 80] [--origin origin]
 
@@ -1488,6 +1627,12 @@ async function main(): Promise<void> {
 
   if (command.command === 'pending') {
     const result = await scanPendingBeadsForms({ options: command.options });
+    console.log(JSON.stringify(result, null, 2));
+    return;
+  }
+
+  if (command.command === 'invalidate') {
+    const result = await invalidateBeadsForm({ options: command.options });
     console.log(JSON.stringify(result, null, 2));
     return;
   }

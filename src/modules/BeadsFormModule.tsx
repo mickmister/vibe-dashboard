@@ -8,6 +8,8 @@ import {
   buildPrettySummary,
   beadFormDraftScopeKey,
   getBeadsForms,
+  invalidatedBeadsFormMessage,
+  isBeadsFormInvalidated,
   normalizeFormData,
   normalizeSubmittedValues,
   sanitizeBeadsFormHtml,
@@ -425,6 +427,17 @@ async function readAggregateForms(input: LoadAggregateFormsInput): Promise<LoadA
           ...(result.cache ? { cache: result.cache } : {}),
         };
       }
+      if (isBeadsFormInvalidated(form)) {
+        return {
+          ref,
+          key,
+          beadRepoDir: result.beadRepoDir,
+          bead: result.bead,
+          forms: result.forms,
+          error: invalidatedBeadsFormMessage(form),
+          ...(result.cache ? { cache: result.cache } : {}),
+        };
+      }
       return {
         ref,
         key,
@@ -520,6 +533,16 @@ function SubmitSuccessSummary({
       <button type="button" onClick={onEdit}>Edit response</button>
       <h3>BeadsForm XML handoff</h3>
       <textarea readOnly rows={Math.min(20, Math.max(6, manualCopyText.split('\n').length + 1))} value={manualCopyText} />
+    </section>
+  );
+}
+
+function InvalidatedBeadsFormNotice({ form }: { form: BeadsFormDefinition }) {
+  return (
+    <section className="beadsform-submit-result" aria-live="polite">
+      <h2>BeadsForm no longer accepts responses</h2>
+      <p>{invalidatedBeadsFormMessage(form)}</p>
+      <p>This stale or superseded form is kept for history, but it cannot accept new answers.</p>
     </section>
   );
 }
@@ -1792,11 +1815,14 @@ function BeadsFormRoute({ actions, pendingQueueSentinel }: { actions: {
             {forms.map((form) => (
               <li key={form.id}>
                 <a href={formViewUrl({ workspaceId, dir: selected.beadRepoDir, beadId, formId: form.id, includeOtherWorkspaces })}>{form.title}</a>
+                {isBeadsFormInvalidated(form) ? <p>This form was invalidated and is not answerable.</p> : null}
                 {form.description ? <p>{form.description}</p> : null}
               </li>
             ))}
           </ul>
         </section>
+      ) : selectedForm && isBeadsFormInvalidated(selectedForm) ? (
+        <InvalidatedBeadsFormNotice form={selectedForm} />
       ) : selectedForm && submitResult ? (
         <SubmitSuccessSummary
           title="BeadsForm submitted"

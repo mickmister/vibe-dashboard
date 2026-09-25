@@ -4,6 +4,7 @@ import {
   compileBeadsForm,
   NEXT_INSTRUCTION_FIELD,
   NEXT_INSTRUCTION_MAX_CHARS,
+  isBeadsFormInvalidated,
   stripGeneratedBeadsFormFields,
   type BeadsFormControl,
   type ChoicesQuestion,
@@ -19,6 +20,7 @@ import { beadsFormSubmissionXml } from './beadsFormSubmissionHandoff.ts';
 
 export { ALLOW_CODE_FILE_CHANGES_FIELD };
 export { NEXT_INSTRUCTION_FIELD, NEXT_INSTRUCTION_MAX_CHARS };
+export { isBeadsFormInvalidated };
 export {
   assertMetadataWithinIssueJsonGuard,
   BEAD_ISSUE_METADATA_JSON_MAX_BYTES,
@@ -66,6 +68,9 @@ export type BeadsFormDefinition = {
   format: 'standard';
   questions: StandardBeadsForm['questions'];
   content?: StandardBeadsForm['content'];
+  invalidatedAt?: string;
+  invalidatedBy?: string;
+  invalidatedReason?: string;
 };
 
 export type BeadsFormsSummary = {
@@ -274,6 +279,9 @@ export function appendBeadsFormResponse(
   const forms = getBeadsForms(next);
   const formIndex = forms.findIndex((candidate) => candidate.id === formId);
   if (formIndex < 0) throw new Error(`Form not found: ${formId}`);
+  if (isBeadsFormInvalidated(forms[formIndex]!)) {
+    throw new Error(invalidatedBeadsFormMessage(forms[formIndex]!));
+  }
 
   const updatedForms = forms.map((form, index) => {
     if (index !== formIndex) return form;
@@ -335,10 +343,10 @@ export function clearBeadsFormDraftInMetadata(metadata: unknown, scopeKey: strin
   return next;
 }
 
-export function buildBeadsFormsSummary(forms: readonly Pick<BeadsFormDefinition, 'id' | 'responses'>[]): BeadsFormsSummary {
+export function buildBeadsFormsSummary(forms: readonly Pick<BeadsFormDefinition, 'id' | 'responses' | 'invalidatedAt'>[]): BeadsFormsSummary {
   const formIds = forms.map((form) => form.id);
   const pendingFormIds = forms
-    .filter((form) => (form.responses?.length ?? 0) === 0)
+    .filter((form) => !isBeadsFormInvalidated(form) && (form.responses?.length ?? 0) === 0)
     .map((form) => form.id);
   return {
     hasForms: formIds.length > 0,
@@ -347,6 +355,16 @@ export function buildBeadsFormsSummary(forms: readonly Pick<BeadsFormDefinition,
     formIds,
     pendingFormIds,
   };
+}
+
+export function invalidatedBeadsFormMessage(form: Pick<BeadsFormDefinition, 'id' | 'invalidatedAt' | 'invalidatedBy' | 'invalidatedReason'>): string {
+  const pieces = [`BeadsForm ${form.id} is no longer accepting responses because it was invalidated`];
+  if (form.invalidatedReason) pieces.push(`: ${form.invalidatedReason}`);
+  const details = [
+    form.invalidatedAt ? `at ${form.invalidatedAt}` : '',
+    form.invalidatedBy ? `by ${form.invalidatedBy}` : '',
+  ].filter(Boolean).join(' ');
+  return `${pieces.join('')}${details ? ` (${details})` : ''}.`;
 }
 
 export function withBeadsFormsSummary(metadata: unknown): JsonObject {

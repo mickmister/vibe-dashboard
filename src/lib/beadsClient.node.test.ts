@@ -72,6 +72,25 @@ describe('BeadsClient', () => {
     expect(((metadata.beadForms as Record<string, unknown>).forms as Array<Record<string, unknown>>)[0]?.responses).toBeUndefined();
   });
 
+  it('rejects new submissions to invalidated forms before metadata mutation', async () => {
+    const exec = vi.fn<ExecFileLike>(async (_file, args) => {
+      if (args[0] === '--readonly') {
+        return { stdout: beadJson({ beadForms: { forms: [storedForm('review', 'Review', { invalidatedAt: '2026-09-25T00:00:00.000Z', invalidatedBy: 'agent', invalidatedReason: 'Superseded' })] } }), stderr: '' };
+      }
+      return { stdout: '', stderr: '' };
+    });
+    const client = new BeadsClient({ execFile: exec });
+
+    await expect(client.submitForm({
+      dir: '/repo-invalid',
+      beadId: 'beads-web-biu',
+      formId: 'review',
+      submissionId,
+      values: { comment: 'new' },
+    })).rejects.toThrow('no longer accepting responses');
+    expect(exec.mock.calls.map(([, args]) => args[0])).toEqual(['--readonly']);
+  });
+
   it('clears a matching server draft when a response is submitted', async () => {
     let metadata: Record<string, unknown> = draftFormProgressInMetadata(reviewMetadata, {
       workspaceId: 'workspace-1',
@@ -782,6 +801,7 @@ describe('BeadsClient', () => {
         return { stdout: JSON.stringify([
           { id: 'done', title: 'Done bead', metadata: { beadFormsSummary: { hasForms: true, hasPendingAnswer: false, pendingResponseCount: 0, formIds: ['done_form'], pendingFormIds: [] }, beadForms: { forms: [storedForm('done_form', 'Done')] } } },
           { id: 'pending', title: 'Pending bead', created_at: '2026-08-01T00:00:00Z', metadata: { beadFormsSummary: { hasForms: true, hasPendingAnswer: true, pendingResponseCount: 1, formIds: ['review'], pendingFormIds: ['review'] }, beadForms: { forms: [storedForm()] } } },
+          { id: 'invalid', title: 'Invalid bead', metadata: { beadFormsSummary: { hasForms: true, hasPendingAnswer: true, pendingResponseCount: 1, formIds: ['invalid_form'], pendingFormIds: ['invalid_form'] }, beadForms: { forms: [storedForm('invalid_form', 'Invalid', { invalidatedAt: '2026-09-25T00:00:00.000Z', invalidatedBy: 'agent' })] } } },
           { id: 'closed', title: 'Closed bead', status: 'closed', metadata: { beadFormsSummary: { hasForms: true, hasPendingAnswer: true, pendingResponseCount: 1, formIds: ['closed_form'], pendingFormIds: ['closed_form'] }, beadForms: { forms: [storedForm('closed_form', 'Closed')] } } },
         ]), stderr: '' };
       }

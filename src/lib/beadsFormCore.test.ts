@@ -254,13 +254,27 @@ describe('BeadsForm core', () => {
     expect(buildBeadsFormsSummary([
       { ...storedForm('pending', 'Pending') },
       { ...storedForm('answered', 'Answered'), responses: [{ submittedBy: 'user', submittedAt: 'now', values: {} }] },
+      { ...storedForm('invalid', 'Invalid'), invalidatedAt: '2026-09-25T00:00:00.000Z' },
     ])).toEqual({
       hasForms: true,
       hasPendingAnswer: true,
       pendingResponseCount: 1,
-      formIds: ['pending', 'answered'],
+      formIds: ['pending', 'answered', 'invalid'],
       pendingFormIds: ['pending'],
     });
+  });
+
+  it('rejects appending responses to invalidated forms while preserving history', () => {
+    const metadata = {
+      beadForms: {
+        forms: [{ ...storedForm('invalid', 'Invalid'), invalidatedAt: '2026-09-25T00:00:00.000Z', invalidatedBy: 'agent' }],
+      },
+    };
+    expect(() => appendBeadsFormResponse(metadata, 'invalid', {
+      submittedBy: 'user',
+      submittedAt: '2026-09-25T01:00:00.000Z',
+      values: {},
+    })).toThrow('no longer accepting responses');
   });
 
   it('rejects raw html forms and preflights oversized metadata before mutation', () => {

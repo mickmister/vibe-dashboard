@@ -99,4 +99,12 @@ describe('BeadsForm pending queue UI source', () => {
     expect(source).toContain('Inbox clear');
     expect(source).not.toContain('workspaceId}</p>');
   });
+
+  it('blocks invalidated selected and aggregate forms instead of rendering answerable forms', async () => {
+    const source = await readFile(new URL('./BeadsFormModule.tsx', import.meta.url), 'utf8');
+    expect(source).toContain('InvalidatedBeadsFormNotice');
+    expect(source).toContain('isBeadsFormInvalidated(selectedForm)');
+    expect(source).toContain('isBeadsFormInvalidated(form)');
+    expect(source).toContain('invalidatedBeadsFormMessage(form)');
+  });
 });
