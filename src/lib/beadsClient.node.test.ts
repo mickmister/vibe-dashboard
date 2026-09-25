@@ -2,7 +2,14 @@ import { mkdir, mkdtemp, readFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { BeadsClient, clearCompletedBeadsFormSubmitResults, type ExecFileLike } from './beadsClient.node';
+import {
+  BeadsClient,
+  clearCompletedBeadsFormSubmitResults,
+  draftFormProgressInMetadata,
+  getBeadsFormDraft,
+  type ExecFileLike,
+} from './beadsClient.node';
+import { getBeadsForms } from './beadsFormCore';
 
 function beadJson(metadata: unknown) {
   return JSON.stringify([{ id: 'beads-web-biu', title: 'Plan', metadata }]);
@@ -34,6 +41,122 @@ const submissionId = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
 
 describe('BeadsClient', () => {
   beforeEach(() => clearCompletedBeadsFormSubmitResults());
+
+  it('stores and reads one server draft per workspace, repo, bead, and form without touching responses', () => {
+    const metadata = draftFormProgressInMetadata(reviewMetadata, {
+      workspaceId: 'workspace-1',
+      dir: '/repo',
+      beadId: 'beads-web-biu',
+      formId: 'review',
+      values: { comment: 'draft with `code` | pipe' },
+      position: { kind: 'question', index: 2 },
+      updatedAt: '2026-09-25T00:00:00.000Z',
+    });
+
+    expect(getBeadsFormDraft(metadata, {
+      workspaceId: 'workspace-1',
+      dir: '/repo',
+      beadId: 'beads-web-biu',
+      formId: 'review',
+    })).toEqual({
+      values: { comment: 'draft with `code` | pipe' },
+      position: { kind: 'question', index: 2 },
+      updatedAt: '2026-09-25T00:00:00.000Z',
+    });
+    expect(getBeadsFormDraft(metadata, {
+      workspaceId: 'workspace-2',
+      dir: '/repo',
+      beadId: 'beads-web-biu',
+      formId: 'review',
+    })).toBeUndefined();
+    expect(((metadata.beadForms as Record<string, unknown>).forms as Array<Record<string, unknown>>)[0]?.responses).toBeUndefined();
+  });
+
+  it('clears a matching server draft when a response is submitted', async () => {
+    let metadata: Record<string, unknown> = draftFormProgressInMetadata(reviewMetadata, {
+      workspaceId: 'workspace-1',
+      dir: '/repo-draft-clear',
+      beadId: 'beads-web-biu',
+      formId: 'review',
+      values: { comment: 'draft' },
+      position: { kind: 'review' },
+      updatedAt: '2026-09-25T00:00:00.000Z',
+    });
+    const exec = vi.fn<ExecFileLike>(async (_file, args) => {
+      if (args[0] === '--readonly') return { stdout: beadJson(metadata), stderr: '' };
+      const metadataArg = args.find((arg) => arg.startsWith('@'));
+      if (metadataArg) metadata = JSON.parse(await readFile(metadataArg.slice(1), 'utf8')) as Record<string, unknown>;
+      return { stdout: '', stderr: '' };
+    });
+    const client = new BeadsClient({ execFile: exec, now: () => new Date('2026-09-25T01:00:00.000Z') });
+
+    await client.submitForm({
+      workspaceId: 'workspace-1',
+      dir: '/repo-draft-clear',
+      beadId: 'beads-web-biu',
+      formId: 'review',
+      submissionId,
+      values: { comment: 'submitted' },
+    });
+
+    expect(getBeadsFormDraft(metadata, {
+      workspaceId: 'workspace-1',
+      dir: '/repo-draft-clear',
+      beadId: 'beads-web-biu',
+      formId: 'review',
+    })).toBeUndefined();
+    expect(getBeadsForms(metadata)[0]?.responses?.at(-1)?.values).toEqual({
+      comment: 'submitted',
+      allow_code_file_changes: false,
+    });
+  });
+
+  it('saves draft progress without appending a response and rejects stale draft overwrites before mutation', async () => {
+    let metadata: Record<string, unknown> = { ...reviewMetadata };
+    const exec = vi.fn<ExecFileLike>(async (_file, args) => {
+      if (args[0] === '--readonly') return { stdout: beadJson(metadata), stderr: '' };
+      const metadataArg = args.find((arg) => arg.startsWith('@'));
+      if (metadataArg) metadata = JSON.parse(await readFile(metadataArg.slice(1), 'utf8')) as Record<string, unknown>;
+      return { stdout: '', stderr: '' };
+    });
+    const client = new BeadsClient({
+      execFile: exec,
+      now: () => new Date('2026-09-25T01:00:00.000Z'),
+    });
+
+    const saved = await client.saveFormDraft({
+      dir: '/repo-draft-save',
+      beadId: 'beads-web-biu',
+      formId: 'review',
+      workspaceId: 'workspace-1',
+      values: { comment: 'draft' },
+      position: { kind: 'review' },
+    });
+
+    expect(saved.draft).toEqual({
+      values: { comment: 'draft', allow_code_file_changes: false },
+      position: { kind: 'review' },
+      updatedAt: '2026-09-25T01:00:00.000Z',
+    });
+    expect(getBeadsFormDraft(metadata, {
+      workspaceId: 'workspace-1',
+      dir: '/repo-draft-save',
+      beadId: 'beads-web-biu',
+      formId: 'review',
+    })).toEqual(saved.draft);
+    expect(getBeadsForms(metadata)[0]?.responses).toBeUndefined();
+
+    await expect(client.saveFormDraft({
+      dir: '/repo-draft-save',
+      beadId: 'beads-web-biu',
+      formId: 'review',
+      workspaceId: 'workspace-1',
+      values: { comment: 'stale overwrite' },
+      baseUpdatedAt: '2026-09-25T00:59:00.000Z',
+    })).rejects.toThrow(/draft changed/i);
+    expect(exec.mock.calls.filter(([, args]) => args.includes('--metadata'))).toHaveLength(1);
+  });
+
   it('persists first and notifies exactly the valid creating session without adding the fallback label', async () => {
     const order: string[] = [];
     const sessionId = '2e56418d-2829-4e2f-aab7-105c5aab41dc';

@@ -5,6 +5,7 @@ import springboard from 'springboard';
 
 import {
   buildAgentResultMessage,
+  beadFormDraftScopeKey,
   getBeadsForms,
   normalizeFormData,
   normalizeSubmittedValues,
@@ -12,12 +13,12 @@ import {
   validateSubmittedValues,
   type BeadLike,
   type BeadsFormDefinition,
+  type BeadsFormDraft,
+  type BeadsFormWizardPosition,
   type JsonObject,
 } from '../lib/beadsFormCore';
 import {
   applyValuesToForm,
-  beadFormStorageKey,
-  clearPreviewStorage,
   formValuesFromDom,
   latestSubmittedResponseValues,
   previewStorageKey,
@@ -64,7 +65,7 @@ import {
 
 // @platform "node"
 import { serverRegistry } from 'springboard/server/register';
-import { createNodeBeadsClient, type ListWorkspaceBeadsResult, type PendingBeadsFormQueueResult } from '../lib/beadsClient.node';
+import { createNodeBeadsClient, getBeadsFormDraft, type ListWorkspaceBeadsResult, type PendingBeadsFormQueueResult } from '../lib/beadsClient.node';
 import { loadBeadsFormsFromFolder, tryAppendBeadsFormPreviewResponse } from '../lib/beadsFormFolder.node';
 import {
   normalizePendingQueueInput,
@@ -84,6 +85,7 @@ type LoadFormsInput = {
   dir: string;
   beadId: string;
   formId?: string;
+  workspaceId?: string;
 };
 
 type LoadWorkspaceFormsInput = {
@@ -97,6 +99,7 @@ type LoadFormsResult = {
   bead: BeadLike;
   forms: BeadsFormDefinition[];
   selectedForm?: BeadsFormDefinition;
+  selectedDraft?: BeadsFormDraft;
   beadRepoDir: string;
   cache?: BeadsFormCacheMetadata;
 };
@@ -107,6 +110,7 @@ type AggregateBeadsFormItem = {
   beadRepoDir?: string;
   bead?: BeadLike;
   form?: BeadsFormDefinition;
+  draft?: BeadsFormDraft;
   forms?: BeadsFormDefinition[];
   error?: string;
   cache?: BeadsFormCacheMetadata;
@@ -132,8 +136,23 @@ type SubmitFormInput = {
   dir: string;
   beadId: string;
   formId: string;
+  workspaceId?: string;
   values: JsonObject;
   submissionId: string;
+};
+
+type SaveFormDraftInput = {
+  dir: string;
+  beadId: string;
+  formId: string;
+  workspaceId?: string;
+  values: JsonObject;
+  position?: BeadsFormWizardPosition;
+  baseUpdatedAt?: string;
+};
+
+type SaveFormDraftResult = {
+  draft: BeadsFormDraft;
 };
 
 type SubmitFormResult = {
@@ -224,11 +243,20 @@ async function readBeadFormsFresh(input: LoadFormsInput): Promise<LoadFormsResul
   if (!input.beadId.trim()) throw new Error('beadId is required');
   const bead = await nodeClient().readBead(input.dir, input.beadId);
   const forms = getBeadsForms(bead.metadata);
+  const selectedForm = input.formId ? forms.find((form) => form.id === input.formId) : undefined;
   return {
     bead,
     forms,
     beadRepoDir: input.dir,
-    selectedForm: input.formId ? forms.find((form) => form.id === input.formId) : undefined,
+    selectedForm,
+    ...(selectedForm ? {
+      selectedDraft: getBeadsFormDraft(bead.metadata, {
+        ...(input.workspaceId ? { workspaceId: input.workspaceId } : {}),
+        dir: input.dir,
+        beadId: input.beadId,
+        formId: selectedForm.id,
+      }),
+    } : {}),
   };
 }
 
@@ -264,6 +292,14 @@ async function readWorkspaceFormsFresh(input: LoadWorkspaceFormsInput): Promise<
         forms,
         beadRepoDir: selectedRepo.dir,
         selectedForm: input.formId ? forms.find((form) => form.id === input.formId) : undefined,
+        ...(input.formId ? {
+          selectedDraft: getBeadsFormDraft(selectedBead.metadata, {
+            workspaceId: input.workspaceId,
+            dir: selectedRepo.dir,
+            beadId: input.beadId!,
+            formId: input.formId,
+          }),
+        } : {}),
       },
     } : {}),
   };
@@ -393,6 +429,7 @@ async function readAggregateForms(input: LoadAggregateFormsInput): Promise<LoadA
         beadRepoDir: result.beadRepoDir,
         bead: result.bead,
         form,
+        draft: result.selectedDraft,
         forms: result.forms,
         ...(result.cache ? { cache: result.cache } : {}),
       };
@@ -426,7 +463,7 @@ function normalizeSubmittedFormEvent(
   return normalizeSubmittedValues(form, values);
 }
 
-function wizardSafeFormHtml(form: BeadsFormDefinition, html: string, options: { urlState?: boolean } = {}): string {
+function wizardSafeFormHtml(form: BeadsFormDefinition, html: string, options: { urlState?: boolean; initialPosition?: BeadsFormWizardPosition } = {}): string {
   if (form.format !== 'standard') return html;
   return prehideInactiveSingleQuestionItems(html, options);
 }
@@ -936,29 +973,34 @@ function BeadsFormPendingQueue({ actions, parentDir, pendingQueueSentinel }: {
   );
 }
 
-function AggregateBeadsFormCard({ item, submitBeadForm }: {
+function AggregateBeadsFormCard({ item, submitBeadForm, saveBeadFormDraft }: {
   item: AggregateBeadsFormItem;
   submitBeadForm: (input: SubmitFormInput) => MaybeNestedPromise<SubmitFormResult>;
+  saveBeadFormDraft: (input: SaveFormDraftInput) => MaybeNestedPromise<SaveFormDraftResult>;
 }) {
   const [status, setStatus] = useState<AggregateSubmitStatus>({ status: 'idle' });
   const [submittedLocked, setSubmittedLocked] = useState(false);
+  const [editingSubmittedResponse, setEditingSubmittedResponse] = useState(false);
   const [editResponseVersion, setEditResponseVersion] = useState(0);
   const submittedLockedRef = useRef(false);
   const submitInFlightRef = useRef(false);
   const submissionIdRef = useRef<string | null>(null);
   const formHostRef = useRef<HTMLDivElement | null>(null);
+  const draftSaveTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const draftUpdatedAtRef = useRef<string | undefined>(item.draft?.updatedAt);
+  const wizardPositionRef = useRef<BeadsFormWizardPosition | undefined>(item.draft?.position);
   const form = item.form;
   const domPrefix = useMemo(() => aggregateFormDomPrefix(item.ref), [item.ref]);
   const html = useMemo(() => (
     form ? wizardSafeFormHtml(
       form,
       namespaceAggregateFormHtml(sanitizeBeadsFormHtml(rewriteBeadBackedAttachmentRefs(form.html, item.beadRepoDir ?? item.ref.dir)), domPrefix),
-      { urlState: false },
+      { urlState: false, initialPosition: item.draft?.position },
     ) : ''
-  ), [domPrefix, form, item.beadRepoDir, item.ref.dir]);
-  const storageKey = useMemo(() => {
+  ), [domPrefix, form, item.beadRepoDir, item.ref.dir, item.draft?.position]);
+  const draftScopeKey = useMemo(() => {
     if (!form || !item.beadRepoDir) return '';
-    return beadFormStorageKey({
+    return beadFormDraftScopeKey({
       dir: item.beadRepoDir,
       beadId: item.ref.beadId,
       formId: form.id,
@@ -969,14 +1011,24 @@ function AggregateBeadsFormCard({ item, submitBeadForm }: {
     submittedLockedRef.current = submittedLocked;
   }, [submittedLocked]);
 
+  React.useEffect(() => () => {
+    if (draftSaveTimeoutRef.current) clearTimeout(draftSaveTimeoutRef.current);
+  }, []);
+
+  React.useEffect(() => {
+    draftUpdatedAtRef.current = item.draft?.updatedAt;
+    wizardPositionRef.current = item.draft?.position;
+  }, [draftScopeKey, item.draft]);
+
   React.useEffect(() => {
     const element = formHostRef.current?.querySelector('form');
-    if (!element || !form || !storageKey) return;
-    const snapshot = readPreviewStorage(typeof window === 'undefined' ? undefined : window.localStorage, storageKey);
+    if (!element || !form || !draftScopeKey) return;
     const backendValues = latestSubmittedResponseValues(form.responses);
-    const restoredValues = snapshot.editing ? (snapshot.draft ?? backendValues ?? snapshot.latest) : (backendValues ?? snapshot.latest ?? snapshot.draft);
+    const restoredValues = editingSubmittedResponse
+      ? (item.draft?.values ?? backendValues)
+      : (backendValues ?? item.draft?.values);
     if (restoredValues) applyValuesToForm(element, restoredValues);
-    const locked = submittedLockedRef.current || (!!(backendValues ?? snapshot.latest) && !snapshot.editing);
+    const locked = submittedLockedRef.current || (!!backendValues && !editingSubmittedResponse);
     submittedLockedRef.current = locked;
     setSubmittedLocked(locked);
     setSubmitButtonsDisabled(element, locked);
@@ -988,32 +1040,66 @@ function AggregateBeadsFormCard({ item, submitBeadForm }: {
       initializeMarkdownTextareaEditors(host);
       refreshMarkdownTextareaEditors(host);
     }
-  }, [editResponseVersion, form, html, storageKey]);
+  }, [draftScopeKey, editResponseVersion, editingSubmittedResponse, form, html, item.draft]);
 
   React.useEffect(() => {
     const element = formHostRef.current;
     if (!element || !form) return;
-    if (form.format === 'standard') initializeSingleQuestionMode(element, { urlState: false });
+    if (form.format === 'standard') initializeSingleQuestionMode(element, { urlState: false, initialPosition: item.draft?.position });
     initializeCompactMoreInfo(element);
     refreshCompactMoreInfoState(element);
     initializeMarkdownTextareaEditors(element);
     refreshMarkdownTextareaEditors(element);
-  }, [editResponseVersion, form, html]);
+  }, [editResponseVersion, form, html, item.draft?.position]);
 
   const handleDraftChange = () => {
-    if (submittedLocked || !storageKey || typeof window === 'undefined') return;
+    if (submittedLocked || !draftScopeKey || !form || !item.beadRepoDir) return;
     const element = formHostRef.current?.querySelector('form');
     if (!element) return;
-    writePreviewDraft(window.localStorage, storageKey, formValuesFromDom(element));
+    const values = formValuesFromDom(element);
+    if (draftSaveTimeoutRef.current) clearTimeout(draftSaveTimeoutRef.current);
+    draftSaveTimeoutRef.current = setTimeout(() => {
+      void (async () => {
+        try {
+          const result = await (await saveBeadFormDraft({
+            dir: item.beadRepoDir!,
+            beadId: item.ref.beadId,
+            formId: form.id,
+            values,
+            ...(wizardPositionRef.current ? { position: wizardPositionRef.current } : {}),
+            ...(draftUpdatedAtRef.current ? { baseUpdatedAt: draftUpdatedAtRef.current } : {}),
+          }));
+          draftUpdatedAtRef.current = result.draft.updatedAt;
+        } catch (reason) {
+          setStatus({ status: 'error', message: reason instanceof Error ? reason.message : String(reason) });
+        }
+      })();
+    }, 300);
   };
+
+  React.useEffect(() => {
+    const host = formHostRef.current;
+    if (!host) return undefined;
+    const handlePositionChange = (event: Event) => {
+      const detail = (event as CustomEvent<{ position?: BeadsFormWizardPosition }>).detail;
+      if (detail?.position) {
+        wizardPositionRef.current = detail.position;
+        handleDraftChange();
+      }
+    };
+    host.addEventListener('beadsform:wizard-position-change', handlePositionChange);
+    return () => {
+      host.removeEventListener('beadsform:wizard-position-change', handlePositionChange);
+    };
+  });
 
   const handleEditResponse = () => {
     submissionIdRef.current = null;
     submittedLockedRef.current = false;
     setSubmittedLocked(false);
+    setEditingSubmittedResponse(true);
     setStatus({ status: 'idle' });
     setEditResponseVersion((version) => version + 1);
-    if (storageKey && typeof window !== 'undefined') startPreviewEdit(window.localStorage, storageKey);
     const element = formHostRef.current?.querySelector('form');
     if (element) {
       setSubmitButtonsDisabled(element, false);
@@ -1038,7 +1124,8 @@ function AggregateBeadsFormCard({ item, submitBeadForm }: {
         values,
         submissionId: submissionIdRef.current ??= createSubmissionId(),
       }));
-      if (typeof window !== 'undefined' && storageKey) clearPreviewStorage(window.localStorage, storageKey);
+      draftUpdatedAtRef.current = undefined;
+      if (draftSaveTimeoutRef.current) clearTimeout(draftSaveTimeoutRef.current);
       preserveSubmittedFormDom(formHostRef.current, result.values, {
         lock: true,
         singleQuestionMode: form.format === 'standard',
@@ -1046,6 +1133,7 @@ function AggregateBeadsFormCard({ item, submitBeadForm }: {
       });
       submittedLockedRef.current = true;
       setSubmittedLocked(true);
+      setEditingSubmittedResponse(false);
       const handoffMetadata = {
         beadId: item.ref.beadId,
         formId: form.id,
@@ -1145,6 +1233,7 @@ function AggregateBeadsFormCard({ item, submitBeadForm }: {
 function BeadsFormAggregateRoute({ actions }: { actions: {
   loadAggregateForms: (input: LoadAggregateFormsInput) => MaybeNestedPromise<LoadAggregateFormsResult>;
   submitBeadForm: (input: SubmitFormInput) => MaybeNestedPromise<SubmitFormResult>;
+  saveBeadFormDraft: (input: SaveFormDraftInput) => MaybeNestedPromise<SaveFormDraftResult>;
 } }) {
   const [params] = useSearchParams();
   const [loaded, setLoaded] = useState<LoadAggregateFormsResult | null>(null);
@@ -1201,7 +1290,12 @@ function BeadsFormAggregateRoute({ actions }: { actions: {
         <section className="beadsform-aggregate-list">
           <h2>Source forms</h2>
           {loaded.items.map((item) => (
-            <AggregateBeadsFormCard key={item.key} item={item} submitBeadForm={actions.submitBeadForm} />
+            <AggregateBeadsFormCard
+              key={item.key}
+              item={item}
+              submitBeadForm={actions.submitBeadForm}
+              saveBeadFormDraft={actions.saveBeadFormDraft}
+            />
           ))}
         </section>
       ) : null}
@@ -1217,6 +1311,7 @@ function BeadsFormRoute({ actions, pendingQueueSentinel }: { actions: {
   loadPendingForms: (input: LoadPendingFormsInput) => MaybeNestedPromise<LoadPendingFormsResult>;
   refreshPendingForms: (input: LoadPendingFormsInput) => MaybeNestedPromise<LoadPendingFormsResult>;
   submitBeadForm: (input: SubmitFormInput) => MaybeNestedPromise<SubmitFormResult>;
+  saveBeadFormDraft: (input: SaveFormDraftInput) => MaybeNestedPromise<SaveFormDraftResult>;
 }; pendingQueueSentinel: PendingQueueSentinel }) {
   const [params] = useSearchParams();
   const workspaceId = params.get('workspace') ?? '';
@@ -1232,15 +1327,23 @@ function BeadsFormRoute({ actions, pendingQueueSentinel }: { actions: {
   const [submitResult, setSubmitResult] = useState<SubmitFormResult | null>(null);
   const [clipboardResult, setClipboardResult] = useState<ClipboardCopyResult | null>(null);
   const [submittedLocked, setSubmittedLocked] = useState(false);
+  const [editingSubmittedResponse, setEditingSubmittedResponse] = useState(false);
   const [editResponseVersion, setEditResponseVersion] = useState(0);
   const submittedLockedRef = useRef(false);
   const submitInFlightRef = useRef(false);
   const submissionIdRef = useRef<string | null>(null);
   const formHostRef = useRef<HTMLDivElement | null>(null);
+  const draftSaveTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const draftUpdatedAtRef = useRef<string | undefined>(undefined);
+  const wizardPositionRef = useRef<BeadsFormWizardPosition | undefined>(undefined);
 
   React.useEffect(() => {
     submittedLockedRef.current = submittedLocked;
   }, [submittedLocked]);
+
+  React.useEffect(() => () => {
+    if (draftSaveTimeoutRef.current) clearTimeout(draftSaveTimeoutRef.current);
+  }, []);
 
   React.useEffect(() => {
     let cancelled = false;
@@ -1248,9 +1351,12 @@ function BeadsFormRoute({ actions, pendingQueueSentinel }: { actions: {
     setError(null);
     setSubmitResult(null);
     setClipboardResult(null);
+    setEditingSubmittedResponse(false);
     setEditResponseVersion(0);
     submittedLockedRef.current = false;
     setSubmittedLocked(false);
+    draftUpdatedAtRef.current = undefined;
+    wizardPositionRef.current = undefined;
 
     if (!workspaceId && (!dir || !beadId)) {
       return;
@@ -1261,7 +1367,12 @@ function BeadsFormRoute({ actions, pendingQueueSentinel }: { actions: {
         const directResult = async (
           loader: (input: LoadFormsInput) => MaybeNestedPromise<LoadFormsResult>,
         ): Promise<LoadWorkspaceFormsResult> => {
-          const selected = await (await loader({ dir, beadId, formId }));
+          const selected = await (await loader({
+            dir,
+            beadId,
+            formId,
+            ...(workspaceId ? { workspaceId } : {}),
+          }));
           return {
             workspaceId,
             workspaceBeads: {
@@ -1317,12 +1428,13 @@ function BeadsFormRoute({ actions, pendingQueueSentinel }: { actions: {
     return wizardSafeFormHtml(
       loaded.selected.selectedForm,
       sanitizeBeadsFormHtml(rewriteBeadBackedAttachmentRefs(loaded.selected.selectedForm.html, loaded.selected.beadRepoDir)),
+      { initialPosition: loaded.selected.selectedDraft?.position },
     );
-  }, [loaded?.selected?.beadRepoDir, loaded?.selected?.selectedForm]);
+  }, [loaded?.selected?.beadRepoDir, loaded?.selected?.selectedDraft?.position, loaded?.selected?.selectedForm]);
 
-  const beadDraftStorageKey = useMemo(() => {
+  const beadDraftScopeKey = useMemo(() => {
     if (!loaded?.selected?.selectedForm || !beadId) return '';
-    return beadFormStorageKey({
+    return beadFormDraftScopeKey({
       ...(workspaceId ? { workspaceId } : {}),
       dir: loaded.selected.beadRepoDir,
       beadId,
@@ -1331,12 +1443,19 @@ function BeadsFormRoute({ actions, pendingQueueSentinel }: { actions: {
   }, [beadId, loaded?.selected?.beadRepoDir, loaded?.selected?.selectedForm, workspaceId]);
 
   React.useEffect(() => {
+    draftUpdatedAtRef.current = loaded?.selected?.selectedDraft?.updatedAt;
+    wizardPositionRef.current = loaded?.selected?.selectedDraft?.position;
+  }, [beadDraftScopeKey, loaded?.selected?.selectedDraft]);
+
+  React.useEffect(() => {
     const form = formHostRef.current?.querySelector('form');
     const selectedForm = loaded?.selected?.selectedForm;
-    if (!form || !beadDraftStorageKey || !selectedForm) return;
-    const snapshot = readPreviewStorage(typeof window === 'undefined' ? undefined : window.localStorage, beadDraftStorageKey);
+    if (!form || !beadDraftScopeKey || !selectedForm) return;
     const backendValues = latestSubmittedResponseValues(selectedForm.responses);
-    const restoredValues = snapshot.editing ? (snapshot.draft ?? backendValues ?? snapshot.latest) : (backendValues ?? snapshot.latest ?? snapshot.draft);
+    const serverDraft = loaded?.selected?.selectedDraft;
+    const restoredValues = editingSubmittedResponse
+      ? (serverDraft?.values ?? backendValues)
+      : (backendValues ?? serverDraft?.values);
     if (restoredValues) {
       applyValuesToForm(form, restoredValues);
     }
@@ -1347,19 +1466,19 @@ function BeadsFormRoute({ actions, pendingQueueSentinel }: { actions: {
       initializeMarkdownTextareaEditors(host);
       refreshMarkdownTextareaEditors(host);
     }
-    const locked = submittedLockedRef.current || (!!(backendValues ?? snapshot.latest) && !snapshot.editing);
+    const locked = submittedLockedRef.current || (!!backendValues && !editingSubmittedResponse);
     submittedLockedRef.current = locked;
     setSubmittedLocked(locked);
     setSubmitButtonsDisabled(form, locked);
     setFormFieldsReadOnly(form, locked);
-  }, [beadDraftStorageKey, editResponseVersion, loaded?.selected?.selectedForm, selectedHtml]);
+  }, [beadDraftScopeKey, editResponseVersion, editingSubmittedResponse, loaded?.selected?.selectedDraft, loaded?.selected?.selectedForm, selectedHtml]);
 
   React.useEffect(() => {
     if (loaded?.selected?.selectedForm?.format !== 'standard') return undefined;
     const host = formHostRef.current;
     if (!host) return undefined;
-    return initializeSingleQuestionMode(host);
-  }, [beadDraftStorageKey, editResponseVersion, loaded?.selected?.selectedForm?.format, selectedHtml]);
+    return initializeSingleQuestionMode(host, { initialPosition: loaded.selected.selectedDraft?.position });
+  }, [beadDraftScopeKey, editResponseVersion, loaded?.selected?.selectedDraft?.position, loaded?.selected?.selectedForm?.format, selectedHtml]);
 
   React.useEffect(() => {
     const host = formHostRef.current;
@@ -1379,11 +1498,47 @@ function BeadsFormRoute({ actions, pendingQueueSentinel }: { actions: {
   }, [loaded?.selected?.selectedForm, selectedHtml, submitResult, submittedLocked]);
 
   const handleBeadDraftChange = () => {
-    if (submittedLocked || !beadDraftStorageKey || typeof window === 'undefined') return;
+    if (submittedLocked || !beadDraftScopeKey) return;
     const form = formHostRef.current?.querySelector('form');
     if (!form) return;
-    writePreviewDraft(window.localStorage, beadDraftStorageKey, formValuesFromDom(form));
+    const values = formValuesFromDom(form);
+    if (draftSaveTimeoutRef.current) clearTimeout(draftSaveTimeoutRef.current);
+    draftSaveTimeoutRef.current = setTimeout(() => {
+      void (async () => {
+        if (!loaded?.selected?.selectedForm || !beadId) return;
+        try {
+          const result = await (await actions.saveBeadFormDraft({
+            dir: loaded.selected.beadRepoDir,
+            beadId,
+            formId: loaded.selected.selectedForm.id,
+            ...(workspaceId ? { workspaceId } : {}),
+            values,
+            ...(wizardPositionRef.current ? { position: wizardPositionRef.current } : {}),
+            ...(draftUpdatedAtRef.current ? { baseUpdatedAt: draftUpdatedAtRef.current } : {}),
+          }));
+          draftUpdatedAtRef.current = result.draft.updatedAt;
+        } catch (reason) {
+          setError(reason instanceof Error ? reason.message : String(reason));
+        }
+      })();
+    }, 300);
   };
+
+  React.useEffect(() => {
+    const host = formHostRef.current;
+    if (!host) return undefined;
+    const handlePositionChange = (event: Event) => {
+      const detail = (event as CustomEvent<{ position?: BeadsFormWizardPosition }>).detail;
+      if (detail?.position) {
+        wizardPositionRef.current = detail.position;
+        handleBeadDraftChange();
+      }
+    };
+    host.addEventListener('beadsform:wizard-position-change', handlePositionChange);
+    return () => {
+      host.removeEventListener('beadsform:wizard-position-change', handlePositionChange);
+    };
+  });
 
   const handleEditBeadResponse = () => {
     submissionIdRef.current = null;
@@ -1391,10 +1546,8 @@ function BeadsFormRoute({ actions, pendingQueueSentinel }: { actions: {
     setSubmittedLocked(false);
     setSubmitResult(null);
     setClipboardResult(null);
+    setEditingSubmittedResponse(true);
     setEditResponseVersion((version) => version + 1);
-    if (beadDraftStorageKey && typeof window !== 'undefined') {
-      startPreviewEdit(window.localStorage, beadDraftStorageKey);
-    }
     const form = formHostRef.current?.querySelector('form');
     if (form) {
       setSubmitButtonsDisabled(form, false);
@@ -1419,18 +1572,19 @@ function BeadsFormRoute({ actions, pendingQueueSentinel }: { actions: {
         dir: loaded.selected.beadRepoDir,
         beadId,
         formId: loaded.selected.selectedForm.id,
+        ...(workspaceId ? { workspaceId } : {}),
         values,
         submissionId: submissionIdRef.current ??= createSubmissionId(),
       }));
-      if (typeof window !== 'undefined' && beadDraftStorageKey) {
-        clearPreviewStorage(window.localStorage, beadDraftStorageKey);
-      }
+      draftUpdatedAtRef.current = undefined;
+      if (draftSaveTimeoutRef.current) clearTimeout(draftSaveTimeoutRef.current);
       preserveSubmittedFormDom(formHostRef.current, result.values, {
         lock: true,
         singleQuestionMode: loaded.selected.selectedForm.format === 'standard',
       });
       submittedLockedRef.current = true;
       setSubmittedLocked(true);
+      setEditingSubmittedResponse(false);
       const handoffMetadata = {
         beadId,
         formId: loaded.selected.selectedForm.id,
@@ -1587,7 +1741,7 @@ function BeadsFormRoute({ actions, pendingQueueSentinel }: { actions: {
             </div>
           ) : null}
           <div
-            key={`bead-form-host:${beadDraftStorageKey}:${editResponseVersion}`}
+            key={`bead-form-host:${beadDraftScopeKey}:${editResponseVersion}`}
             ref={formHostRef}
             className="beadsform-form-host"
             aria-hidden={submitting ? true : undefined}
@@ -1671,6 +1825,11 @@ springboard.registerModule(
       loadAggregateForms: async (input: LoadAggregateFormsInput): Promise<LoadAggregateFormsResult> => (
         readAggregateForms(input)
       ),
+      saveBeadFormDraft: async (input: SaveFormDraftInput): Promise<SaveFormDraftResult> => {
+        const result = await nodeClient().saveFormDraft(input);
+        beadsFormReadCache.invalidateAll();
+        return { draft: result.draft };
+      },
       submitBeadForm: async (input: SubmitFormInput): Promise<SubmitFormResult> => {
         const result = await nodeClient().submitForm(input);
         beadsFormReadCache.invalidateAll();

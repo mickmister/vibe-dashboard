@@ -3,6 +3,7 @@ import { describe, expect, it } from 'vitest';
 import {
   applyValuesToForm,
   beadFormStorageKey,
+  beadFormDraftScopeKey,
   clearPreviewStorage,
   latestSubmittedResponseValues,
   previewStorageKey,
@@ -45,6 +46,26 @@ describe('BeadsForm preview state helpers', () => {
       formId: 'review',
     })).not.toBe(beadFormStorageKey({
       dir: '/repo-b',
+      beadId: 'beads-web-1',
+      formId: 'review',
+    }));
+  });
+
+  it('builds server draft scope from workspace, repo, bead, and form identity', () => {
+    expect(beadFormDraftScopeKey({
+      workspaceId: 'workspace-1',
+      dir: '/repo-a',
+      beadId: 'beads-web-1',
+      formId: 'review',
+    })).toBe('workspace:workspace-1:dir:/repo-a:bead:beads-web-1:form:review');
+    expect(beadFormDraftScopeKey({
+      workspaceId: 'workspace-2',
+      dir: '/repo-a',
+      beadId: 'beads-web-1',
+      formId: 'review',
+    })).not.toBe(beadFormDraftScopeKey({
+      workspaceId: 'workspace-1',
+      dir: '/repo-a',
       beadId: 'beads-web-1',
       formId: 'review',
     }));

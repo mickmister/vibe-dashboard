@@ -120,6 +120,36 @@ describe('BeadsForm single-question mode', () => {
     expect(progress.hidden).toBe(false);
   });
 
+  it('restores a server draft wizard position before initialization and emits position changes', () => {
+    document.body.innerHTML = `
+      <div id="host">
+        <form>
+          <fieldset><legend>First</legend><input name="first"></fieldset>
+          <fieldset><legend>Second</legend><input name="second"></fieldset>
+          <fieldset><legend>Third</legend><input name="third"></fieldset>
+        </form>
+      </div>
+    `;
+    const positions: unknown[] = [];
+    document.querySelector('form')!.addEventListener('beadsform:wizard-position-change', (event) => {
+      positions.push((event as CustomEvent).detail.position);
+    });
+
+    initializeSingleQuestionMode(document.querySelector('#host')!, {
+      initialPosition: { kind: 'question', index: 2 },
+    });
+
+    const questions = Array.from(document.querySelectorAll<HTMLFieldSetElement>('.beadsform-single-question-item'));
+    expect(document.querySelector('.beadsform-single-question-progress')?.textContent).toBe('Question 2 of 3');
+    expect(questions.map((question) => question.hidden)).toEqual([true, false, true]);
+    expect(document.querySelector('form')?.dataset.beadsformWizardPosition).toBe('2');
+
+    document.querySelectorAll<HTMLButtonElement>('.beadsform-single-question-controls button')[1]!.click();
+
+    expect(document.querySelector('form')?.dataset.beadsformWizardPosition).toBe('3');
+    expect(positions.at(-1)).toEqual({ kind: 'question', index: 3 });
+  });
+
   it('keeps top and bottom navigation controls synchronized', () => {
     document.body.innerHTML = `
       <div id="host">

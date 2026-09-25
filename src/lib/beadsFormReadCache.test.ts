@@ -94,7 +94,10 @@ describe('BeadsFormReadCache', () => {
 
   it('keys direct, workspace, and pending reads by their safe route inputs', () => {
     expect(directBeadFormsCacheKey({ dir: '/repo', beadId: 'bd-1', formId: 'review' })).toBe(
-      'direct:{"dir":"/repo","beadId":"bd-1","formId":"review"}',
+      'direct:{"workspaceId":"","dir":"/repo","beadId":"bd-1","formId":"review"}',
+    );
+    expect(directBeadFormsCacheKey({ workspaceId: 'ws-1', dir: '/repo', beadId: 'bd-1', formId: 'review' })).not.toBe(
+      directBeadFormsCacheKey({ workspaceId: 'ws-2', dir: '/repo', beadId: 'bd-1', formId: 'review' }),
     );
     expect(workspaceBeadFormsCacheKey({ workspaceId: 'ws', beadId: 'bd-1', includeOtherWorkspaces: true })).toBe(
       'workspace:{"workspaceId":"ws","beadId":"bd-1","formId":"","includeOtherWorkspaces":true}',

@@ -118,8 +118,9 @@ export class BeadsFormReadCache {
   }
 }
 
-export function directBeadFormsCacheKey(input: { dir: string; beadId: string; formId?: string }): string {
+export function directBeadFormsCacheKey(input: { dir: string; beadId: string; formId?: string; workspaceId?: string }): string {
   return `direct:${JSON.stringify({
+    workspaceId: input.workspaceId ?? '',
     dir: input.dir,
     beadId: input.beadId,
     formId: input.formId ?? '',

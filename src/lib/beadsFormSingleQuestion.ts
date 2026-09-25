@@ -1,6 +1,12 @@
 import { initializeChoiceGroups } from './beadsFormChoiceGroups';
 
 export type SingleQuestionModeCleanup = () => void;
+export type SingleQuestionWizardPosition = {
+  kind: 'question';
+  index: number;
+} | {
+  kind: 'review';
+};
 
 const WIZARD_QUESTION_PARAM = 'formQuestion';
 const WIZARD_REVIEW_PARAM = 'formReview';
@@ -8,7 +14,7 @@ let progressIdSequence = 0;
 
 export function prehideInactiveSingleQuestionItems(
   html: string,
-  options: { urlState?: boolean } = {},
+  options: { urlState?: boolean; initialPosition?: SingleQuestionWizardPosition } = {},
 ): string {
   if (typeof window === 'undefined' || typeof DOMParser === 'undefined') return html;
   const document = new DOMParser().parseFromString(html, 'text/html');
@@ -21,7 +27,8 @@ export function prehideInactiveSingleQuestionItems(
   const questions = fieldsets.filter((fieldset) => fieldset !== masterNotes);
   if (questions.length <= 1) return html;
 
-  const activeIndex = (options.urlState ?? true) ? (initialQuestionIndexFromUrl(questions.length) ?? 0) : 0;
+  const activeIndex = initialPositionIndex(options.initialPosition, questions.length)
+    ?? ((options.urlState ?? true) ? (initialQuestionIndexFromUrl(questions.length) ?? 0) : 0);
   questions.forEach((question, index) => {
     question.hidden = index !== activeIndex;
   });
@@ -50,9 +57,10 @@ export function refreshSingleQuestionAdditionalNotes(host: ParentNode): void {
   }
 }
 
-export function initializeSingleQuestionMode(host: ParentNode, options: { urlState?: boolean } = {}): SingleQuestionModeCleanup {
+export function initializeSingleQuestionMode(host: ParentNode, options: { urlState?: boolean; initialPosition?: SingleQuestionWizardPosition } = {}): SingleQuestionModeCleanup {
   const form = host.querySelector('form');
   if (!form || form.dataset.beadsformSingleQuestion === 'true') return () => undefined;
+  const formElement = form;
   const choiceGroupsCleanup = initializeChoiceGroups(host);
   const useUrlState = options.urlState ?? true;
 
@@ -148,7 +156,8 @@ export function initializeSingleQuestionMode(host: ParentNode, options: { urlSta
   main.append(directSubmitPanel);
   main.append(bottomControls.container);
 
-  let activeIndex = useUrlState ? initialStepIndexFromUrl(questions.length) : 0;
+  let activeIndex = initialPositionIndex(options.initialPosition, questions.length)
+    ?? (useUrlState ? initialStepIndexFromUrl(questions.length) : 0);
   const listButtons = Array.from(questionList.querySelectorAll<HTMLButtonElement>('button'));
   const submitActions = form.querySelector<HTMLElement>('.beads-form-submit-actions');
   if (submitActions) {
@@ -186,6 +195,14 @@ export function initializeSingleQuestionMode(host: ParentNode, options: { urlSta
         directSubmitPanel.append(submitActions);
       }
     }
+    const position = activeIndex === reviewIndex
+      ? { kind: 'review' as const }
+      : { kind: 'question' as const, index: activeIndex + 1 };
+    formElement.dataset.beadsformWizardPosition = position.kind === 'review' ? 'review' : String(position.index);
+    formElement.dispatchEvent(new CustomEvent('beadsform:wizard-position-change', {
+      bubbles: true,
+      detail: { position },
+    }));
     if (options.scrollToQuestion) scrollActiveQuestionIntoView();
   }
 
@@ -372,6 +389,13 @@ export function initializeSingleQuestionMode(host: ParentNode, options: { urlSta
 function initialStepIndexFromUrl(questionCount: number): number {
   if (new URLSearchParams(window.location.search).get(WIZARD_REVIEW_PARAM) === '1') return questionCount;
   return initialQuestionIndexFromUrl(questionCount) ?? 0;
+}
+
+function initialPositionIndex(position: SingleQuestionWizardPosition | undefined, questionCount: number): number | undefined {
+  if (!position) return undefined;
+  if (position.kind === 'review') return questionCount;
+  if (!Number.isInteger(position.index) || position.index < 1 || position.index > questionCount) return undefined;
+  return position.index - 1;
 }
 
 function initialQuestionIndexFromUrl(questionCount: number): number | undefined {

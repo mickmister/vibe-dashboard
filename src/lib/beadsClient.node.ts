@@ -10,7 +10,11 @@ import { promisify } from 'node:util';
 import {
   appendBeadsFormResponse,
   assertMetadataWithinIssueJsonGuard,
+  beadFormDraftScopeKey,
   buildPrettySummary,
+  clearBeadsFormDraftInMetadata,
+  draftFormProgressInMetadata as draftFormProgressByScopeInMetadata,
+  getBeadsFormDraft as getBeadsFormDraftByScope,
   getBeadsForms,
   getSupportedBeadsForms,
   selectBeadsForm,
@@ -20,6 +24,8 @@ import {
   isValidBeadsFormSubmissionId,
   type BeadLike,
   type BeadsFormDefinition,
+  type BeadsFormDraft,
+  type BeadsFormWizardPosition,
   type JsonObject,
 } from './beadsFormCore.ts';
 import { buildBeadsFormSessionNotification, isValidBeadsFormSessionId } from './beadsFormSessionNotification.ts';
@@ -35,6 +41,24 @@ const completedSubmitResults = new BoundedReplayCache<SubmitBeadsFormResult>({
 
 export function clearCompletedBeadsFormSubmitResults(): void {
   completedSubmitResults.clear();
+}
+
+export function getBeadsFormDraft(
+  metadata: unknown,
+  args: { workspaceId?: string; dir?: string; beadId: string; formId: string },
+): BeadsFormDraft | undefined {
+  return getBeadsFormDraftByScope(metadata, beadFormDraftScopeKey(args));
+}
+
+export function draftFormProgressInMetadata(
+  metadata: unknown,
+  input: SaveBeadsFormDraftInput & { updatedAt: string },
+): JsonObject {
+  return draftFormProgressByScopeInMetadata(metadata, beadFormDraftScopeKey(input), {
+    values: input.values,
+    updatedAt: input.updatedAt,
+    ...(input.position ? { position: input.position } : {}),
+  });
 }
 
 export type ExecFileLike = (
@@ -56,8 +80,19 @@ export type SubmitBeadsFormInput = {
   dir: string;
   beadId: string;
   formId: string;
+  workspaceId?: string;
   values: JsonObject;
   submissionId: string;
+};
+
+export type SaveBeadsFormDraftInput = {
+  dir: string;
+  beadId: string;
+  formId: string;
+  workspaceId?: string;
+  values: JsonObject;
+  position?: BeadsFormWizardPosition;
+  baseUpdatedAt?: string;
 };
 
 export type SubmitBeadsFormResult = {
@@ -71,6 +106,13 @@ export type SubmitBeadsFormResult = {
   metadata: JsonObject;
   reviewLabel: string;
   warnings: string[];
+};
+
+export type SaveBeadsFormDraftResult = {
+  beadId: string;
+  formId: string;
+  draft: BeadsFormDraft;
+  metadata: JsonObject;
 };
 
 export type BeadsWorkspaceRepo = {
@@ -451,13 +493,15 @@ export class BeadsClient {
     const prettySummary = buildPrettySummary(form, values);
     const submittedAt = this.now().toISOString();
     const submittedBy = this.actor;
-    const metadata = withBeadsFormsSummary(appendBeadsFormResponse(bead.metadata, form.id, {
+    const draftScopeKey = beadFormDraftScopeKey(input);
+    const metadataWithResponse = appendBeadsFormResponse(bead.metadata, form.id, {
       submissionId: input.submissionId,
       submittedBy,
       submittedAt,
       values,
       prettySummary,
-    }));
+    });
+    const metadata = withBeadsFormsSummary(clearBeadsFormDraftInMetadata(metadataWithResponse, draftScopeKey));
 
     await this.updateMetadata(input.dir, input.beadId, metadata);
     const warnings: string[] = [];
@@ -493,6 +537,34 @@ export class BeadsClient {
       reviewLabel: this.reviewLabel,
       warnings,
     };
+  }
+
+  async saveFormDraft(input: SaveBeadsFormDraftInput): Promise<SaveBeadsFormDraftResult> {
+    const repo = await canonicalRepoPath(input.dir);
+    const beadKey = `${repo}\0${input.beadId}`;
+    return submitMutationQueue.run(beadKey, async () => {
+      const bead = await this.readBead(input.dir, input.beadId);
+      const form = selectBeadsForm(bead.metadata, input.formId);
+      if (!form) throw new Error(`Form not found: ${input.formId}`);
+      const scopeKey = beadFormDraftScopeKey(input);
+      const currentDraft = getBeadsFormDraftByScope(bead.metadata, scopeKey);
+      if (input.baseUpdatedAt && currentDraft?.updatedAt && currentDraft.updatedAt !== input.baseUpdatedAt) {
+        throw new Error('Server BeadsForm draft changed before this save; reload the form before overwriting it.');
+      }
+      const draft: BeadsFormDraft = {
+        values: normalizeSubmittedValues(form, input.values),
+        updatedAt: this.now().toISOString(),
+        ...(input.position ? { position: input.position } : {}),
+      };
+      const metadata = draftFormProgressByScopeInMetadata(bead.metadata, scopeKey, draft);
+      await this.updateMetadata(input.dir, input.beadId, metadata);
+      return {
+        beadId: input.beadId,
+        formId: input.formId,
+        draft,
+        metadata,
+      };
+    });
   }
 
   private async addReviewLabelFallback(dir: string, beadId: string, warnings: string[]): Promise<void> {

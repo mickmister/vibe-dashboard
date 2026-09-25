@@ -7,14 +7,14 @@ describe('BeadsForm edit response mode source', () => {
 
     expect(source).toContain('const [editResponseVersion, setEditResponseVersion] = useState(0);');
     expect(source).toContain('setEditResponseVersion((version) => version + 1);');
-    expect(source).toContain('}, [beadDraftStorageKey, editResponseVersion, loaded?.selected?.selectedForm, selectedHtml]);');
-    expect(source).toContain('}, [beadDraftStorageKey, editResponseVersion, loaded?.selected?.selectedForm?.format, selectedHtml]);');
+    expect(source).toContain('}, [beadDraftScopeKey, editResponseVersion, editingSubmittedResponse, loaded?.selected?.selectedDraft, loaded?.selected?.selectedForm, selectedHtml]);');
+    expect(source).toContain('}, [beadDraftScopeKey, editResponseVersion, loaded?.selected?.selectedDraft?.position, loaded?.selected?.selectedForm?.format, selectedHtml]);');
     expect(source).toContain('}, [editResponseVersion, loaded?.selectedForm, previewStateKey, selectedHtml]);');
     expect(source).toContain('}, [editResponseVersion, loaded?.selectedForm?.format, previewStateKey, selectedHtml]);');
-    expect(source).toContain('}, [editResponseVersion, form, html, storageKey]);');
-    expect(source).toContain('}, [editResponseVersion, form, html]);');
+    expect(source).toContain('}, [draftScopeKey, editResponseVersion, editingSubmittedResponse, form, html, item.draft]);');
+    expect(source).toContain('}, [editResponseVersion, form, html, item.draft?.position]);');
     expect(source).toContain('key={`preview-form-host:${loaded.selectedForm.id}:${editResponseVersion}`}');
     expect(source).toContain('key={`aggregate-form-host:${domPrefix}:${editResponseVersion}`}');
-    expect(source).toContain('key={`bead-form-host:${beadDraftStorageKey}:${editResponseVersion}`}');
+    expect(source).toContain('key={`bead-form-host:${beadDraftScopeKey}:${editResponseVersion}`}');
   });
 });

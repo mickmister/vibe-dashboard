@@ -38,6 +38,19 @@ export type BeadsFormResponse = {
   prettySummary?: string;
 };
 
+export type BeadsFormWizardPosition = {
+  kind: 'question';
+  index: number;
+} | {
+  kind: 'review';
+};
+
+export type BeadsFormDraft = {
+  values: JsonObject;
+  updatedAt: string;
+  position?: BeadsFormWizardPosition;
+};
+
 export type BeadsFormDefinition = {
   id: string;
   goal: string;
@@ -72,6 +85,13 @@ export type BeadLike = {
   metadata?: JsonObject | null;
 };
 
+export function beadFormDraftScopeKey(args: { workspaceId?: string; dir?: string; beadId: string; formId: string }): string {
+  const scope = args.workspaceId
+    ? `workspace:${args.workspaceId}:dir:${args.dir ?? ''}`
+    : `dir:${args.dir ?? ''}`;
+  return `${scope}:bead:${args.beadId}:form:${args.formId}`;
+}
+
 export type LoadedBeadsForm = {
   bead: BeadLike;
   forms: BeadsFormDefinition[];
@@ -82,6 +102,7 @@ const FORM_META_KEY = 'beadForms';
 const LEGACY_FORM_META_KEY = 'beadsWeb';
 const FORM_RESPONSES_META_KEY = 'beadFormResponses';
 const FORM_SUMMARY_META_KEY = 'beadFormsSummary';
+const FORM_DRAFTS_META_KEY = 'beadFormDrafts';
 
 function isObject(value: unknown): value is JsonObject {
   return !!value && typeof value === 'object' && !Array.isArray(value);
@@ -134,6 +155,21 @@ function isBeadsFormResponse(value: unknown): value is BeadsFormResponse {
     && typeof value.submittedBy === 'string'
     && typeof value.submittedAt === 'string'
     && isObject(value.values);
+}
+
+function isBeadsFormWizardPosition(value: unknown): value is BeadsFormWizardPosition {
+  return isObject(value)
+    && (
+      (value.kind === 'review')
+      || (value.kind === 'question' && typeof value.index === 'number' && Number.isInteger(value.index) && value.index >= 1)
+    );
+}
+
+function isBeadsFormDraft(value: unknown): value is BeadsFormDraft {
+  return isObject(value)
+    && isObject(value.values)
+    && typeof value.updatedAt === 'string'
+    && (value.position === undefined || isBeadsFormWizardPosition(value.position));
 }
 
 function getSplitResponsesByFormId(metadata: JsonObject): Map<string, BeadsFormResponse[]> {
@@ -249,6 +285,51 @@ export function appendBeadsFormResponse(
   };
   writeSplitResponses(next, updatedForms);
   return withBeadsFormsSummary(next);
+}
+
+export function getBeadsFormDraft(metadata: unknown, scopeKey: string): BeadsFormDraft | undefined {
+  if (!isObject(metadata)) return undefined;
+  const drafts = metadata[FORM_DRAFTS_META_KEY];
+  if (!isObject(drafts) || !isObject(drafts.draftsByScope)) return undefined;
+  const candidate = drafts.draftsByScope[scopeKey];
+  return isBeadsFormDraft(candidate) ? structuredClone(candidate) as BeadsFormDraft : undefined;
+}
+
+export function draftFormProgressInMetadata(
+  metadata: unknown,
+  scopeKey: string,
+  draft: BeadsFormDraft,
+): JsonObject {
+  if (!isBeadsFormDraft(draft)) throw new Error('Invalid BeadsForm draft payload.');
+  const next: JsonObject = isObject(metadata) ? structuredClone(metadata) as JsonObject : {};
+  const drafts = isObject(next[FORM_DRAFTS_META_KEY]) ? next[FORM_DRAFTS_META_KEY] as JsonObject : {};
+  const draftsByScope = isObject(drafts.draftsByScope) ? drafts.draftsByScope as JsonObject : {};
+  next[FORM_DRAFTS_META_KEY] = {
+    ...drafts,
+    draftsByScope: {
+      ...draftsByScope,
+      [scopeKey]: structuredClone(draft),
+    },
+  };
+  return next;
+}
+
+export function clearBeadsFormDraftInMetadata(metadata: unknown, scopeKey: string): JsonObject {
+  const next: JsonObject = isObject(metadata) ? structuredClone(metadata) as JsonObject : {};
+  const drafts = isObject(next[FORM_DRAFTS_META_KEY]) ? next[FORM_DRAFTS_META_KEY] as JsonObject : undefined;
+  const draftsByScope = drafts && isObject(drafts.draftsByScope) ? drafts.draftsByScope as JsonObject : undefined;
+  if (!drafts || !draftsByScope || !(scopeKey in draftsByScope)) return next;
+  const remaining = { ...draftsByScope };
+  delete remaining[scopeKey];
+  if (Object.keys(remaining).length === 0) {
+    delete next[FORM_DRAFTS_META_KEY];
+  } else {
+    next[FORM_DRAFTS_META_KEY] = {
+      ...drafts,
+      draftsByScope: remaining,
+    };
+  }
+  return next;
 }
 
 export function buildBeadsFormsSummary(forms: readonly Pick<BeadsFormDefinition, 'id' | 'responses'>[]): BeadsFormsSummary {

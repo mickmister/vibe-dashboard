@@ -1,4 +1,5 @@
 import { normalizeFormData, type BeadsFormResponse, type JsonObject } from './beadsFormCore';
+export { beadFormDraftScopeKey } from './beadsFormCore';
 
 export type PreviewStorageSnapshot = {
   draft?: JsonObject;
