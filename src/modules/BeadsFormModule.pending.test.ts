@@ -17,8 +17,8 @@ describe('BeadsForm pending queue UI source', () => {
   it('uses a submitted success state with XML handoff copy fallback instead of showing the active form', async () => {
     const source = await readFile(new URL('./BeadsFormModule.tsx', import.meta.url), 'utf8');
 
-    expect(source).toContain('copySubmittedResultHandoffXml(navigator.clipboard, result.values');
-    expect(source).toContain('pendingSubmittedResultHandoffCopy(result.values');
+    expect(source).toContain('copySubmittedResultHandoffXml(navigator.clipboard, values, handoffMetadata)');
+    expect(source).toContain('pendingSubmittedResultHandoffCopy(values, handoffMetadata)');
     expect(source).toContain('submittedAt: result.submittedAt');
     expect(source).toContain('submittedBy: result.submittedBy');
     expect(source).toContain('Copying BeadsForm XML handoff…');
@@ -38,7 +38,7 @@ describe('BeadsForm pending queue UI source', () => {
     expect(source).toContain('const result = await nodeClient().submitForm(input);');
     expect(source).not.toMatch(/submitPreviewForm[\s\S]{0,1500}sendFollowUp/);
     expect(source).toContain('if (submitInFlightRef.current) return;');
-    expect(source).toContain('submissionId: submissionIdRef.current ??= createSubmissionId()');
+    expect(source).toContain('const optimisticSubmissionId = submissionIdRef.current ??= createSubmissionId();');
     expect(source.match(/const submissionIdRef = useRef<string \| null>\(null\);/g)).toHaveLength(2);
   });
 
@@ -65,7 +65,7 @@ describe('BeadsForm pending queue UI source', () => {
     expect(source).toContain('clipboardStatus: pendingCopy.status');
     expect(source).toContain('submittedAt: status.submittedAt');
     expect(source).toContain('submittedBy: status.submittedBy');
-    expect(source).toContain('void copySubmittedResultHandoffXml(navigator.clipboard, result.values, handoffMetadata).then((copyResult) => {');
+    expect(source).toContain('void copySubmittedResultHandoffXml(navigator.clipboard, values, handoffMetadata).then((copyResult) => {');
   });
 
   it('prefers direct selected-bead loading when URL has both workspace and dir', async () => {

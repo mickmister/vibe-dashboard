@@ -5,6 +5,7 @@ import springboard from 'springboard';
 
 import {
   buildAgentResultMessage,
+  buildPrettySummary,
   beadFormDraftScopeKey,
   getBeadsForms,
   normalizeFormData,
@@ -499,7 +500,7 @@ function SubmitSuccessSummary({
   return (
     <section className="beadsform-submit-result" aria-live="polite">
       <h2>{title}</h2>
-      <p>Your BeadsForm response was saved and the form is locked to the submitted answers.</p>
+      <p>Your BeadsForm response is submitted and the form is locked to the submitted answers.</p>
       {clipboardResult?.status === 'copied' ? (
         <p>Copied BeadsForm XML handoff to your clipboard.</p>
       ) : !clipboardResult || clipboardResult.status === 'pending' ? (
@@ -583,6 +584,7 @@ function BeadsFormPreviewRoute({ actions }: { actions: {
   const [submitResult, setSubmitResult] = useState<SubmitPreviewFormResult | null>(null);
   const [clipboardResult, setClipboardResult] = useState<ClipboardCopyResult | null>(null);
   const [submittedLocked, setSubmittedLocked] = useState(false);
+  const [rollbackValues, setRollbackValues] = useState<JsonObject | null>(null);
   const [editResponseVersion, setEditResponseVersion] = useState(0);
   const submittedLockedRef = useRef(false);
   const submitInFlightRef = useRef(false);
@@ -598,6 +600,7 @@ function BeadsFormPreviewRoute({ actions }: { actions: {
     setError(null);
     setSubmitResult(null);
     setClipboardResult(null);
+    setRollbackValues(null);
     setEditResponseVersion(0);
     submittedLockedRef.current = false;
     setSubmittedLocked(false);
@@ -637,7 +640,7 @@ function BeadsFormPreviewRoute({ actions }: { actions: {
     if (!host || !form || !loaded?.selectedForm || !previewStateKey) return;
 
     const snapshot = readPreviewStorage(typeof window === 'undefined' ? undefined : window.localStorage, previewStateKey);
-    const restoredValues = snapshot.editing ? (snapshot.draft ?? snapshot.latest) : (snapshot.latest ?? snapshot.draft);
+    const restoredValues = rollbackValues ?? (snapshot.editing ? (snapshot.draft ?? snapshot.latest) : (snapshot.latest ?? snapshot.draft));
     if (restoredValues) {
       applyValuesToForm(form, restoredValues);
     }
@@ -657,7 +660,7 @@ function BeadsFormPreviewRoute({ actions }: { actions: {
       submittedAt: snapshot.history.at(-1)?.submittedAt ?? '',
       warnings: [],
     } : null);
-  }, [editResponseVersion, loaded?.selectedForm, previewStateKey, selectedHtml]);
+  }, [editResponseVersion, loaded?.selectedForm, previewStateKey, rollbackValues, selectedHtml]);
 
   React.useEffect(() => {
     if (loaded?.selectedForm?.format !== 'standard') return undefined;
@@ -695,6 +698,7 @@ function BeadsFormPreviewRoute({ actions }: { actions: {
     setSubmittedLocked(false);
     setSubmitResult(null);
     setClipboardResult(null);
+    setRollbackValues(null);
     setEditResponseVersion((version) => version + 1);
     if (previewStateKey && typeof window !== 'undefined') {
       startPreviewEdit(window.localStorage, previewStateKey);
@@ -716,8 +720,23 @@ function BeadsFormPreviewRoute({ actions }: { actions: {
 
     const values = normalizeSubmittedFormEvent(event, target, loaded.selectedForm);
     submitInFlightRef.current = true;
-    setSubmitting(true);
+    submittedLockedRef.current = true;
+    setSubmittedLocked(true);
+    setRollbackValues(null);
     setError(null);
+    preserveSubmittedFormDom(formHostRef.current, values, {
+      lock: true,
+      singleQuestionMode: loaded.selectedForm.format === 'standard',
+    });
+    const handoffMetadata = { formId: loaded.selectedForm.id };
+    setClipboardResult(pendingSubmittedResultHandoffCopy(values, handoffMetadata));
+    setSubmitResult({
+      formId: loaded.selectedForm.id,
+      values,
+      submittedAt: '',
+      warnings: [],
+    });
+    void copySubmittedResultHandoffXml(navigator.clipboard, values, handoffMetadata).then(setClipboardResult);
     try {
       const result = await (await actions.submitPreviewForm({
         folder: loaded.folder,
@@ -733,15 +752,21 @@ function BeadsFormPreviewRoute({ actions }: { actions: {
       });
       submittedLockedRef.current = true;
       setSubmittedLocked(true);
-      const handoffMetadata = { formId: loaded.selectedForm.id, submittedAt: result.submittedAt };
-      setClipboardResult(pendingSubmittedResultHandoffCopy(result.values, handoffMetadata));
-      setSubmitResult(result);
-      void copySubmittedResultHandoffXml(navigator.clipboard, result.values, handoffMetadata).then(setClipboardResult);
+      setSubmitResult((current) => current ? {
+        ...current,
+        submittedAt: result.submittedAt,
+        warnings: result.warnings,
+      } : result);
     } catch (reason) {
+      submittedLockedRef.current = false;
+      setSubmittedLocked(false);
+      setSubmitResult(null);
+      setClipboardResult(null);
+      setRollbackValues(values);
+      setEditResponseVersion((version) => version + 1);
       setError(reason instanceof Error ? reason.message : String(reason));
     } finally {
       submitInFlightRef.current = false;
-      setSubmitting(false);
     }
   };
 
@@ -798,7 +823,7 @@ function BeadsFormPreviewRoute({ actions }: { actions: {
           warnings={submitResult.warnings}
           onEdit={handleEditResponse}
         >
-          {submitResult.sidecarPath ? <p>Saved preview response to <code>{submitResult.sidecarPath}</code>.</p> : null}
+          <p>Preview response is locked to the submitted answers.</p>
         </SubmitSuccessSummary>
       ) : null}
     </div>
@@ -982,6 +1007,7 @@ function AggregateBeadsFormCard({ item, submitBeadForm, saveBeadFormDraft }: {
   const [status, setStatus] = useState<AggregateSubmitStatus>({ status: 'idle' });
   const [submittedLocked, setSubmittedLocked] = useState(false);
   const [editingSubmittedResponse, setEditingSubmittedResponse] = useState(false);
+  const [rollbackValues, setRollbackValues] = useState<JsonObject | null>(null);
   const [editResponseVersion, setEditResponseVersion] = useState(0);
   const submittedLockedRef = useRef(false);
   const submitInFlightRef = useRef(false);
@@ -1030,8 +1056,8 @@ function AggregateBeadsFormCard({ item, submitBeadForm, saveBeadFormDraft }: {
     if (!element || !form || !draftScopeKey) return;
     const backendValues = latestSubmittedResponseValues(form.responses);
     const restoredValues = editingSubmittedResponse
-      ? (item.draft?.values ?? backendValues)
-      : (backendValues ?? item.draft?.values);
+      ? (rollbackValues ?? item.draft?.values ?? backendValues)
+      : (rollbackValues ?? backendValues ?? item.draft?.values);
     if (restoredValues) applyValuesToForm(element, restoredValues);
     const locked = submittedLockedRef.current || (!!backendValues && !editingSubmittedResponse);
     submittedLockedRef.current = locked;
@@ -1045,7 +1071,7 @@ function AggregateBeadsFormCard({ item, submitBeadForm, saveBeadFormDraft }: {
       initializeMarkdownTextareaEditors(host);
       refreshMarkdownTextareaEditors(host);
     }
-  }, [draftScopeKey, editResponseVersion, editingSubmittedResponse, form, html, item.draft]);
+  }, [draftScopeKey, editResponseVersion, editingSubmittedResponse, form, html, item.draft, rollbackValues]);
 
   React.useEffect(() => {
     const element = formHostRef.current;
@@ -1103,6 +1129,7 @@ function AggregateBeadsFormCard({ item, submitBeadForm, saveBeadFormDraft }: {
     submittedLockedRef.current = false;
     setSubmittedLocked(false);
     setEditingSubmittedResponse(true);
+    setRollbackValues(null);
     setStatus({ status: 'idle' });
     setEditResponseVersion((version) => version + 1);
     const element = formHostRef.current?.querySelector('form');
@@ -1121,7 +1148,40 @@ function AggregateBeadsFormCard({ item, submitBeadForm, saveBeadFormDraft }: {
     const values = normalizeSubmittedFormEvent(event, target, form);
     draftSaveQueueRef.current?.cancel();
     submitInFlightRef.current = true;
-    setStatus({ status: 'submitting' });
+    setRollbackValues(null);
+    submittedLockedRef.current = true;
+    setSubmittedLocked(true);
+    setEditingSubmittedResponse(false);
+    preserveSubmittedFormDom(formHostRef.current, values, {
+      lock: true,
+      singleQuestionMode: form.format === 'standard',
+      singleQuestionModeUrlState: false,
+    });
+    const handoffMetadata = {
+      beadId: item.ref.beadId,
+      formId: form.id,
+    };
+    const pendingCopy = pendingSubmittedResultHandoffCopy(values, handoffMetadata);
+    setStatus({
+      status: 'success',
+      values,
+      submittedAt: '',
+      submittedBy: '',
+      warnings: [],
+      clipboardStatus: pendingCopy.status,
+      clipboardText: pendingCopy.text,
+    });
+    void copySubmittedResultHandoffXml(navigator.clipboard, values, handoffMetadata).then((copyResult) => {
+      setStatus((current) => {
+        if (current.status !== 'success') return current;
+        return {
+          ...current,
+          clipboardStatus: copyResult.status,
+          clipboardText: copyResult.text,
+          ...(copyResult.warning ? { clipboardWarning: copyResult.warning } : {}),
+        };
+      });
+    });
     try {
       const result = await (await submitBeadForm({
         dir: item.beadRepoDir,
@@ -1131,42 +1191,30 @@ function AggregateBeadsFormCard({ item, submitBeadForm, saveBeadFormDraft }: {
         submissionId: submissionIdRef.current ??= createSubmissionId(),
       }));
       draftSaveQueueRef.current?.setBaseUpdatedAt(undefined);
-      preserveSubmittedFormDom(formHostRef.current, result.values, {
-        lock: true,
-        singleQuestionMode: form.format === 'standard',
-        singleQuestionModeUrlState: false,
-      });
       submittedLockedRef.current = true;
       setSubmittedLocked(true);
       setEditingSubmittedResponse(false);
-      const handoffMetadata = {
-        beadId: item.ref.beadId,
-        formId: form.id,
-        submittedAt: result.submittedAt,
-        submittedBy: result.submittedBy,
-      };
-      const pendingCopy = pendingSubmittedResultHandoffCopy(result.values, handoffMetadata);
-      setStatus({
+      setStatus((current) => ({
         status: 'success',
-        values: result.values,
+        values: current.status === 'success' ? current.values : result.values,
         submittedAt: result.submittedAt,
         submittedBy: result.submittedBy,
         warnings: result.warnings,
-        clipboardStatus: pendingCopy.status,
-        clipboardText: pendingCopy.text,
-      });
-      void copySubmittedResultHandoffXml(navigator.clipboard, result.values, handoffMetadata).then((copyResult) => {
-        setStatus((current) => {
-          if (current.status !== 'success') return current;
-          return {
-            ...current,
-            clipboardStatus: copyResult.status,
-            clipboardText: copyResult.text,
-            ...(copyResult.warning ? { clipboardWarning: copyResult.warning } : {}),
-          };
-        });
-      });
+        clipboardStatus: current.status === 'success' ? current.clipboardStatus : 'pending',
+        clipboardText: current.status === 'success' ? current.clipboardText : pendingSubmittedResultHandoffCopy(result.values, {
+          beadId: item.ref.beadId,
+          formId: form.id,
+          submittedAt: result.submittedAt,
+          submittedBy: result.submittedBy,
+        }).text,
+        ...(current.status === 'success' && current.clipboardWarning ? { clipboardWarning: current.clipboardWarning } : {}),
+      }));
     } catch (error) {
+      submittedLockedRef.current = false;
+      setSubmittedLocked(false);
+      setEditingSubmittedResponse(false);
+      setRollbackValues(values);
+      setEditResponseVersion((version) => version + 1);
       setStatus({ status: 'error', message: error instanceof Error ? error.message : String(error) });
     } finally {
       submitInFlightRef.current = false;
@@ -1333,6 +1381,7 @@ function BeadsFormRoute({ actions, pendingQueueSentinel }: { actions: {
   const [clipboardResult, setClipboardResult] = useState<ClipboardCopyResult | null>(null);
   const [submittedLocked, setSubmittedLocked] = useState(false);
   const [editingSubmittedResponse, setEditingSubmittedResponse] = useState(false);
+  const [rollbackValues, setRollbackValues] = useState<JsonObject | null>(null);
   const [editResponseVersion, setEditResponseVersion] = useState(0);
   const submittedLockedRef = useRef(false);
   const submitInFlightRef = useRef(false);
@@ -1356,6 +1405,7 @@ function BeadsFormRoute({ actions, pendingQueueSentinel }: { actions: {
     setSubmitResult(null);
     setClipboardResult(null);
     setEditingSubmittedResponse(false);
+    setRollbackValues(null);
     setEditResponseVersion(0);
     submittedLockedRef.current = false;
     setSubmittedLocked(false);
@@ -1464,8 +1514,8 @@ function BeadsFormRoute({ actions, pendingQueueSentinel }: { actions: {
     const backendValues = latestSubmittedResponseValues(selectedForm.responses);
     const serverDraft = loaded?.selected?.selectedDraft;
     const restoredValues = editingSubmittedResponse
-      ? (serverDraft?.values ?? backendValues)
-      : (backendValues ?? serverDraft?.values);
+      ? (rollbackValues ?? serverDraft?.values ?? backendValues)
+      : (rollbackValues ?? backendValues ?? serverDraft?.values);
     if (restoredValues) {
       applyValuesToForm(form, restoredValues);
     }
@@ -1481,7 +1531,7 @@ function BeadsFormRoute({ actions, pendingQueueSentinel }: { actions: {
     setSubmittedLocked(locked);
     setSubmitButtonsDisabled(form, locked);
     setFormFieldsReadOnly(form, locked);
-  }, [beadDraftScopeKey, editResponseVersion, editingSubmittedResponse, loaded?.selected?.selectedDraft, loaded?.selected?.selectedForm, selectedHtml]);
+  }, [beadDraftScopeKey, editResponseVersion, editingSubmittedResponse, loaded?.selected?.selectedDraft, loaded?.selected?.selectedForm, rollbackValues, selectedHtml]);
 
   React.useEffect(() => {
     if (loaded?.selected?.selectedForm?.format !== 'standard') return undefined;
@@ -1557,6 +1607,7 @@ function BeadsFormRoute({ actions, pendingQueueSentinel }: { actions: {
     setSubmitResult(null);
     setClipboardResult(null);
     setEditingSubmittedResponse(true);
+    setRollbackValues(null);
     setEditResponseVersion((version) => version + 1);
     const form = formHostRef.current?.querySelector('form');
     if (form) {
@@ -1576,8 +1627,34 @@ function BeadsFormRoute({ actions, pendingQueueSentinel }: { actions: {
     const values = normalizeSubmittedFormEvent(event, target, loaded.selected.selectedForm);
     draftSaveQueueRef.current?.cancel();
     submitInFlightRef.current = true;
-    setSubmitting(true);
+    setRollbackValues(null);
     setError(null);
+    preserveSubmittedFormDom(formHostRef.current, values, {
+      lock: true,
+      singleQuestionMode: loaded.selected.selectedForm.format === 'standard',
+    });
+    submittedLockedRef.current = true;
+    setSubmittedLocked(true);
+    setEditingSubmittedResponse(false);
+    const optimisticSubmissionId = submissionIdRef.current ??= createSubmissionId();
+    const handoffMetadata = {
+      beadId,
+      formId: loaded.selected.selectedForm.id,
+    };
+    setClipboardResult(pendingSubmittedResultHandoffCopy(values, handoffMetadata));
+    setSubmitResult({
+      beadId,
+      formId: loaded.selected.selectedForm.id,
+      values,
+      submissionId: optimisticSubmissionId,
+      submittedAt: '',
+      submittedBy: '',
+      prettySummary: buildPrettySummary(loaded.selected.selectedForm, values),
+      agentMessage: '',
+      reviewLabel: 'needs-agent-review',
+      warnings: [],
+    });
+    void copySubmittedResultHandoffXml(navigator.clipboard, values, handoffMetadata).then(setClipboardResult);
     try {
       const result = await (await actions.submitBeadForm({
         dir: loaded.selected.beadRepoDir,
@@ -1585,25 +1662,21 @@ function BeadsFormRoute({ actions, pendingQueueSentinel }: { actions: {
         formId: loaded.selected.selectedForm.id,
         ...(workspaceId ? { workspaceId } : {}),
         values,
-        submissionId: submissionIdRef.current ??= createSubmissionId(),
+        submissionId: optimisticSubmissionId,
       }));
       draftSaveQueueRef.current?.setBaseUpdatedAt(undefined);
-      preserveSubmittedFormDom(formHostRef.current, result.values, {
-        lock: true,
-        singleQuestionMode: loaded.selected.selectedForm.format === 'standard',
-      });
       submittedLockedRef.current = true;
       setSubmittedLocked(true);
       setEditingSubmittedResponse(false);
-      const handoffMetadata = {
-        beadId,
-        formId: loaded.selected.selectedForm.id,
+      setSubmitResult((current) => current ? {
+        ...current,
         submittedAt: result.submittedAt,
         submittedBy: result.submittedBy,
-      };
-      setClipboardResult(pendingSubmittedResultHandoffCopy(result.values, handoffMetadata));
-      setSubmitResult(result);
-      void copySubmittedResultHandoffXml(navigator.clipboard, result.values, handoffMetadata).then(setClipboardResult);
+        prettySummary: result.prettySummary,
+        agentMessage: result.agentMessage,
+        reviewLabel: result.reviewLabel,
+        warnings: result.warnings,
+      } : result);
       if (window.parent && window.parent !== window) {
         window.parent.postMessage({ type: 'vk:bead-form-submitted' }, window.location.origin);
       }
@@ -1611,10 +1684,15 @@ function BeadsFormRoute({ actions, pendingQueueSentinel }: { actions: {
         window.location.assign(returnTo);
       }
     } catch (reason) {
+      submittedLockedRef.current = false;
+      setSubmittedLocked(false);
+      setSubmitResult(null);
+      setClipboardResult(null);
+      setRollbackValues(values);
+      setEditResponseVersion((version) => version + 1);
       setError(reason instanceof Error ? reason.message : String(reason));
     } finally {
       submitInFlightRef.current = false;
-      setSubmitting(false);
     }
   };
 
@@ -1733,7 +1811,7 @@ function BeadsFormRoute({ actions, pendingQueueSentinel }: { actions: {
           warnings={submitResult.warnings}
           onEdit={handleEditBeadResponse}
         >
-          <p>Response saved on bead <code>{beadId}</code>.</p>
+          <p>Response for bead <code>{beadId}</code>.</p>
           <h3>Pretty summary</h3>
           <pre>{submitResult.prettySummary}</pre>
         </SubmitSuccessSummary>
