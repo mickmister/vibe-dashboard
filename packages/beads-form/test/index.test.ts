@@ -579,6 +579,39 @@ describe('@vibe-dashboard/beads-form', () => {
     })).toThrow('form.goal is required');
   });
 
+  it('rejects author-authored ids reserved for generated submit metadata', () => {
+    const base = {
+      id: 'reserved_id_review',
+      goal: 'Reject generated metadata collisions.',
+      title: 'Reserved id review',
+    };
+
+    for (const reservedId of [NEXT_INSTRUCTION_FIELD, ALLOW_CODE_FILE_CHANGES_FIELD]) {
+      expect(() => compileBeadsForm(defineBeadsForm({
+        ...base,
+        questions: [buildTextareaQuestion({
+          id: reservedId,
+          title: 'Reserved question',
+          description: 'This would collide with generated submit metadata.',
+        })],
+      }))).toThrow(`question.id "${reservedId}" is reserved for generated BeadsForm submit metadata`);
+
+      expect(() => compileBeadsForm(defineBeadsForm({
+        ...base,
+        content: [buildMarkdownAttachment({
+          id: reservedId,
+          title: 'Reserved content',
+          ref: 'attachment://docs/context.md',
+        })],
+        questions: [buildTextareaQuestion({
+          id: 'notes',
+          title: 'Notes',
+          description: 'Safe authored question.',
+        })],
+      }))).toThrow(`content.id "${reservedId}" is reserved for generated BeadsForm submit metadata`);
+    }
+  });
+
   it('truncates long Markdown descriptions behind a Show more affordance', () => {
     const longDescription = [
       'This description starts with **important context** that should remain visible.',

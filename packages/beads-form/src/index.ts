@@ -204,10 +204,17 @@ const DESCRIPTION_PREVIEW_LENGTH = 320;
 export const ALLOW_CODE_FILE_CHANGES_FIELD = 'allow_code_file_changes';
 export const NEXT_INSTRUCTION_FIELD = 'next_instruction';
 export const NEXT_INSTRUCTION_MAX_CHARS = 8000;
+const RESERVED_DOM_IDS = new Set([ALLOW_CODE_FILE_CHANGES_FIELD, NEXT_INSTRUCTION_FIELD]);
 
 function assertIdentifier(id: string, label: string): void {
   if (!/^[A-Za-z][A-Za-z0-9_-]*$/.test(id)) {
     throw new Error(`${label} must start with a letter and contain only letters, numbers, _ or -: ${id}`);
+  }
+}
+
+function assertNotReservedDomId(id: string, label: string): void {
+  if (RESERVED_DOM_IDS.has(id)) {
+    throw new Error(`${label} "${id}" is reserved for generated BeadsForm submit metadata`);
   }
 }
 
@@ -507,6 +514,7 @@ function compileNextInstructionPrompt(): string {
 
 function compileContentBlock(block: BeadsFormContentBlock): string {
   assertIdentifier(block.id, 'content.id');
+  assertNotReservedDomId(block.id, 'content.id');
   if (block.type === 'media-gallery') return compileMediaGallery(block);
   if (block.type === 'markdown-attachment') return compileMarkdownAttachment(block);
   if (block.type === 'attachments') return compileAttachmentList(block);
@@ -608,6 +616,7 @@ function validateCodeSnippetRef(block: CodeSnippetRefBlock): void {
 
 function compileQuestion(question: BeadsFormQuestion, controls: BeadsFormControl[]): string {
   assertIdentifier(question.id, 'question.id');
+  assertNotReservedDomId(question.id, 'question.id');
   if (question.type === 'choices') return compileChoicesQuestion(question, controls);
   return compileTextQuestion(question, controls);
 }

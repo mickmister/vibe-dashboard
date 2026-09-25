@@ -832,6 +832,7 @@ export function attachFormsToMetadata(
   forms: BeadsFormDefinition[],
   options: { workspaceId?: string; sessionId?: string } = {},
 ): JsonObject {
+  for (const form of forms) compileBeadsForm(form as StoredBeadsForm);
   const next: JsonObject = isObject(metadata) ? structuredClone(metadata) as JsonObject : {};
   const beadForms = isObject(next.beadForms) ? next.beadForms : { forms: [] };
   const existingForms = getFormsFromMetadata(next);

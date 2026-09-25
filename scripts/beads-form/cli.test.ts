@@ -276,6 +276,14 @@ describe('beads-form CLI helpers', () => {
     expect(() => parseFormsJsonForAttach(JSON.stringify({ ...standardForm, goal: '' }))).toThrow('No BeadsForm definitions found');
     expect(() => parseFormsJsonForAttach(JSON.stringify({
       ...standardForm,
+      questions: [{ ...standardForm.questions[0], id: 'next_instruction' }],
+    }))).toThrow('question.id "next_instruction" is reserved');
+    expect(() => parseFormsJsonForAttach(JSON.stringify({
+      ...standardForm,
+      content: [{ ...standardForm.content[0], id: 'allow_code_file_changes' }],
+    }))).toThrow('content.id "allow_code_file_changes" is reserved');
+    expect(() => parseFormsJsonForAttach(JSON.stringify({
+      ...standardForm,
       content: [{ ...standardForm.content[0], items: [{ id: 'local', type: 'image', src: 'attachments/local.png' }] }],
     }))).toThrow('bead-backed attachments support http(s) or attachment:// refs only');
     expect(() => parseFormsJsonForAttach(JSON.stringify({
@@ -301,6 +309,29 @@ describe('beads-form CLI helpers', () => {
     expect(() => attachFormsToMetadata(metadata, parseFormsJsonForAttach(JSON.stringify({ ...standardForm, id: 'other' })))).not.toThrow();
     expect(() => attachFormsToMetadata(metadata, parseFormsJsonForAttach(JSON.stringify(standardForm)))).toThrow('already exists');
     expect(metadata).toEqual({ untouched: true, beadForms: { forms: [storedReviewForm] } });
+  });
+
+  it('rejects reserved generated submit ids through attach without metadata mutation', async () => {
+    const calls: string[][] = [];
+    const exec = vi.fn<ExecFileLike>(async (_file, args) => {
+      calls.push([...args]);
+      if (args[0] === 'show') {
+        return { stdout: JSON.stringify([{ id: 'bd-1', title: 'Bead', metadata: { untouched: true } }]), stderr: '' };
+      }
+      return { stdout: '', stderr: '' };
+    });
+    const invalidForm = {
+      ...standardForm,
+      id: 'reserved_attach',
+      questions: [{ ...standardForm.questions[0], id: 'next_instruction' }],
+    };
+
+    await expect(attachBeadsForms({
+      execFile: exec,
+      forms: [invalidForm as never],
+      options: { dir: '/repo', beadId: 'bd-1' } satisfies AttachOptions,
+    })).rejects.toThrow('question.id "next_instruction" is reserved');
+    expect(calls.map((args) => args[0])).toEqual(['show']);
   });
 
   it('stamps workspace and session metadata while preserving unrelated metadata', () => {
@@ -550,6 +581,33 @@ describe('beads-form CLI helpers', () => {
       url: 'https://example.test/dashboard/forms?dir=%2Frepo&bead=bd-1&form=review',
     });
     expect(calls.map((args) => args[0])).toEqual(['show', 'update']);
+  });
+
+  it('rejects reserved generated submit ids through update-question without metadata mutation', async () => {
+    const calls: string[][] = [];
+    const existingReservedForm = {
+      ...storedReviewForm,
+      questions: [{ ...storedReviewForm.questions[0], id: 'next_instruction' }],
+    };
+    const exec = vi.fn<ExecFileLike>(async (_file, args) => {
+      calls.push([...args]);
+      if (args[0] === 'show') {
+        return { stdout: JSON.stringify([{ id: 'bd-1', title: 'Bead', metadata: { beadForms: { forms: [existingReservedForm] } } }]), stderr: '' };
+      }
+      return { stdout: '', stderr: '' };
+    });
+
+    await expect(updateBeadsFormQuestion({
+      execFile: exec,
+      replacement: { ...existingReservedForm.questions[0], title: 'Still reserved' } as never,
+      options: {
+        dir: '/repo',
+        beadId: 'bd-1',
+        formId: 'review',
+        questionId: 'next_instruction',
+      },
+    })).rejects.toThrow('question.id "next_instruction" is reserved');
+    expect(calls.map((args) => args[0])).toEqual(['show']);
   });
 
   it('appends questions to a canonical form while preserving responses and lean metadata', () => {
