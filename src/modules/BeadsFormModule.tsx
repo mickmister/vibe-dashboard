@@ -32,6 +32,7 @@ import {
 import { rewriteBeadBackedAttachmentRefs, rewriteFolderPreviewMediaRefs } from '../lib/beadsFormPreviewMedia';
 import { shouldHydrateRefreshedWorkspaceForms } from '../lib/beadsFormRefreshState';
 import { initializeSingleQuestionMode, prehideInactiveSingleQuestionItems } from '../lib/beadsFormSingleQuestion';
+import { BeadsFormDraftSaveQueue } from '../lib/beadsFormDraftSaveQueue';
 import { initializeCompactMoreInfo, refreshCompactMoreInfoState } from '../lib/beadsFormMoreInfo';
 import { initializeMarkdownTextareaEditors, refreshMarkdownTextareaEditors } from '../lib/beadsFormMarkdownEditor';
 import { preserveSubmittedFormDom } from '../lib/beadsFormSubmissionUi';
@@ -986,8 +987,7 @@ function AggregateBeadsFormCard({ item, submitBeadForm, saveBeadFormDraft }: {
   const submitInFlightRef = useRef(false);
   const submissionIdRef = useRef<string | null>(null);
   const formHostRef = useRef<HTMLDivElement | null>(null);
-  const draftSaveTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const draftUpdatedAtRef = useRef<string | undefined>(item.draft?.updatedAt);
+  const draftSaveQueueRef = useRef<BeadsFormDraftSaveQueue | null>(null);
   const wizardPositionRef = useRef<BeadsFormWizardPosition | undefined>(item.draft?.position);
   const form = item.form;
   const domPrefix = useMemo(() => aggregateFormDomPrefix(item.ref), [item.ref]);
@@ -1012,13 +1012,18 @@ function AggregateBeadsFormCard({ item, submitBeadForm, saveBeadFormDraft }: {
   }, [submittedLocked]);
 
   React.useEffect(() => () => {
-    if (draftSaveTimeoutRef.current) clearTimeout(draftSaveTimeoutRef.current);
+    draftSaveQueueRef.current?.dispose();
   }, []);
 
   React.useEffect(() => {
-    draftUpdatedAtRef.current = item.draft?.updatedAt;
     wizardPositionRef.current = item.draft?.position;
+    draftSaveQueueRef.current?.setBaseUpdatedAt(item.draft?.updatedAt);
   }, [draftScopeKey, item.draft]);
+
+  React.useEffect(() => {
+    draftSaveQueueRef.current?.dispose();
+    draftSaveQueueRef.current = null;
+  }, [draftScopeKey]);
 
   React.useEffect(() => {
     const element = formHostRef.current?.querySelector('form');
@@ -1057,24 +1062,24 @@ function AggregateBeadsFormCard({ item, submitBeadForm, saveBeadFormDraft }: {
     const element = formHostRef.current?.querySelector('form');
     if (!element) return;
     const values = formValuesFromDom(element);
-    if (draftSaveTimeoutRef.current) clearTimeout(draftSaveTimeoutRef.current);
-    draftSaveTimeoutRef.current = setTimeout(() => {
-      void (async () => {
-        try {
-          const result = await (await saveBeadFormDraft({
-            dir: item.beadRepoDir!,
-            beadId: item.ref.beadId,
-            formId: form.id,
-            values,
-            ...(wizardPositionRef.current ? { position: wizardPositionRef.current } : {}),
-            ...(draftUpdatedAtRef.current ? { baseUpdatedAt: draftUpdatedAtRef.current } : {}),
-          }));
-          draftUpdatedAtRef.current = result.draft.updatedAt;
-        } catch (reason) {
-          setStatus({ status: 'error', message: reason instanceof Error ? reason.message : String(reason) });
-        }
-      })();
-    }, 300);
+    draftSaveQueueRef.current ??= new BeadsFormDraftSaveQueue({
+      initialBaseUpdatedAt: item.draft?.updatedAt,
+      save: async (payload, baseUpdatedAt) => await (await saveBeadFormDraft({
+        dir: item.beadRepoDir!,
+        beadId: item.ref.beadId,
+        formId: form.id,
+        values: payload.values,
+        ...(payload.position ? { position: payload.position } : {}),
+        ...(baseUpdatedAt ? { baseUpdatedAt } : {}),
+      })),
+      onError: (reason) => {
+        setStatus({ status: 'error', message: reason instanceof Error ? reason.message : String(reason) });
+      },
+    });
+    draftSaveQueueRef.current.schedule({
+      values,
+      ...(wizardPositionRef.current ? { position: wizardPositionRef.current } : {}),
+    });
   };
 
   React.useEffect(() => {
@@ -1114,6 +1119,7 @@ function AggregateBeadsFormCard({ item, submitBeadForm, saveBeadFormDraft }: {
     if (submitInFlightRef.current || submittedLocked) return;
     if (!target.reportValidity()) return;
     const values = normalizeSubmittedFormEvent(event, target, form);
+    draftSaveQueueRef.current?.cancel();
     submitInFlightRef.current = true;
     setStatus({ status: 'submitting' });
     try {
@@ -1124,8 +1130,7 @@ function AggregateBeadsFormCard({ item, submitBeadForm, saveBeadFormDraft }: {
         values,
         submissionId: submissionIdRef.current ??= createSubmissionId(),
       }));
-      draftUpdatedAtRef.current = undefined;
-      if (draftSaveTimeoutRef.current) clearTimeout(draftSaveTimeoutRef.current);
+      draftSaveQueueRef.current?.setBaseUpdatedAt(undefined);
       preserveSubmittedFormDom(formHostRef.current, result.values, {
         lock: true,
         singleQuestionMode: form.format === 'standard',
@@ -1333,8 +1338,7 @@ function BeadsFormRoute({ actions, pendingQueueSentinel }: { actions: {
   const submitInFlightRef = useRef(false);
   const submissionIdRef = useRef<string | null>(null);
   const formHostRef = useRef<HTMLDivElement | null>(null);
-  const draftSaveTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const draftUpdatedAtRef = useRef<string | undefined>(undefined);
+  const draftSaveQueueRef = useRef<BeadsFormDraftSaveQueue | null>(null);
   const wizardPositionRef = useRef<BeadsFormWizardPosition | undefined>(undefined);
 
   React.useEffect(() => {
@@ -1342,7 +1346,7 @@ function BeadsFormRoute({ actions, pendingQueueSentinel }: { actions: {
   }, [submittedLocked]);
 
   React.useEffect(() => () => {
-    if (draftSaveTimeoutRef.current) clearTimeout(draftSaveTimeoutRef.current);
+    draftSaveQueueRef.current?.dispose();
   }, []);
 
   React.useEffect(() => {
@@ -1355,7 +1359,8 @@ function BeadsFormRoute({ actions, pendingQueueSentinel }: { actions: {
     setEditResponseVersion(0);
     submittedLockedRef.current = false;
     setSubmittedLocked(false);
-    draftUpdatedAtRef.current = undefined;
+    draftSaveQueueRef.current?.cancel();
+    draftSaveQueueRef.current?.setBaseUpdatedAt(undefined);
     wizardPositionRef.current = undefined;
 
     if (!workspaceId && (!dir || !beadId)) {
@@ -1443,9 +1448,14 @@ function BeadsFormRoute({ actions, pendingQueueSentinel }: { actions: {
   }, [beadId, loaded?.selected?.beadRepoDir, loaded?.selected?.selectedForm, workspaceId]);
 
   React.useEffect(() => {
-    draftUpdatedAtRef.current = loaded?.selected?.selectedDraft?.updatedAt;
     wizardPositionRef.current = loaded?.selected?.selectedDraft?.position;
+    draftSaveQueueRef.current?.setBaseUpdatedAt(loaded?.selected?.selectedDraft?.updatedAt);
   }, [beadDraftScopeKey, loaded?.selected?.selectedDraft]);
+
+  React.useEffect(() => {
+    draftSaveQueueRef.current?.dispose();
+    draftSaveQueueRef.current = null;
+  }, [beadDraftScopeKey]);
 
   React.useEffect(() => {
     const form = formHostRef.current?.querySelector('form');
@@ -1502,26 +1512,26 @@ function BeadsFormRoute({ actions, pendingQueueSentinel }: { actions: {
     const form = formHostRef.current?.querySelector('form');
     if (!form) return;
     const values = formValuesFromDom(form);
-    if (draftSaveTimeoutRef.current) clearTimeout(draftSaveTimeoutRef.current);
-    draftSaveTimeoutRef.current = setTimeout(() => {
-      void (async () => {
-        if (!loaded?.selected?.selectedForm || !beadId) return;
-        try {
-          const result = await (await actions.saveBeadFormDraft({
-            dir: loaded.selected.beadRepoDir,
-            beadId,
-            formId: loaded.selected.selectedForm.id,
-            ...(workspaceId ? { workspaceId } : {}),
-            values,
-            ...(wizardPositionRef.current ? { position: wizardPositionRef.current } : {}),
-            ...(draftUpdatedAtRef.current ? { baseUpdatedAt: draftUpdatedAtRef.current } : {}),
-          }));
-          draftUpdatedAtRef.current = result.draft.updatedAt;
-        } catch (reason) {
-          setError(reason instanceof Error ? reason.message : String(reason));
-        }
-      })();
-    }, 300);
+    if (!loaded?.selected?.selectedForm || !beadId) return;
+    draftSaveQueueRef.current ??= new BeadsFormDraftSaveQueue({
+      initialBaseUpdatedAt: loaded.selected.selectedDraft?.updatedAt,
+      save: async (payload, baseUpdatedAt) => await (await actions.saveBeadFormDraft({
+        dir: loaded.selected!.beadRepoDir,
+        beadId,
+        formId: loaded.selected!.selectedForm!.id,
+        ...(workspaceId ? { workspaceId } : {}),
+        values: payload.values,
+        ...(payload.position ? { position: payload.position } : {}),
+        ...(baseUpdatedAt ? { baseUpdatedAt } : {}),
+      })),
+      onError: (reason) => {
+        setError(reason instanceof Error ? reason.message : String(reason));
+      },
+    });
+    draftSaveQueueRef.current.schedule({
+      values,
+      ...(wizardPositionRef.current ? { position: wizardPositionRef.current } : {}),
+    });
   };
 
   React.useEffect(() => {
@@ -1564,6 +1574,7 @@ function BeadsFormRoute({ actions, pendingQueueSentinel }: { actions: {
     if (!target.reportValidity()) return;
 
     const values = normalizeSubmittedFormEvent(event, target, loaded.selected.selectedForm);
+    draftSaveQueueRef.current?.cancel();
     submitInFlightRef.current = true;
     setSubmitting(true);
     setError(null);
@@ -1576,8 +1587,7 @@ function BeadsFormRoute({ actions, pendingQueueSentinel }: { actions: {
         values,
         submissionId: submissionIdRef.current ??= createSubmissionId(),
       }));
-      draftUpdatedAtRef.current = undefined;
-      if (draftSaveTimeoutRef.current) clearTimeout(draftSaveTimeoutRef.current);
+      draftSaveQueueRef.current?.setBaseUpdatedAt(undefined);
       preserveSubmittedFormDom(formHostRef.current, result.values, {
         lock: true,
         singleQuestionMode: loaded.selected.selectedForm.format === 'standard',
