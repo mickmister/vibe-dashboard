@@ -4,6 +4,7 @@ import { useSearchParams } from 'react-router';
 import springboard from 'springboard';
 
 import {
+  ALLOW_CODE_FILE_CHANGES_FIELD,
   buildAgentResultMessage,
   buildPrettySummary,
   beadFormDraftScopeKey,
@@ -41,7 +42,10 @@ import { initializeMarkdownTextareaEditors, refreshMarkdownTextareaEditors } fro
 import { preserveSubmittedFormDom } from '../lib/beadsFormSubmissionUi';
 import {
   copySubmittedResultHandoffXml,
+  copySubmittedBatchResultHandoffXml,
+  pendingSubmittedBatchResultHandoffCopy,
   pendingSubmittedResultHandoffCopy,
+  submittedBatchResultHandoffXml,
   submittedResultHandoffXml,
   type ClipboardCopyResult,
 } from '../lib/beadsFormSubmitSuccess';
@@ -128,6 +132,32 @@ type LoadAggregateFormsResult = {
   refs: AggregateBeadsFormRef[];
   items: AggregateBeadsFormItem[];
 };
+
+type AggregateBatchSnapshot = {
+  key: string;
+  ref: AggregateBeadsFormRef;
+  dir: string;
+  form: BeadsFormDefinition;
+  values: JsonObject;
+};
+
+type AggregateBatchController = {
+  snapshot: (allowCodeFileChanges: boolean) => AggregateBatchSnapshot;
+  lock: (values: JsonObject) => void;
+  unlock: (values: JsonObject) => void;
+  markSaved: (result: SubmitFormResult) => void;
+  markError: (message: string) => void;
+};
+
+type AggregateBatchStatus =
+  | { status: 'idle' }
+  | { status: 'submitting'; clipboard: ClipboardCopyResult }
+  | {
+    status: 'success' | 'partial';
+    clipboard: ClipboardCopyResult;
+    successes: SubmitFormResult[];
+    failures: Array<{ key: string; ref: AggregateBeadsFormRef; message: string }>;
+  };
 
 type LoadWorkspaceFormsResult = {
   workspaceId: string;
@@ -1022,10 +1052,11 @@ function BeadsFormPendingQueue({ actions, parentDir, pendingQueueSentinel }: {
   );
 }
 
-function AggregateBeadsFormCard({ item, submitBeadForm, saveBeadFormDraft }: {
+function AggregateBeadsFormCard({ item, submitBeadForm, saveBeadFormDraft, registerBatchItem }: {
   item: AggregateBeadsFormItem;
   submitBeadForm: (input: SubmitFormInput) => MaybeNestedPromise<SubmitFormResult>;
   saveBeadFormDraft: (input: SaveFormDraftInput) => MaybeNestedPromise<SaveFormDraftResult>;
+  registerBatchItem?: (key: string, controller: AggregateBatchController | null) => void;
 }) {
   const [status, setStatus] = useState<AggregateSubmitStatus>({ status: 'idle' });
   const [submittedLocked, setSubmittedLocked] = useState(false);
@@ -1161,6 +1192,67 @@ function AggregateBeadsFormCard({ item, submitBeadForm, saveBeadFormDraft }: {
       setFormFieldsReadOnly(element, false);
     }
   };
+
+  React.useEffect(() => {
+    if (!registerBatchItem || !form || !item.beadRepoDir || item.error) {
+      registerBatchItem?.(item.key, null);
+      return undefined;
+    }
+    const controller: AggregateBatchController = {
+      snapshot: (allowCodeFileChanges) => {
+        const element = formHostRef.current?.querySelector('form');
+        if (!element) throw new Error(`Form DOM is not ready for ${item.ref.beadId}/${item.ref.formId}.`);
+        if (!element.reportValidity()) throw new Error(`Complete required fields for ${item.ref.beadId}/${item.ref.formId}.`);
+        const values = normalizeSubmittedValues(form, {
+          ...normalizeFormData(new FormData(element)),
+          [ALLOW_CODE_FILE_CHANGES_FIELD]: allowCodeFileChanges ? 'true' : 'false',
+        });
+        return {
+          key: item.key,
+          ref: item.ref,
+          dir: item.beadRepoDir!,
+          form,
+          values,
+        };
+      },
+      lock: (values) => {
+        draftSaveQueueRef.current?.cancel();
+        submitInFlightRef.current = true;
+        submittedLockedRef.current = true;
+        setSubmittedLocked(true);
+        setEditingSubmittedResponse(false);
+        setRollbackValues(null);
+        setStatus({ status: 'submitting' });
+        preserveSubmittedFormDom(formHostRef.current, values, {
+          lock: true,
+          singleQuestionMode: form.format === 'standard',
+          singleQuestionModeUrlState: false,
+        });
+      },
+      unlock: (values) => {
+        submitInFlightRef.current = false;
+        submittedLockedRef.current = false;
+        setSubmittedLocked(false);
+        setEditingSubmittedResponse(false);
+        setRollbackValues(values);
+        setEditResponseVersion((version) => version + 1);
+      },
+      markSaved: (result) => {
+        submitInFlightRef.current = false;
+        submittedLockedRef.current = true;
+        setSubmittedLocked(true);
+        setEditingSubmittedResponse(false);
+        draftSaveQueueRef.current?.setBaseUpdatedAt(undefined);
+        setStatus({ status: 'idle' });
+      },
+      markError: (message) => {
+        submitInFlightRef.current = false;
+        setStatus({ status: 'error', message });
+      },
+    };
+    registerBatchItem(item.key, controller);
+    return () => registerBatchItem(item.key, null);
+  }, [form, item.beadRepoDir, item.error, item.key, item.ref, registerBatchItem]);
 
   const handleSubmit = async (event: React.FormEvent<HTMLDivElement>) => {
     const target = event.target;
@@ -1314,7 +1406,12 @@ function BeadsFormAggregateRoute({ actions }: { actions: {
   const [params] = useSearchParams();
   const [loaded, setLoaded] = useState<LoadAggregateFormsResult | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [batchStatus, setBatchStatus] = useState<AggregateBatchStatus>({ status: 'idle' });
+  const [batchNextInstruction, setBatchNextInstruction] = useState('');
   const paramString = params.toString();
+  const batchControllersRef = useRef(new Map<string, AggregateBatchController>());
+  const batchSubmitInFlightRef = useRef(false);
+  const batchSubmissionIdsRef = useRef(new Map<string, string>());
   const parsedRefs = useMemo((): { refs: AggregateBeadsFormRef[]; error?: string } => {
     try {
       return { refs: parseAggregateBeadsFormRefs(new URLSearchParams(paramString)) };
@@ -1326,6 +1423,10 @@ function BeadsFormAggregateRoute({ actions }: { actions: {
   React.useEffect(() => {
     let cancelled = false;
     setLoaded(null);
+    setBatchStatus({ status: 'idle' });
+    batchControllersRef.current.clear();
+    batchSubmitInFlightRef.current = false;
+    batchSubmissionIdsRef.current.clear();
     if (parsedRefs.error) {
       setError(parsedRefs.error);
       return;
@@ -1347,6 +1448,122 @@ function BeadsFormAggregateRoute({ actions }: { actions: {
       cancelled = true;
     };
   }, [actions, parsedRefs]);
+
+  const registerBatchItem = React.useCallback((key: string, controller: AggregateBatchController | null) => {
+    if (controller) {
+      batchControllersRef.current.set(key, controller);
+    } else {
+      batchControllersRef.current.delete(key);
+    }
+  }, []);
+
+  const handleBatchSubmit = async (allowCodeFileChanges: boolean) => {
+    if (!loaded || batchSubmitInFlightRef.current) return;
+    const blocked = loaded.items.filter((item) => item.error || !item.form || !item.beadRepoDir);
+    if (blocked.length > 0) {
+      setBatchStatus({
+        status: 'partial',
+        clipboard: { status: 'unavailable', text: '', warning: 'Batch handoff is blocked until invalid or failed source forms are removed.' },
+        successes: [],
+        failures: blocked.map((item) => ({
+          key: item.key,
+          ref: item.ref,
+          message: item.error ?? 'Source form is not ready for batch submission.',
+        })),
+      });
+      return;
+    }
+    const snapshots: AggregateBatchSnapshot[] = [];
+    try {
+      for (const item of loaded.items) {
+        const controller = batchControllersRef.current.get(item.key);
+        if (!controller) throw new Error(`Source form is not ready for ${item.ref.beadId}/${item.ref.formId}.`);
+        snapshots.push(controller.snapshot(allowCodeFileChanges));
+      }
+    } catch (reason) {
+      setBatchStatus({
+        status: 'partial',
+        clipboard: { status: 'unavailable', text: '', warning: 'Complete required fields before submitting the batch.' },
+        successes: [],
+        failures: [{ key: 'validation', ref: loaded.items[0]?.ref ?? { dir: '', beadId: '', formId: '' }, message: reason instanceof Error ? reason.message : String(reason) }],
+      });
+      return;
+    }
+
+    const batchId = `batch-${createSubmissionId()}`;
+    const optimisticXmlInput = {
+      batchId,
+      nextInstruction: batchNextInstruction,
+      forms: snapshots.map((snapshot) => ({
+        dir: snapshot.dir,
+        beadId: snapshot.ref.beadId,
+        formId: snapshot.ref.formId,
+        title: snapshot.form.title,
+        values: snapshot.values,
+      })),
+    };
+    const pendingCopy = pendingSubmittedBatchResultHandoffCopy(optimisticXmlInput);
+    setBatchStatus({ status: 'submitting', clipboard: pendingCopy });
+    batchSubmitInFlightRef.current = true;
+    for (const snapshot of snapshots) {
+      batchControllersRef.current.get(snapshot.key)?.lock(snapshot.values);
+    }
+    void copySubmittedBatchResultHandoffXml(navigator.clipboard, optimisticXmlInput).then((copyResult) => {
+      setBatchStatus((current) => (
+        current.status === 'submitting'
+          ? { ...current, clipboard: copyResult }
+          : current.status === 'success' || current.status === 'partial'
+            ? { ...current, clipboard: { ...copyResult, text: current.clipboard.text } }
+            : current
+      ));
+    });
+
+    const successes: SubmitFormResult[] = [];
+    const failures: Array<{ key: string; ref: AggregateBeadsFormRef; message: string }> = [];
+    for (const snapshot of snapshots) {
+      try {
+        const submissionId = batchSubmissionIdsRef.current.get(snapshot.key) ?? createSubmissionId();
+        batchSubmissionIdsRef.current.set(snapshot.key, submissionId);
+        const result = await (await actions.submitBeadForm({
+          dir: snapshot.dir,
+          beadId: snapshot.ref.beadId,
+          formId: snapshot.ref.formId,
+          values: snapshot.values,
+          submissionId,
+        }));
+        successes.push(result);
+        batchControllersRef.current.get(snapshot.key)?.markSaved(result);
+      } catch (reason) {
+        const message = reason instanceof Error ? reason.message : String(reason);
+        failures.push({ key: snapshot.key, ref: snapshot.ref, message });
+        batchControllersRef.current.get(snapshot.key)?.unlock(snapshot.values);
+        batchControllersRef.current.get(snapshot.key)?.markError(message);
+      }
+    }
+    const persistedXmlInput = {
+      batchId,
+      nextInstruction: batchNextInstruction,
+      forms: snapshots.map((snapshot) => {
+        const result = successes.find((candidate) => candidate.beadId === snapshot.ref.beadId && candidate.formId === snapshot.ref.formId);
+        return {
+          dir: snapshot.dir,
+          beadId: snapshot.ref.beadId,
+          formId: snapshot.ref.formId,
+          title: snapshot.form.title,
+          submittedAt: result?.submittedAt,
+          submittedBy: result?.submittedBy,
+          values: result?.values ?? snapshot.values,
+        };
+      }),
+    };
+    setBatchStatus((current) => ({
+      status: failures.length > 0 ? 'partial' : 'success',
+      clipboard: current.status === 'submitting' ? { ...current.clipboard, text: submittedBatchResultHandoffXml(persistedXmlInput) } : pendingSubmittedBatchResultHandoffCopy(persistedXmlInput),
+      successes,
+      failures,
+    }));
+    batchSubmitInFlightRef.current = false;
+  };
 
   return (
     <div className="beadsform-root beadsform-page beadsform-aggregate-page">
@@ -1371,8 +1588,42 @@ function BeadsFormAggregateRoute({ actions }: { actions: {
               item={item}
               submitBeadForm={actions.submitBeadForm}
               saveBeadFormDraft={actions.saveBeadFormDraft}
+              registerBatchItem={registerBatchItem}
             />
           ))}
+          <div className="beadsform-batch-submit-panel" aria-live="polite">
+            <h3>Submit selected forms together</h3>
+            <p>This batch handoff includes {loaded.items.length} source form{loaded.items.length === 1 ? '' : 's'} and persists each source response idempotently. Invalidated or unavailable forms block the batch until removed.</p>
+            <ul>
+              {loaded.items.map((item) => <li key={item.key}>{item.ref.beadId} / {item.ref.formId}{item.error ? ' — blocked' : ''}</li>)}
+            </ul>
+            <label htmlFor="beadsform_batch_next_instruction">Batch Next Instruction <span className="beads-form-optional">(optional)</span></label>
+            <textarea
+              id="beadsform_batch_next_instruction"
+              rows={3}
+              value={batchNextInstruction}
+              onChange={(event) => setBatchNextInstruction(event.currentTarget.value)}
+              placeholder="Optional Markdown instruction for the combined handoff"
+            />
+            <div className="beads-form-submit-actions">
+              <button type="button" disabled={batchStatus.status === 'submitting'} onClick={() => void handleBatchSubmit(true)}>Submit batch and allow code/file changes</button>
+              <button type="button" disabled={batchStatus.status === 'submitting'} onClick={() => void handleBatchSubmit(false)}>Submit batch and avoid code/file changes</button>
+            </div>
+            {batchStatus.status === 'submitting' ? <p>Submitting batch and copying combined XML handoff…</p> : null}
+            {batchStatus.status === 'success' || batchStatus.status === 'partial' ? (
+              <div className={batchStatus.status === 'partial' ? 'beadsform-warning' : 'beadsform-submit-result'} role="status">
+                <h3>{batchStatus.status === 'success' ? 'Batch submitted' : 'Batch partially submitted'}</h3>
+                <p>{batchStatus.successes.length} source form{batchStatus.successes.length === 1 ? '' : 's'} saved. {batchStatus.failures.length > 0 ? `${batchStatus.failures.length} source form${batchStatus.failures.length === 1 ? '' : 's'} still need attention; do not resubmit saved forms with a new URL.` : 'Combined XML handoff is ready.'}</p>
+                {batchStatus.clipboard.status === 'copied' ? <p>Copied combined BeadsForm XML handoff to your clipboard.</p> : null}
+                {batchStatus.clipboard.warning ? <p>{batchStatus.clipboard.warning}</p> : null}
+                {batchStatus.failures.length > 0 ? (
+                  <ul>{batchStatus.failures.map((failure) => <li key={`${failure.key}:${failure.message}`}>{failure.ref.beadId}/{failure.ref.formId}: {failure.message}</li>)}</ul>
+                ) : null}
+                <h4>Combined BeadsForm XML handoff</h4>
+                <textarea readOnly rows={Math.min(24, Math.max(8, batchStatus.clipboard.text.split('\n').length + 1))} value={batchStatus.clipboard.text} />
+              </div>
+            ) : null}
+          </div>
         </section>
       ) : null}
     </div>

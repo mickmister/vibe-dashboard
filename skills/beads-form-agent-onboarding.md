@@ -255,7 +255,7 @@ If multiple agents created separate forms and the user should answer them from o
 /dashboard/forms/aggregate?dir=/repo-a&bead=repo-a-123&form=review_a&dir=/repo-b&bead=repo-b-456&form=review_b
 ```
 
-Each grouped section submits independently back to its source bead/form. This is safer than combining responses into a new schema and avoids question-id collisions between forms.
+Each grouped section can submit independently back to its source bead/form, and the aggregate page also has a batch handoff panel for submitting the visible set together. Batch submit persists each source response to its original bead/form with a stable per-source `submissionId`, routes notifications per source creator exactly like individual aggregate submits, and copies one combined XML handoff containing each source bead/form id plus one batch-level Next Instruction. Invalidated or failed source forms block or partially fail the batch instead of being silently included.
 
 Aggregate URL params must be ordered as exact repeated `dir`, then `bead`, then `form` triplets. Do not group all `dir` params first or add unrelated query params to aggregate URLs; malformed ordering is rejected so refs cannot be silently misaligned.
 

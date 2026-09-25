@@ -1,6 +1,8 @@
 import type { JsonObject } from './beadsFormCore';
 import {
+  beadsFormBatchSubmissionXml,
   beadsFormSubmissionXml,
+  type BeadsFormBatchSubmissionHandoffInput,
   type BeadsFormSubmissionHandoffMetadata,
 } from './beadsFormSubmissionHandoff';
 
@@ -19,6 +21,41 @@ export function submittedResultHandoffXml(
   metadata: BeadsFormSubmissionHandoffMetadata = {},
 ): string {
   return beadsFormSubmissionXml({ values, ...metadata });
+}
+
+export function submittedBatchResultHandoffXml(input: BeadsFormBatchSubmissionHandoffInput): string {
+  return beadsFormBatchSubmissionXml(input);
+}
+
+export function pendingSubmittedBatchResultHandoffCopy(input: BeadsFormBatchSubmissionHandoffInput): ClipboardCopyResult {
+  return {
+    status: 'pending',
+    text: submittedBatchResultHandoffXml(input),
+  };
+}
+
+export async function copySubmittedBatchResultHandoffXml(
+  clipboard: Pick<Clipboard, 'writeText'> | undefined,
+  input: BeadsFormBatchSubmissionHandoffInput,
+): Promise<ClipboardCopyResult> {
+  const text = submittedBatchResultHandoffXml(input);
+  if (!clipboard) {
+    return {
+      status: 'unavailable',
+      text,
+      warning: 'Clipboard copy is unavailable. Use the manual XML handoff field below.',
+    };
+  }
+  try {
+    await clipboard.writeText(text);
+    return { status: 'copied', text };
+  } catch (error) {
+    return {
+      status: 'failed',
+      text,
+      warning: `Clipboard copy failed: ${error instanceof Error ? error.message : String(error)}. Use the manual XML handoff field below.`,
+    };
+  }
 }
 
 export function pendingSubmittedResultHandoffCopy(

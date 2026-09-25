@@ -107,4 +107,14 @@ describe('BeadsForm pending queue UI source', () => {
     expect(source).toContain('isBeadsFormInvalidated(form)');
     expect(source).toContain('invalidatedBeadsFormMessage(form)');
   });
+
+  it('offers aggregate batch submit with combined XML handoff and invalid-source blocking', async () => {
+    const source = await readFile(new URL('./BeadsFormModule.tsx', import.meta.url), 'utf8');
+    expect(source).toContain('Submit selected forms together');
+    expect(source).toContain('copySubmittedBatchResultHandoffXml(navigator.clipboard, optimisticXmlInput)');
+    expect(source).toContain('pendingSubmittedBatchResultHandoffCopy(optimisticXmlInput)');
+    expect(source).toContain('batchSubmissionIdsRef.current');
+    expect(source).toContain('Invalidated or unavailable forms block the batch');
+    expect(source).toContain('Combined BeadsForm XML handoff');
+  });
 });

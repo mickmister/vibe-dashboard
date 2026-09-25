@@ -9,6 +9,18 @@ export type BeadsFormSubmissionHandoffInput = BeadsFormSubmissionHandoffMetadata
   values: Record<string, unknown>;
 };
 
+export type BeadsFormBatchSubmissionHandoffInput = {
+  batchId?: string;
+  submittedAt?: string;
+  submittedBy?: string;
+  nextInstruction?: string;
+  forms: Array<BeadsFormSubmissionHandoffMetadata & {
+    dir?: string;
+    title?: string;
+    values: Record<string, unknown>;
+  }>;
+};
+
 export function beadsFormSubmissionXml(input: BeadsFormSubmissionHandoffInput): string {
   const lines = ['<beadsFormSubmission>'];
   const metadata = metadataEntries(input);
@@ -26,6 +38,57 @@ export function beadsFormSubmissionXml(input: BeadsFormSubmissionHandoffInput): 
   lines.push('  </answers>');
   lines.push('</beadsFormSubmission>');
   return lines.join('\n');
+}
+
+export function beadsFormBatchSubmissionXml(input: BeadsFormBatchSubmissionHandoffInput): string {
+  const lines = ['<beadsFormBatchSubmission>'];
+  const batchMetadata = batchMetadataEntries(input);
+  if (batchMetadata.length > 0) {
+    lines.push('  <metadata>');
+    for (const [name, value] of batchMetadata) {
+      lines.push(`    <${name}>${escapeXmlText(value)}</${name}>`);
+    }
+    lines.push('  </metadata>');
+  }
+  if (input.nextInstruction?.trim()) {
+    lines.push(...blockTextElementLines('nextInstruction', 'scope="batch" type="markdown"', input.nextInstruction, '  '));
+  }
+  lines.push('  <forms>');
+  for (const form of input.forms) {
+    const attributes = [
+      form.beadId ? `beadId="${escapeXmlAttribute(form.beadId)}"` : '',
+      form.formId ? `formId="${escapeXmlAttribute(form.formId)}"` : '',
+      form.dir ? `dir="${escapeXmlAttribute(form.dir)}"` : '',
+    ].filter(Boolean).join(' ');
+    lines.push(`    <form${attributes ? ` ${attributes}` : ''}>`);
+    const metadata = metadataEntries(form);
+    if (form.title) metadata.push(['title', form.title]);
+    if (metadata.length > 0) {
+      lines.push('      <metadata>');
+      for (const [name, value] of metadata) {
+        lines.push(`        <${name}>${escapeXmlText(value)}</${name}>`);
+      }
+      lines.push('      </metadata>');
+    }
+    lines.push('      <answers>');
+    for (const [id, value] of Object.entries(form.values)) {
+      lines.push(...answerLines(id, value, '        '));
+    }
+    lines.push('      </answers>');
+    lines.push('    </form>');
+  }
+  lines.push('  </forms>');
+  lines.push('</beadsFormBatchSubmission>');
+  return lines.join('\n');
+}
+
+function batchMetadataEntries(input: BeadsFormBatchSubmissionHandoffInput): [string, string][] {
+  const entries: [string, string][] = [];
+  if (input.batchId) entries.push(['batchId', input.batchId]);
+  if (input.submittedAt) entries.push(['submittedAt', input.submittedAt]);
+  if (input.submittedBy) entries.push(['submittedBy', input.submittedBy]);
+  entries.push(['formCount', String(input.forms.length)]);
+  return entries;
 }
 
 function metadataEntries(input: BeadsFormSubmissionHandoffInput): [string, string][] {

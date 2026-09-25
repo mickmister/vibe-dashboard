@@ -26,6 +26,13 @@ describe('BeadsForm styles', () => {
     expect(css).toMatch(/\.beadsform-root \.beads-form-optional\s*\{[^}]*font-weight:\s*500/s);
   });
 
+  it('keeps aggregate batch submit handoff panel readable and mobile-safe', async () => {
+    const css = await readFile(new URL('./styles.css', import.meta.url), 'utf8');
+
+    expect(css).toMatch(/\.beadsform-root \.beadsform-batch-submit-panel\s*\{[^}]*display:\s*grid[^}]*gap:\s*0\.75rem/s);
+    expect(css).toMatch(/\.beadsform-root \.beadsform-batch-submit-panel textarea\s*\{[^}]*width:\s*100%[^}]*max-width:\s*100%[^}]*box-sizing:\s*border-box/s);
+  });
+
   it('lays out single-question mode as a centered wide column with notes above the question', async () => {
     const css = await readFile(new URL('./styles.css', import.meta.url), 'utf8');
 

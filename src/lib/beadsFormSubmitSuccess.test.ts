@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from 'vitest';
 
 import {
   copySubmittedResultHandoffXml,
+  submittedBatchResultHandoffXml,
   normalizedSubmittedResultJson,
   pendingSubmittedResultHandoffCopy,
   submittedResultHandoffXml,
@@ -59,6 +60,37 @@ describe('BeadsForm submit success helpers', () => {
     expect(text).not.toContain('__beadsform_provenance');
     expect(text).not.toContain('source=');
     expect(text).not.toContain('assumedTrue');
+  });
+
+  it('formats combined batch XML with source form identifiers and one batch next instruction', () => {
+    const text = submittedBatchResultHandoffXml({
+      batchId: 'batch-1',
+      nextInstruction: '## Next\n\nCarry out the combined handoff once.',
+      forms: [{
+        dir: '/repo-a',
+        beadId: 'beads-web-a',
+        formId: 'form_a',
+        title: 'Form A',
+        submittedAt: '2026-09-25T00:00:00.000Z',
+        submittedBy: 'human',
+        values: { answer: 'Use <safe> XML & Markdown.' },
+      }, {
+        dir: '/repo-b',
+        beadId: 'beads-web-b',
+        formId: 'form_b',
+        values: { choices: { yes: true, no: false } },
+      }],
+    });
+
+    expect(text).toContain('<beadsFormBatchSubmission>');
+    expect(text).toContain('<batchId>batch-1</batchId>');
+    expect(text).toContain('<formCount>2</formCount>');
+    expect(text).toContain('<nextInstruction scope="batch" type="markdown">\n\n## Next');
+    expect(text).toContain('<form beadId="beads-web-a" formId="form_a" dir="/repo-a">');
+    expect(text).toContain('<title>Form A</title>');
+    expect(text).toContain('Use &lt;safe&gt; XML &amp; Markdown.');
+    expect(text).toContain('<choiceGroup id="choices">');
+    expect(text.match(/<nextInstruction/g)).toHaveLength(1);
   });
 
   it('copies BeadsForm XML handoff after successful persistence', async () => {
