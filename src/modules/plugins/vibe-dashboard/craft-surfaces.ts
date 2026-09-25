@@ -13,17 +13,21 @@ export const CRAFT_SURFACE_TAB_ID_PREFIX = "craft-surface:";
 export const BUILT_IN_AGENT_TAB_ID = "agent";
 export const BUILT_IN_CODE_TAB_ID = "code";
 export const BUILT_IN_BEADS_TAB_ID = "beads";
+export const BUILT_IN_FORMS_TAB_ID = "forms";
 export const BUILT_IN_AGENT_CODE_PAIR_ID = "agent+code";
 export const BUILT_IN_AGENT_BEADS_PAIR_ID = "agent+beads";
+export const BUILT_IN_AGENT_FORMS_PAIR_ID = "agent+forms";
 
 const BUILT_IN_WORKSPACE_TAB_IDS = new Set([
   BUILT_IN_AGENT_TAB_ID,
   BUILT_IN_CODE_TAB_ID,
   BUILT_IN_BEADS_TAB_ID,
+  BUILT_IN_FORMS_TAB_ID,
 ]);
 const BUILT_IN_WORKSPACE_PAIR_IDS = new Set([
   BUILT_IN_AGENT_CODE_PAIR_ID,
   BUILT_IN_AGENT_BEADS_PAIR_ID,
+  BUILT_IN_AGENT_FORMS_PAIR_ID,
 ]);
 const URL_PARSE_BASE = "https://workspace.local";
 const BEADS_WEB_DEFAULT_PORT = "3109";
@@ -183,7 +187,7 @@ export function getBuiltInWorkspaceMetadata(
 function getBuiltInWorkspaceTabs(tabGroup: TabGroup, origin: string): Tab[] {
   const metadata = getBuiltInWorkspaceMetadata(tabGroup);
   if (!metadata) return [];
-  const baseOrigin = origin;
+  const baseOrigin = getBuiltInWorkspaceBaseOrigin(origin);
   return [
     {
       id: BUILT_IN_AGENT_TAB_ID,
@@ -201,6 +205,12 @@ function getBuiltInWorkspaceTabs(tabGroup: TabGroup, origin: string): Tab[] {
       id: BUILT_IN_BEADS_TAB_ID,
       title: "Beads",
       url: buildBeadsWebUrl(baseOrigin),
+      pinned: true,
+    },
+    {
+      id: BUILT_IN_FORMS_TAB_ID,
+      title: "Forms",
+      url: buildFormsUrl(baseOrigin, metadata.workspaceId, metadata.workspaceDir, metadata.formsBeadId),
       pinned: true,
     },
   ];
@@ -252,6 +262,13 @@ function getBuiltInWorkspacePairs(
     pairs.push({
       id: BUILT_IN_AGENT_BEADS_PAIR_ID,
       tabIds: [BUILT_IN_AGENT_TAB_ID, BUILT_IN_BEADS_TAB_ID],
+      ratios: [50, 50],
+    });
+  }
+  if (tabIds.has(BUILT_IN_AGENT_TAB_ID) && tabIds.has(BUILT_IN_FORMS_TAB_ID)) {
+    pairs.push({
+      id: BUILT_IN_AGENT_FORMS_PAIR_ID,
+      tabIds: [BUILT_IN_AGENT_TAB_ID, BUILT_IN_FORMS_TAB_ID],
       ratios: [50, 50],
     });
   }
@@ -402,12 +419,34 @@ function isGeneratedWorkspaceTab(
     isEphemeralCraftSurfaceTab(tab) ||
     isAgentTab(tab) ||
     isCodeTab(tab) ||
-    isBeadsTab(tab)
+    isBeadsTab(tab) ||
+    isFormsTab(tab)
   );
+}
+
+function getBuiltInWorkspaceBaseOrigin(origin: string): string {
+  try {
+    const url = new URL(origin);
+    const portPrefixMatch = url.hostname.match(/^port-\d+\.(.+)$/);
+    if (!portPrefixMatch) return origin;
+    url.hostname = portPrefixMatch[1]!;
+    return url.origin;
+  } catch {
+    return origin;
+  }
 }
 
 function buildWorkspaceTabUrl(baseOrigin: string, workspaceId: string): string {
   return `${baseOrigin}/workspaces/${workspaceId}`;
+}
+
+function buildFormsUrl(baseOrigin: string, workspaceId: string, workspaceDir: string, beadId?: string): string {
+  const params = new URLSearchParams({ workspace: workspaceId });
+  if (beadId) {
+    params.set("dir", workspaceDir);
+    params.set("bead", beadId);
+  }
+  return `${baseOrigin}/dashboard/forms?${params.toString()}`;
 }
 
 function buildBeadsWebUrl(baseOrigin: string): string {
@@ -483,6 +522,13 @@ function isBeadsTab(tab: Pick<Tab, "id" | "title" | "url">): boolean {
   return (
     tab.id === BUILT_IN_BEADS_TAB_ID ||
     tab.title.trim().toLowerCase() === "beads"
+  );
+}
+
+function isFormsTab(tab: Pick<Tab, "id" | "title" | "url">): boolean {
+  return (
+    tab.id === BUILT_IN_FORMS_TAB_ID ||
+    tab.title.trim().toLowerCase() === "forms"
   );
 }
 

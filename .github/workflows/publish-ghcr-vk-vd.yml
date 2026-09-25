@@ -290,11 +290,6 @@ jobs:
           current_pr_head_sha="$(python3 -c 'import json, sys; print(json.load(sys.stdin)["head"]["sha"])' <<< "$current_pr_json")"
 
           if [[ "$current_pr_head_sha" != "$built_pr_head_sha" ]]; then
-            if [[ "${GITHUB_EVENT_NAME}" == "pull_request" ]]; then
-              echo "::error::PR #${pr_number} is not at the labeled head anymore. Labeled ${built_pr_head_sha}, but current PR head is ${current_pr_head_sha}. Re-add coolify-deploy to deploy the latest PR head."
-              exit 1
-            fi
-
             echo "::notice::PR #${pr_number} moved after this image was published. Published ${built_pr_head_sha}, but current PR head is ${current_pr_head_sha}; skipping stale Coolify deployment."
             exit 0
           fi

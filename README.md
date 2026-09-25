@@ -13,6 +13,29 @@ A docker container will run the following:
 - `code-server`
 - `caddy` as the main UI entrypoint
 
+## Local dev / preview startup
+
+`npm run dev` bootstraps a clean checkout before starting Vite. If
+`node_modules/.bin/vite` is missing, or the pnpm install state is older than
+`pnpm-lock.yaml`, the script runs `pnpm install --frozen-lockfile` and then
+starts Vite. Warm checkouts skip the install. The install uses repo-local
+`node_modules` only and must not modify package manifests or lockfiles.
+
+For BeadsForm preview slots, keep preview state in the ignored repo-local
+sandbox and disable pending-queue warmup:
+
+```sh
+BEADS_FORM_PENDING_CACHE_DIR="$PWD/.vk-mocked-sandbox/beads-form-pending-cache" \
+BEADS_FORM_PENDING_WARM_ON_STARTUP=0 \
+npm run dev
+```
+
+To inspect the bootstrap decision without starting Vite:
+
+```sh
+node --experimental-strip-types scripts/preview-run-bootstrap.ts --print-only -- vite
+```
+
 ## Dynamic port forwarding
 
 Caddy forwards `port-<port>.*` subdomains to `localhost:<port>` inside the container:
@@ -62,20 +85,34 @@ Caddy forwards `port-<port>.*` subdomains to `localhost:<port>` inside the conta
 #### Optional Vibe Kanban performance tracing / SigNoz
 
 Tracing is disabled by default. To export Vibe Kanban performance spans from
-the container to SigNoz, set `VK_PERF_TRACING=1` and an OTLP endpoint in your
-`.env` before running `docker compose up`:
+the container to self-hosted SigNoz, set `VK_PERF_TRACING=1` and point the
+sibling OpenTelemetry Collector at the SigNoz collector endpoint reachable from
+this Docker network:
 
 ```bash
 VK_PERF_TRACING=1
-OTEL_EXPORTER_OTLP_ENDPOINT=https://ingest.<region>.signoz.cloud:443
-OTEL_EXPORTER_OTLP_HEADERS=signoz-ingestion-key=<your-ingestion-key>
+# VK and spawned Codex/tool processes use this Compose-local collector by default.
+OTEL_EXPORTER_OTLP_ENDPOINT=http://otel-collector:4318
+# Forward from the sibling collector to self-hosted SigNoz over OTLP/HTTP.
+# Use the OTLP HTTP base endpoint; do not include /v1/traces here.
+SIGNOZ_OTLP_HTTP_ENDPOINT=http://signoz-otel-collector:4318
 OTEL_SERVICE_NAME=vibe-kanban-backend
 OTEL_RESOURCE_ATTRIBUTES=service.version=local-compose
 ```
 
-Use `OTEL_EXPORTER_OTLP_TRACES_ENDPOINT` if traces should use a different
-endpoint from other OTLP signals. `OTEL_EXPORTER_OTLP_HEADERS` is needed for
-SigNoz Cloud auth, but is usually unnecessary for a local collector.
+The `otel-collector` service listens internally on OTLP/HTTP `4318` and
+OTLP/gRPC `4317`, batches spans, and forwards them over OTLP/HTTP. Set
+`SIGNOZ_OTLP_HTTP_ENDPOINT` to the OTLP HTTP base endpoint, such as
+`http://host:4318`; the collector exporter appends signal paths like
+`/v1/traces`. In
+Docker/Coolify, `localhost` and `127.0.0.1` refer to the current container, not
+the SigNoz host/container, so use the SigNoz collector hostname or service URL
+reachable from the `code-vibe` and `otel-collector` containers.
+
+Direct OTEL overrides still work: set `OTEL_EXPORTER_OTLP_ENDPOINT` or
+`OTEL_EXPORTER_OTLP_TRACES_ENDPOINT` to bypass the sibling collector. For SigNoz
+Cloud, `OTEL_EXPORTER_OTLP_HEADERS` may be needed for auth; it is usually
+unnecessary for a local/self-hosted collector.
 `VK_WS_POLL_TRACING=1` enables extra noisy WebSocket poll tracing and is not
 normally needed.
 

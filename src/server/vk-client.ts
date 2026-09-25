@@ -70,6 +70,8 @@ export interface VibeKanbanServerClientOptions {
   fetch?: FetchLike;
 }
 
+export const BEADS_FORM_NOTIFICATION_TIMEOUT_MS = 10_000;
+
 export class VkApiError extends Error {
   readonly status?: number;
   readonly bodyText?: string;
@@ -113,6 +115,10 @@ export class VibeKanbanServerClient {
     return this.get('/workspaces');
   }
 
+  getWorkspace(workspaceId: string): Promise<Workspace> {
+    return this.get(`/workspaces/${encodeURIComponent(workspaceId)}`);
+  }
+
   getWorkspaceRepos(workspaceId: string): Promise<RepoWithBranch[]> {
     return this.get(`/workspaces/${encodeURIComponent(workspaceId)}/repos`);
   }
@@ -129,30 +135,53 @@ export class VibeKanbanServerClient {
     return this.post('/sessions', body);
   }
 
+  getExecutionProcess(processId: string): Promise<ExecutionProcess> {
+    return this.get(`/execution-processes/${encodeURIComponent(processId)}`);
+  }
+
+  async stopExecutionProcess(processId: string): Promise<void> {
+    await this.post(`/execution-processes/${encodeURIComponent(processId)}/stop`, {});
+  }
+
+  async checkHealth(): Promise<void> {
+    await this.get('/health');
+  }
+
+  async getInfo(): Promise<unknown> {
+    return this.get('/info');
+  }
+
   async sendFollowUp(
     sessionId: string,
     prompt: string,
+    options: { timeoutMs?: number } = {},
   ): Promise<ExecutionProcess> {
-    const session = await this.getSession(sessionId);
-    return this.post(`/sessions/${encodeURIComponent(sessionId)}/follow-up`, {
-      prompt,
-      executor_config: {
-        executor: session.executor,
-      },
-      retry_process_id: null,
-      force_when_dirty: null,
-      perform_git_reset: null,
-    });
+    const controller = new AbortController();
+    const timeoutMs = options.timeoutMs ?? BEADS_FORM_NOTIFICATION_TIMEOUT_MS;
+    const timeout = setTimeout(() => controller.abort(new Error(`VK follow-up timed out after ${timeoutMs}ms`)), timeoutMs);
+    try {
+      const session = await this.request<Session>(`/sessions/${encodeURIComponent(sessionId)}`, { signal: controller.signal });
+      return await this.post(`/sessions/${encodeURIComponent(sessionId)}/follow-up`, {
+        prompt,
+        executor_config: { executor: session.executor },
+        retry_process_id: null,
+        force_when_dirty: null,
+        perform_git_reset: null,
+      }, controller.signal);
+    } finally {
+      clearTimeout(timeout);
+    }
   }
 
   private get<T>(path: string): Promise<T> {
     return this.request<T>(path);
   }
 
-  private post<T>(path: string, body: unknown): Promise<T> {
+  private post<T>(path: string, body: unknown, signal?: AbortSignal): Promise<T> {
     return this.request<T>(path, {
       method: 'POST',
       body: JSON.stringify(body),
+      signal,
     });
   }
 

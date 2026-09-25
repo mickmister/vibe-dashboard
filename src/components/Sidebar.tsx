@@ -16,6 +16,7 @@ import type {
 } from '../types';
 import type { SpaceTypeContribution } from '../modules/plugins/vibe-dashboard/types';
 import { TabContextMenu } from './TabContextMenu';
+import { PENDING_BEADS_FORMS_LINK } from '../lib/beadsFormNavigation';
 
 const INTERNAL_URL_PREFIX = 'internal://';
 
@@ -622,6 +623,14 @@ export function Sidebar({
             >
               Open Craft
             </Button>
+            <a
+              href={PENDING_BEADS_FORMS_LINK.href}
+              className="flex w-full items-center gap-2 rounded-lg bg-neutral-800 px-3 py-2 text-sm font-medium text-neutral-200 transition-colors hover:bg-neutral-700 hover:text-white focus:outline-none focus:ring-2 focus:ring-primary-400"
+              onClick={onRequestClose}
+            >
+              <span aria-hidden="true">📝</span>
+              <span>{PENDING_BEADS_FORMS_LINK.sidebarLabel}</span>
+            </a>
             <div className="grid grid-cols-3 gap-1.5">
               <Button
                 size="sm"

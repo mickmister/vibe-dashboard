@@ -100,12 +100,14 @@ export interface ParsedSendArgs {
   message: string;
   jsonOutput: boolean;
   respond: boolean;
+  stdin: boolean;
   timeoutMs?: number;
 }
 
 export function parseSendArgs(args: string[]): ParsedSendArgs {
   let jsonOutput = false;
   let respond = false;
+  let stdin = false;
   let timeoutMs: number | undefined;
   const positionalArgs: string[] = [];
 
@@ -117,6 +119,10 @@ export function parseSendArgs(args: string[]): ParsedSendArgs {
     }
     if (arg === '--respond') {
       respond = true;
+      continue;
+    }
+    if (arg === '--stdin') {
+      stdin = true;
       continue;
     }
     if (arg === '--timeout' || arg === '--timeout-ms') {
@@ -141,15 +147,44 @@ export function parseSendArgs(args: string[]): ParsedSendArgs {
   if (unexpectedArgs.length > 0) {
     throw new Error('Too many positional arguments for send. Quote the message as a single argument.');
   }
+  if (stdin && message !== undefined) {
+    throw new Error('send cannot combine --stdin with a positional message');
+  }
 
   const parsed: ParsedSendArgs = {
     targetRoleArg: targetRoleArg ?? '',
     message: message ?? '',
     jsonOutput,
     respond,
+    stdin,
   };
   if (timeoutMs !== undefined) parsed.timeoutMs = timeoutMs;
   return parsed;
+}
+
+export async function readSendMessageContent(input: {
+  message: string;
+  stdin: boolean;
+  stream?: NodeJS.ReadableStream;
+}): Promise<string> {
+  if (!input.stdin) return input.message;
+  const message = await readTextStream(input.stream ?? process.stdin);
+  if (message.length === 0) {
+    throw new Error('send --stdin message is empty');
+  }
+  return message;
+}
+
+function readTextStream(stream: NodeJS.ReadableStream): Promise<string> {
+  return new Promise((resolve, reject) => {
+    let text = '';
+    stream.setEncoding('utf8');
+    stream.on('data', (chunk) => {
+      text += chunk;
+    });
+    stream.on('error', reject);
+    stream.on('end', () => resolve(text));
+  });
 }
 
 function isStopHookFeedbackEntry(entry: ConversationEntry | undefined): boolean {
@@ -1211,14 +1246,22 @@ async function send(args: string[]): Promise<void> {
     parsed = parseSendArgs(args);
   } catch (err) {
     console.error(`Error: ${(err as Error).message}`);
-    console.error('Usage: vibe-agent send [--respond] <role> "<message>" [--timeout <duration>] [--json]');
+    console.error('Usage: vibe-agent send [--respond] <role> ("<message>" | --stdin) [--timeout <duration>] [--json]');
     process.exit(1);
   }
 
-  const { targetRoleArg, message, jsonOutput, respond, timeoutMs } = parsed;
+  const { targetRoleArg, jsonOutput, respond, timeoutMs } = parsed;
+  let message: string;
+  try {
+    message = await readSendMessageContent(parsed);
+  } catch (err) {
+    console.error(`Error: ${(err as Error).message}`);
+    console.error('Usage: vibe-agent send [--respond] <role> ("<message>" | --stdin) [--timeout <duration>] [--json]');
+    process.exit(1);
+  }
 
   if (!targetRoleArg || !message) {
-    console.error('Usage: vibe-agent send [--respond] <role> "<message>" [--timeout <duration>] [--json]');
+    console.error('Usage: vibe-agent send [--respond] <role> ("<message>" | --stdin) [--timeout <duration>] [--json]');
     console.error(`Standard roles: ${BASE_ROLES.join(', ')} (or with suffix: reviewer-2, etc.), human`);
     console.error('Custom roles are also allowed (use CODEX by default)');
     process.exit(1);
@@ -2067,11 +2110,13 @@ Commands:
     (Use this as first agent in workspace to register yourself)
 
   send <role> "<message>"      Send message to another agent
+  send <role> --stdin          Read message from stdin without shell escaping
     --respond                  Route the receiving agent final response back to this session
     --timeout <duration>       Timeout for --respond wait (for example: 30s, 10m, 1h)
     --timeout-ms <ms>          Timeout for --respond wait in milliseconds
     --json                     Output as JSON
     (Auto-creates and registers session if none exists for the role)
+    Example: cat .vk-mocked-sandbox/message.md | vibe-agent send --respond tester --stdin
 
   request-review [instructions] Schedule a thorough branch code review from reviewer
                               after this session's current/auto-commit turns finish
@@ -2148,7 +2193,9 @@ function onboarding(): void {
   console.log(`Vibe agent onboarding
 
 Core workflow:
-  - Use bd for task tracking in this repo. Create or update beads for meaningful work.
+  - Use bd from PATH for task tracking in this repo. In VD images, bd/beads are wrapped to stamp workspace/session metadata.
+  - Create or update beads in the repo where the work belongs. For multi-repo workspaces, choose the relevant repo.
+  - If the relevant repo is not bead-initialized, run bd init in that repo. Do not create a parent git repo just to hold beads.
   - Always reference beads by id and title, for example: vkvw-3516 — Vendor vibe-agent and vk CLIs with onboarding.
   - Filter to branch-relevant beads before choosing work. Useful commands:
       bd list --json

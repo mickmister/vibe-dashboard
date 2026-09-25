@@ -10,6 +10,9 @@ services:
     image: ghcr.io/mickmister/vk-vd:${VKVD_IMAGE_VERSION:-latest}
     pull_policy: always
 
+    depends_on:
+      - otel-collector
+
     ports:
       - "${CADDY_PORT:-3001}:${CADDY_PORT:-3001}"
     mem_limit: ${DEV_CONTAINER_MEM_LIMIT:-14g}
@@ -52,7 +55,9 @@ services:
       VK_ALLOWED_ORIGINS: ${VK_ALLOWED_ORIGINS:-}
       # Optional Vibe Kanban performance tracing / SigNoz OTLP export
       VK_PERF_TRACING: ${VK_PERF_TRACING:-}
-      OTEL_EXPORTER_OTLP_ENDPOINT: ${OTEL_EXPORTER_OTLP_ENDPOINT:-}
+      # Defaults to the sibling collector service for trace correlation when VK_PERF_TRACING=1.
+      # Set OTEL_EXPORTER_OTLP_ENDPOINT explicitly to send directly to another collector.
+      OTEL_EXPORTER_OTLP_ENDPOINT: ${OTEL_EXPORTER_OTLP_ENDPOINT:-http://otel-collector:4318}
       OTEL_EXPORTER_OTLP_TRACES_ENDPOINT: ${OTEL_EXPORTER_OTLP_TRACES_ENDPOINT:-}
       OTEL_EXPORTER_OTLP_HEADERS: ${OTEL_EXPORTER_OTLP_HEADERS:-}
       OTEL_SERVICE_NAME: ${OTEL_SERVICE_NAME:-}
@@ -105,6 +110,19 @@ services:
       - tailscale-state:/var/lib/tailscale
       # Persist Bosun config (workspaces, .env, bosun.config.json)
       - bosun-data:/home/vkuser/bosun
+
+  otel-collector:
+    image: otel/opentelemetry-collector:${OTEL_COLLECTOR_IMAGE_VERSION:-0.156.0}
+    restart: unless-stopped
+    command:
+      - --config=/etc/otelcol/config.yaml
+    environment:
+      SIGNOZ_OTLP_HTTP_ENDPOINT: ${SIGNOZ_OTLP_HTTP_ENDPOINT:-http://signoz-otel-collector:4318}
+    volumes:
+      - ./ops/otel-collector/config.yaml:/etc/otelcol/config.yaml:ro
+    expose:
+      - "4317"
+      - "4318"
 
   novnc:
     profiles:

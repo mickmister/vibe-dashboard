@@ -99,6 +99,82 @@ describe('VibeKanbanServerClient', () => {
     });
   });
 
+  it('aborts a never-resolving follow-up transport after one bounded whole-operation timeout', async () => {
+    vi.useFakeTimers();
+    const signals: AbortSignal[] = [];
+    const fetchImpl = vi.fn((_url: string, init?: RequestInit) => new Promise<Response>((_resolve, reject) => {
+      const signal = init?.signal;
+      if (!signal) return;
+      signals.push(signal);
+      signal.addEventListener('abort', () => reject(signal.reason), { once: true });
+    }));
+    const client = new VibeKanbanServerClient({ baseUrl: 'http://vk.local/api', fetch: fetchImpl });
+
+    const pending = client.sendFollowUp('session-1', 'response', { timeoutMs: 250 });
+    const rejection = expect(pending).rejects.toThrow('timed out after 250ms');
+    await vi.advanceTimersByTimeAsync(250);
+
+    await rejection;
+    expect(signals).toHaveLength(1);
+    expect(signals[0]?.aborted).toBe(true);
+    vi.useRealTimers();
+  });
+
+  it('uses the same abort deadline for the session lookup and follow-up post', async () => {
+    vi.useFakeTimers();
+    const signals: AbortSignal[] = [];
+    const fetchImpl = vi.fn(async (url: string, init?: RequestInit): Promise<Response> => {
+      if (init?.signal) signals.push(init.signal);
+      if (url.endsWith('/sessions/session-1')) {
+        return jsonResponse({ success: true, data: { id: 'session-1', workspace_id: 'ws1', executor: 'CODEX' } });
+      }
+      return new Promise<Response>((_resolve, reject) => {
+        init?.signal?.addEventListener('abort', () => reject(init.signal?.reason), { once: true });
+      });
+    });
+    const client = new VibeKanbanServerClient({ baseUrl: 'http://vk.local/api', fetch: fetchImpl });
+    const pending = client.sendFollowUp('session-1', 'response', { timeoutMs: 250 });
+    const rejection = expect(pending).rejects.toThrow('timed out after 250ms');
+    await vi.advanceTimersByTimeAsync(250);
+    await rejection;
+
+    expect(signals).toHaveLength(2);
+    expect(signals[0]).toBe(signals[1]);
+    expect(signals[1]?.aborted).toBe(true);
+    vi.useRealTimers();
+  });
+
+  it('fetches, stops, and checks readiness endpoints used by hotswap seams', async () => {
+    const fetchImpl = vi.fn(async (url: string, init?: RequestInit) => {
+      if (url === 'http://vk.local/api/execution-processes/process-1') {
+        return jsonResponse({
+          success: true,
+          data: { id: 'process-1', session_id: 'session-1', status: 'killed' },
+        });
+      }
+      if (url === 'http://vk.local/api/execution-processes/process-1/stop' && init?.method === 'POST') {
+        expect(JSON.parse(String(init.body))).toEqual({});
+        return jsonResponse({ success: true, data: null });
+      }
+      if (url === 'http://vk.local/api/health') {
+        return jsonResponse({ success: true, data: 'ok' });
+      }
+      if (url === 'http://vk.local/api/info') {
+        return jsonResponse({ success: true, data: { version: 'test' } });
+      }
+      throw new Error(`unexpected request ${url}`);
+    });
+    const client = new VibeKanbanServerClient({ baseUrl: 'http://vk.local/api', fetch: fetchImpl });
+
+    await expect(client.getExecutionProcess('process-1')).resolves.toMatchObject({
+      id: 'process-1',
+      status: 'killed',
+    });
+    await expect(client.stopExecutionProcess('process-1')).resolves.toBeUndefined();
+    await expect(client.checkHealth()).resolves.toBeUndefined();
+    await expect(client.getInfo()).resolves.toEqual({ version: 'test' });
+  });
+
   it('throws VkApiError with status and body for failed HTTP responses', async () => {
     const client = new VibeKanbanServerClient({
       baseUrl: 'http://vk.local/api',
