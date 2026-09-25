@@ -6,6 +6,18 @@ import Database from 'better-sqlite3';
 import { afterEach, describe, expect, it } from 'vitest';
 import { initExternalIntegrationsDb as initDatabase, type ExternalIntegrationsDbHandle } from '../../modules/plugins/kanban/server/database';
 import { getPluginRegistrySnapshot } from '../../modules/plugins/vibe-dashboard/registry';
+import {
+  FIRST_PARTY_AGENT_PLUGIN_ID,
+  FIRST_PARTY_AGENT_SURFACE_KEY,
+  FIRST_PARTY_CODE_PLUGIN_ID,
+  FIRST_PARTY_CODE_SURFACE_KEY,
+  FIRST_PARTY_FORMS_PLUGIN_ID,
+  FIRST_PARTY_FORMS_SURFACE_KEY,
+} from '../../modules/plugins/vibe-dashboard/craft-surfaces';
+import {
+  createEmptyPluginRegistryState,
+  type PluginRegistryState,
+} from '../../modules/plugins/vibe-dashboard/types';
 import type { PanelTargetResolutionContext } from '../panelTargetRegistry';
 import { productionDockviewSnapshotCodec } from '../dockviewSnapshotCodec';
 import {
@@ -25,18 +37,53 @@ async function paths() {
   return { sourcePath: join(directory, 'configured-kv.db'), targetPath: join(directory, 'vd.sqlite') };
 }
 
-function trustedTestContext(craft: { id: string }, workspaceId: string): PanelTargetResolutionContext {
+function trustedTestContext(
+  craft: { id: string },
+  workspaceId: string,
+  pluginRegistry: PluginRegistryState = getPluginRegistrySnapshot(),
+): PanelTargetResolutionContext {
   const craftId = craft.id;
-  const plugins = getPluginRegistrySnapshot();
   const origin = 'https://trusted.test';
   return {
     craftId, hostOrigin: origin,
-    crafts: { [craftId]: { workspaceId, allowedPluginTargets: [...Object.keys(plugins.internalRoutes), ...Object.keys(plugins.craftSurfaces)] } },
+    crafts: { [craftId]: { workspaceId, allowedPluginTargets: [...Object.keys(pluginRegistry.internalRoutes), ...Object.keys(pluginRegistry.craftSurfaces)] } },
     workspaces: { [workspaceId]: { id: workspaceId, available: true, directory: '/trusted', origin, repositoryIds: [], locations: { overview: '/overview', code: '/code', changes: '/changes', beads: '/beads', forms: '/forms' } } },
     agentSessions: {}, terminals: {}, previews: {}, builtInRoutes: {},
     redirectGuards: Object.fromEntries(['craft-overview', 'code', 'changes', 'beads', 'forms'].map((kind) => [`${kind}:${workspaceId}`, { deliveryUrl: `${origin}/guard/${kind}`, upstreamOrigin: origin }])),
-    getPluginRegistry: () => plugins,
+    getPluginRegistry: () => pluginRegistry,
   };
+}
+
+function firstPartySurfaceRegistry(): PluginRegistryState {
+  const registry = createEmptyPluginRegistryState();
+  registry.craftSurfaces[FIRST_PARTY_AGENT_SURFACE_KEY] = {
+    pluginId: FIRST_PARTY_AGENT_PLUGIN_ID,
+    sourceKey: 'agent',
+    key: FIRST_PARTY_AGENT_SURFACE_KEY,
+    title: 'Agent',
+    defaultTitle: 'Agent',
+    urlTemplate: '{{origin}}/workspaces/{{workspaceId}}',
+    order: 10,
+  };
+  registry.craftSurfaces[FIRST_PARTY_CODE_SURFACE_KEY] = {
+    pluginId: FIRST_PARTY_CODE_PLUGIN_ID,
+    sourceKey: 'code',
+    key: FIRST_PARTY_CODE_SURFACE_KEY,
+    title: 'Code',
+    defaultTitle: 'Code',
+    urlTemplate: '{{origin}}/?folder={{containerRef}}',
+    order: 20,
+  };
+  registry.craftSurfaces[FIRST_PARTY_FORMS_SURFACE_KEY] = {
+    pluginId: FIRST_PARTY_FORMS_PLUGIN_ID,
+    sourceKey: 'forms',
+    key: FIRST_PARTY_FORMS_SURFACE_KEY,
+    title: 'Forms',
+    defaultTitle: 'Forms',
+    urlTemplate: 'internal://forms',
+    order: 40,
+  };
+  return registry;
 }
 
 type InitOptions = Parameters<typeof initDatabase>[0];
@@ -294,6 +341,76 @@ describe('legacy Springboard Voyage data migration', () => {
         { craftWorkspaceId: 'vk-workspace-2', targetKind: 'code', lastActivatedSequence: 3 },
       ]);
       expect(handle.sqlite.prepare('SELECT activationSequence FROM Voyage').get()).toEqual({ activationSequence: 4 });
+    } finally { await handle.db.destroy(); handle.sqlite.close(); }
+  });
+
+  it('validates sanitized production-like generated surfaces, stale selections, duplicate Crafts, and Create Workspace compatibility', async () => {
+    const configured = await paths();
+    const productionLikeWorkspace = {
+      spaces: [{
+        id: 'space-home',
+        name: 'Home',
+        icon: 'home',
+        tabGroupIds: ['tg_home', 'craft-create-workspace', 'craft-alpha', 'craft-alpha-duplicate', 'craft-beta'],
+      }],
+      tabGroups: [
+        { id: 'tg_home', label: 'Home', tabs: [{ id: 'tab_overview', title: 'Overview', url: 'internal://spaces-overview' }], pairs: [], order: 0 },
+        { id: 'craft-create-workspace', label: 'Create Workspace', tabs: [{ id: 'tab_create_workspace', title: 'Create Workspace', url: 'https://trusted.test/workspaces' }], pairs: [], order: 1 },
+        { id: 'craft-alpha', label: 'Alpha', workspace: { workspaceId: 'workspace-alpha', workspaceDir: '/private/alpha' }, tabs: [], pairs: [], order: 2 },
+        { id: 'craft-alpha-duplicate', label: 'Alpha Duplicate', workspace: { workspaceId: 'workspace-alpha', workspaceDir: '/private/alpha-copy' }, tabs: [], pairs: [], order: 3 },
+        { id: 'craft-beta', label: 'Beta', workspace: { workspaceId: 'workspace-beta', workspaceDir: '/private/beta' }, tabs: [], pairs: [], order: 4 },
+      ],
+      nextId: 42,
+    };
+    const productionLikeSession = session('production-like-shadow', [
+      { id: 'home-entry', tabGroupId: 'tg_home', viewIds: ['tab_overview'] },
+      { id: 'create-entry', tabGroupId: 'craft-create-workspace', viewIds: ['tab_create_workspace'] },
+      { id: 'alpha-entry', tabGroupId: 'craft-alpha', viewIds: ['agent', 'code', 'tab_101', 'beads'] },
+      { id: 'alpha-duplicate-entry', tabGroupId: 'craft-alpha-duplicate', viewIds: ['agent'] },
+      { id: 'beta-entry', tabGroupId: 'craft-beta', viewIds: ['agent', 'code'] },
+    ]);
+    productionLikeSession.activeVoyageEntryId = 'beta-entry';
+    productionLikeSession.activeItemsByVoyageEntryId['beta-entry'] = 'code';
+    sourceDatabase(configured.sourcePath, productionLikeWorkspace, { version: 3, data: [productionLikeSession] }).close();
+
+    const registry = firstPartySurfaceRegistry();
+    const handle = await initExternalIntegrationsDb({
+      path: configured.targetPath,
+      sourcePath: configured.sourcePath,
+      dataMigrationDependencies: {
+        services: {
+          legacyTargetContextForCraft: (craft: { id: string }, workspaceId: string) => trustedTestContext(craft, workspaceId, registry),
+        },
+      },
+    });
+    try {
+      expect(handle.sqlite.prepare('SELECT name FROM Voyage').all()).toEqual([{ name: 'production-like-shadow' }]);
+      expect(handle.sqlite.prepare('SELECT craftWorkspaceId FROM VoyageCraft ORDER BY craftWorkspaceId').all()).toEqual([
+        { craftWorkspaceId: 'workspace-alpha' },
+        { craftWorkspaceId: 'workspace-beta' },
+      ]);
+      expect(handle.sqlite.prepare('SELECT craftWorkspaceId, targetKind FROM VoyagePanel ORDER BY craftWorkspaceId, targetKind, id').all()).toEqual([
+        { craftWorkspaceId: 'workspace-alpha', targetKind: 'code' },
+        { craftWorkspaceId: 'workspace-alpha', targetKind: 'craft-overview' },
+        { craftWorkspaceId: 'workspace-alpha', targetKind: 'craft-overview' },
+        { craftWorkspaceId: 'workspace-beta', targetKind: 'code' },
+        { craftWorkspaceId: 'workspace-beta', targetKind: 'craft-overview' },
+      ]);
+      expect(handle.sqlite.prepare("SELECT COUNT(*) AS count FROM VoyagePanel WHERE targetKind = 'beads'").get()).toEqual({ count: 0 });
+      expect(handle.sqlite.prepare("SELECT reasonCode, outcome FROM VoyageMigrationDiagnostic WHERE sourceKind = 'craft-occurrence' AND sourceId LIKE '%alpha-duplicate-entry%'").all())
+        .toEqual([{ reasonCode: 'duplicate-membership-occurrence', outcome: 'skipped' }]);
+      expect(handle.sqlite.prepare("SELECT reasonCode, outcome FROM VoyageMigrationDiagnostic WHERE sourceKind = 'view-selection' AND sourceId LIKE '%tab_101%'").all())
+        .toEqual([{ reasonCode: 'missing-view', outcome: 'quarantined' }]);
+      expect(handle.sqlite.prepare("SELECT reasonCode, outcome FROM VoyageMigrationDiagnostic WHERE sourceKind = 'view-selection' AND sourceId LIKE '%beads%'").all())
+        .toEqual([{ reasonCode: 'removed-beads-surface', outcome: 'skipped' }]);
+      expect(handle.sqlite.prepare("SELECT COUNT(*) AS count FROM VoyageMigrationDiagnostic WHERE reasonCode = 'temporary-create-workspace'").get())
+        .toEqual({ count: 4 });
+      const audit = handle.sqlite.prepare("SELECT detailsJson FROM VoyageMigrationDiagnostic WHERE sourceKind = 'audit-summary'").get() as { detailsJson: string };
+      const counts = JSON.parse(audit.detailsJson) as { source: number; migrated: number; skipped: number; quarantined: number };
+      expect(counts.migrated + counts.skipped + counts.quarantined).toBe(counts.source);
+      const storedLayout = handle.sqlite.prepare('SELECT snapshotJson FROM VoyageLayout').get() as { snapshotJson: string };
+      const canonical = productionDockviewSnapshotCodec.validateAndCanonicalize(JSON.parse(storedLayout.snapshotJson));
+      expect(canonical.panelIds).toHaveLength(5);
     } finally { await handle.db.destroy(); handle.sqlite.close(); }
   });
 

@@ -2,7 +2,12 @@ import { stat } from 'node:fs/promises';
 import { createHash } from 'node:crypto';
 import Database from 'better-sqlite3';
 import { getSavedWorkspaceSessions } from '../../../lib/savedVoyageState';
-import { getBuiltInWorkspaceMetadata } from '../../../modules/plugins/vibe-dashboard/craft-surfaces';
+import {
+  FIRST_PARTY_AGENT_SURFACE_KEY,
+  FIRST_PARTY_CODE_SURFACE_KEY,
+  FIRST_PARTY_FORMS_SURFACE_KEY,
+  getBuiltInWorkspaceMetadata,
+} from '../../../modules/plugins/vibe-dashboard/craft-surfaces';
 import type { Craft, SavedWorkspaceSession, WorkspaceState } from '../../../types';
 import { classifyLegacyPanelRepresentation, createPanelTargetRegistry, resolveLegacyPanelTarget, type PanelTargetResolutionContext, type StoredPanelTarget } from '../../panelTargetRegistry';
 import { buildMigratedDockviewSnapshot, productionDockviewSnapshotCodec } from '../../dockviewSnapshotCodec';
@@ -58,6 +63,15 @@ type Diagnostic = { sourceKind: string; sourceId: string; outcome: Outcome; reas
 export type MigrationOutput = { reference: string; voyageId: string; craftWorkspaceId: string | null };
 type Panel = { id: string; legacyGroupId: string; legacyEntryId: string; legacySelectionId: string; craftWorkspaceId: string; target: StoredPanelTarget; lastActivatedSequence: number | null };
 type Voyage = { id: string; session: SavedWorkspaceSession; crafts: Array<{ workspaceId: string; sortKey: string }>; panels: Panel[]; pairs: Array<{ pairId: string; panelIds: string[]; ratios: [50, 50] }>; activePanelId: string | null };
+type LegacyView = { id: string; title: string; url: string; pinned?: boolean; ephemeral?: { kind?: string } };
+const GENERATED_FIRST_PARTY_URL_PREFIX = 'internal://generated-first-party/';
+/* eslint-disable formatjs/no-literal-string-in-object -- Migration-only synthetic view titles mirror stable first-party surface identifiers. */
+const GENERATED_FIRST_PARTY_SURFACES: Record<string, { key: string; title: string; target: StoredPanelTarget['kind'] }> = {
+  agent: { key: FIRST_PARTY_AGENT_SURFACE_KEY, title: 'Agent', target: 'craft-overview' },
+  code: { key: FIRST_PARTY_CODE_SURFACE_KEY, title: 'Code', target: 'code' },
+  forms: { key: FIRST_PARTY_FORMS_SURFACE_KEY, title: 'Forms', target: 'forms' },
+};
+/* eslint-enable formatjs/no-literal-string-in-object */
 
 export function assertOccurrenceOutputs(
   diagnostics: ReadonlyArray<Pick<Diagnostic, 'outcome' | 'outputRefs' | 'voyageId' | 'craftWorkspaceId'>>,
@@ -173,15 +187,51 @@ function buildMigration(source: LegacyVoyageSource, contextFactory: LegacyTarget
   const crafts = new Map(workspace.tabGroups.map((craft) => [craft.id, craft]));
   const registry = createPanelTargetRegistry();
   const contexts = new Map<string, PanelTargetResolutionContext | null>();
-  const resolve = (craftId: string, workspaceId: string, view: { id: string; url: string }) => {
+  const contextFor = (craftId: string, workspaceId: string): PanelTargetResolutionContext | null => {
     const key = `${craftId}\0${workspaceId}`;
     if (!contexts.has(key)) {
       const craft = crafts.get(craftId);
       const supplied = craft ? contextFactory(craft, workspaceId) : null;
       contexts.set(key, supplied ? snapshotContext(supplied) : null);
     }
-    const context = contexts.get(key) ?? null;
-    return context ? resolveLegacyPanelTarget({ view, workspaceId, context, registry }) : null;
+    return contexts.get(key) ?? null;
+  };
+  const generatedView = (
+    selectedId: string,
+    context: PanelTargetResolutionContext | null,
+  ): LegacyView | null => {
+    const generated = GENERATED_FIRST_PARTY_SURFACES[selectedId];
+    if (!generated || !context?.getPluginRegistry?.().craftSurfaces[generated.key]) return null;
+    return {
+      id: selectedId,
+      title: generated.title,
+      url: `${GENERATED_FIRST_PARTY_URL_PREFIX}${selectedId}`,
+      pinned: true,
+    };
+  };
+  const viewsFor = (craft: Craft, workspaceId: string): LegacyView[] => {
+    const context = contextFor(craft.id, workspaceId);
+    const present = new Set(craft.tabs.map((view) => view.id));
+    return [
+      ...craft.tabs,
+      ...Object.keys(GENERATED_FIRST_PARTY_SURFACES)
+        .filter((id) => !present.has(id))
+        .flatMap((id) => {
+          const view = generatedView(id, context);
+          return view ? [view] : [];
+        }),
+    ];
+  };
+  const resolve = (craftId: string, workspaceId: string, view: { id: string; url: string }) => {
+    const context = contextFor(craftId, workspaceId);
+    if (!context) return null;
+    if (view.url === `${GENERATED_FIRST_PARTY_URL_PREFIX}${view.id}`) {
+      const generated = GENERATED_FIRST_PARTY_SURFACES[view.id];
+      if (!generated) return null;
+      const resolution = registry.resolve({ kind: generated.target, version: 1, payload: { workspaceId } }, context);
+      return resolution.status === 'resolved' ? resolution.target : null;
+    }
+    return resolveLegacyPanelTarget({ view, workspaceId, context, registry });
   };
 
   workspace.tabGroups.forEach((craft, craftIndex) => {
@@ -238,7 +288,7 @@ function buildMigration(source: LegacyVoyageSource, contextFactory: LegacyTarget
         const selectionId = `${occurrence}:selection:${selectionIndex}:${selectedId}`;
         const pair = craft.pairs.find(({ id }) => id === selectedId);
         if (pair) {
-          const classification = classifyLegacyPanelRepresentation({ groupId: craft.id, view: { id: pair.id, url: '' }, pair, views: craft.tabs, resolveMember: (view) => resolve(craft.id, metadata.workspaceId, view) });
+          const classification = classifyLegacyPanelRepresentation({ groupId: craft.id, view: { id: pair.id, url: '' }, pair, views: viewsFor(craft, metadata.workspaceId), resolveMember: (view) => resolve(craft.id, metadata.workspaceId, view) });
           if (classification.outcome !== 'pair') throw Object.assign(new Error('Pair classification failed'), { code: 'AUDIT_IMBALANCE' });
           const complete = 'topology' in classification && Boolean(classification.topology);
           const topologyRefs = complete ? classification.targets.map((_, memberIndex) => `topology:${voyageId}:group-${`panel-${hash(session.id, occurrence, pair.id, String(memberIndex), classification.diagnostics[memberIndex]!.tabId)}`}`) : undefined;
@@ -260,8 +310,11 @@ function buildMigration(source: LegacyVoyageSource, contextFactory: LegacyTarget
           if (complete && pairPanelIds.length === 2) pairs.push({ pairId: pair.id, panelIds: pairPanelIds, ratios: [50, 50] });
           return;
         }
-        const view = craft.tabs.find(({ id }) => id === selectedId);
-        if (!view) { ledger.add({ sourceKind: 'view-selection', sourceId: selectionId, outcome: 'quarantined', reasonCode: 'missing-view', voyageId: null }); return; }
+        const view = viewsFor(craft, metadata.workspaceId).find(({ id }) => id === selectedId);
+        if (!view) {
+          ledger.add({ sourceKind: 'view-selection', sourceId: selectionId, outcome: selectedId === 'beads' ? 'skipped' : 'quarantined', reasonCode: selectedId === 'beads' ? 'removed-beads-surface' : 'missing-view', voyageId: null });
+          return;
+        }
         const classification = classifyLegacyPanelRepresentation({ groupId: craft.id, view });
         if (classification.outcome === 'skip') { ledger.add({ sourceKind: 'view-selection', sourceId: selectionId, outcome: 'skipped', reasonCode: classification.reason, voyageId: null }); return; }
         const target = resolve(craft.id, metadata.workspaceId, view);
