@@ -1,4 +1,3 @@
-/* eslint-disable formatjs/no-literal-string-in-object -- Surface titles are stable contribution metadata; rendered UI owns translation. */
 import type {
   SavedWorkspaceSession,
   Tab,
@@ -40,7 +39,6 @@ const BUILT_IN_WORKSPACE_PAIR_IDS = new Set([
   BUILT_IN_AGENT_BEADS_PAIR_ID,
 ]);
 const URL_PARSE_BASE = "https://workspace.local";
-const BEADS_WEB_DEFAULT_PORT = "3109";
 
 type BuiltInWorkspaceMetadata = NonNullable<TabGroup["workspace"]>;
 type ViteImportMeta = ImportMeta & {
@@ -105,23 +103,19 @@ export function getEffectiveTabs(
     origin?: string;
   } = {},
 ): Tab[] {
-  const builtInWorkspaceTabs = getBuiltInWorkspaceTabs(
-    tabGroup,
-    options.origin ?? "",
-  );
+  const workspaceMetadata = getBuiltInWorkspaceMetadata(tabGroup);
   const craftSurfaceTabs = getCraftSurfaceTabs({
     tabGroup,
     craftSurfaces: options.craftSurfaces ?? [],
     origin: options.origin ?? "",
   });
-  const generatedTabs = [...builtInWorkspaceTabs, ...craftSurfaceTabs]
-    .sort(byWorkspaceSurfaceOrder);
+  const generatedTabs = craftSurfaceTabs.sort(byWorkspaceSurfaceOrder);
   const generatedIds = new Set(generatedTabs.map((tab) => tab.id));
   const customTabs = tabGroup.tabs.filter(
     (tab) =>
       !generatedIds.has(tab.id) &&
       !isEphemeralPluginSurfaceTab(tab) &&
-      !(builtInWorkspaceTabs.length > 0 && isGeneratedWorkspaceTab(tab)),
+      !(workspaceMetadata && isGeneratedWorkspaceTab(tab)),
   );
   if (
     generatedTabs.length === 0 &&
@@ -211,20 +205,6 @@ export function getBuiltInWorkspaceMetadata(
   };
 }
 
-function getBuiltInWorkspaceTabs(tabGroup: TabGroup, origin: string): Tab[] {
-  const metadata = getBuiltInWorkspaceMetadata(tabGroup);
-  if (!metadata) return [];
-  const dashboardBaseOrigin = getBuiltInWorkspaceBaseOrigin(origin);
-  return [
-    {
-      id: BUILT_IN_BEADS_TAB_ID,
-      title: "Beads",
-      url: buildBeadsWebUrl(dashboardBaseOrigin),
-      pinned: true,
-    },
-  ];
-}
-
 function getCraftSurfaceTabs(input: {
   tabGroup: TabGroup;
   craftSurfaces: RegisteredCraftSurfaceContribution[];
@@ -291,13 +271,6 @@ function getBuiltInWorkspacePairs(
       ratios: [50, 50],
     });
   }
-  if (tabIds.has(BUILT_IN_AGENT_TAB_ID) && tabIds.has(BUILT_IN_BEADS_TAB_ID)) {
-    pairs.push({
-      id: BUILT_IN_AGENT_BEADS_PAIR_ID,
-      tabIds: [BUILT_IN_AGENT_TAB_ID, BUILT_IN_BEADS_TAB_ID],
-      ratios: [50, 50],
-    });
-  }
   return pairs;
 }
 
@@ -309,7 +282,6 @@ function byWorkspaceSurfaceOrder(left: Tab, right: Tab): number {
 function workspaceSurfaceOrder(tabId: string): number {
   if (tabId === BUILT_IN_AGENT_TAB_ID) return 10;
   if (tabId === BUILT_IN_CODE_TAB_ID) return 20;
-  if (tabId === BUILT_IN_BEADS_TAB_ID) return 30;
   if (tabId === BUILT_IN_FORMS_TAB_ID) return 40;
   return 100;
 }
@@ -503,38 +475,6 @@ function buildWorkspaceTabUrl(baseOrigin: string, workspaceId: string): string {
   return `${baseOrigin}/workspaces/${workspaceId}`;
 }
 
-function buildBeadsWebUrl(baseOrigin: string): string {
-  if (!baseOrigin) return "/beads";
-  try {
-    const parsed = new URL(baseOrigin, URL_PARSE_BASE);
-    if (isIpHostname(parsed.hostname)) {
-      return `${parsed.protocol}//${formatUrlHostname(parsed.hostname)}:${BEADS_WEB_DEFAULT_PORT}`;
-    }
-    const baseHostname = parsed.hostname
-      .replace(/^port-\d+\./, "")
-      .replace(/^\d+\./, "");
-    const beadsWebBaseHostname = getBeadsWebBaseHostname(baseHostname);
-    return `${parsed.protocol}//beads-web.${beadsWebBaseHostname}${parsed.port ? `:${parsed.port}` : ""}`;
-  } catch {
-    return "/beads";
-  }
-}
-
-function getBeadsWebBaseHostname(hostname: string): string {
-  if (hostname === "localhost" || hostname.endsWith(".localhost")) {
-    return "localhost";
-  }
-  if (hostname === "mysite.com" || hostname.endsWith(".mysite.com")) {
-    return "mysite.com";
-  }
-  return hostname;
-}
-
-function formatUrlHostname(hostname: string): string {
-  if (hostname.startsWith("[") && hostname.endsWith("]")) return hostname;
-  return hostname.includes(":") ? `[${hostname}]` : hostname;
-}
-
 function getWorkspaceIdFromTabs(tabs: Tab[]): string | null {
   for (const tab of tabs) {
     const match = tab.url.match(/\/workspaces\/([^/?#]+)/);
@@ -584,17 +524,6 @@ function isFormsTab(tab: Pick<Tab, "id" | "title" | "url">): boolean {
     tab.id === BUILT_IN_FORMS_TAB_ID ||
     tab.title.trim().toLowerCase() === "forms"
   );
-}
-
-function isIpHostname(hostname: string): boolean {
-  const normalizedHostname = hostname.replace(/^\[(.*)]$/, "$1");
-  if (/^\d{1,3}(?:\.\d{1,3}){3}$/.test(normalizedHostname)) {
-    return normalizedHostname.split(".").every((segment) => {
-      const value = Number(segment);
-      return Number.isInteger(value) && value >= 0 && value <= 255;
-    });
-  }
-  return normalizedHostname.includes(":");
 }
 
 function expandCraftSurfaceUrl(template: string, origin: string): string {

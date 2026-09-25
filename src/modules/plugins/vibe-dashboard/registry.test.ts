@@ -1,3 +1,4 @@
+/* eslint-disable formatjs/no-literal-string-in-object -- Tests assert stable plugin fixture metadata, not rendered copy. */
 import { describe, expect, it } from 'vitest';
 import {
   clearPluginRegistryForTests,
