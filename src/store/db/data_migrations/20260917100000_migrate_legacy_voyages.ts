@@ -302,7 +302,7 @@ function buildMigration(source: LegacyVoyageSource, contextFactory: LegacyTarget
               if (!target) throw Object.assign(new Error('Pair target audit mismatch'), { code: 'AUDIT_IMBALANCE' });
               const panelId = `panel-${hash(session.id, occurrence, pair.id, String(memberIndex), item.tabId)}`;
               panels.push({ id: panelId, legacyGroupId: craft.id, legacyEntryId: entry.id, legacySelectionId: pair.id, craftWorkspaceId: metadata.workspaceId, target, lastActivatedSequence: null });
-              ledger.add({ sourceKind: 'pair-member', sourceId: `${selectionId}:member:${memberIndex}:${item.tabId}`, outcome: memberOutcome, reasonCode: item.reason ?? item.status, voyageId, craftWorkspaceId: metadata.workspaceId, outputRefs: [`panel:${panelId}`] });
+              ledger.add({ sourceKind: 'pair-member', sourceId: `${selectionId}:member:${memberIndex}:${item.tabId}`, outcome: memberOutcome, reasonCode: item.reason ?? item.status, voyageId, craftWorkspaceId: metadata.workspaceId, outputRefs: complete ? [`panel:${panelId}`] : [`panel:${panelId}`, `topology:${voyageId}:group-${panelId}`] });
               pairPanelIds.push(panelId);
               if (entry.id === session.activeVoyageEntryId && session.activeItemsByVoyageEntryId[entry.id] === pair.id && memberIndex === 0) activePanelId = panelId;
             } else ledger.add({ sourceKind: 'pair-member', sourceId: `${selectionId}:member:${memberIndex}:${item.tabId}`, outcome: memberOutcome, reasonCode: item.reason ?? item.status, voyageId: null });

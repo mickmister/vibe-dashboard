@@ -475,12 +475,12 @@ export function findSplitCompatibleTargets(
 
 export function classifyLegacyPanelRepresentation(input: {
   groupId: string;
-  view: { id: string; url: string; ephemeral?: { kind?: string } };
+  view: { id: string; title?: string; url: string; ephemeral?: { kind?: string } };
   pair?: { id: string; tabIds: string[] };
   views?: unknown[];
   resolveMember?: (view: { id: string; url: string }) => StoredPanelTarget | null;
 }):
-  | { outcome: 'skip'; reason: 'homepage-representation' | 'ephemeral-plugin-placeholder' }
+  | { outcome: 'skip'; reason: 'homepage-representation' | 'ephemeral-plugin-placeholder' | 'removed-beads-surface' }
   | { outcome: 'pair'; reason: 'pair-cardinality'; diagnostics: Array<{ tabId: string; status: 'invalid'; reason: 'pair-cardinality' }>; targets: [] }
   | { outcome: 'pair'; diagnostics: Array<{ tabId: string; status: 'resolved' | 'missing' | 'malformed' | 'skipped' | 'unresolvable'; reason?: string }>; targets: StoredPanelTarget[]; topology?: { pairId: string; memberIndexes: [0, 1] } }
   | { outcome: 'durable-candidate' } {
@@ -507,6 +507,7 @@ export function classifyLegacyPanelRepresentation(input: {
     return { outcome: 'pair', targets, diagnostics, ...(targets.length === 2 ? { topology: { pairId: input.pair.id, memberIndexes: [0, 1] as [0, 1] } } : {}) };
   }
   if (input.view.ephemeral?.kind === 'craft-surface') return { outcome: 'skip', reason: 'ephemeral-plugin-placeholder' };
+  if (input.view.id === 'beads' || input.view.title?.trim().toLowerCase() === 'beads') return { outcome: 'skip', reason: 'removed-beads-surface' };
   if (input.groupId === 'tg_home' || input.view.id === 'tab_overview' || input.view.url === 'internal://spaces-overview') return { outcome: 'skip', reason: 'homepage-representation' };
   return { outcome: 'durable-candidate' };
 }

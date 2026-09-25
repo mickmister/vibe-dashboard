@@ -56,6 +56,9 @@ Expected:
   context to run deterministic migration.
 - Fixture includes multiple Crafts/workspaces and multiple Voyage entries, not
   only a single happy path.
+- Fixture includes generated Agent/Code/Forms selections that are absent from
+  persisted Craft tabs, persisted legacy Beads tab compatibility, and a legacy
+  Agent+Beads pair/member.
 - Test names or comments document which live-data pattern each fixture segment
   represents.
 
@@ -102,15 +105,20 @@ Steps:
 2. Include `Create Workspace` compatibility Crafts, including variants with
    leftover legacy tab records.
 3. Include a legacy Beads selection.
-4. Run migration.
+4. Include a persisted legacy Beads tab and a legacy Agent+Beads pair/member.
+5. Run migration.
 
 Expected:
 
 - Homepage/overview and Create Workspace compatibility entries are skipped with
   intentional reason codes.
-- Legacy Beads selection is skipped as migration-only compatibility.
+- Legacy Beads selections, including persisted legacy Beads tab selections and
+  Agent+Beads pair members, are skipped as migration-only compatibility before
+  target resolution.
 - Beads is not reintroduced into rendered DockView product surfaces or
   generated Agent+Beads pairs.
+- No normalized `VoyagePanel.targetKind = 'beads'` row is written.
+- Valid non-Beads selections in the same Voyage or pair still migrate.
 - Skipped compatibility entries do not cause a valid Voyage to fail migration.
 
 ### TEST_CASE_M5_1E — Duplicate workspace IDs dedupe Craft membership

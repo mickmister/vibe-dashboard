@@ -356,7 +356,14 @@ describe('legacy Springboard Voyage data migration', () => {
       tabGroups: [
         { id: 'tg_home', label: 'Home', tabs: [{ id: 'tab_overview', title: 'Overview', url: 'internal://spaces-overview' }], pairs: [], order: 0 },
         { id: 'craft-create-workspace', label: 'Create Workspace', tabs: [{ id: 'tab_create_workspace', title: 'Create Workspace', url: 'https://trusted.test/workspaces' }], pairs: [], order: 1 },
-        { id: 'craft-alpha', label: 'Alpha', workspace: { workspaceId: 'workspace-alpha', workspaceDir: '/private/alpha' }, tabs: [], pairs: [], order: 2 },
+        {
+          id: 'craft-alpha',
+          label: 'Alpha',
+          workspace: { workspaceId: 'workspace-alpha', workspaceDir: '/private/alpha' },
+          tabs: [{ id: 'beads', title: 'Beads', url: 'https://legacy-beads.example.test/workspace-alpha' }],
+          pairs: [{ id: 'agent+beads', tabIds: ['agent', 'beads'], ratios: [50, 50] }],
+          order: 2,
+        },
         { id: 'craft-alpha-duplicate', label: 'Alpha Duplicate', workspace: { workspaceId: 'workspace-alpha', workspaceDir: '/private/alpha-copy' }, tabs: [], pairs: [], order: 3 },
         { id: 'craft-beta', label: 'Beta', workspace: { workspaceId: 'workspace-beta', workspaceDir: '/private/beta' }, tabs: [], pairs: [], order: 4 },
       ],
@@ -365,7 +372,7 @@ describe('legacy Springboard Voyage data migration', () => {
     const productionLikeSession = session('production-like-shadow', [
       { id: 'home-entry', tabGroupId: 'tg_home', viewIds: ['tab_overview'] },
       { id: 'create-entry', tabGroupId: 'craft-create-workspace', viewIds: ['tab_create_workspace'] },
-      { id: 'alpha-entry', tabGroupId: 'craft-alpha', viewIds: ['agent', 'code', 'tab_101', 'beads'] },
+      { id: 'alpha-entry', tabGroupId: 'craft-alpha', viewIds: ['agent', 'code', 'forms', 'tab_101', 'beads', 'agent+beads'] },
       { id: 'alpha-duplicate-entry', tabGroupId: 'craft-alpha-duplicate', viewIds: ['agent'] },
       { id: 'beta-entry', tabGroupId: 'craft-beta', viewIds: ['agent', 'code'] },
     ]);
@@ -393,6 +400,8 @@ describe('legacy Springboard Voyage data migration', () => {
         { craftWorkspaceId: 'workspace-alpha', targetKind: 'code' },
         { craftWorkspaceId: 'workspace-alpha', targetKind: 'craft-overview' },
         { craftWorkspaceId: 'workspace-alpha', targetKind: 'craft-overview' },
+        { craftWorkspaceId: 'workspace-alpha', targetKind: 'craft-overview' },
+        { craftWorkspaceId: 'workspace-alpha', targetKind: 'forms' },
         { craftWorkspaceId: 'workspace-beta', targetKind: 'code' },
         { craftWorkspaceId: 'workspace-beta', targetKind: 'craft-overview' },
       ]);
@@ -401,7 +410,14 @@ describe('legacy Springboard Voyage data migration', () => {
         .toEqual([{ reasonCode: 'duplicate-membership-occurrence', outcome: 'skipped' }]);
       expect(handle.sqlite.prepare("SELECT reasonCode, outcome FROM VoyageMigrationDiagnostic WHERE sourceKind = 'view-selection' AND sourceId LIKE '%tab_101%'").all())
         .toEqual([{ reasonCode: 'missing-view', outcome: 'quarantined' }]);
-      expect(handle.sqlite.prepare("SELECT reasonCode, outcome FROM VoyageMigrationDiagnostic WHERE sourceKind = 'view-selection' AND sourceId LIKE '%beads%'").all())
+      expect(handle.sqlite.prepare("SELECT reasonCode, outcome FROM VoyageMigrationDiagnostic WHERE sourceKind = 'view-selection' AND sourceId LIKE '%selection%beads'").all())
+        .toEqual([
+          { reasonCode: 'removed-beads-surface', outcome: 'skipped' },
+          { reasonCode: 'pair-incomplete', outcome: 'quarantined' },
+        ]);
+      expect(handle.sqlite.prepare("SELECT reasonCode, outcome FROM VoyageMigrationDiagnostic WHERE sourceKind = 'pair-member' AND sourceId LIKE '%agent+beads%member:0:agent'").all())
+        .toEqual([{ reasonCode: 'resolved', outcome: 'migrated' }]);
+      expect(handle.sqlite.prepare("SELECT reasonCode, outcome FROM VoyageMigrationDiagnostic WHERE sourceKind = 'pair-member' AND sourceId LIKE '%agent+beads%member:1:beads'").all())
         .toEqual([{ reasonCode: 'removed-beads-surface', outcome: 'skipped' }]);
       expect(handle.sqlite.prepare("SELECT COUNT(*) AS count FROM VoyageMigrationDiagnostic WHERE reasonCode = 'temporary-create-workspace'").get())
         .toEqual({ count: 4 });
@@ -410,7 +426,7 @@ describe('legacy Springboard Voyage data migration', () => {
       expect(counts.migrated + counts.skipped + counts.quarantined).toBe(counts.source);
       const storedLayout = handle.sqlite.prepare('SELECT snapshotJson FROM VoyageLayout').get() as { snapshotJson: string };
       const canonical = productionDockviewSnapshotCodec.validateAndCanonicalize(JSON.parse(storedLayout.snapshotJson));
-      expect(canonical.panelIds).toHaveLength(5);
+      expect(canonical.panelIds).toHaveLength(7);
     } finally { await handle.db.destroy(); handle.sqlite.close(); }
   });
 

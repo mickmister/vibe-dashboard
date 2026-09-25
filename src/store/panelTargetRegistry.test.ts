@@ -280,6 +280,8 @@ describe('approved migration classification boundary', () => {
     [{ groupId: 'craft', view: { id: 'tab_overview', url: 'https://example.test' } }, 'homepage-representation'],
     [{ groupId: 'craft', view: { id: 'x', url: 'internal://spaces-overview' } }, 'homepage-representation'],
     [{ groupId: 'craft', view: { id: 'x', url: '/x', ephemeral: { kind: 'craft-surface' } } }, 'ephemeral-plugin-placeholder'],
+    [{ groupId: 'craft', view: { id: 'beads', title: 'Beads', url: 'https://beads.example.test' } }, 'removed-beads-surface'],
+    [{ groupId: 'craft', view: { id: 'tab_1', title: 'Beads', url: 'https://beads.example.test' } }, 'removed-beads-surface'],
   ])('preserves skipped classification %#', (input, reason) => {
     expect(classifyLegacyPanelRepresentation(input)).toEqual({ outcome: 'skip', reason });
   });
@@ -301,6 +303,19 @@ describe('approved migration classification boundary', () => {
     const code = stored('code', { workspaceId: 'workspace-1' });
     expect(classifyLegacyPanelRepresentation({ ...input, pair: { id: 'agent+code', tabIds: ['agent', 'code'] }, views: [...input.views, { id: 'code', title: 'Code', url: '/code' }], resolveMember: (view) => view.id === 'agent' ? agent : code }))
       .toMatchObject({ outcome: 'pair', targets: [agent, code], topology: { pairId: 'agent+code', memberIndexes: [0, 1] } });
+    expect(classifyLegacyPanelRepresentation({
+      ...input,
+      pair: { id: 'agent+beads', tabIds: ['agent', 'beads'] },
+      views: [...input.views, { id: 'beads', title: 'Beads', url: 'https://beads.example.test' }],
+      resolveMember: (view) => view.id === 'agent' ? agent : null,
+    })).toEqual({
+      outcome: 'pair',
+      targets: [agent],
+      diagnostics: [
+        { tabId: 'agent', status: 'resolved' },
+        { tabId: 'beads', status: 'skipped', reason: 'removed-beads-surface' },
+      ],
+    });
   });
 
   it('diagnoses malformed, skipped, and unresolvable pair members independently', () => {
