@@ -37,6 +37,7 @@ import {
   DEFAULT_WORKSPACE_REGISTRY_PATH,
   disableAutoNudgeWorkspace,
   enableAutoNudgeWorkspace,
+  isAutoNudgeEnabled,
   readAutoNudgeWorkspaceRegistry,
 } from '../nudge/auto-nudge.js';
 
@@ -183,6 +184,12 @@ export function isDeterministicPreAcceptFollowUpError(error: Error): boolean {
   return /^Not found:/.test(message)
     || /^Validation error:/.test(message)
     || /^HTTP 4\d\d\b/.test(message);
+}
+
+export function assertAutoNudgeRoutingAvailable(env: NodeJS.ProcessEnv = process.env): void {
+  if (!isAutoNudgeEnabled(env)) {
+    throw new Error('Default response routing requires the auto-nudge scanner. Set VD_AUTO_NUDGE_ENABLED=true where this agent runs, or pass --fire-and-forget for a one-way send.');
+  }
 }
 
 function isStopHookFeedbackEntry(entry: ConversationEntry | undefined): boolean {
@@ -1503,6 +1510,7 @@ async function send(args: string[]): Promise<void> {
     let responseRouteId: string | null = null;
 
     if (routeResponse) {
+      assertAutoNudgeRoutingAvailable();
       const ctx = await getAgentContext();
       replySessionId = process.env.VK_SESSION_ID ?? ctx.sessionId;
       if (!replySessionId) {

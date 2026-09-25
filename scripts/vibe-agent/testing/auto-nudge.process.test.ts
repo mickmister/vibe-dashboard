@@ -11,14 +11,14 @@ const processValue = (id: string, sessionId: string, status: FakeVkProcess['stat
 const children: ChildProcess[] = []; const servers: FakeVkServer[] = []; const dirs: string[] = [];
 afterEach(async () => { for (const child of children.splice(0)) if (child.exitCode == null) child.kill('SIGKILL'); await Promise.all(servers.splice(0).map(server => server.stop())); dirs.splice(0).forEach(dir => rmSync(dir, { recursive: true, force: true })); });
 function scenario(processes: FakeVkProcess[] = []): FakeVkScenario { return { workspaces: [{ id: 'workspace' }], sessions: [{ id: 'impl', workspace_id: 'workspace', name: 'impl', executor: 'CODEX', created_at: now, updated_at: now, processes }, { id: 'overseer', workspace_id: 'workspace', name: 'overseer', executor: 'CODEX', created_at: now, updated_at: now, processes: [] }], followUps: [] }; }
-async function launch(value: FakeVkScenario, extraArgs: string[] = [], initialState?: unknown, options: { emptyRegistry?: boolean; omitVkOrigin?: boolean; responseRoutesState?: unknown } = {}) {
+async function launch(value: FakeVkScenario, extraArgs: string[] = [], initialState?: unknown, options: { emptyRegistry?: boolean; omitVkOrigin?: boolean; responseRoutesState?: unknown; autoNudgeEnabled?: boolean } = {}) {
   const server = await new FakeVkServer(value).start(); servers.push(server);
   const dir = mkdtempSync(join(tmpdir(), 'auto-nudge-process-')); dirs.push(dir);
   const registry = join(dir, 'workspaces.json'); const state = join(dir, 'state.json'); const lock = join(dir, 'owner.lock'); const responseRoutes = join(dir, 'response-routes.json');
   writeFileSync(registry, JSON.stringify(options.emptyRegistry ? { version: 1, workspaces: {} } : { version: 1, workspaces: { workspace: { workspaceId: 'workspace', overseerSessionId: 'overseer', registeredAt: now, registeredBySessionId: 'overseer' } } }));
   if (initialState) writeFileSync(state, JSON.stringify(initialState));
   if (options.responseRoutesState) writeFileSync(responseRoutes, JSON.stringify(options.responseRoutesState));
-  const env: NodeJS.ProcessEnv = { ...process.env, VIBE_API_URL: server.baseUrl, VD_AUTO_NUDGE_REGISTRY_PATH: registry, VD_AUTO_NUDGE_LOCK_PATH: lock, VD_CALLBACK_REGISTRY_PATH: join(dir, 'callbacks.json'), VD_RESPONSE_ROUTES_PATH: responseRoutes };
+  const env: NodeJS.ProcessEnv = { ...process.env, VIBE_API_URL: server.baseUrl, VD_AUTO_NUDGE_ENABLED: options.autoNudgeEnabled === false ? 'false' : 'true', VD_AUTO_NUDGE_REGISTRY_PATH: registry, VD_AUTO_NUDGE_LOCK_PATH: lock, VD_CALLBACK_REGISTRY_PATH: join(dir, 'callbacks.json'), VD_RESPONSE_ROUTES_PATH: responseRoutes };
   if (!options.omitVkOrigin) env.VK_ORIGIN = 'http://vd.test';
   else delete env.VK_ORIGIN;
   const child = spawn(process.execPath, [builtCli, '--state', state, ...extraArgs], { env, stdio: ['ignore', 'pipe', 'pipe'] }); children.push(child);
@@ -30,6 +30,14 @@ async function exit(child: ChildProcess): Promise<number | null> { if (child.exi
 
 describe('built auto-nudge CLI lifecycle', () => {
   if (!existsSync(builtCli)) throw new Error(`Missing built auto-nudge CLI at ${builtCli}; run npm run build:vibe-agent-cli before process tests`);
+  it('exits visibly without taking the lock when VD_AUTO_NUDGE_ENABLED is disabled', async () => {
+    const running = await launch(scenario(), ['--once'], undefined, { autoNudgeEnabled: false });
+    expect(await exit(running.child)).toBe(0);
+    expect(running.output().stdout).toContain('auto-nudge daemon disabled');
+    expect(running.output().stdout).not.toContain('auto-nudge-cycle');
+    expect(existsSync(running.lock)).toBe(false);
+  });
+
   it('releases its owner lock promptly on SIGTERM during poll sleep', async () => {
     const running = await launch(scenario()); await waitUntil(() => running.output().stdout.includes('auto-nudge-cycle'));
     expect(existsSync(running.lock)).toBe(true); const started = Date.now(); running.child.kill('SIGTERM');

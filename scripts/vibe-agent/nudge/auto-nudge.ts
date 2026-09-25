@@ -24,6 +24,10 @@ const OVERSEER_PROMPT = `- If all milestones are complete, stop and say "DONE" a
 
 Use vibe-agent send ... when a teammate response is needed. Use --fire-and-forget only for notifications that do not require a reply.`;
 
+export function isAutoNudgeEnabled(env: NodeJS.ProcessEnv = process.env): boolean {
+  return ['1', 'true', 'yes', 'on'].includes(String(env.VD_AUTO_NUDGE_ENABLED ?? '').toLowerCase());
+}
+
 export interface AutoNudgeConfig {
   version: 1;
   discord?: { enabled: boolean };
@@ -535,6 +539,10 @@ export function createAutoNudgeClient(source: VibeClientAdapterSource): AutoNudg
 export function makeClient(): AutoNudgeClient { return createAutoNudgeClient(defaultClient); }
 async function main(): Promise<void> {
   const args = parseArgs(process.argv.slice(2)); const config = { version: 1 as const, discord: { enabled: false }, workspaces: [] };
+  if (!isAutoNudgeEnabled()) {
+    console.log('vibe-agent auto-nudge daemon disabled; set VD_AUTO_NUDGE_ENABLED=true to enable response routing and nudges');
+    return;
+  }
   let stopping = false;
   await runWithOwnerLock(process.env.VD_AUTO_NUDGE_LOCK_PATH ?? DEFAULT_LOCK_PATH, async () => {
     const abortController = new AbortController();

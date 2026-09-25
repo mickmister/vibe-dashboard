@@ -165,7 +165,7 @@ user=vkuser`;
 
 const VIBE_KANBAN_SUPERVISOR = `; vibe-kanban (source-built binary with database backup before starting)
 [program:vibe-kanban]
-command=sh -c 'if [ "%(ENV_ENABLE_VIBE_KANBAN)s" != "true" ]; then echo "vibe-kanban disabled (ENABLE_VIBE_KANBAN != true)"; exit 0; fi; /usr/local/bin/backup-vibe-kanban-db.sh && exec /usr/local/bin/vibe-kanban'
+command=sh -c 'if [ "%(ENV_ENABLE_VIBE_KANBAN)s" != "true" ]; then echo "vibe-kanban disabled (ENABLE_VIBE_KANBAN != true)"; exit 0; fi; export VD_AUTO_NUDGE_ENABLED="\${VD_AUTO_NUDGE_ENABLED:-true}"; /usr/local/bin/backup-vibe-kanban-db.sh && exec /usr/local/bin/vibe-kanban'
 autostart=true
 autorestart=true
 stdout_logfile=/dev/fd/1
@@ -192,9 +192,9 @@ directory=/home/vkuser/.local/share/vibe-dashboard-runtime`;
 
 const VIBE_AGENT_NUDGE_SUPERVISOR = `; vibe-agent nudge daemon (continues newly-stopped coding agent turns)
 [program:vibe-agent-nudge-daemon]
-command=node /opt/vibe-kanban-vscode-web-seed/dist/vibe-agent/nudge/auto-nudge.js
+command=sh -c 'case "\${VD_AUTO_NUDGE_ENABLED:-true}" in 0|false|no|off) echo "vibe-agent auto-nudge daemon disabled (VD_AUTO_NUDGE_ENABLED=$VD_AUTO_NUDGE_ENABLED)"; exit 0;; esac; export VD_AUTO_NUDGE_ENABLED=true; exec node /opt/vibe-kanban-vscode-web-seed/dist/vibe-agent/nudge/auto-nudge.js'
 autostart=true
-autorestart=true
+autorestart=unexpected
 startsecs=0
 stdout_logfile=/dev/fd/1
 stdout_logfile_maxbytes=0
@@ -371,7 +371,7 @@ export const BUILTIN_FIRST_PARTY_SERVICE_PLUGINS: FirstPartyServicePlugin[] = [
       id: 'first-party.vibe-agent-nudge-daemon',
       displayName: 'Vibe Agent Nudge Daemon',
       version: 'bundled',
-      requestedCapabilities: { vkHttpApi: 'agentPrompt', hostShell: { commands: ['node /opt/vibe-kanban-vscode-web-seed/dist/vibe-agent/nudge/auto-nudge.js'] }, filesystem: [{ scope: 'absolute', path: '/var/lib/vd/auto-nudge', access: 'readWrite' }], network: { mode: 'egress' }, env: ['VD_AUTO_NUDGE_REGISTRY_PATH', 'VD_AUTO_NUDGE_LOCK_PATH', 'VD_CALLBACK_REGISTRY_PATH', 'VD_RESPONSE_ROUTES_PATH', 'DISCORD_WEBHOOK_URL', 'VK_ORIGIN'] },
+      requestedCapabilities: { vkHttpApi: 'agentPrompt', hostShell: { commands: ['node /opt/vibe-kanban-vscode-web-seed/dist/vibe-agent/nudge/auto-nudge.js'] }, filesystem: [{ scope: 'absolute', path: '/var/lib/vd/auto-nudge', access: 'readWrite' }], network: { mode: 'egress' }, env: ['VD_AUTO_NUDGE_ENABLED', 'VD_AUTO_NUDGE_REGISTRY_PATH', 'VD_AUTO_NUDGE_LOCK_PATH', 'VD_CALLBACK_REGISTRY_PATH', 'VD_RESPONSE_ROUTES_PATH', 'DISCORD_WEBHOOK_URL'] },
       components: { services: [{ id: 'vibe-agent-nudge-daemon', runtime: 'supervisor', command: 'node /opt/vibe-kanban-vscode-web-seed/dist/vibe-agent/nudge/auto-nudge.js' }] },
     }),
     privilegeTier: 'core-control-plane', bootCritical: false, supervisorPrograms: ['vibe-agent-nudge-daemon'], supervisorConfig: VIBE_AGENT_NUDGE_SUPERVISOR, installStrategy: 'bundled-runtime-artifact', desiredVersion: 'bundled', stagingRequired: true, rollbackable: true,

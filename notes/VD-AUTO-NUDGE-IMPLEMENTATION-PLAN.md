@@ -43,16 +43,11 @@ Current implementation foundation:
   - active process detection
   - final assistant message detection
   - nudge prompt detection
-- `scripts/vibe-agent/nudge/daemon.ts`
-  - daemon loop shape
-  - durable state file
-  - safe write via temp file + rename
-  - per-cycle inspection and dedupe patterns
 - Existing tests:
   - `scripts/vibe-agent/nudge/criteria.test.ts`
-  - `scripts/vibe-agent/nudge/daemon.test.ts`
+  - `scripts/vibe-agent/nudge/auto-nudge.test.ts`
 
-Prefer extending or adding alongside this nudge module rather than creating an unrelated script.
+Prefer extending the configured auto-nudge scanner rather than reviving the removed legacy nudge daemon.
 
 ## Proposed CLI
 

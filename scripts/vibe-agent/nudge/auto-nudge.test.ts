@@ -4,7 +4,7 @@ import { join } from 'node:path';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { ConversationEntry, ExecutionProcess, SendMessageBody, Session } from '../types.js';
 import {
-  abortableDelay, acquireLock, createAutoNudgeClient, disableAutoNudgeWorkspace, enableAutoNudgeWorkspace, loadAutoNudgeConfig, readAutoNudgeState, readAutoNudgeWorkspaceRegistry, runAutoNudgeCycle, runWithOwnerLock, writeAutoNudgeState,
+  abortableDelay, acquireLock, createAutoNudgeClient, disableAutoNudgeWorkspace, enableAutoNudgeWorkspace, isAutoNudgeEnabled, loadAutoNudgeConfig, readAutoNudgeState, readAutoNudgeWorkspaceRegistry, runAutoNudgeCycle, runWithOwnerLock, writeAutoNudgeState,
   type AutoNudgeClient, type AutoNudgeOptions,
 } from './auto-nudge.js';
 import { appendResponseRoute, bindResponseRouteProcess, readResponseRouteState, updateResponseRoute } from './response-routes.js';
@@ -59,6 +59,15 @@ function fake(input: { processes: Record<string, ExecutionProcess[]>; entries?: 
   };
   return { client, sent };
 }
+
+describe('auto-nudge enable switch', () => {
+  it('is disabled unless VD_AUTO_NUDGE_ENABLED explicitly opts in', () => {
+    expect(isAutoNudgeEnabled({})).toBe(false);
+    expect(isAutoNudgeEnabled({ VD_AUTO_NUDGE_ENABLED: 'false' })).toBe(false);
+    expect(isAutoNudgeEnabled({ VD_AUTO_NUDGE_ENABLED: 'true' })).toBe(true);
+    expect(isAutoNudgeEnabled({ VD_AUTO_NUDGE_ENABLED: '1' })).toBe(true);
+  });
+});
 
 describe('auto nudge', () => {
   it('validates config and rejects duplicate workspaces', () => {

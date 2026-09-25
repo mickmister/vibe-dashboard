@@ -91,13 +91,15 @@ describe('first-party service plugin inventory and golden supervisor config', ()
   });
 
   it('requires the configured auto-nudge scanner and never starts the legacy managed daemon', () => {
+    const backend = getSupervisorProgramBlock(goldenSupervisor, 'vibe-kanban');
+    expect(backend).toContain('export VD_AUTO_NUDGE_ENABLED="${VD_AUTO_NUDGE_ENABLED:-true}"');
     const nudge = getSupervisorProgramBlock(goldenSupervisor, 'vibe-agent-nudge-daemon');
-    expect(nudge).toContain('command=node /opt/vibe-kanban-vscode-web-seed/dist/vibe-agent/nudge/auto-nudge.js');
+    expect(nudge).toContain('exec node /opt/vibe-kanban-vscode-web-seed/dist/vibe-agent/nudge/auto-nudge.js');
+    expect(nudge).toContain('VD_AUTO_NUDGE_ENABLED');
+    expect(nudge).toContain('autorestart=unexpected');
     expect(nudge).not.toContain('VD_AUTO_NUDGE_CONFIG is required');
     expect(nudge).not.toContain('VD_AUTO_NUDGE_CONFIG');
     expect(nudge).toContain('nudge/auto-nudge.js');
-    expect(nudge).not.toContain('VD_AUTO_NUDGE_ENABLED');
-    expect(nudge).not.toContain('auto-nudge disabled');
     expect(nudge).not.toContain('tail -f /dev/null');
     expect(nudge).not.toContain('VD_NUDGE_DAEMON_ENABLED');
     expect(nudge).not.toContain('nudge/daemon.js');

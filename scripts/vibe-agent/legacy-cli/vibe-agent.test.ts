@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
+  assertAutoNudgeRoutingAvailable,
   deliverCallbackCompletion,
   formatFullSummaryText,
   getAdvanceableFullSummaryProcessIds,
@@ -160,6 +161,14 @@ describe('parseSendArgs', () => {
 
   it('supports explicit fire-and-forget sends', () => {
     expect(parseSendArgs(['--fire-and-forget', 'review', 'FYI'])).toMatchObject({ fireAndForget: true });
+  });
+});
+
+describe('assertAutoNudgeRoutingAvailable', () => {
+  it('requires the scanner switch for default routed sends', () => {
+    expect(() => assertAutoNudgeRoutingAvailable({})).toThrow(/Default response routing requires the auto-nudge scanner/);
+    expect(() => assertAutoNudgeRoutingAvailable({ VD_AUTO_NUDGE_ENABLED: 'false' })).toThrow(/--fire-and-forget/);
+    expect(() => assertAutoNudgeRoutingAvailable({ VD_AUTO_NUDGE_ENABLED: 'true' })).not.toThrow();
   });
 });
 
