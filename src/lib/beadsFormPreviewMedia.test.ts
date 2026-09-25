@@ -33,14 +33,15 @@ describe('BeadsForm preview media refs', () => {
 
   it('rewrites bead-backed attachment refs through the controlled attachment route', () => {
     const html = rewriteBeadBackedAttachmentRefs(
-      '<section><a href="attachment://docs/decision.md">doc</a><img src="attachment://shots/a.png"><video src="attachment://b.webm" poster="attachment://shots/b.png"></video><a href="https://example.com/x">external</a></section>',
+      '<section><a href="docs/decision.md">doc</a><img src="./shots/a.png"><video src="videos/b.webm" poster="shots/b.png"></video><a href="https://example.com/x">external</a><a href="attachment://legacy/log.txt">legacy</a></section>',
       '/repo',
     );
 
-    expect(html).toContain(buildBeadAttachmentUrl('/repo', 'attachment://docs/decision.md').replace(/&/g, '&amp;'));
-    expect(html).toContain(buildBeadAttachmentUrl('/repo', 'attachment://shots/a.png').replace(/&/g, '&amp;'));
-    expect(html).toContain(buildBeadAttachmentUrl('/repo', 'attachment://b.webm').replace(/&/g, '&amp;'));
-    expect(html).toContain(buildBeadAttachmentUrl('/repo', 'attachment://shots/b.png').replace(/&/g, '&amp;'));
+    expect(html).toContain(buildBeadAttachmentUrl('/repo', 'docs/decision.md').replace(/&/g, '&amp;'));
+    expect(html).toContain(buildBeadAttachmentUrl('/repo', './shots/a.png').replace(/&/g, '&amp;'));
+    expect(html).toContain(buildBeadAttachmentUrl('/repo', 'videos/b.webm').replace(/&/g, '&amp;'));
+    expect(html).toContain(buildBeadAttachmentUrl('/repo', 'shots/b.png').replace(/&/g, '&amp;'));
+    expect(html).toContain(buildBeadAttachmentUrl('/repo', 'attachment://legacy/log.txt').replace(/&/g, '&amp;'));
     expect(html).toContain('https://example.com/x');
   });
 });

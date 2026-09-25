@@ -1,6 +1,7 @@
 import { readFile, realpath, stat } from 'node:fs/promises';
 import { extname, resolve, sep } from 'node:path';
 import type { Hono } from 'hono';
+import { normalizeBeadsFormAttachmentRef, normalizeRepoRelativeAttachmentPath } from '../lib/beadsFormAttachmentRefs';
 
 const MEDIA_TYPES: Record<string, string> = {
   '.gif': 'image/gif',
@@ -39,7 +40,8 @@ export function registerBeadsFormMediaRoutes(app: Hono): void {
   app.get('/dashboard/api/beads-form/bead-attachment', async (c) => {
     const dir = c.req.query('dir') ?? '';
     const file = c.req.query('file') ?? '';
-    const resolved = await resolveBeadAttachmentPath(dir, file);
+    const stagingRoot = c.req.query('stagingRoot') ?? undefined;
+    const resolved = await resolveBeadAttachmentPath(dir, file, stagingRoot ? { stagingRoot } : {});
     if (!resolved.ok) return c.text(resolved.error, resolved.status);
 
     const bytes = await readFile(resolved.path);
@@ -68,7 +70,13 @@ export async function resolvePreviewMediaPath(folder: string, file: string): Pro
     return { ok: false, status: 404, error: 'preview folder not found' };
   }
 
-  const filePath = resolve(folderReal, file.replace(/^attachment:\/\//, ''));
+  let normalizedFile: string;
+  try {
+    normalizedFile = normalizeRepoRelativeAttachmentPath(file.replace(/^attachment:\/\//i, ''));
+  } catch (error) {
+    return { ok: false, status: 403, error: error instanceof Error ? error.message : String(error) };
+  }
+  const filePath = resolve(folderReal, normalizedFile);
   if (!isPathInside(folderReal, filePath)) {
     return { ok: false, status: 403, error: 'media file must be inside the preview folder' };
   }
@@ -101,24 +109,58 @@ export type ResolveBeadAttachmentPathResult =
   | { ok: true; path: string; contentType: string; filename: string }
   | { ok: false; status: 400 | 403 | 404 | 415; error: string };
 
-export async function resolveBeadAttachmentPath(dir: string, file: string): Promise<ResolveBeadAttachmentPathResult> {
+export async function resolveBeadAttachmentPath(
+  dir: string,
+  file: string,
+  options: { stagingRoot?: string } = {},
+): Promise<ResolveBeadAttachmentPathResult> {
   if (!dir.trim()) return { ok: false, status: 400, error: 'dir is required' };
   if (!file.trim()) return { ok: false, status: 400, error: 'file is required' };
 
   const repoPath = resolve(dir);
-  let attachmentsRoot: string;
+  let normalized;
   try {
-    attachmentsRoot = await realpath(resolve(repoPath, '.beads', 'attachments'));
+    normalized = normalizeBeadsFormAttachmentRef(file, 'file');
+  } catch (error) {
+    return { ok: false, status: 403, error: error instanceof Error ? error.message : String(error) };
+  }
+  if (normalized.kind === 'hosted' || !normalized.path) {
+    return { ok: false, status: 403, error: 'bead attachment must be a repo-relative ref' };
+  }
+
+  const rootCandidates = normalized.kind === 'legacy-attachment'
+    ? [resolve(repoPath, '.beads', 'attachments')]
+    : [repoPath, ...(options.stagingRoot ? [options.stagingRoot] : [])];
+
+  for (const rootCandidate of rootCandidates) {
+    const resolved = await resolveAttachmentUnderRoot(rootCandidate, normalized.path, normalized.kind === 'legacy-attachment' ? 'legacy bead attachments folder' : 'allowed attachment root');
+    if (resolved.ok) {
+      return {
+        ...resolved,
+        filename: normalized.path.split('/').filter(Boolean).at(-1) ?? 'attachment',
+      };
+    }
+    if (resolved.status !== 404) return resolved;
+  }
+
+  return { ok: false, status: 404, error: 'bead attachment not found' };
+}
+
+async function resolveAttachmentUnderRoot(
+  root: string,
+  path: string,
+  rootLabel: string,
+): Promise<ResolveBeadAttachmentPathResult> {
+  let rootReal: string;
+  try {
+    rootReal = await realpath(resolve(root));
   } catch {
-    return { ok: false, status: 404, error: 'bead attachments folder not found' };
+    return { ok: false, status: 404, error: `${rootLabel} not found` };
   }
-
-  const normalizedFile = file.replace(/^attachment:\/\//, '');
-  const filePath = resolve(attachmentsRoot, normalizedFile);
-  if (!isPathInside(attachmentsRoot, filePath)) {
-    return { ok: false, status: 403, error: 'bead attachment must be inside .beads/attachments' };
+  const filePath = resolve(rootReal, path);
+  if (!isPathInside(rootReal, filePath)) {
+    return { ok: false, status: 403, error: `bead attachment must be inside ${rootLabel}` };
   }
-
   let fileReal: string;
   try {
     fileReal = await realpath(filePath);
@@ -126,8 +168,8 @@ export async function resolveBeadAttachmentPath(dir: string, file: string): Prom
     return { ok: false, status: 404, error: 'bead attachment not found' };
   }
 
-  if (!isPathInside(attachmentsRoot, fileReal)) {
-    return { ok: false, status: 403, error: 'bead attachment must be inside .beads/attachments' };
+  if (!isPathInside(rootReal, fileReal)) {
+    return { ok: false, status: 403, error: `bead attachment must be inside ${rootLabel}` };
   }
 
   const contentType = ATTACHMENT_TYPES[extname(fileReal).toLowerCase()];
@@ -144,7 +186,7 @@ export async function resolveBeadAttachmentPath(dir: string, file: string): Prom
     ok: true,
     path: fileReal,
     contentType,
-    filename: normalizedFile.split('/').filter(Boolean).at(-1) ?? 'attachment',
+    filename: path.split('/').filter(Boolean).at(-1) ?? 'attachment',
   };
 }
 

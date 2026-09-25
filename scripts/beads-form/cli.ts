@@ -15,6 +15,7 @@ import {
   type StoredBeadsForm,
 } from '../../packages/beads-form/src/index.ts';
 import { assertMetadataWithinIssueJsonGuard } from '../../src/lib/beadsFormMetadataGuard.ts';
+import { normalizeBeadsFormAttachmentRef, type BeadsFormAttachmentRefUsage } from '../../src/lib/beadsFormAttachmentRefs.ts';
 import type { PendingBeadsFormQueueResult } from '../../src/lib/beadsClient.node.ts';
 
 const execFileAsync = promisify(execFile);
@@ -567,7 +568,7 @@ function normalizeForm(value: unknown): BeadsFormDefinition | undefined {
   if (!isStandardForm(value)) return undefined;
   compileBeadsForm(value);
   const form = stripGeneratedBeadsFormFields(value);
-  assertNoLocalBeadBackedMediaRefs(form);
+  assertSafeBeadBackedAttachmentRefs(form);
   return form;
 }
 
@@ -743,34 +744,22 @@ function assertUniqueFormIds(forms: BeadsFormDefinition[]): void {
   }
 }
 
-function assertNoLocalBeadBackedMediaRefs(form: BeadsFormDefinition): void {
+function assertSafeBeadBackedAttachmentRefs(form: BeadsFormDefinition): void {
   for (const ref of collectMediaRefs(form)) {
     for (const [field, value] of Object.entries({ src: ref.src, ref: ref.ref, poster: ref.poster })) {
       if (typeof value !== 'string' || !value) continue;
-      if (isUnsafeAttachmentRef(value)) {
-        throw new Error(`Form ${form.id} uses unsafe attachment ${field} "${value}"; attachment:// refs must be relative paths under .beads/attachments without absolute paths, traversal, backslashes, or nested schemes`);
-      }
-      if (isLocalMediaRef(value)) {
-        throw new Error(`Form ${form.id} uses local attachment ${field} "${value}"; bead-backed attachments support http(s) or attachment:// refs only`);
+      const usage: BeadsFormAttachmentRefUsage = field === 'poster'
+        ? 'image'
+        : ref.type === 'code-snippet'
+          ? 'file'
+          : ref.type;
+      try {
+        normalizeBeadsFormAttachmentRef(value, usage);
+      } catch (error) {
+        throw new Error(`Form ${form.id} uses unsafe attachment ${field} "${value}"; ${error instanceof Error ? error.message : String(error)}`);
       }
     }
   }
-}
-
-function isUnsafeAttachmentRef(value: string): boolean {
-  const trimmed = value.trim();
-  if (!trimmed.toLowerCase().startsWith('attachment://')) return false;
-  const path = trimmed.slice('attachment://'.length);
-  if (!path || path.startsWith('/') || path.startsWith('\\')) return true;
-  if (path.includes('\\')) return true;
-  if (/^[a-z][a-z0-9+.-]*:/i.test(path)) return true;
-  return path.split('/').some((segment) => segment === '..' || segment === '');
-}
-
-function isLocalMediaRef(value: string): boolean {
-  const lower = value.trim().toLowerCase();
-  if (!lower) return false;
-  return !(lower.startsWith('https://') || lower.startsWith('http://') || lower.startsWith('attachment://'));
 }
 
 export async function attachBeadsForms(input: {
@@ -1064,7 +1053,7 @@ function normalizeStoredForm(value: unknown): BeadsFormDefinition {
   }
   const stored = stripGeneratedBeadsFormFields(withLegacyFallbackGoal(value));
   compileBeadsForm(stored);
-  assertNoLocalBeadBackedMediaRefs(stored);
+  assertSafeBeadBackedAttachmentRefs(stored);
   return stored;
 }
 
@@ -1453,6 +1442,9 @@ Attach origin precedence:
 
 Attach metadata stamps:
   VK_WORKSPACE_ID from --workspace or env, and VK_SESSION_ID from --session or env, when non-empty.
+
+Embedding refs:
+  Bead-backed forms store refs only. Prefer repo-relative refs such as docs/decision.md, screenshots/a.png, videos/demo.webm, reports/output.log, plus code-snippet path/commit/line metadata. Hosted http(s) media is allowed where supported. Legacy attachment:// refs are compatibility-only; do not use .beads/attachments for new authoring. Traversal, absolute paths, nested/unsafe schemes, symlink escapes, and unsupported extensions are rejected.
 
 Default show output is JSON and includes all responses.`);
 }

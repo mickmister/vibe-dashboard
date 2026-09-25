@@ -1,3 +1,5 @@
+import { normalizeBeadsFormAttachmentRef } from './beadsFormAttachmentRefs';
+
 const MEDIA_ROUTE = '/dashboard/api/beads-form/preview-media';
 const BEAD_ATTACHMENT_ROUTE = '/dashboard/api/beads-form/bead-attachment';
 
@@ -8,10 +10,11 @@ export function buildPreviewMediaUrl(folder: string, ref: string): string {
   return `${MEDIA_ROUTE}?${params.toString()}`;
 }
 
-export function buildBeadAttachmentUrl(dir: string, ref: string): string {
+export function buildBeadAttachmentUrl(dir: string, ref: string, options: { stagingRoot?: string } = {}): string {
   const params = new URLSearchParams();
   params.set('dir', dir);
-  params.set('file', ref.startsWith('attachment://') ? ref.slice('attachment://'.length) : ref);
+  params.set('file', ref);
+  if (options.stagingRoot) params.set('stagingRoot', options.stagingRoot);
   return `${BEAD_ATTACHMENT_ROUTE}?${params.toString()}`;
 }
 
@@ -46,7 +49,20 @@ export function rewriteBeadBackedAttachmentRefs(html: string, dir: string): stri
   const parsed = new DOMParser().parseFromString(html, 'text/html');
   const rewriteAttribute = (element: Element, attrName: string) => {
     const value = element.getAttribute(attrName);
-    if (!value?.trim().startsWith('attachment://')) return;
+    if (!value) return;
+    const usage = attrName === 'poster'
+      ? 'image'
+      : element.tagName.toLowerCase() === 'img'
+        ? 'image'
+        : element.tagName.toLowerCase() === 'video'
+          ? 'video'
+          : 'file';
+    try {
+      const normalized = normalizeBeadsFormAttachmentRef(value, usage);
+      if (normalized.kind === 'hosted') return;
+    } catch {
+      return;
+    }
     element.setAttribute(attrName, buildBeadAttachmentUrl(dir, value));
   };
 

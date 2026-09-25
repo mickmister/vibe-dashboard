@@ -56,14 +56,14 @@ const form = defineBeadsForm({
       title: 'Candidate screenshots',
       description: 'Compare local screenshots before answering.',
       items: [
-        { id: 'candidate_a', type: 'image', src: 'attachments/candidate-a.png', alt: 'Candidate A screenshot', caption: 'Candidate A' },
-        { id: 'candidate_b', type: 'video', src: 'attachment://candidate-b.webm', poster: 'attachments/candidate-b.png', caption: 'Candidate B recording' },
+        { id: 'candidate_a', type: 'image', src: 'screenshots/candidate-a.png', alt: 'Candidate A screenshot', caption: 'Candidate A' },
+        { id: 'candidate_b', type: 'video', src: 'videos/candidate-b.webm', poster: 'screenshots/candidate-b.png', caption: 'Candidate B recording' },
       ],
     }),
     buildMarkdownAttachment({
       id: 'decision_doc',
       title: 'Decision doc',
-      ref: 'attachment://docs/decision.md',
+      ref: 'docs/decision.md',
       label: 'decision.md',
     }),
     buildCodeSnippetRef({
@@ -118,7 +118,7 @@ const metadataPatch = buildBeadsFormMetadata([form]);
 - Choice questions always render checkboxes; the DSL has no radio question type. For tangential either/or subsets inside a larger checkbox question, use `choiceGroups`. Both `atMostOne` and `exactlyOne` groups visibly say “Select only one.” Checking an option unchecks its siblings. `exactlyOne` starts with no answer and requires the human to click one; add explicit choices such as `none_of_the_above`, `no_preference`, or `other` when those are valid answers. Keep unrelated supplemental choices ungrouped so they remain normal multiple checkboxes.
 - Per-choice textareas and per-question textareas are always included. Do not add note-inclusion flags.
 - Standard forms include two submit actions by default: one that sets `allow_code_file_changes` to `true`, and one that sets it to `false`. If the normalized response has this field as `false`, do not edit code or files.
-- Use `content` blocks for ref-backed rich context. `buildMediaGallery(...)` covers image/video refs, `buildMarkdownAttachment(...)` covers Markdown-file refs, `buildAttachmentList(...)` covers arbitrary artifacts, and `buildCodeSnippetRef(...)` covers repo source permalinks with path/commit/line metadata. Bead-backed local artifacts must use `attachment://...` refs and live under `.beads/attachments/`; folder preview may also use folder-relative refs like `attachments/candidate-a.png`.
+- Use `content` blocks for ref-backed rich context. `buildMediaGallery(...)` covers image/video refs, `buildMarkdownAttachment(...)` covers Markdown-file refs, `buildAttachmentList(...)` covers arbitrary artifacts, and `buildCodeSnippetRef(...)` covers repo source permalinks with path/commit/line metadata. Bead-backed forms should use repo-relative refs such as `docs/decision.md`, `screenshots/candidate-a.png`, and `videos/demo.webm`; folder preview uses refs relative to the preview folder. Legacy `attachment://...` refs are compatibility-only and should not be used for new forms.
 - Use stable lowercase ids with letters, numbers, `_`, or `-`; start ids with a letter.
 - Choice ids become submitted values.
 - Question ids become submitted field names.
@@ -185,18 +185,40 @@ Use folder mode for low-friction testing before attaching forms to beads.
 
 5. The orchestrating agent should paste/read that XML handoff exactly. If `allow_code_file_changes` is `false`, keep code/file operations read-only.
 
-### Media galleries in folder preview
+### Embedding Markdown, media, files, and code
 
-Media galleries render local image/video references through the preview server. Keep media files inside the same preview folder as the JSON, usually under an `attachments/` subfolder.
+BeadsForm embedding is ref-only. Never paste Markdown file contents, screenshots,
+videos, or arbitrary file bytes into bead metadata. Put files in the repo working
+tree or in an explicit staging folder for preview/authoring, then reference them
+by path.
 
-Allowed preview refs:
+Supported content blocks:
 
-- `attachments/screenshot-a.png`
-- `./attachments/screenshot-a.png`
-- `attachment://screenshot-a.png`
-- `attachments/demo.webm`
+- `buildMarkdownAttachment({ ref: 'docs/decision.md' })` for Markdown files.
+- `buildMediaGallery(...)` with image refs such as `screenshots/a.png`, video
+  refs such as `videos/demo.webm`, optional posters, and hosted `https://...`
+  media when appropriate.
+- `buildAttachmentList(...)` for arbitrary Markdown/text/JSON/image/video files.
+- `buildCodeSnippetRef(...)` for source permalinks with repo-relative `path`, a
+  concrete commit hash, and line numbers.
 
-Avoid arbitrary external embeds. The preview sanitizer/route is intentionally scoped to local/folder-relative media and common image/video extensions.
+Safe refs:
+
+- `docs/decision.md`
+- `./docs/decision.md`
+- `screenshots/screenshot-a.png`
+- `videos/demo.webm`
+- `https://example.test/hosted.png`
+
+Unsafe refs are rejected or ignored: absolute paths, `../` traversal, backslash
+paths, nested schemes such as `attachment://https://...`, `javascript:`/`data:`
+URLs, symlinks that resolve outside the allowed root, and unsupported extensions
+such as `.exe`. Runtime serving resolves bead-backed refs only under the repo
+cwd/working tree, or under an explicit staging root when the invoking preview or
+authoring flow declares one. Folder preview resolves refs under the declared
+preview folder. Legacy `attachment://...` still resolves from
+`.beads/attachments` for old forms only; do not recommend or create new
+`.beads/attachments`-first forms.
 
 For a copyable best-of-N Storybook screenshot comparison fixture, see:
 
@@ -232,7 +254,7 @@ Bead-backed storage is the primary workflow for real agent/user handoff. Folder 
    { "origin": "https://your-vd-origin.example" }
    ```
 
-   Do not hardcode `jamtools.dev`; use the active deployment origin. Duplicate form ids on the bead are errors by default. Local folder-relative media refs are rejected in bead-backed attach; keep local media in folder preview until bead-backed media policy is designed.
+   Do not hardcode `jamtools.dev`; use the active deployment origin. Duplicate form ids on the bead are errors by default. Bead-backed attach accepts safe repo-relative Markdown/image/video/file refs and stores only the refs; it rejects traversal, absolute paths, unsafe schemes, and unsupported extensions.
 
    After attach, read the JSON `authoringNextSteps` in the CLI output before sharing the URL. Use it to refine ambiguous questions one at a time:
 

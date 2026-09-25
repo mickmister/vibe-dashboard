@@ -71,6 +71,7 @@ describe('beads-form CLI helpers', () => {
   it('documents canonical structured choice tradeoffs instead of putting pros and cons in descriptions', async () => {
     const onboarding = await readFile(new URL('../../skills/beads-form-agent-onboarding.md', import.meta.url), 'utf8');
     const skill = await readFile(new URL('../../packages/beads-form/SKILL.md', import.meta.url), 'utf8');
+    const attachments = await readFile(new URL('../../packages/beads-form/ATTACHMENTS.md', import.meta.url), 'utf8');
 
     expect(onboarding).not.toContain('include the pros/cons in the choice descriptions');
     expect(onboarding).toContain('choice.prosAndCons: { pros?: string[]; cons?: string[] }');
@@ -80,6 +81,17 @@ describe('beads-form CLI helpers', () => {
     expect(`${onboarding}\n${skill}`).toContain('cat .vk-mocked-sandbox/beads-form-authoring');
     expect(`${onboarding}\n${skill}`).toContain('beads-form show-question');
     expect(`${onboarding}\n${skill}`).toContain('beads-form update-question');
+    expect(skill).toContain('### Embedding Markdown, media, files, and code');
+    expect(skill).toContain("buildMarkdownAttachment({ ref: 'docs/decision.md' })");
+    expect(skill).toContain('Bead-backed forms should use repo-relative refs');
+    expect(skill).toContain('Legacy `attachment://...` refs are compatibility-only');
+    expect(skill).toContain('Never paste Markdown file contents');
+    expect(skill).not.toContain('Bead-backed local artifacts must use `attachment://...` refs');
+    expect(skill).not.toContain('Local folder-relative media refs are rejected in bead-backed attach');
+    expect(attachments).toContain('Preferred bead-backed refs are repo-relative working-tree paths');
+    expect(attachments).toContain('Legacy `attachment://path/to/file` refs are still');
+    expect(attachments).toContain('new forms should not use');
+    expect(attachments).toContain('never inlines Markdown files');
   });
 
   it('runs the CLI help entrypoint under Node strip-types', async () => {
@@ -93,6 +105,10 @@ describe('beads-form CLI helpers', () => {
     });
     expect(stdout).toContain('beads-form attach');
     expect(stdout).toContain('beads-form pending --parent-dir <all-repos-dir>');
+    expect(stdout).toContain('Embedding refs:');
+    expect(stdout).toContain('Prefer repo-relative refs such as docs/decision.md');
+    expect(stdout).toContain('Legacy attachment:// refs are compatibility-only');
+    expect(stdout).not.toContain('live under .beads/attachments');
   });
 
   it('parses attach and show subcommands', () => {
@@ -270,7 +286,7 @@ describe('beads-form CLI helpers', () => {
     expect(stripped).not.toHaveProperty('sourceMessages');
   });
 
-  it('rejects duplicate input ids, duplicate bead ids, invalid JSON, and local bead-backed media refs without mutation', () => {
+  it('rejects duplicate input ids, duplicate bead ids, invalid JSON, and unsafe refs without mutation', () => {
     expect(() => parseFormsJsonForAttach(JSON.stringify([standardForm, standardForm]))).toThrow('Duplicate form id');
     expect(() => parseFormsJsonForAttach('{bad')).toThrow('Invalid JSON');
     expect(() => parseFormsJsonForAttach(JSON.stringify({ ...standardForm, goal: '' }))).toThrow('No BeadsForm definitions found');
@@ -284,8 +300,8 @@ describe('beads-form CLI helpers', () => {
     }))).toThrow('content.id "allow_code_file_changes" is reserved');
     expect(() => parseFormsJsonForAttach(JSON.stringify({
       ...standardForm,
-      content: [{ ...standardForm.content[0], items: [{ id: 'local', type: 'image', src: 'attachments/local.png' }] }],
-    }))).toThrow('bead-backed attachments support http(s) or attachment:// refs only');
+      content: [{ ...standardForm.content[0], items: [{ id: 'local', type: 'image', src: '../outside.png' }] }],
+    }))).toThrow('must not traverse directories');
     expect(() => parseFormsJsonForAttach(JSON.stringify({
       id: 'raw_img',
       title: 'Raw image',
@@ -1018,13 +1034,13 @@ describe('beads-form CLI helpers', () => {
           type: 'markdown-attachment',
           id: 'decision_doc',
           title: 'Decision doc',
-          ref: 'attachment://docs/decision.md',
+          ref: 'docs/decision.md',
         },
         {
           type: 'attachments',
           id: 'supporting_files',
           title: 'Supporting files',
-          items: [{ id: 'logs', label: 'Logs', ref: 'attachment://logs/output.txt', mediaType: 'file' }],
+          items: [{ id: 'logs', label: 'Logs', ref: 'reports/output.txt', mediaType: 'file' }],
         },
         {
           type: 'code-snippet',
@@ -1051,8 +1067,8 @@ describe('beads-form CLI helpers', () => {
     expect(withoutHtml.form).not.toHaveProperty('controls');
     expect(withoutHtml.mediaRefs).toEqual([
       { galleryId: 'gallery', itemId: 'shot', type: 'image', src: 'https://example.test/shot.png', caption: 'Shot' },
-      { blockId: 'decision_doc', type: 'markdown', ref: 'attachment://docs/decision.md' },
-      { blockId: 'supporting_files', itemId: 'logs', type: 'file', ref: 'attachment://logs/output.txt' },
+      { blockId: 'decision_doc', type: 'markdown', ref: 'docs/decision.md' },
+      { blockId: 'supporting_files', itemId: 'logs', type: 'file', ref: 'reports/output.txt' },
       { blockId: 'callsite', type: 'code-snippet', path: 'src/index.ts', commit: 'abc1234', startLine: 4, endLine: 8 },
     ]);
 
@@ -1061,33 +1077,32 @@ describe('beads-form CLI helpers', () => {
     expect(second.form).not.toHaveProperty('controls');
   });
 
-  it('allows bead-backed attachment refs while rejecting unsafe local refs', () => {
-    expect(() => parseFormsJsonForAttach(JSON.stringify({
-      ...standardForm,
-      content: [{
-        type: 'markdown-attachment',
-        id: 'local_doc',
-        title: 'Local doc',
-        ref: 'docs/decision.md',
-      }],
-    }))).toThrow('bead-backed attachments support http(s) or attachment:// refs only');
-
+  it('allows bead-backed repo-relative and legacy attachment refs without inlining file contents', () => {
     const form = parseFormsJsonForAttach(JSON.stringify({
       ...standardForm,
-      content: [{
-        type: 'attachments',
-        id: 'refs',
-        title: 'Refs',
-        items: [{ id: 'doc', label: 'Doc', ref: 'attachment://docs/decision.md', mediaType: 'markdown' }],
-      }],
+      content: [
+        {
+          type: 'markdown-attachment',
+          id: 'local_doc',
+          title: 'Local doc',
+          ref: './docs/decision.md',
+        },
+        {
+          type: 'attachments',
+          id: 'refs',
+          title: 'Refs',
+          items: [
+            { id: 'doc', label: 'Doc', ref: 'docs/decision.md', mediaType: 'markdown' },
+            { id: 'legacy', label: 'Legacy', ref: 'attachment://legacy/output.txt', mediaType: 'file' },
+          ],
+        },
+      ],
     }))[0]!;
 
-    expect(form.content).toEqual([{
-      type: 'attachments',
-      id: 'refs',
-      title: 'Refs',
-      items: [{ id: 'doc', label: 'Doc', ref: 'attachment://docs/decision.md', mediaType: 'markdown' }],
-    }]);
+    expect(JSON.stringify(form)).toContain('./docs/decision.md');
+    expect(JSON.stringify(form)).toContain('docs/decision.md');
+    expect(JSON.stringify(form)).toContain('attachment://legacy/output.txt');
+    expect(JSON.stringify(form)).not.toContain('# Decision');
   });
 
   it('rejects unsafe bead-backed attachment refs before persistence', () => {
@@ -1098,6 +1113,9 @@ describe('beads-form CLI helpers', () => {
       'attachment://docs/../../secret.md',
       'attachment://docs\\..\\secret.md',
       'attachment://https://example.test/secret.md',
+      '/absolute/secret.md',
+      'docs/tool.exe',
+      'javascript:alert(1)',
     ]) {
       expect(() => parseFormsJsonForAttach(JSON.stringify({
         ...standardForm,

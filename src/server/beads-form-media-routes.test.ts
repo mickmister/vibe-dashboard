@@ -53,13 +53,13 @@ describe('BeadsForm preview media routes', () => {
     });
   });
 
-  it('serves bead-backed attachment refs from .beads/attachments only', async () => {
+  it('serves bead-backed repo-relative attachment refs from the repo cwd', async () => {
     const repo = await mkdtemp(join(tmpdir(), 'beads-form-repo-'));
-    await mkdir(join(repo, '.beads', 'attachments', 'docs'), { recursive: true });
-    await writeFile(join(repo, '.beads', 'attachments', 'docs', 'decision.md'), '# Decision', 'utf8');
+    await mkdir(join(repo, 'docs'), { recursive: true });
+    await writeFile(join(repo, 'docs', 'decision.md'), '# Decision', 'utf8');
     await writeFile(join(repo, 'outside.md'), '# Outside', 'utf8');
 
-    await expect(resolveBeadAttachmentPath(repo, 'attachment://docs/decision.md')).resolves.toMatchObject({
+    await expect(resolveBeadAttachmentPath(repo, 'docs/decision.md')).resolves.toMatchObject({
       ok: true,
       contentType: 'text/markdown; charset=utf-8',
       filename: 'decision.md',
@@ -71,7 +71,7 @@ describe('BeadsForm preview media routes', () => {
 
     const app = new Hono();
     registerBeadsFormMediaRoutes(app);
-    const response = await app.request(`/dashboard/api/beads-form/bead-attachment?dir=${encodeURIComponent(repo)}&file=${encodeURIComponent('attachment://docs/decision.md')}`);
+    const response = await app.request(`/dashboard/api/beads-form/bead-attachment?dir=${encodeURIComponent(repo)}&file=${encodeURIComponent('docs/decision.md')}`);
 
     expect(response.status).toBe(200);
     expect(response.headers.get('content-type')).toBe('text/markdown; charset=utf-8');
@@ -79,16 +79,59 @@ describe('BeadsForm preview media routes', () => {
     await expect(response.text()).resolves.toBe('# Decision');
   });
 
-  it('rejects bead-backed attachment symlinks that resolve outside .beads/attachments', async () => {
+  it('serves explicit staging-root refs when the route declares the staging root', async () => {
+    const repo = await mkdtemp(join(tmpdir(), 'beads-form-repo-'));
+    const stagingRoot = await mkdtemp(join(tmpdir(), 'beads-form-staging-'));
+    await mkdir(join(stagingRoot, 'exports'), { recursive: true });
+    await writeFile(join(stagingRoot, 'exports', 'summary.md'), '# Staged', 'utf8');
+
+    await expect(resolveBeadAttachmentPath(repo, 'exports/summary.md', { stagingRoot })).resolves.toMatchObject({
+      ok: true,
+      contentType: 'text/markdown; charset=utf-8',
+      filename: 'summary.md',
+    });
+  });
+
+  it('serves legacy attachment refs from .beads/attachments for compatibility', async () => {
+    const repo = await mkdtemp(join(tmpdir(), 'beads-form-repo-'));
+    await mkdir(join(repo, '.beads', 'attachments', 'docs'), { recursive: true });
+    await writeFile(join(repo, '.beads', 'attachments', 'docs', 'decision.md'), '# Legacy', 'utf8');
+
+    await expect(resolveBeadAttachmentPath(repo, 'attachment://docs/decision.md')).resolves.toMatchObject({
+      ok: true,
+      contentType: 'text/markdown; charset=utf-8',
+      filename: 'decision.md',
+    });
+  });
+
+  it('rejects bead-backed attachment symlinks that resolve outside allowed roots', async () => {
     const repo = await mkdtemp(join(tmpdir(), 'beads-form-repo-'));
     const outside = await mkdtemp(join(tmpdir(), 'beads-form-repo-outside-'));
-    await mkdir(join(repo, '.beads', 'attachments', 'docs'), { recursive: true });
+    await mkdir(join(repo, 'docs'), { recursive: true });
     await writeFile(join(outside, 'outside.md'), '# Outside', 'utf8');
-    await symlink(join(outside, 'outside.md'), join(repo, '.beads', 'attachments', 'docs', 'linked.md'));
+    await symlink(join(outside, 'outside.md'), join(repo, 'docs', 'linked.md'));
 
-    await expect(resolveBeadAttachmentPath(repo, 'attachment://docs/linked.md')).resolves.toMatchObject({
+    await expect(resolveBeadAttachmentPath(repo, 'docs/linked.md')).resolves.toMatchObject({
       ok: false,
       status: 403,
     });
+  });
+
+  it('rejects unsafe bead-backed refs before filesystem access', async () => {
+    const repo = await mkdtemp(join(tmpdir(), 'beads-form-repo-'));
+
+    for (const ref of [
+      '/abs/secret.md',
+      '../secret.md',
+      'docs/../../secret.md',
+      'docs\\secret.md',
+      'attachment://https://example.test/secret.md',
+      'javascript:alert(1)',
+      'docs/tool.exe',
+    ]) {
+      await expect(resolveBeadAttachmentPath(repo, ref)).resolves.toMatchObject({
+        ok: false,
+      });
+    }
   });
 });
