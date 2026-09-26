@@ -18,7 +18,8 @@ import type { SpaceTypeContribution } from '../modules/plugins/vibe-dashboard/ty
 import { TabContextMenu } from './TabContextMenu';
 
 const INTERNAL_URL_PREFIX = 'internal://';
-const VD_RUNTIME_FOLDER_URL = '/?folder=/var/lib/vd';
+const VD_PLUGIN_DATA_FOLDER_URL = '/?folder=/var/lib/vd';
+const VD_APP_RUNTIME_DATA_FOLDER_URL = '/?folder=/home/vkuser/.local/share/vibe-dashboard-runtime/data';
 
 interface SidebarProps {
   workspace: WorkspaceState;
@@ -634,11 +635,20 @@ export function Sidebar({
               Plugins
             </Button>
             <a
-              href={VD_RUNTIME_FOLDER_URL}
+              href={VD_PLUGIN_DATA_FOLDER_URL}
               target="_blank"
               rel="noopener noreferrer"
               className="flex h-8 w-full items-center justify-center rounded-medium bg-default-100 px-3 text-small font-medium text-foreground transition-colors hover:bg-default-200"
-              title="Open /var/lib/vd in code-server"
+              title="Open /var/lib/vd plugin data in code-server"
+            >
+              Plugin Data
+            </a>
+            <a
+              href={VD_APP_RUNTIME_DATA_FOLDER_URL}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="flex h-8 w-full items-center justify-center rounded-medium bg-default-100 px-3 text-small font-medium text-foreground transition-colors hover:bg-default-200"
+              title="Open app runtime data in code-server"
             >
               Runtime Data
             </a>

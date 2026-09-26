@@ -72,7 +72,7 @@ describe('auto-nudge enable switch', () => {
 describe('auto nudge', () => {
   it('loads runtime nudge config defaults and validates overrides', () => {
     const { dir } = setup(); const path = join(dir, 'nudge_config.json');
-    expect(DEFAULT_NUDGE_CONFIG_PATH).toBe('/var/lib/vd/data/config/nudge_config.json');
+    expect(DEFAULT_NUDGE_CONFIG_PATH).toBe('/home/vkuser/.local/share/vibe-dashboard-runtime/data/config/nudge_config.json');
     expect(loadNudgeRuntimeConfig(join(dir, 'missing.json'))).toMatchObject({
       error: null,
       config: { version: 1, endConditions: ['DONE', 'CREATED FORM'] },

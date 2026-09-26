@@ -16,7 +16,7 @@ import {
 const DEFAULT_STATE_PATH = '/var/lib/vd/auto-nudge/state.json';
 const DEFAULT_LOCK_PATH = '/var/lib/vd/auto-nudge/owner.lock';
 export const DEFAULT_WORKSPACE_REGISTRY_PATH = '/var/lib/vd/auto-nudge/workspaces.json';
-export const DEFAULT_NUDGE_CONFIG_PATH = '/var/lib/vd/data/config/nudge_config.json';
+export const DEFAULT_NUDGE_CONFIG_PATH = '/home/vkuser/.local/share/vibe-dashboard-runtime/data/config/nudge_config.json';
 const DEFAULT_POLL_MS = 5 * 60_000;
 const RESPONSE_ROUTE_INTENT_STALE_MS = 5 * 60_000;
 export const DEFAULT_OVERSEER_PROMPT = `- If all milestones are complete, end your response with "DONE".
