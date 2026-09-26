@@ -4,7 +4,7 @@ import { join } from 'node:path';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { ConversationEntry, ExecutionProcess, SendMessageBody, Session } from '../types.js';
 import {
-  abortableDelay, acquireLock, createAutoNudgeClient, disableAutoNudgeWorkspace, enableAutoNudgeWorkspace, isAutoNudgeEnabled, loadAutoNudgeConfig, readAutoNudgeState, readAutoNudgeWorkspaceRegistry, runAutoNudgeCycle, runWithOwnerLock, writeAutoNudgeState,
+  abortableDelay, acquireLock, createAutoNudgeClient, DEFAULT_OVERSEER_PROMPT, DEFAULT_NUDGE_CONFIG_PATH, disableAutoNudgeWorkspace, enableAutoNudgeWorkspace, isAutoNudgeEnabled, loadAutoNudgeConfig, loadNudgeRuntimeConfig, readAutoNudgeState, readAutoNudgeWorkspaceRegistry, responseMatchesEndCondition, runAutoNudgeCycle, runWithOwnerLock, writeAutoNudgeState,
   type AutoNudgeClient, type AutoNudgeOptions,
 } from './auto-nudge.js';
 import { appendResponseRoute, bindResponseRouteProcess, readResponseRouteState, updateResponseRoute } from './response-routes.js';
@@ -70,6 +70,38 @@ describe('auto-nudge enable switch', () => {
 });
 
 describe('auto nudge', () => {
+  it('loads runtime nudge config defaults and validates overrides', () => {
+    const { dir } = setup(); const path = join(dir, 'nudge_config.json');
+    expect(DEFAULT_NUDGE_CONFIG_PATH).toBe('/var/lib/vd/data/config/nudge_config.json');
+    expect(loadNudgeRuntimeConfig(join(dir, 'missing.json'))).toMatchObject({
+      error: null,
+      config: { version: 1, endConditions: ['DONE', 'CREATED FORM'] },
+    });
+    expect(loadNudgeRuntimeConfig(join(dir, 'missing.json')).config.overseerPrompt).toContain('beads-form');
+    writeFileSync(path, JSON.stringify({ version: 1, overseerPrompt: 'custom prompt', endConditions: ['DONE', 'WAITING USER'] }));
+    expect(loadNudgeRuntimeConfig(path)).toEqual({
+      error: null,
+      config: { version: 1, overseerPrompt: 'custom prompt', endConditions: ['DONE', 'WAITING USER'] },
+    });
+  });
+
+  it('falls back safely when runtime nudge config is malformed', () => {
+    const { dir } = setup(); const path = join(dir, 'nudge_config.json');
+    writeFileSync(path, '{bad');
+    const loaded = loadNudgeRuntimeConfig(path);
+    expect(loaded.error).toMatch(/Invalid nudge config/);
+    expect(loaded.config).toMatchObject({ version: 1, endConditions: ['DONE', 'CREATED FORM'] });
+    expect(loaded.config.overseerPrompt).toBe(DEFAULT_OVERSEER_PROMPT);
+  });
+
+  it('matches case-sensitive end-condition markers only as suffix lines', () => {
+    expect(responseMatchesEndCondition('All done.\nDONE', ['DONE', 'CREATED FORM'])).toBe(true);
+    expect(responseMatchesEndCondition('Please fill out the form.\nCREATED FORM', ['DONE', 'CREATED FORM'])).toBe(true);
+    expect(responseMatchesEndCondition('DONE ', ['DONE', 'CREATED FORM'])).toBe(true);
+    expect(responseMatchesEndCondition('All done.\ndone', ['DONE', 'CREATED FORM'])).toBe(false);
+    expect(responseMatchesEndCondition('CREATED FORM please', ['DONE', 'CREATED FORM'])).toBe(false);
+  });
+
   it('validates config and rejects duplicate workspaces', () => {
     const { dir } = setup(); const path = join(dir, 'config.json');
     writeFileSync(path, JSON.stringify({ version: 1, workspaces: [{ workspaceId: 'w', overseerSessionId: 'o' }, { workspaceId: 'w', overseerSessionId: 'x' }] }));
@@ -154,15 +186,48 @@ describe('auto nudge', () => {
   it('creates a checkpoint for an old teammate completion and closes only that trigger on DONE', async () => {
     const { options } = setup();
     const complete = proc('complete-1', 'impl', 'completed', 5);
-    const { client, sent } = fake({ processes: { impl: [complete], overseer: [] }, entries: { 'complete-1': [msg('Finished')] }, response: ' DONE ' });
+    const { client, sent } = fake({ processes: { impl: [complete], overseer: [] }, entries: { 'complete-1': [msg('Finished')] }, response: 'All done.\nDONE' });
     await runAutoNudgeCycle(client, options);
     expect(sent[0]?.sessionId).toBe('overseer');
+    expect(sent[0]?.body.prompt).toContain('beads-form');
+    expect(sent[0]?.body.prompt).toContain('CREATED FORM');
     expect(readAutoNudgeState(options.statePath).triggers['complete-1']?.status).toBe('done');
 
     const next = proc('complete-2', 'impl', 'completed', 7);
     const nextClient = fake({ processes: { impl: [next, complete], overseer: [] }, entries: { 'complete-2': [msg('More work')], 'complete-1': [msg('Finished')] } });
     await runAutoNudgeCycle(nextClient.client, options);
     expect(nextClient.sent[0]?.sessionId).toBe('overseer');
+  });
+
+  it('treats CREATED FORM suffix as a terminal checkpoint outcome', async () => {
+    const { options } = setup();
+    const complete = proc('complete', 'impl', 'completed', 5);
+    const { client } = fake({ processes: { impl: [complete], overseer: [] }, entries: { complete: [msg('Finished')] }, response: 'Please fill out the form.\nCREATED FORM' });
+    await runAutoNudgeCycle(client, options);
+    expect(readAutoNudgeState(options.statePath).triggers.complete?.status).toBe('done');
+  });
+
+  it('uses configured checkpoint prompt and end conditions', async () => {
+    const { dir, options } = setup();
+    options.nudgeConfigPath = join(dir, 'nudge_config.json');
+    writeFileSync(options.nudgeConfigPath, JSON.stringify({ version: 1, overseerPrompt: 'custom checkpoint', endConditions: ['WAITING USER'] }));
+    const complete = proc('complete', 'impl', 'completed', 5);
+    const { client, sent } = fake({ processes: { impl: [complete], overseer: [] }, entries: { complete: [msg('Finished')] }, response: 'Need input.\nWAITING USER' });
+    await runAutoNudgeCycle(client, options);
+    expect(sent[0]?.body.prompt).toBe('custom checkpoint');
+    expect(readAutoNudgeState(options.statePath).triggers.complete?.status).toBe('done');
+  });
+
+  it('falls back to default prompt and markers when runtime config is malformed during a cycle', async () => {
+    const { dir, options } = setup();
+    options.nudgeConfigPath = join(dir, 'nudge_config.json');
+    writeFileSync(options.nudgeConfigPath, JSON.stringify({ version: 2, overseerPrompt: 'bad', endConditions: ['NOPE'] }));
+    const complete = proc('complete', 'impl', 'completed', 5);
+    const { client, sent } = fake({ processes: { impl: [complete], overseer: [] }, entries: { complete: [msg('Finished')] }, response: 'DONE' });
+    const result = await runAutoNudgeCycle(client, options);
+    expect(result.errors).toEqual([expect.stringMatching(/Invalid nudge config/)]);
+    expect(sent[0]?.body.prompt).toBe(DEFAULT_OVERSEER_PROMPT);
+    expect(readAutoNudgeState(options.statePath).triggers.complete?.status).toBe('done');
   });
 
   it('keeps a non-DONE checkpoint open without a causally newer teammate process', async () => {

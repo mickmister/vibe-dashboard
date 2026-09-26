@@ -16,13 +16,16 @@ import {
 const DEFAULT_STATE_PATH = '/var/lib/vd/auto-nudge/state.json';
 const DEFAULT_LOCK_PATH = '/var/lib/vd/auto-nudge/owner.lock';
 export const DEFAULT_WORKSPACE_REGISTRY_PATH = '/var/lib/vd/auto-nudge/workspaces.json';
+export const DEFAULT_NUDGE_CONFIG_PATH = '/var/lib/vd/data/config/nudge_config.json';
 const DEFAULT_POLL_MS = 5 * 60_000;
 const RESPONSE_ROUTE_INTENT_STALE_MS = 5 * 60_000;
-const OVERSEER_PROMPT = `- If all milestones are complete, stop and say "DONE" as your full response
+export const DEFAULT_OVERSEER_PROMPT = `- If all milestones are complete, end your response with "DONE".
+- If the next milestone-completion step needs user input, create a beads-form for the user and end your response with "CREATED FORM".
 - If you have just completed a milestone, make sure it gets reviewed by the appropriate agents.
 - If you approve the review, continue to the next milestone.
 
 Use vibe-agent send ... when a teammate response is needed. Use --fire-and-forget only for notifications that do not require a reply.`;
+export const DEFAULT_END_CONDITIONS = ['DONE', 'CREATED FORM'] as const;
 
 export function isAutoNudgeEnabled(env: NodeJS.ProcessEnv = process.env): boolean {
   return ['1', 'true', 'yes', 'on'].includes(String(env.VD_AUTO_NUDGE_ENABLED ?? '').toLowerCase());
@@ -33,6 +36,8 @@ export interface AutoNudgeConfig {
   discord?: { enabled: boolean };
   workspaces?: Array<{ workspaceId: string; overseerSessionId: string | null }>;
 }
+export interface NudgeRuntimeConfig { version: 1; overseerPrompt: string; endConditions: string[] }
+export interface NudgeRuntimeConfigLoadResult { config: NudgeRuntimeConfig; error: string | null }
 export interface AutoNudgeWorkspaceRegistration { workspaceId: string; overseerSessionId: string; registeredAt: string; registeredBySessionId: string }
 export interface AutoNudgeWorkspaceRegistry { version: 1; workspaces: Record<string, AutoNudgeWorkspaceRegistration> }
 export type TriggerStatus = 'observed' | 'checkpoint-sent' | 'checkpoint-indeterminate' | 'done' | 'delegated' | 'waiting-callback' | 'rate-limited' | 'retryable-failure';
@@ -51,6 +56,7 @@ export interface AutoNudgeClient {
 }
 export interface AutoNudgeOptions {
   config: AutoNudgeConfig; statePath: string; callbackRegistryPath: string; responseRoutesPath?: string; workspaceRegistryPath?: string;
+  nudgeConfigPath?: string;
   now: () => Date; unacknowledgedAfterMs: number; operationTimeoutMs: number; responseTimeoutMs: number;
   concurrency: number; dryRun: boolean; discordWebhookUrl?: string;
   deliverDiscord?: (url: string, content: string) => Promise<void>;
@@ -62,6 +68,33 @@ export interface AutoNudgeCycleResult { workspaces: number; teammateNudges: numb
 function requiredString(value: unknown, name: string): string {
   if (typeof value !== 'string' || !value.trim()) throw new Error(`${name} must be a non-empty string`);
   return value;
+}
+export function defaultNudgeRuntimeConfig(): NudgeRuntimeConfig {
+  return { version: 1, overseerPrompt: DEFAULT_OVERSEER_PROMPT, endConditions: [...DEFAULT_END_CONDITIONS] };
+}
+function parseNudgeRuntimeConfig(value: unknown): NudgeRuntimeConfig {
+  const input = value as Partial<NudgeRuntimeConfig>;
+  if (input.version !== 1) throw new Error('nudge config version must be 1');
+  const defaults = defaultNudgeRuntimeConfig();
+  const overseerPrompt = input.overseerPrompt == null ? defaults.overseerPrompt : requiredString(input.overseerPrompt, 'overseerPrompt');
+  if (input.endConditions != null && !Array.isArray(input.endConditions)) throw new Error('endConditions must be an array');
+  const endConditions = (input.endConditions ?? defaults.endConditions)
+    .map((item, index) => requiredString(item, `endConditions[${index}]`));
+  if (endConditions.length === 0) throw new Error('endConditions must not be empty');
+  return { version: 1, overseerPrompt, endConditions };
+}
+export function loadNudgeRuntimeConfig(filePath = DEFAULT_NUDGE_CONFIG_PATH): NudgeRuntimeConfigLoadResult {
+  try {
+    return { config: parseNudgeRuntimeConfig(JSON.parse(fs.readFileSync(filePath, 'utf8'))), error: null };
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === 'ENOENT') return { config: defaultNudgeRuntimeConfig(), error: null };
+    return { config: defaultNudgeRuntimeConfig(), error: `Invalid nudge config at ${filePath}: ${(error as Error).message}` };
+  }
+}
+export function responseMatchesEndCondition(response: string | null | undefined, endConditions: readonly string[]): boolean {
+  if (!response) return false;
+  const trimmed = response.trimEnd();
+  return endConditions.some(marker => trimmed === marker || trimmed.endsWith(`\n${marker}`));
 }
 export function loadAutoNudgeConfig(filePath: string): AutoNudgeConfig {
   const value = JSON.parse(fs.readFileSync(filePath, 'utf8')) as Partial<AutoNudgeConfig>;
@@ -335,6 +368,8 @@ async function waitForTerminalProcess(client: AutoNudgeClient, processId: string
 export async function runAutoNudgeCycle(client: AutoNudgeClient, options: AutoNudgeOptions): Promise<AutoNudgeCycleResult> {
   const state = readAutoNudgeState(options.statePath);
   const result: AutoNudgeCycleResult = { workspaces: 0, teammateNudges: 0, checkpoints: 0, responseRoutes: 0, discordDeliveries: 0, errors: [] };
+  const nudgeConfig = loadNudgeRuntimeConfig(options.nudgeConfigPath ?? DEFAULT_NUDGE_CONFIG_PATH);
+  if (nudgeConfig.error) result.errors.push(nudgeConfig.error);
   await processResponseRoutes(client, options, result);
   const workspaces = await workspacesForCycle(client, options);
   await mapLimit(workspaces, options.concurrency, async configured => {
@@ -401,7 +436,7 @@ export async function runAutoNudgeCycle(client: AutoNudgeClient, options: AutoNu
           const final = await deadline(client.getExecutionProcessFinalResponse(checkpoint.id), options.operationTimeoutMs, 'fetch checkpoint final response');
           const response = final.final_response;
           trigger.error = null;
-          if (response?.trim() === 'DONE') {
+          if (responseMatchesEndCondition(response, nudgeConfig.config.endConditions)) {
             trigger.status = 'done';
           } else {
             const refreshed = await deadline(
@@ -473,7 +508,7 @@ export async function runAutoNudgeCycle(client: AutoNudgeClient, options: AutoNu
           if (!trigger.checkpointProcessId) {
             trigger.status = 'checkpoint-sent'; trigger.baselineProcessIds = [...baselineIds]; trigger.updatedAt = now;
             writeAutoNudgeState(options.statePath, state);
-            const sent = await deadline(client.sendMessage(overseer.id, body(OVERSEER_PROMPT, overseer)), options.operationTimeoutMs, 'send checkpoint');
+            const sent = await deadline(client.sendMessage(overseer.id, body(nudgeConfig.config.overseerPrompt, overseer)), options.operationTimeoutMs, 'send checkpoint');
             trigger.checkpointProcessId = sent.id; trigger.updatedAt = options.now().toISOString();
             writeAutoNudgeState(options.statePath, state);
           }
@@ -547,7 +582,7 @@ async function main(): Promise<void> {
   await runWithOwnerLock(process.env.VD_AUTO_NUDGE_LOCK_PATH ?? DEFAULT_LOCK_PATH, async () => {
     const abortController = new AbortController();
     const stop = () => { stopping = true; abortController.abort(); }; process.once('SIGINT', stop); process.once('SIGTERM', stop);
-    const options: AutoNudgeOptions = { config, statePath: args.statePath, callbackRegistryPath: process.env.VD_CALLBACK_REGISTRY_PATH ?? DEFAULT_CALLBACK_REGISTRY_PATH, responseRoutesPath: process.env.VD_RESPONSE_ROUTES_PATH ?? DEFAULT_RESPONSE_ROUTES_PATH, workspaceRegistryPath: args.registryPath, now: () => new Date(), unacknowledgedAfterMs: 60_000, operationTimeoutMs: 15_000, responseTimeoutMs: 30 * 60_000, concurrency: 4, dryRun: args.dryRun, discordWebhookUrl: process.env.DISCORD_WEBHOOK_URL, signal: abortController.signal };
+    const options: AutoNudgeOptions = { config, statePath: args.statePath, callbackRegistryPath: process.env.VD_CALLBACK_REGISTRY_PATH ?? DEFAULT_CALLBACK_REGISTRY_PATH, responseRoutesPath: process.env.VD_RESPONSE_ROUTES_PATH ?? DEFAULT_RESPONSE_ROUTES_PATH, workspaceRegistryPath: args.registryPath, nudgeConfigPath: process.env.VD_AUTO_NUDGE_CONFIG_PATH ?? DEFAULT_NUDGE_CONFIG_PATH, now: () => new Date(), unacknowledgedAfterMs: 60_000, operationTimeoutMs: 15_000, responseTimeoutMs: 30 * 60_000, concurrency: 4, dryRun: args.dryRun, discordWebhookUrl: process.env.DISCORD_WEBHOOK_URL, signal: abortController.signal };
     do { const result = await runAutoNudgeCycle(makeClient(), options); console.log(JSON.stringify({ type: 'auto-nudge-cycle', at: new Date().toISOString(), ...result })); if (!args.once && !stopping) { try { await abortableDelay(DEFAULT_POLL_MS, abortController.signal); } catch { /* Shutdown aborts the poll delay. */ } } } while (!args.once && !stopping);
   });
   if (stopping || args.once) process.exit(0);

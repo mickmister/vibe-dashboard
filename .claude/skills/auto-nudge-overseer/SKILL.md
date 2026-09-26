@@ -20,7 +20,12 @@ When the user asks you to complete all milestones, keep going until done, or oth
    DONE
    ```
 
-4. If auto-nudge coordination should stop for this workspace, run:
+4. If the next milestone-completion step needs a user decision or approval, create a beads-form for the user, then end your response with:
+   ```text
+   CREATED FORM
+   ```
+
+5. If auto-nudge coordination should stop for this workspace, run:
    ```bash
    vibe-agent auto-nudge disable
    ```
@@ -28,3 +33,5 @@ When the user asks you to complete all milestones, keep going until done, or oth
 Notes:
 - The auto-nudge daemon can still recover agents that stopped mid-turn even when overseer coordination is not enabled for the workspace.
 - `vibe-agent auto-nudge status` shows the current workspace registration.
+- The default runtime config is `/var/lib/vd/data/config/nudge_config.json`. It can customize the overseer checkpoint prompt and end-condition markers.
+- End-condition markers are case-sensitive and must appear at the end of your final message. They may be on the final line, for example `All done.\nDONE` or `Please fill out the form.\nCREATED FORM`.
